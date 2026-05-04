@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
 import ProjectDialog from "./ProjectDialog";
@@ -259,6 +259,76 @@ export default function TerminalsTab({ st, save }) {
     persist({ ...state, themeKey: key });
   }, [state, persist]);
 
+  // ── Pack loader (v0.0.2) ───────────────────────────────────────────
+  // Replace the current panel/tab layout with the panels described in a
+  // .deck.json prompt pack. Existing PTY children get killed (TerminalPane
+  // unmount handles cleanup); new tabs spawn fresh shells with the pack's
+  // start commands. State persists via the existing save() pipeline.
+
+  const fileInputRef = useRef(null);
+
+  const applyPack = useCallback((pack) => {
+    if (!pack || !Array.isArray(pack.panels) || pack.panels.length === 0) {
+      window.alert("Invalid pack: missing or empty panels[] array.");
+      return;
+    }
+    const newPanels = pack.panels.slice(0, MAX_PANELS).map((p) => {
+      const rawTabs = Array.isArray(p.tabs) && p.tabs.length > 0 ? p.tabs : [{}];
+      const tabs = rawTabs.map((t, i) => ({
+        id: freshId("tab"),
+        label: (t && t.label) || `Tab ${i + 1}`,
+        cwd: (t && t.cwd) || null,
+        startCommands: Array.isArray(t && t.startCommands) ? t.startCommands : [],
+        projectId: null,
+      }));
+      return {
+        id: freshId("panel"),
+        tabs,
+        activeTabId: tabs[0].id,
+      };
+    });
+    persist({
+      ...state,
+      panels: newPanels,
+      activePanelId: newPanels[0].id,
+    });
+  }, [state, persist]);
+
+  const onLoadPackFile = useCallback((e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // reset so re-loading the same file fires onChange
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const pack = JSON.parse(reader.result);
+        applyPack(pack);
+      } catch (err) {
+        window.alert(`Failed to load pack: ${err.message}`);
+      }
+    };
+    reader.onerror = () => {
+      window.alert(`Failed to read pack file: ${reader.error?.message || "unknown error"}`);
+    };
+    reader.readAsText(file);
+  }, [applyPack]);
+
+  const onQuickSpawnGrid = useCallback(() => {
+    if (!window.confirm("Replace current panels with a 4-up agent grid (Researcher / Coder / Reviewer / Journal)? Existing sessions will be killed.")) {
+      return;
+    }
+    applyPack({
+      schema: "plutos-terminals/deck.json/v0",
+      name: "Agent Grid",
+      panels: [
+        { tabs: [{ label: "Researcher", startCommands: ["echo 'RESEARCHER — paste your research query, then run claude'"] }] },
+        { tabs: [{ label: "Coder", startCommands: ["echo 'CODER — Claude Code session for hands-on edits, run claude'"] }] },
+        { tabs: [{ label: "Reviewer", startCommands: ["echo 'REVIEWER — code review focus, run claude'"] }] },
+        { tabs: [{ label: "Journal", startCommands: ["echo 'JOURNAL — running session log, append with Add-Content'"] }] },
+      ],
+    });
+  }, [applyPack]);
+
   // ── Project mutations ──────────────────────────────────────────────
 
   const upsertProject = useCallback((data, editingId) => {
@@ -383,6 +453,48 @@ export default function TerminalsTab({ st, save }) {
           </span>
         )}
         <div style={{ flex: 1 }} />
+
+        {/* Pack loader + quick-spawn agent grid (v0.0.2) */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,.deck.json"
+          onChange={onLoadPackFile}
+          style={{ display: "none" }}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            background: "transparent",
+            border: `1px solid ${BORDER}`,
+            color: ACCENT,
+            cursor: "pointer",
+            padding: "3px 10px",
+            borderRadius: 3,
+            fontFamily: M,
+            fontSize: 11,
+          }}
+          title="Load a .deck.json prompt pack — replaces current panel layout"
+        >
+          📦 load pack
+        </button>
+        <button
+          onClick={onQuickSpawnGrid}
+          style={{
+            background: "transparent",
+            border: `1px solid ${BORDER}`,
+            color: ACCENT,
+            cursor: "pointer",
+            padding: "3px 10px",
+            borderRadius: 3,
+            fontFamily: M,
+            fontSize: 11,
+          }}
+          title="Quick-spawn: 4-panel agent grid (Researcher / Coder / Reviewer / Journal)"
+        >
+          ⚡ agent grid
+        </button>
+
         <select
           value={state.themeKey || "default"}
           onChange={(e) => setTheme(e.target.value)}

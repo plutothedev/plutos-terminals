@@ -327,7 +327,21 @@ export default function TerminalPane({
       try {
         const cols = Math.max(term.cols, MIN_COLS);
         const rows = Math.max(term.rows, MIN_ROWS);
-        const id = await invoke("pty_spawn", { cwd: cwd || null, cols, rows });
+        // Read persisted API key from app state and inject into the spawned
+        // shell so `claude` and friends just work without a per-shell paste.
+        // Failsafe: if state is unreadable, just spawn without — user can
+        // paste manually.
+        let extraEnv = null;
+        try {
+          const raw = localStorage.getItem("plutos-terminals:state:v0");
+          if (raw) {
+            const persisted = JSON.parse(raw);
+            if (persisted && typeof persisted.anthropicKey === "string" && persisted.anthropicKey.length > 0) {
+              extraEnv = { ANTHROPIC_API_KEY: persisted.anthropicKey };
+            }
+          }
+        } catch (_) { /* ignore */ }
+        const id = await invoke("pty_spawn", { cwd: cwd || null, cols, rows, extraEnv });
         if (!alive) {
           await invoke("pty_kill", { id }).catch(() => {});
           return;

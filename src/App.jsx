@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 
 const STORAGE_KEY = "plutos-terminals:state:v0";
+const DISCORD_INVITE_URL = "https://discord.gg/pluto"; // placeholder — pluto edits to real invite URL
 
 const PAGE_BG = "#0a0a0a";
 const FG = "#9D9D9D";
 const FG_ACTIVE = "#E6E6E6";
 const FG_DIM = "#555555";
 const ACCENT = "#4DAAFC";
+const PLUTO_MAGENTA = "#FF0080";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 export default function App() {
@@ -31,16 +33,20 @@ export default function App() {
 
   const [welcomeDone, setWelcomeDone] = useState(() => st.welcomeDone === true);
 
-  // First-run welcome: branding + Anthropic API key prompt. Persisted as
-  // st.welcomeDone so subsequent launches skip straight to the terminals
-  // grid. The key itself we DO NOT persist for v0 — the user pastes it into
-  // their shell session via the prompt-pack onboarding instead. Future v1:
-  // store it via Tauri secure storage and inject into spawned shells.
+  // First-run welcome: branding + Anthropic API key prompt. The key is now
+  // persisted (v0.0.2) and auto-injected into every spawned shell via the
+  // pty_spawn extra_env parameter. Future v1: replace localStorage with Tauri
+  // secure storage / OS keyring.
   if (!welcomeDone) {
     return (
       <Welcome
-        onContinue={() => {
-          const next = { ...st, welcomeDone: true };
+        initialKey={typeof st.anthropicKey === "string" ? st.anthropicKey : ""}
+        onContinue={(apiKey) => {
+          const next = {
+            ...st,
+            welcomeDone: true,
+            anthropicKey: apiKey || st.anthropicKey || "",
+          };
           save(next);
           setWelcomeDone(true);
         }}
@@ -51,8 +57,8 @@ export default function App() {
   return <TerminalsTab st={st} save={save} />;
 }
 
-function Welcome({ onContinue }) {
-  const [apiKeyHint, setApiKeyHint] = useState("");
+function Welcome({ initialKey, onContinue }) {
+  const [apiKey, setApiKey] = useState(initialKey || "");
 
   return (
     <div
@@ -72,24 +78,26 @@ function Welcome({ onContinue }) {
           PLUTO'S TERMINALS
         </div>
         <div style={{ color: ACCENT, fontSize: 12, letterSpacing: 0.5, marginBottom: 28 }}>
-          Run my Claude Code setup in 60 seconds.
+          Run AI agents in parallel. Save your setup. Share it.
         </div>
 
         <p style={{ color: FG, fontSize: 13, lineHeight: 1.7, marginBottom: 28 }}>
           Free multi-terminal app for the <strong style={{ color: FG_ACTIVE }}>Pluto community</strong>.
-          Run multiple AI agents (Claude Code, Codex, …) side by side. Save and share terminal setups
-          as <code style={{ color: ACCENT }}>.deck.json</code> prompt packs.
+          Run Claude Code, Codex, and other AI agents side by side. Save and share terminal setups
+          as <code style={{ color: ACCENT }}>.deck.json</code> prompt packs — clone someone else's
+          configuration in one click.
         </p>
 
         <div style={{ marginBottom: 24 }}>
           <label style={{ color: FG_DIM, fontSize: 11, letterSpacing: 0.5, display: "block", marginBottom: 8 }}>
-            ANTHROPIC API KEY (OPTIONAL — paste later in your shell with <code style={{ color: ACCENT }}>$env:ANTHROPIC_API_KEY = "sk-..."</code>)
+            ANTHROPIC API KEY (saved locally, auto-injected into every new shell)
           </label>
           <input
             type="password"
-            placeholder="sk-ant-... (will not be stored in v0)"
-            value={apiKeyHint}
-            onChange={(e) => setApiKeyHint(e.target.value)}
+            placeholder="sk-ant-..."
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") onContinue(apiKey); }}
             style={{
               width: "100%",
               background: "#181818",
@@ -100,32 +108,56 @@ function Welcome({ onContinue }) {
               fontFamily: M,
               fontSize: 12,
               outline: "none",
+              boxSizing: "border-box",
             }}
           />
           <div style={{ color: FG_DIM, fontSize: 10, marginTop: 6 }}>
-            v0 does not persist this. Set it in your shell once the terminal opens. Secure storage coming v1.
+            Stored in this app's local data dir (plain JSON). Skip if you'd rather paste it per-shell.
+            Encrypted OS keyring storage planned for a later release.
           </div>
         </div>
 
-        <button
-          onClick={onContinue}
-          style={{
-            background: "transparent",
-            border: `1px solid ${ACCENT}`,
-            color: ACCENT,
-            padding: "10px 28px",
-            borderRadius: 4,
-            fontFamily: M,
-            fontSize: 13,
-            letterSpacing: 0.5,
-            cursor: "pointer",
-          }}
-        >
-          ENTER →
-        </button>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 24 }}>
+          <button
+            onClick={() => onContinue(apiKey)}
+            style={{
+              background: "transparent",
+              border: `1px solid ${ACCENT}`,
+              color: ACCENT,
+              padding: "10px 28px",
+              borderRadius: 4,
+              fontFamily: M,
+              fontSize: 13,
+              letterSpacing: 0.5,
+              cursor: "pointer",
+            }}
+          >
+            ENTER →
+          </button>
 
-        <div style={{ color: FG_DIM, fontSize: 10, marginTop: 32 }}>
-          v0.0.1 · 2026-05-04 · github.com/paidbypluto/plutos-terminals (TBD)
+          <a
+            href={DISCORD_INVITE_URL}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              background: "transparent",
+              border: `1px solid ${PLUTO_MAGENTA}`,
+              color: PLUTO_MAGENTA,
+              padding: "10px 18px",
+              borderRadius: 4,
+              fontFamily: M,
+              fontSize: 12,
+              letterSpacing: 0.5,
+              cursor: "pointer",
+              textDecoration: "none",
+            }}
+          >
+            JOIN PLUTO DISCORD
+          </a>
+        </div>
+
+        <div style={{ color: FG_DIM, fontSize: 10, marginTop: 8 }}>
+          v0.0.2 · github.com/plutothedev/plutos-terminals · MIT
         </div>
       </div>
     </div>

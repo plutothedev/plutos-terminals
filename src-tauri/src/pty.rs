@@ -85,6 +85,7 @@ pub fn pty_spawn(
     cwd: Option<String>,
     cols: u16,
     rows: u16,
+    extra_env: Option<HashMap<String, String>>,
 ) -> Result<String, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -114,6 +115,15 @@ pub fn pty_spawn(
     cmd.env("COLORTERM", "truecolor");
     cmd.env("FORCE_COLOR", "1");
     cmd.env("CLICOLOR", "1");
+
+    // Optional caller-supplied env (e.g. ANTHROPIC_API_KEY persisted from the
+    // welcome screen). Each new spawned shell inherits these so `claude` and
+    // friends just work without a per-shell paste.
+    if let Some(env_map) = extra_env {
+        for (k, v) in env_map {
+            cmd.env(k, v);
+        }
+    }
 
     let child = pair
         .slave
