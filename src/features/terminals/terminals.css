@@ -1,0 +1,58 @@
+/* Animated rainbow border for the focused panel.
+ *
+ * Uses the dual-background trick: padding-box gets the solid panel color,
+ * border-box gets the rotating conic gradient. The transparent border
+ * "punches a hole" so the gradient shows only as a 2px ring. Renders
+ * INSIDE the panel's box, so overflow:hidden on the panel doesn't clip it.
+ */
+
+@property --tg-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes tg-spin {
+  to { --tg-angle: 360deg; }
+}
+
+.tg-panel-rainbow {
+  background:
+    linear-gradient(#0a0a0a, #0a0a0a) padding-box,
+    conic-gradient(
+      from var(--tg-angle, 0deg),
+      #ff6b6b,
+      #ffd43b,
+      #51cf66,
+      #66d9e8,
+      #748ffc,
+      #da77f2,
+      #ff8a80,
+      #ff6b6b
+    ) border-box !important;
+  border: 2px solid transparent !important;
+  animation: tg-spin 4s linear infinite;
+  box-shadow: 0 0 14px rgba(160, 200, 255, 0.18) !important;
+}
+
+/* Fallback for browsers without @property: gradient stays static, no spin. */
+@supports not (background: conic-gradient(from var(--tg-angle))) {
+  .tg-panel-rainbow {
+    animation: none;
+  }
+}
+
+/* Tiny attention-grabbing shake when a project's tab transitions active→done.
+ * 400ms total, decaying horizontal jitter. */
+@keyframes tg-shake {
+  0%   { transform: translateX(0); }
+  15%  { transform: translateX(-3px); }
+  30%  { transform: translateX(3px); }
+  45%  { transform: translateX(-2px); }
+  60%  { transform: translateX(2px); }
+  80%  { transform: translateX(-1px); }
+  100% { transform: translateX(0); }
+}
+.tg-shake {
+  animation: tg-shake 0.4s ease-out;
+}

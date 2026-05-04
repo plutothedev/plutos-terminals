@@ -1,0 +1,43 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Example Pluto Setup",
+  "description": "Sample prompt pack demonstrating the .deck.json schema. v0 has no auto-loader UI yet — open this file manually to see the format. Packs describe a multi-panel terminal layout, starting commands, and env hints.",
+  "created": "2026-05-04",
+  "panels": [
+    {
+      "label": "claude-code",
+      "tabs": [
+        {
+          "label": "Claude Code",
+          "cwd": null,
+          "startCommands": [
+            "echo 'Pluto Claude Code session — set ANTHROPIC_API_KEY before running claude'",
+            "$env:ANTHROPIC_API_KEY  # confirm key is set"
+          ],
+          "system_prompt_hint": "You are Claude Code running in Pluto's Terminals. Default to short explanations and runnable commands."
+        }
+      ]
+    },
+    {
+      "label": "scratch",
+      "tabs": [
+        {
+          "label": "Scratch shell",
+          "cwd": null,
+          "startCommands": []
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "purpose": "Required for Claude Code. Paste your key in the welcome screen or set it in the shell."
+    }
+  ],
+  "notes": [
+    "v0 does NOT auto-load this file — the schema exists so v1 can wire a click-to-load flow.",
+    "v1 candidates: signed packs, MCP one-click install, optional prompt-pack store via secure storage, in-app pack browser."
+  ]
+}
