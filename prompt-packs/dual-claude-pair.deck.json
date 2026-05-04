@@ -1,0 +1,45 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Dual Claude — Pair Setup",
+  "description": "Two panels side-by-side, each running its own Claude Code session. Use one for hands-on code edits and the other for planning / architecture / research. The two sessions don't share context — that's the point: each gets its own focused thread.",
+  "created": "2026-05-04",
+  "panels": [
+    {
+      "label": "code",
+      "tabs": [
+        {
+          "label": "Claude — code",
+          "cwd": null,
+          "startCommands": [
+            "echo 'CODE pane: ANTHROPIC_API_KEY then `claude` for hands-on edits'"
+          ],
+          "system_prompt_hint": "This Claude session focuses on hands-on code edits. Be concrete: read files, propose diffs, run tests."
+        }
+      ]
+    },
+    {
+      "label": "plan",
+      "tabs": [
+        {
+          "label": "Claude — plan",
+          "cwd": null,
+          "startCommands": [
+            "echo 'PLAN pane: ANTHROPIC_API_KEY then `claude` for architecture / research'"
+          ],
+          "system_prompt_hint": "This Claude session focuses on planning + research. Don't write code unless asked — articulate options, surface tradeoffs, sequence work."
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "purpose": "Required in both sessions. Same key works for both."
+    }
+  ],
+  "notes": [
+    "Pattern: split builder (code) + planner (plan). When you're stuck on the build, walk over to plan and articulate why.",
+    "Cost lookout: two sessions = ~2x token spend. Watch the live `total cost` indicator in the Pluto's Terminals header."
+  ]
+}

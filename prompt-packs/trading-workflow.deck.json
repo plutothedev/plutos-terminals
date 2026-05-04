@@ -1,0 +1,57 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Trading Workflow — Pluto Style",
+  "description": "Three-panel grid for a focused trading session. One Claude pane for trade ideas / setup analysis, one scratch shell for Python data work / backtests, one append-only journal for the running session log. Doesn't run a chart (use TradingView in your browser); this is the AI + analysis + log layer around the chart.",
+  "created": "2026-05-04",
+  "panels": [
+    {
+      "label": "claude",
+      "tabs": [
+        {
+          "label": "Claude — analysis",
+          "cwd": null,
+          "startCommands": [
+            "echo 'ANALYSIS pane: ANTHROPIC_API_KEY then `claude` — paste setup screenshots, ask for confluences, sanity-check theses'"
+          ],
+          "system_prompt_hint": "Trading analysis assistant. Reference ICT concepts (Fair Value Gap, Order Block, Power of Three, Killzones) when relevant. Be direct about probabilities and risk:reward. Don't be a hype man."
+        }
+      ]
+    },
+    {
+      "label": "scratch",
+      "tabs": [
+        {
+          "label": "Python scratch",
+          "cwd": null,
+          "startCommands": [
+            "echo 'SCRATCH: backtest sketches, data pulls, contract math (use python or pwsh)'"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "journal",
+      "tabs": [
+        {
+          "label": "Session journal",
+          "cwd": null,
+          "startCommands": [
+            "echo '# Session journal' >> session-log-$(Get-Date -Format yyyy-MM-dd).md",
+            "echo 'JOURNAL: append notes with `Add-Content session-log-$(Get-Date -Format yyyy-MM-dd).md \"text\"`'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "purpose": "Required for the analysis pane. Get one at console.anthropic.com."
+    }
+  ],
+  "notes": [
+    "TradingView / your charting platform stays in your browser — this pack is the AI + analysis + log layer around it.",
+    "Session-log file is dated daily so you can grep across days: `Select-String -Path session-log-*.md 'pattern'`."
+  ]
+}

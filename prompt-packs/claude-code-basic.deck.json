@@ -1,0 +1,32 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Claude Code — Basic",
+  "description": "Single-panel Claude Code session. Simplest possible setup: one terminal, ANTHROPIC_API_KEY in env, then `claude` to start. Use this when you're learning Claude Code or doing a focused single-task session.",
+  "created": "2026-05-04",
+  "panels": [
+    {
+      "label": "claude",
+      "tabs": [
+        {
+          "label": "Claude Code",
+          "cwd": null,
+          "startCommands": [
+            "echo 'Set ANTHROPIC_API_KEY first if not already set, then run: claude'"
+          ],
+          "system_prompt_hint": "Single Claude Code session. Default to clear, runnable answers. Cite file paths when referencing code."
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "purpose": "Required for Claude Code. Get one at console.anthropic.com → API Keys."
+    }
+  ],
+  "notes": [
+    "Cheapest pack to get value out of — one terminal, one job.",
+    "After `claude` starts, you can change directory inside the session with /cd or by exiting and re-launching from a new cwd."
+  ]
+}
