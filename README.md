@@ -8,12 +8,6 @@ Free multi-terminal desktop app for the Pluto AI YouTube community.
 
 A multi-terminal grid app (Tauri + React + xterm.js) made for the Pluto community. Run multiple AI agents (Claude Code, Codex, etc.) side by side. Save and share terminal setups as **prompt packs** so others can clone your exact configuration in seconds.
 
-## Differentiators (vs Moon Dev's app, Warp, Wave, etc.)
-
-1. **Shareable prompt packs** — `.deck.json` configs describe multi-panel layouts + start commands + env hints + MCP installs (v1). Anyone can author a pack and share it.
-2. **Pluto-brand community-gift framing** — free, MIT-licensed, made for the audience
-3. **One-click non-dev onboarding (v1)** — Anthropic key + popular MCPs auto-installed
-
 ## Stack
 
 - Tauri 2.10
