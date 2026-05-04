@@ -15,7 +15,7 @@ const TIPS = [
   { icon: "📁", text: "Click ", em: "+ Add project", suffix: " to register a folder. Set " , em2: "Start commands", suffix2: ` like "claude" or "npm run dev" so they auto-run when you open it.` },
   { icon: "🎯", text: "Click a project to open it in the active panel. Drag the project row onto another panel to open it there." },
   { icon: "🟡", text: "Background tabs glow ", em: "yellow", suffix: " while working, ", em2: "green", suffix2: " when done — you know which agent needs you without flipping tabs." },
-  { icon: "🔗", text: "Toggle ", em: "sync", suffix: " in the header to scroll all panes together. Right-click a project for color, npm scripts, recent files, and auto-approve toggle." },
+  { icon: "📁", text: "Right-click a project for color, npm scripts, recent files, and auto-approve toggle." },
 ];
 
 export default function OnboardingOverlay({ onDismiss }) {
