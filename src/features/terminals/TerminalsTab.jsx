@@ -7,15 +7,26 @@ import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
 import SetupChecker from "../../components/SetupChecker.jsx";
-import AgentView from "./AgentView.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
+
+// Agent Grid preset — the 4-up Claude layout the toggle's 🤖 AGENT side
+// switches to. Each panel gets one tab labeled by role with `claude` as the
+// start command so the session boots straight into Claude Code (provided
+// the user has the CLI installed + API key saved; setup checker covers that).
+const AGENT_GRID_PRESET = [
+  { label: "Researcher", startCommand: "claude" },
+  { label: "Coder",      startCommand: "claude" },
+  { label: "Reviewer",   startCommand: "claude" },
+  { label: "Journal",    startCommand: "claude" },
+];
 import { gridDims, MAX_PANELS } from "./grid";
 import { THEMES } from "./themes";
 
 // iOS-style toggle switch. Click anywhere on the control to flip between
-// terminal and agent views. Knob slides between left (terminal) and right
-// (agent) positions. Always visible in both view headers.
+// terminal mode (flexible user-configured panels) and agent-grid mode
+// (forced 4-up Claude Researcher/Coder/Reviewer/Journal layout). Knob slides
+// between left (terminal) and right (agent grid) positions.
 function ViewToggle({ viewMode, onChange }) {
   const FG_ACTIVE_L = "#E6E6E6";
   const FG_DIM_L = "#9D9D9D";
@@ -23,7 +34,7 @@ function ViewToggle({ viewMode, onChange }) {
   const PLUTO_MAGENTA_L = "#FF0080";
   const TRACK_BG = "#2B2B2B";
   const M_L = "'JetBrains Mono', Menlo, Monaco, monospace";
-  const isAgent = viewMode === "agent";
+  const isAgent = viewMode === "agent-grid";
 
   const trackWidth = 52;
   const trackHeight = 24;
@@ -32,7 +43,7 @@ function ViewToggle({ viewMode, onChange }) {
 
   return (
     <div
-      onClick={() => onChange(isAgent ? "terminal" : "agent")}
+      onClick={() => onChange(isAgent ? "terminal" : "agent-grid")}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -94,7 +105,7 @@ function ViewToggle({ viewMode, onChange }) {
           transition: "color 150ms, font-weight 150ms",
         }}
       >
-        🤖 AGENT
+        🤖 AGENT GRID
       </span>
     </div>
   );
@@ -177,30 +188,77 @@ export default function TerminalsTab({ st, save }) {
   const [mcpOpen, setMcpOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
 
-  // Terminal view ↔ Agent view toggle. Persisted in st so the user's
-  // preferred view sticks across restarts. PTYs stay alive across toggles —
-  // we display:none the inactive view rather than unmount.
+  // Terminal ↔ Agent Grid toggle. Two distinct panel layouts:
+  //   - "terminal":   user's flexible layout (whatever they configure)
+  //   - "agent-grid": forced 4-up Claude Researcher/Coder/Reviewer/Journal
+  //
+  // Switching to agent-grid stashes the current panels in `st.previousPanels`
+  // and replaces with the AGENT_GRID_PRESET. Switching back restores from
+  // the stash. Each side's edits persist while in that mode.
   //
   // NOTE: don't reference `persist` in callbacks defined here — `persist` is
-  // declared later in the function body via useCallback, so referencing it
-  // earlier hits a temporal-dead-zone ReferenceError on every render and
-  // crashes the whole TerminalsTab tree. Both callbacks below do everything
-  // in a single save() call instead.
-  const viewMode = st?.viewMode === "agent" ? "agent" : "terminal";
+  // declared later in the function body via useCallback. Use save() directly.
+  const viewMode = st?.viewMode === "agent-grid" ? "agent-grid" : "terminal";
 
-  const onFocusTabInTerminalView = useCallback((panelId, tabId) => {
+  const switchToAgentGrid = useCallback(async () => {
+    if (viewMode === "agent-grid") return;
+    const ok = await confirm(
+      "Switch to Agent Grid? Replaces current panels with a 4-up Claude grid (Researcher / Coder / Reviewer / Journal). Your current layout is saved and restored when you switch back to Terminal.",
+      { title: "Switch to Agent Grid?", confirmLabel: "switch", destructive: false }
+    );
+    if (!ok) return;
+    const newPanels = AGENT_GRID_PRESET.map((preset) => {
+      const tabId = freshId("tab");
+      return {
+        id: freshId("panel"),
+        tabs: [{
+          id: tabId,
+          label: preset.label,
+          cwd: null,
+          startCommands: preset.startCommand ? [preset.startCommand] : [],
+          projectId: null,
+        }],
+        activeTabId: tabId,
+      };
+    });
+    save({
+      ...st,
+      viewMode: "agent-grid",
+      previousPanels: state.panels,
+      previousActivePanelId: state.activePanelId,
+      terminalsState: {
+        ...state,
+        panels: newPanels,
+        activePanelId: newPanels[0].id,
+      },
+    });
+  }, [viewMode, confirm, st, save, state]);
+
+  const switchToTerminal = useCallback(() => {
+    if (viewMode === "terminal") return;
+    const restored = (Array.isArray(st.previousPanels) && st.previousPanels.length > 0)
+      ? st.previousPanels
+      : [defaultPanel()];
+    const restoredActiveId = (st.previousActivePanelId && restored.find((p) => p.id === st.previousActivePanelId))
+      ? st.previousActivePanelId
+      : restored[0].id;
     save({
       ...st,
       viewMode: "terminal",
+      previousPanels: undefined,
+      previousActivePanelId: undefined,
       terminalsState: {
         ...state,
-        panels: state.panels.map((p) =>
-          p.id === panelId ? { ...p, activeTabId: tabId } : p
-        ),
-        activePanelId: panelId,
+        panels: restored,
+        activePanelId: restoredActiveId,
       },
     });
-  }, [st, save, state]);
+  }, [viewMode, st, save, state]);
+
+  const onToggleViewMode = useCallback((mode) => {
+    if (mode === "agent-grid") switchToAgentGrid();
+    else switchToTerminal();
+  }, [switchToAgentGrid, switchToTerminal]);
 
   // Claude CLI availability — checked once on mount, surfaced in the status
   // bar. Doesn't gate behavior; just informs.
@@ -696,22 +754,7 @@ export default function TerminalsTab({ st, save }) {
 
   return (
     <div style={{ height: "100%", position: "relative", background: PAGE_BG, fontFamily: M }}>
-      {/* Agent view overlay — only visible in agent mode; PTYs in the terminal
-          grid stay alive underneath so toggling doesn't kill sessions. */}
-      <div style={{ display: viewMode === "agent" ? "block" : "none", position: "absolute", inset: 0, zIndex: 10 }}>
-        <AgentView
-          panels={state.panels}
-          projects={projects}
-          tabActivities={tabActivities}
-          tabCosts={tabCosts}
-          totalCost={totalCost}
-          onFocusTab={onFocusTabInTerminalView}
-          viewMode={viewMode}
-          onSwitchView={(mode) => save({ ...st, viewMode: mode })}
-        />
-      </div>
-
-      <div style={{ height: "100%", display: "flex", flexDirection: "column", visibility: viewMode === "terminal" ? "visible" : "hidden" }}>
+      <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Header */}
       <div
         style={{
@@ -730,7 +773,7 @@ export default function TerminalsTab({ st, save }) {
       >
         <ViewToggle
           viewMode={viewMode}
-          onChange={(mode) => save({ ...st, viewMode: mode })}
+          onChange={onToggleViewMode}
         />
         <span style={{ color: FG_DIM, opacity: 0.4 }}>·</span>
         <span style={{ color: FG_DIM }}>
@@ -802,22 +845,6 @@ export default function TerminalsTab({ st, save }) {
           title="Load a .deck.json prompt pack from disk (or drag-drop onto window)"
         >
           📁 from file
-        </button>
-        <button
-          onClick={onQuickSpawnGrid}
-          style={{
-            background: "transparent",
-            border: `1px solid ${BORDER}`,
-            color: ACCENT,
-            cursor: "pointer",
-            padding: "3px 10px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-          }}
-          title="Quick-spawn: 4-panel agent grid (Researcher / Coder / Reviewer / Journal)"
-        >
-          ⚡ agent grid
         </button>
         <button
           onClick={onExportPack}
@@ -1022,7 +1049,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.5</span>
+        <span>v0.1.6</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <button
           onClick={() => setSetupOpen(true)}
