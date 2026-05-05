@@ -1,10 +1,26 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
 import ProjectDialog from "./ProjectDialog";
 import OnboardingOverlay from "./OnboardingOverlay";
 import { gridDims, MAX_PANELS } from "./grid";
 import { THEMES } from "./themes";
+
+// Bundled prompt packs — eagerly imported at build time from the repo's
+// prompt-packs/ folder. Anyone who downloads a binary release gets all the
+// shipped packs available in-app via the 📚 packs dropdown without having to
+// download .deck.json files separately. Add a new pack to prompt-packs/ and
+// it shows up here on the next build.
+const BUNDLED_PACK_MODULES = import.meta.glob("../../../prompt-packs/*.deck.json", {
+  eager: true,
+  import: "default",
+});
+const BUNDLED_PACKS = Object.entries(BUNDLED_PACK_MODULES)
+  .map(([path, data]) => ({
+    filename: path.split("/").pop(),
+    data,
+  }))
+  .sort((a, b) => (a.data?.name || a.filename).localeCompare(b.data?.name || b.filename));
 
 const HEADER_BG = "#181818";
 const PAGE_BG = "#0a0a0a";
@@ -313,6 +329,48 @@ export default function TerminalsTab({ st, save }) {
     reader.readAsText(file);
   }, [applyPack]);
 
+  const onLoadBundledPack = useCallback((pack) => {
+    const desc = (pack.data?.description || "").substring(0, 220);
+    if (!window.confirm(`Replace current panels with "${pack.data?.name || pack.filename}"?\n\n${desc}${desc.length === 220 ? "…" : ""}`)) {
+      return;
+    }
+    applyPack(pack.data);
+  }, [applyPack]);
+
+  // Drag-and-drop pack files anywhere on the window — alternative to the file
+  // picker. Browsers route drop events through window if no inner element
+  // handles them; we preventDefault to avoid the browser navigating to the
+  // file:// URL.
+  useEffect(() => {
+    const onDragOver = (e) => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) {
+        e.preventDefault();
+      }
+    };
+    const onDrop = (e) => {
+      const file = e.dataTransfer?.files?.[0];
+      if (!file) return;
+      if (!file.name.endsWith(".deck.json") && !file.name.endsWith(".json")) return;
+      e.preventDefault();
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const pack = JSON.parse(reader.result);
+          applyPack(pack);
+        } catch (err) {
+          window.alert(`Failed to load pack: ${err.message}`);
+        }
+      };
+      reader.readAsText(file);
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [applyPack]);
+
   const onQuickSpawnGrid = useCallback(() => {
     if (!window.confirm("Replace current panels with a 4-up agent grid (Researcher / Coder / Reviewer / Journal)? Existing sessions will be killed.")) {
       return;
@@ -462,6 +520,37 @@ export default function TerminalsTab({ st, save }) {
           onChange={onLoadPackFile}
           style={{ display: "none" }}
         />
+        {BUNDLED_PACKS.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => {
+              const idx = parseInt(e.target.value, 10);
+              if (!Number.isNaN(idx) && BUNDLED_PACKS[idx]) {
+                onLoadBundledPack(BUNDLED_PACKS[idx]);
+              }
+              e.target.value = "";
+            }}
+            title="Load a bundled prompt pack — see prompt-packs/README.md for catalog"
+            style={{
+              background: "transparent",
+              border: `1px solid ${BORDER}`,
+              color: ACCENT,
+              padding: "3px 6px",
+              borderRadius: 3,
+              fontFamily: M,
+              fontSize: 11,
+              outline: "none",
+              cursor: "pointer",
+            }}
+          >
+            <option value="" style={{ background: "#181818", color: FG }}>📚 packs…</option>
+            {BUNDLED_PACKS.map((p, i) => (
+              <option key={p.filename} value={i} style={{ background: "#181818", color: FG }}>
+                {p.data?.name || p.filename}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           onClick={() => fileInputRef.current?.click()}
           style={{
@@ -474,9 +563,9 @@ export default function TerminalsTab({ st, save }) {
             fontFamily: M,
             fontSize: 11,
           }}
-          title="Load a .deck.json prompt pack — replaces current panel layout"
+          title="Load a .deck.json prompt pack from disk (or drag-drop onto window)"
         >
-          📦 load pack
+          📁 from file
         </button>
         <button
           onClick={onQuickSpawnGrid}

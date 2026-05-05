@@ -157,7 +157,7 @@ function Welcome({ initialKey, onContinue }) {
         </div>
 
         <div style={{ color: FG_DIM, fontSize: 10, marginTop: 8 }}>
-          v0.0.2 · github.com/plutothedev/plutos-terminals · MIT
+          v0.0.3 · github.com/plutothedev/plutos-terminals · MIT
         </div>
       </div>
     </div>

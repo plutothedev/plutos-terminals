@@ -78,6 +78,33 @@ fn pick_shell() -> (String, Vec<String>) {
     (shell, vec![])
 }
 
+/// Expand ${VARNAME} placeholders in a string using the process env. Unknown
+/// variables expand to the empty string. Used by pty_spawn so prompt packs
+/// can ship cross-machine paths like "${USERPROFILE}/Documents/myvault" or
+/// "${HOME}/notes". Falls through plain text untouched.
+fn expand_env_vars(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut remaining = s;
+    while let Some(start) = remaining.find("${") {
+        result.push_str(&remaining[..start]);
+        let after = &remaining[start + 2..];
+        if let Some(end) = after.find('}') {
+            let var_name = &after[..end];
+            if !var_name.is_empty() {
+                let value = std::env::var(var_name).unwrap_or_default();
+                result.push_str(&value);
+                remaining = &after[end + 1..];
+                continue;
+            }
+        }
+        // Couldn't find closing } or empty var — treat "${" as literal.
+        result.push_str("${");
+        remaining = &remaining[start + 2..];
+    }
+    result.push_str(remaining);
+    result
+}
+
 #[tauri::command]
 pub fn pty_spawn(
     app: AppHandle,
@@ -104,10 +131,14 @@ pub fn pty_spawn(
     }
 
     // Validate cwd; fall back to home if unusable so a bad path doesn't exit-loop the shell.
+    // Also expand ${VARNAME} placeholders against the process env so prompt
+    // packs can ship cross-machine paths (e.g. "${USERPROFILE}/Documents/myvault"
+    // works on any Windows user's machine without manual editing).
     if let Some(p) = cwd.as_deref() {
-        let path = std::path::Path::new(p);
+        let expanded = expand_env_vars(p);
+        let path = std::path::Path::new(&expanded);
         if path.exists() && path.is_dir() {
-            cmd.cwd(p);
+            cmd.cwd(&expanded);
         }
     }
 
