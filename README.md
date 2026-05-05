@@ -1,8 +1,17 @@
 # Pluto's Terminals
 
-Free multi-terminal desktop app for the Pluto community. Run AI agents in parallel. Save your setup. Share it.
+> **Run AI agents in parallel. Save your setup. Share it.**
 
-> **Status (2026-05-05):** v0.1.0 — feature-complete v1 (Windows). Multi-panel terminal grid, prompt-pack ecosystem, settings modal, MCP installer, auto-update check. Mac/Linux installers + code-signing not yet shipped (distribution work, not features).
+[![Latest release](https://img.shields.io/github/v/release/plutothedev/plutos-terminals?style=flat-square&color=FF0080)](https://github.com/plutothedev/plutos-terminals/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/plutothedev/plutos-terminals/total?style=flat-square&color=4DAAFC)](https://github.com/plutothedev/plutos-terminals/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Discord](https://img.shields.io/badge/discord-plutothedev-FF0080?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/3cZQVgKF)
+
+Free multi-terminal desktop app for the Pluto community. Made for running Claude Code, Codex, and other shell-driven AI agents side by side in a single window — with an `agent view` toggle for monitoring, shareable `.deck.json` prompt packs, and a setup checker so non-devs aren't dropped into a blank terminal.
+
+**[Download v0.1.2 ↗](https://github.com/plutothedev/plutos-terminals/releases/latest)** · Windows MSI / standalone `.exe`
+
+> **Status (2026-05-05):** v0.1.2 — feature-complete v1 + flawless polish pass. Toast + branded confirms; agent ↔ terminal view toggle; status bar; setup checker; auto-update banner. Mac/Linux + code-signing remain (distribution, not features).
 
 ## What it is
 
@@ -23,22 +32,26 @@ The app ships with a **🚀 setup** modal that detects all three on first launch
 
 If you already have all three on your machine, the app is plug-and-play.
 
-## Features (v0.1.0)
+## Features
 
+- **`💻 terminal` ↔ `🤖 agent` view toggle** — flip between full xterm panes and a compact card grid showing each agent's status / cost / project at a glance. PTYs stay alive across toggles.
 - **Multi-panel terminal grid** with up to 8 panels, multiple tabs per panel
 - **System tray + hide-on-close** — sessions keep running in background
 - **Project sidebar** — pin folders with cwd + start commands; drag projects into panels
 - **Pluto Dark / Pluto Light** terminal themes
-- **📚 Bundled prompt packs** — 5 packs ship with the app (`claude-code-basic`, `dual-claude-pair`, `trading-workflow`, `pluto-personal-strategist`, `example`)
-- **📁 Custom pack loading** — pick any `.deck.json` from disk, or drag-drop onto the window
+- **📚 Bundled prompt packs** — 5 packs ship in the binary (`claude-code-basic`, `dual-claude-pair`, `trading-workflow`, `pluto-personal-strategist`, `example`)
+- **📁 Custom pack loading** — pick any `.deck.json` from disk, or drag-and-drop onto the window
 - **💾 Pack export** — save current panel layout as a shareable `.deck.json`
 - **⚡ Quick-spawn agent grid** — 4-up Researcher / Coder / Reviewer / Journal in one click
-- **🔌 MCP installer** — curated list of popular MCP servers with copy-paste install commands (filesystem, GitHub, Puppeteer, Brave Search, Fetch, Memory)
-- **⚙️ Settings modal** — edit Anthropic API key, `${VAULT}` path, Discord URL, factory reset
+- **🔌 MCP installer** — curated catalog with copy-paste install commands (filesystem, GitHub, Puppeteer, Brave Search, Fetch, Memory)
+- **🚀 Setup checker** — first-launch detection of Node.js + npm + Claude Code CLI + saved API key, with copy-command buttons for anything missing + live API test
+- **⚙️ Settings modal** — Anthropic API key, `${VAULT}` path, Discord URL, factory reset (with format validation + branded confirms)
 - **API key auto-injection** — saved key flows into every new shell so `claude` works without per-shell setup
 - **Templated `${VARNAME}` paths in packs** — `${USERPROFILE}` / `${HOME}` / `${VAULT}` / any process env var expand at spawn time
-- **Auto-update check** — banner if a newer GitHub release is available
+- **Status bar** — version, Claude availability, total cost, theme, GitHub + Discord links — always visible at the bottom
+- **Auto-update banner** — surfaces newer GitHub releases on launch
 - **Pluto-branded icons** — terminal-window silhouette with Pluto-magenta cursor signature
+- **Branded toasts + confirms** — no jarring native dialogs
 
 ## Stack
 

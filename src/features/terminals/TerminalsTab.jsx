@@ -7,6 +7,9 @@ import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
 import SetupChecker from "../../components/SetupChecker.jsx";
+import AgentView from "./AgentView.jsx";
+import { useToast } from "../../components/Toast.jsx";
+import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { gridDims, MAX_PANELS } from "./grid";
 import { THEMES } from "./themes";
 
@@ -76,6 +79,8 @@ function renumberDefaultLabels(tabs) {
 export default function TerminalsTab({ st, save }) {
   const state = st?.terminalsState || defaultState();
   const projects = state.projects || [];
+  const toast = useToast();
+  const confirm = useConfirm();
 
   // Dialog: null = closed; { mode: "add" } or { mode: "edit", projectId }
   const [dialog, setDialog] = useState(null);
@@ -84,6 +89,31 @@ export default function TerminalsTab({ st, save }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+
+  // Terminal view ↔ Agent view toggle. Persisted in st so the user's
+  // preferred view sticks across restarts. PTYs stay alive across toggles —
+  // we display:none the inactive view rather than unmount.
+  const viewMode = st?.viewMode === "agent" ? "agent" : "terminal";
+  const setViewMode = useCallback((mode) => {
+    persist({ ...state, /* state lives in st.terminalsState */ });
+    save({ ...st, viewMode: mode });
+  }, [st, save, state, persist]);
+
+  const onFocusTabInTerminalView = useCallback((panelId, tabId) => {
+    save({ ...st, viewMode: "terminal" });
+    persist({ ...state, panels: state.panels.map(p => p.id === panelId ? { ...p, activeTabId: tabId } : p), activePanelId: panelId });
+  }, [st, save, state, persist]);
+
+  // Claude CLI availability — checked once on mount, surfaced in the status
+  // bar. Doesn't gate behavior; just informs.
+  const [claudeAvailable, setClaudeAvailable] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    invoke("check_command_version", { name: "claude" })
+      .then((v) => { if (!cancelled) setClaudeAvailable(!!v); })
+      .catch(() => { if (!cancelled) setClaudeAvailable(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   // First-launch auto-detect: if user has never seen the setup checker AND
   // `claude` isn't on PATH, auto-open the modal so they don't type `claude`
@@ -323,7 +353,7 @@ export default function TerminalsTab({ st, save }) {
 
   const applyPack = useCallback((pack) => {
     if (!pack || !Array.isArray(pack.panels) || pack.panels.length === 0) {
-      window.alert("Invalid pack: missing or empty panels[] array.");
+      toast.error("Invalid pack: missing or empty panels[] array.");
       return;
     }
     const newPanels = pack.panels.slice(0, MAX_PANELS).map((p) => {
@@ -346,7 +376,8 @@ export default function TerminalsTab({ st, save }) {
       panels: newPanels,
       activePanelId: newPanels[0].id,
     });
-  }, [state, persist]);
+    toast.success(`Pack "${pack.name || "(unnamed)"}" loaded — ${newPanels.length} panel${newPanels.length === 1 ? "" : "s"}.`);
+  }, [state, persist, toast]);
 
   const onLoadPackFile = useCallback((e) => {
     const file = e.target.files && e.target.files[0];
@@ -358,22 +389,24 @@ export default function TerminalsTab({ st, save }) {
         const pack = JSON.parse(reader.result);
         applyPack(pack);
       } catch (err) {
-        window.alert(`Failed to load pack: ${err.message}`);
+        toast.error(`Failed to load pack: ${err.message}`);
       }
     };
     reader.onerror = () => {
-      window.alert(`Failed to read pack file: ${reader.error?.message || "unknown error"}`);
+      toast.error(`Failed to read pack file: ${reader.error?.message || "unknown error"}`);
     };
     reader.readAsText(file);
-  }, [applyPack]);
+  }, [applyPack, toast]);
 
-  const onLoadBundledPack = useCallback((pack) => {
+  const onLoadBundledPack = useCallback(async (pack) => {
     const desc = (pack.data?.description || "").substring(0, 220);
-    if (!window.confirm(`Replace current panels with "${pack.data?.name || pack.filename}"?\n\n${desc}${desc.length === 220 ? "…" : ""}`)) {
-      return;
-    }
+    const ok = await confirm(
+      `Replace current panels with "${pack.data?.name || pack.filename}"?\n\n${desc}${desc.length === 220 ? "…" : ""}`,
+      { title: "Load pack?", confirmLabel: "load", destructive: false }
+    );
+    if (!ok) return;
     applyPack(pack.data);
-  }, [applyPack]);
+  }, [applyPack, confirm]);
 
   // Drag-and-drop pack files anywhere on the window — alternative to the file
   // picker. Browsers route drop events through window if no inner element
@@ -409,10 +442,12 @@ export default function TerminalsTab({ st, save }) {
     };
   }, [applyPack]);
 
-  const onQuickSpawnGrid = useCallback(() => {
-    if (!window.confirm("Replace current panels with a 4-up agent grid (Researcher / Coder / Reviewer / Journal)? Existing sessions will be killed.")) {
-      return;
-    }
+  const onQuickSpawnGrid = useCallback(async () => {
+    const ok = await confirm(
+      "Replace current panels with a 4-up agent grid (Researcher / Coder / Reviewer / Journal)? Existing sessions will be killed.",
+      { title: "Spawn agent grid?", confirmLabel: "spawn grid", destructive: true }
+    );
+    if (!ok) return;
     applyPack({
       schema: "plutos-terminals/deck.json/v0",
       name: "Agent Grid",
@@ -423,7 +458,7 @@ export default function TerminalsTab({ st, save }) {
         { tabs: [{ label: "Journal", startCommands: ["echo 'JOURNAL — running session log, append with Add-Content'"] }] },
       ],
     });
-  }, [applyPack]);
+  }, [applyPack, confirm]);
 
   // ── Pack export (v0.1.0) ───────────────────────────────────────────
   // Serialize the current panel/tab layout to a .deck.json file and
@@ -562,7 +597,21 @@ export default function TerminalsTab({ st, save }) {
   const canClosePanel = state.panels.length > 1;
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", background: PAGE_BG, fontFamily: M }}>
+    <div style={{ height: "100%", position: "relative", background: PAGE_BG, fontFamily: M }}>
+      {/* Agent view overlay — only visible in agent mode; PTYs in the terminal
+          grid stay alive underneath so toggling doesn't kill sessions. */}
+      <div style={{ display: viewMode === "agent" ? "block" : "none", position: "absolute", inset: 0, zIndex: 10 }}>
+        <AgentView
+          panels={state.panels}
+          projects={projects}
+          tabActivities={tabActivities}
+          tabCosts={tabCosts}
+          totalCost={totalCost}
+          onFocusTab={onFocusTabInTerminalView}
+        />
+      </div>
+
+      <div style={{ height: "100%", display: "flex", flexDirection: "column", visibility: viewMode === "terminal" ? "visible" : "hidden" }}>
       {/* Header */}
       <div
         style={{
@@ -579,7 +628,25 @@ export default function TerminalsTab({ st, save }) {
           boxSizing: "border-box",
         }}
       >
-        <span style={{ color: FG_ACTIVE, letterSpacing: 0.5 }}>TERMINALS</span>
+        <button
+          onClick={() => save({ ...st, viewMode: viewMode === "terminal" ? "agent" : "terminal" })}
+          style={{
+            background: "transparent",
+            border: `1px solid ${ACCENT}`,
+            color: ACCENT,
+            cursor: "pointer",
+            padding: "3px 10px",
+            borderRadius: 3,
+            fontFamily: M,
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0.5,
+          }}
+          title={viewMode === "terminal" ? "Switch to agent view (cards grid; PTYs stay alive)" : "Switch to terminal view (xterm panes)"}
+        >
+          {viewMode === "terminal" ? "💻 TERMINAL" : "🤖 AGENT"}
+        </button>
+        <span style={{ color: FG_DIM, opacity: 0.4 }}>·</span>
         <span style={{ color: FG_DIM }}>
           {state.panels.length} panel{state.panels.length === 1 ? "" : "s"}
           {projects.length > 0 && ` · ${projects.length} project${projects.length === 1 ? "" : "s"}`}
@@ -852,6 +919,81 @@ export default function TerminalsTab({ st, save }) {
           onDismiss={() => save({ ...st, terminalsOnboarded: true })}
         />
       )}
+
+      {/* Status bar — bottom strip with version, claude availability, cost, theme */}
+      <div
+        style={{
+          flexShrink: 0,
+          padding: "5px 12px",
+          background: HEADER_BG,
+          borderTop: `1px solid ${BORDER}`,
+          fontSize: 10,
+          fontFamily: M,
+          color: FG_DIM,
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          letterSpacing: 0.3,
+        }}
+      >
+        <span>v0.1.2</span>
+        <span style={{ opacity: 0.4 }}>·</span>
+        <button
+          onClick={() => setSetupOpen(true)}
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            margin: 0,
+            cursor: "pointer",
+            color:
+              claudeAvailable === true ? "#34D399"
+              : claudeAvailable === false ? "#FF0080"
+              : FG_DIM,
+            fontFamily: M,
+            fontSize: 10,
+          }}
+          title={
+            claudeAvailable === true ? "Claude Code CLI is on PATH"
+            : claudeAvailable === false ? "Claude Code CLI not found — click for setup"
+            : "Checking…"
+          }
+        >
+          {claudeAvailable === true ? "claude ✓" : claudeAvailable === false ? "claude ✗ — setup" : "claude …"}
+        </button>
+        <span style={{ opacity: 0.4 }}>·</span>
+        <span>theme: {(THEMES[state.themeKey || "default"]?.label) || "Default"}</span>
+        {(totalCost.cost > 0 || totalCost.tokens > 0) && (
+          <>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span style={{ color: "#34D399" }} title="Aggregate live spend across all sessions">
+              ${totalCost.cost.toFixed(2)}
+              {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tokens`}
+            </span>
+          </>
+        )}
+        <div style={{ flex: 1 }} />
+        <a
+          href="https://github.com/plutothedev/plutos-terminals"
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: FG_DIM, textDecoration: "none" }}
+          title="Open repo on GitHub"
+        >
+          github
+        </a>
+        <span style={{ opacity: 0.4 }}>·</span>
+        <a
+          href="https://discord.gg/3cZQVgKF"
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: "#FF0080", textDecoration: "none" }}
+          title="Join the Pluto Discord"
+        >
+          discord
+        </a>
+      </div>
+      </div>
     </div>
   );
 }

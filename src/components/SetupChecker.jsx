@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
+import { useToast } from "./Toast.jsx";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const PLUTO_MAGENTA = "#FF0080";
@@ -19,6 +20,7 @@ const YELLOW = "#FBBF24";
 const CLAUDE_INSTALL_CMD = "npm install -g @anthropic-ai/claude-code";
 
 export default function SetupChecker({ open, st, onClose, onOpenSettings }) {
+  const toast = useToast();
   // Each check: pending | found | missing
   const [nodeStatus, setNodeStatus] = useState({ state: "pending", value: null });
   const [npmStatus, setNpmStatus] = useState({ state: "pending", value: null });
@@ -62,9 +64,10 @@ export default function SetupChecker({ open, st, onClose, onOpenSettings }) {
   const onCopyClaudeInstall = () => {
     navigator.clipboard.writeText(CLAUDE_INSTALL_CMD).then(() => {
       setCopied(true);
+      toast.success("Install command copied.");
       setTimeout(() => setCopied(false), 1500);
     }).catch(() => {
-      window.alert("Copy failed — select the command text manually and Ctrl+C.");
+      toast.error("Copy failed — select the command text manually and Ctrl+C.");
     });
   };
 

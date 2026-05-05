@@ -1,10 +1,12 @@
 import { useCallback, useState } from "react";
 import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
+import { ToastProvider } from "./components/Toast.jsx";
+import { ConfirmProvider } from "./components/ConfirmModal.jsx";
 
 const STORAGE_KEY = "plutos-terminals:state:v0";
 const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.1";
+const APP_VERSION = "0.1.2";
 
 const PAGE_BG = "#0a0a0a";
 const FG = "#9D9D9D";
@@ -15,6 +17,16 @@ const PLUTO_MAGENTA = "#FF0080";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 export default function App() {
+  return (
+    <ToastProvider>
+      <ConfirmProvider>
+        <AppInner />
+      </ConfirmProvider>
+    </ToastProvider>
+  );
+}
+
+function AppInner() {
   const [st, setSt] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);

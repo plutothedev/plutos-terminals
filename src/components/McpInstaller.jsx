@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
+import { useToast } from "./Toast.jsx";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 
@@ -61,13 +62,15 @@ const MCPS = [
 
 export default function McpInstaller({ open, onClose }) {
   const [copiedId, setCopiedId] = useState(null);
+  const toast = useToast();
 
   const onCopy = (mcp) => {
     navigator.clipboard.writeText(mcp.command).then(() => {
       setCopiedId(mcp.id);
+      toast.success(`${mcp.name} install command copied — paste in any pane.`);
       setTimeout(() => setCopiedId((c) => (c === mcp.id ? null : c)), 1500);
     }).catch(() => {
-      window.alert("Copy failed — select the command text manually and Ctrl+C.");
+      toast.error("Copy failed — select the command text manually and Ctrl+C.");
     });
   };
 

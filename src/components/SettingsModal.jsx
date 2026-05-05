@@ -4,6 +4,8 @@
 
 import { useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
+import { useToast } from "./Toast.jsx";
+import { useConfirm } from "./ConfirmModal.jsx";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const PLUTO_MAGENTA = "#FF0080";
@@ -14,29 +16,41 @@ export default function SettingsModal({ open, st, save, onClose }) {
   const [vaultPath, setVaultPath] = useState(st.vaultPath || "");
   const [discordUrl, setDiscordUrl] = useState(st.discordUrl || DEFAULT_DISCORD);
   const [showKey, setShowKey] = useState(false);
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const handleSave = () => {
+    if (anthropicKey && !anthropicKey.startsWith("sk-ant-") && !anthropicKey.startsWith("sk-")) {
+      toast.error("API key doesn't look right — should start with 'sk-ant-'. Double-check.");
+      return;
+    }
     save({
       ...st,
       anthropicKey,
       vaultPath,
       discordUrl: discordUrl || DEFAULT_DISCORD,
     });
+    toast.success("Settings saved.");
     onClose();
   };
 
-  const handleClearKey = () => {
-    if (window.confirm("Clear your Anthropic API key from local storage? Spawned shells won't auto-receive it after this.")) {
-      setAnthropicKey("");
-      save({ ...st, anthropicKey: "" });
-    }
+  const handleClearKey = async () => {
+    const ok = await confirm(
+      "Clear your Anthropic API key from local storage? Spawned shells won't auto-receive it after this.",
+      { title: "Clear API key?", confirmLabel: "clear", destructive: true }
+    );
+    if (!ok) return;
+    setAnthropicKey("");
+    save({ ...st, anthropicKey: "" });
+    toast.info("API key cleared.");
   };
 
-  const handleFactoryReset = () => {
-    const confirmed = window.confirm(
-      "Factory reset wipes ALL Pluto's Terminals state from this machine: panel layout, projects, scrollback, API key, vault path, theme, and welcome flag. The app reloads to the welcome screen. Continue?"
+  const handleFactoryReset = async () => {
+    const ok = await confirm(
+      "Factory reset wipes ALL Pluto's Terminals state from this machine: panel layout, projects, scrollback, API key, vault path, theme, and welcome flag. The app reloads to the welcome screen. Continue?",
+      { title: "Factory reset?", confirmLabel: "reset everything", destructive: true }
     );
-    if (!confirmed) return;
+    if (!ok) return;
     try {
       localStorage.removeItem("plutos-terminals:state:v0");
     } catch (_) { /* ignore */ }
