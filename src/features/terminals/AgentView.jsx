@@ -19,44 +19,80 @@ const PLUTO_MAGENTA = "#FF0080";
 const BORDER = "#2B2B2B";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
-// Segmented-control toggle (mirrored from TerminalsTab's ViewToggle so both
-// views show the same control). Renamed to avoid collision when both modules
-// are imported elsewhere.
+// iOS-style toggle switch (mirrored from TerminalsTab's ViewToggle so both
+// views show the same control). Click anywhere on the pill to flip.
 function ViewToggleAgent({ viewMode, onChange }) {
-  const halfStyle = (active) => ({
-    background: active ? ACCENT : "transparent",
-    color: active ? "#001" : FG,
-    border: "none",
-    padding: "4px 12px",
-    fontFamily: M,
-    fontSize: 11,
-    fontWeight: active ? 700 : 500,
-    letterSpacing: 0.5,
-    cursor: active ? "default" : "pointer",
-    transition: "background 100ms, color 100ms",
-  });
+  const isAgent = viewMode === "agent";
+  const trackWidth = 52;
+  const trackHeight = 24;
+  const knobSize = 18;
+  const knobInset = 3;
   return (
     <div
-      style={{ display: "inline-flex", border: `1px solid ${BORDER}`, borderRadius: 4, overflow: "hidden" }}
-      role="group"
-      aria-label="View mode"
+      onClick={() => onChange(isAgent ? "terminal" : "agent")}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 10,
+        cursor: "pointer",
+        userSelect: "none",
+        padding: "2px 4px",
+      }}
+      role="switch"
+      aria-checked={isAgent}
+      aria-label={`View mode: ${isAgent ? "agent" : "terminal"}. Click to switch.`}
+      title={isAgent ? "Click to switch to terminal view" : "Click to switch to agent view"}
     >
-      <button
-        onClick={() => viewMode !== "terminal" && onChange("terminal")}
-        style={halfStyle(viewMode === "terminal")}
-        title="Terminal view — xterm panes"
-        aria-pressed={viewMode === "terminal"}
+      <span
+        style={{
+          color: isAgent ? FG : FG_ACTIVE,
+          fontFamily: M,
+          fontSize: 11,
+          fontWeight: isAgent ? 400 : 700,
+          letterSpacing: 0.5,
+          transition: "color 150ms, font-weight 150ms",
+        }}
       >
         💻 TERMINAL
-      </button>
-      <button
-        onClick={() => viewMode !== "agent" && onChange("agent")}
-        style={halfStyle(viewMode === "agent")}
-        title="Agent view — compact cards monitoring all sessions"
-        aria-pressed={viewMode === "agent"}
+      </span>
+      <div
+        style={{
+          position: "relative",
+          width: trackWidth,
+          height: trackHeight,
+          borderRadius: trackHeight / 2,
+          background: BORDER,
+          border: `1px solid #3A3A3A`,
+          transition: "background 150ms",
+          flexShrink: 0,
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: knobInset - 1,
+            left: isAgent ? trackWidth - knobSize - knobInset : knobInset,
+            width: knobSize,
+            height: knobSize,
+            borderRadius: "50%",
+            background: isAgent ? PLUTO_MAGENTA : ACCENT,
+            boxShadow: `0 0 8px ${isAgent ? PLUTO_MAGENTA : ACCENT}`,
+            transition: "left 180ms cubic-bezier(0.4, 0, 0.2, 1), background 150ms, box-shadow 150ms",
+          }}
+        />
+      </div>
+      <span
+        style={{
+          color: isAgent ? FG_ACTIVE : FG,
+          fontFamily: M,
+          fontSize: 11,
+          fontWeight: isAgent ? 700 : 400,
+          letterSpacing: 0.5,
+          transition: "color 150ms, font-weight 150ms",
+        }}
       >
         🤖 AGENT
-      </button>
+      </span>
     </div>
   );
 }

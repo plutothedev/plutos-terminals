@@ -13,52 +13,89 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { gridDims, MAX_PANELS } from "./grid";
 import { THEMES } from "./themes";
 
-// Segmented-control view toggle. Always visible in both terminal + agent
-// view headers so the user can flip back from either side.
+// iOS-style toggle switch. Click anywhere on the control to flip between
+// terminal and agent views. Knob slides between left (terminal) and right
+// (agent) positions. Always visible in both view headers.
 function ViewToggle({ viewMode, onChange }) {
-  const ACCENT_LOCAL = "#4DAAFC";
-  const FG_DIM_LOCAL = "#9D9D9D";
-  const BORDER_LOCAL = "#2B2B2B";
-  const M_LOCAL = "'JetBrains Mono', Menlo, Monaco, monospace";
-  const halfStyle = (active) => ({
-    background: active ? ACCENT_LOCAL : "transparent",
-    color: active ? "#001" : FG_DIM_LOCAL,
-    border: "none",
-    padding: "4px 12px",
-    fontFamily: M_LOCAL,
-    fontSize: 11,
-    fontWeight: active ? 700 : 500,
-    letterSpacing: 0.5,
-    cursor: active ? "default" : "pointer",
-    transition: "background 100ms, color 100ms",
-  });
+  const FG_ACTIVE_L = "#E6E6E6";
+  const FG_DIM_L = "#9D9D9D";
+  const ACCENT_L = "#4DAAFC";
+  const PLUTO_MAGENTA_L = "#FF0080";
+  const TRACK_BG = "#2B2B2B";
+  const M_L = "'JetBrains Mono', Menlo, Monaco, monospace";
+  const isAgent = viewMode === "agent";
+
+  const trackWidth = 52;
+  const trackHeight = 24;
+  const knobSize = 18;
+  const knobInset = 3;
+
   return (
     <div
+      onClick={() => onChange(isAgent ? "terminal" : "agent")}
       style={{
         display: "inline-flex",
-        border: `1px solid ${BORDER_LOCAL}`,
-        borderRadius: 4,
-        overflow: "hidden",
+        alignItems: "center",
+        gap: 10,
+        cursor: "pointer",
+        userSelect: "none",
+        padding: "2px 4px",
       }}
-      role="group"
-      aria-label="View mode"
+      role="switch"
+      aria-checked={isAgent}
+      aria-label={`View mode: ${isAgent ? "agent" : "terminal"}. Click to switch.`}
+      title={isAgent ? "Click to switch to terminal view" : "Click to switch to agent view"}
     >
-      <button
-        onClick={() => viewMode !== "terminal" && onChange("terminal")}
-        style={halfStyle(viewMode === "terminal")}
-        title="Terminal view — xterm panes"
-        aria-pressed={viewMode === "terminal"}
+      <span
+        style={{
+          color: isAgent ? FG_DIM_L : FG_ACTIVE_L,
+          fontFamily: M_L,
+          fontSize: 11,
+          fontWeight: isAgent ? 400 : 700,
+          letterSpacing: 0.5,
+          transition: "color 150ms, font-weight 150ms",
+        }}
       >
         💻 TERMINAL
-      </button>
-      <button
-        onClick={() => viewMode !== "agent" && onChange("agent")}
-        style={halfStyle(viewMode === "agent")}
-        title="Agent view — compact cards monitoring all sessions"
-        aria-pressed={viewMode === "agent"}
+      </span>
+      <div
+        style={{
+          position: "relative",
+          width: trackWidth,
+          height: trackHeight,
+          borderRadius: trackHeight / 2,
+          background: TRACK_BG,
+          border: `1px solid #3A3A3A`,
+          transition: "background 150ms",
+          flexShrink: 0,
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: knobInset - 1,
+            left: isAgent ? trackWidth - knobSize - knobInset : knobInset,
+            width: knobSize,
+            height: knobSize,
+            borderRadius: "50%",
+            background: isAgent ? PLUTO_MAGENTA_L : ACCENT_L,
+            boxShadow: `0 0 8px ${isAgent ? PLUTO_MAGENTA_L : ACCENT_L}`,
+            transition: "left 180ms cubic-bezier(0.4, 0, 0.2, 1), background 150ms, box-shadow 150ms",
+          }}
+        />
+      </div>
+      <span
+        style={{
+          color: isAgent ? FG_ACTIVE_L : FG_DIM_L,
+          fontFamily: M_L,
+          fontSize: 11,
+          fontWeight: isAgent ? 700 : 400,
+          letterSpacing: 0.5,
+          transition: "color 150ms, font-weight 150ms",
+        }}
       >
         🤖 AGENT
-      </button>
+      </span>
     </div>
   );
 }
@@ -985,7 +1022,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.4</span>
+        <span>v0.1.5</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <button
           onClick={() => setSetupOpen(true)}
