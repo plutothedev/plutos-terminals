@@ -78,11 +78,12 @@ fn pick_shell() -> (String, Vec<String>) {
     (shell, vec![])
 }
 
-/// Expand ${VARNAME} placeholders in a string using the process env. Unknown
-/// variables expand to the empty string. Used by pty_spawn so prompt packs
-/// can ship cross-machine paths like "${USERPROFILE}/Documents/myvault" or
-/// "${HOME}/notes". Falls through plain text untouched.
-fn expand_env_vars(s: &str) -> String {
+/// Expand ${VARNAME} placeholders in a string. Resolution order: caller-
+/// supplied `extra` map first, then the process env, then empty string for
+/// unknowns. Used by pty_spawn so prompt packs ship cross-machine paths like
+/// "${USERPROFILE}/Documents/myvault", and the renderer can pass app-settings
+/// values (VAULT, custom keys) that aren't in the parent process env.
+fn expand_env_vars_with_extra(s: &str, extra: &Option<HashMap<String, String>>) -> String {
     let mut result = String::with_capacity(s.len());
     let mut remaining = s;
     while let Some(start) = remaining.find("${") {
@@ -91,7 +92,11 @@ fn expand_env_vars(s: &str) -> String {
         if let Some(end) = after.find('}') {
             let var_name = &after[..end];
             if !var_name.is_empty() {
-                let value = std::env::var(var_name).unwrap_or_default();
+                let value = extra
+                    .as_ref()
+                    .and_then(|m| m.get(var_name).cloned())
+                    .or_else(|| std::env::var(var_name).ok())
+                    .unwrap_or_default();
                 result.push_str(&value);
                 remaining = &after[end + 1..];
                 continue;
@@ -131,11 +136,13 @@ pub fn pty_spawn(
     }
 
     // Validate cwd; fall back to home if unusable so a bad path doesn't exit-loop the shell.
-    // Also expand ${VARNAME} placeholders against the process env so prompt
-    // packs can ship cross-machine paths (e.g. "${USERPROFILE}/Documents/myvault"
-    // works on any Windows user's machine without manual editing).
+    // Also expand ${VARNAME} placeholders — first against the caller-supplied
+    // extra_env (so VAULT / ANTHROPIC_API_KEY etc. saved in app settings work
+    // even though they aren't in the parent process env), then against the
+    // process env. So prompt packs ship cross-machine paths
+    // (e.g. "${USERPROFILE}/Documents/myvault" or "${VAULT}") without manual edits.
     if let Some(p) = cwd.as_deref() {
-        let expanded = expand_env_vars(p);
+        let expanded = expand_env_vars_with_extra(p, &extra_env);
         let path = std::path::Path::new(&expanded);
         if path.exists() && path.is_dir() {
             cmd.cwd(&expanded);

@@ -1,8 +1,10 @@
 import { useCallback, useState } from "react";
 import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
+import UpdateBanner from "./components/UpdateBanner.jsx";
 
 const STORAGE_KEY = "plutos-terminals:state:v0";
-const DISCORD_INVITE_URL = "https://discord.gg/pluto"; // placeholder — pluto edits to real invite URL
+const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
+const APP_VERSION = "0.1.0";
 
 const PAGE_BG = "#0a0a0a";
 const FG = "#9D9D9D";
@@ -33,31 +35,36 @@ export default function App() {
 
   const [welcomeDone, setWelcomeDone] = useState(() => st.welcomeDone === true);
 
-  // First-run welcome: branding + Anthropic API key prompt. The key is now
-  // persisted (v0.0.2) and auto-injected into every spawned shell via the
-  // pty_spawn extra_env parameter. Future v1: replace localStorage with Tauri
-  // secure storage / OS keyring.
   if (!welcomeDone) {
     return (
-      <Welcome
-        initialKey={typeof st.anthropicKey === "string" ? st.anthropicKey : ""}
-        onContinue={(apiKey) => {
-          const next = {
-            ...st,
-            welcomeDone: true,
-            anthropicKey: apiKey || st.anthropicKey || "",
-          };
-          save(next);
-          setWelcomeDone(true);
-        }}
-      />
+      <>
+        <Welcome
+          initialKey={typeof st.anthropicKey === "string" ? st.anthropicKey : ""}
+          discordUrl={st.discordUrl || DEFAULT_DISCORD_URL}
+          onContinue={(apiKey) => {
+            const next = {
+              ...st,
+              welcomeDone: true,
+              anthropicKey: apiKey || st.anthropicKey || "",
+            };
+            save(next);
+            setWelcomeDone(true);
+          }}
+        />
+        <UpdateBanner currentVersion={APP_VERSION} />
+      </>
     );
   }
 
-  return <TerminalsTab st={st} save={save} />;
+  return (
+    <>
+      <TerminalsTab st={st} save={save} />
+      <UpdateBanner currentVersion={APP_VERSION} />
+    </>
+  );
 }
 
-function Welcome({ initialKey, onContinue }) {
+function Welcome({ initialKey, discordUrl, onContinue }) {
   const [apiKey, setApiKey] = useState(initialKey || "");
 
   return (
@@ -112,8 +119,8 @@ function Welcome({ initialKey, onContinue }) {
             }}
           />
           <div style={{ color: FG_DIM, fontSize: 10, marginTop: 6 }}>
-            Stored in this app's local data dir (plain JSON). Skip if you'd rather paste it per-shell.
-            Encrypted OS keyring storage planned for a later release.
+            Stored in this app's local data dir (plain JSON). Skip if you'd rather paste per-shell.
+            You can edit, clear, or factory-reset later via the ⚙️ settings button in the header.
           </div>
         </div>
 
@@ -136,7 +143,7 @@ function Welcome({ initialKey, onContinue }) {
           </button>
 
           <a
-            href={DISCORD_INVITE_URL}
+            href={discordUrl}
             target="_blank"
             rel="noreferrer"
             style={{
@@ -157,7 +164,7 @@ function Welcome({ initialKey, onContinue }) {
         </div>
 
         <div style={{ color: FG_DIM, fontSize: 10, marginTop: 8 }}>
-          v0.0.3 · github.com/plutothedev/plutos-terminals · MIT
+          v{APP_VERSION} · github.com/plutothedev/plutos-terminals · MIT
         </div>
       </div>
     </div>

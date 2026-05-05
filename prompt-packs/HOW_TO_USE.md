@@ -1,46 +1,75 @@
-# How to use prompt packs (v0)
+# How to use prompt packs
 
-> **v0 reality:** there's no in-app loader yet. You read the `.deck.json`, and you configure the running app to match. The schema exists today so v1 can wire click-to-load. Manual is clunky but the format is canonical — once you set up a pack manually, you don't have to think about it again until you change the workflow.
+A `.deck.json` prompt pack describes a multi-panel terminal layout you can clone in one click. v0.1.0 makes loading + authoring easy.
 
-## The five-minute manual flow
+## Three ways to load a pack
 
-1. **Set your API key.** Most packs need `ANTHROPIC_API_KEY`. In a PowerShell session run:
-   ```powershell
-   $env:ANTHROPIC_API_KEY = "sk-ant-..."
-   ```
-   Set it system-wide (so every pane inherits it) via:
-   ```powershell
-   [Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")
-   ```
-   Restart Pluto's Terminals after setting at user-level so spawned shells see it.
+### 1. Bundled packs dropdown (`📚 packs…`)
 
-2. **Open the pack file** in any text editor and look at the `panels[]` array.
+The simplest path. Click the **📚 packs…** dropdown in the app header. Pick any of the 5 bundled packs. Confirm the replace prompt. Done.
 
-3. **For each panel in `panels[]`:** click `+ pane` in the Pluto's Terminals header to add a panel. (The first panel is already there from app start, so for a 2-panel pack you only click `+ pane` once.)
+Bundled packs in v0.1.0:
+- `claude-code-basic` — single Claude Code pane
+- `dual-claude-pair` — code pane + plan pane
+- `trading-workflow` — Claude analysis + Python scratch + dated journal
+- `pluto-personal-strategist` — cross-machine template using `${USERPROFILE}` + `${VAULT}`
+- `example` — schema reference, don't actually load this
 
-4. **For each `tabs[]` entry inside a panel:** if it has a `cwd`, register a project: click `+ Add project` in the left sidebar → paste the cwd path → set the start commands from `tab.startCommands` → save → click the project to open it in the active panel.
+### 2. From file (`📁 from file`)
 
-   If the tab has no `cwd`, just open a fresh tab in the panel (`+ tab` in the panel header) and run the start commands manually by pasting them into the terminal.
+Click **📁 from file** in the header → pick any `.deck.json` from your disk. Use this for packs you downloaded from someone else, exported from another machine, or hand-authored.
 
-5. **Run `claude` (or whatever the pack calls for)** in the panes that need it. The first start command in most packs is just an `echo` reminder of what the pane is for — actual `claude` invocation comes after you confirm your env is set.
+### 3. Drag-and-drop
 
-That's it. Once configured, your panel/tab state persists across app restarts (the PTY children respawn fresh; scrollback replays from disk).
+Drag a `.deck.json` file from File Explorer / Finder onto the app window. Loads immediately.
 
-## Available packs (v0.0.2)
+## Save your own setup as a pack (`💾 export`)
 
-- **`example.deck.json`** — schema reference, shows all the fields. Don't actually use it — go to one of the practical packs below.
-- **`claude-code-basic.deck.json`** — single Claude Code pane. Simplest possible setup.
-- **`dual-claude-pair.deck.json`** — two panes: code + plan. Splits hands-on edits from architecture/research.
-- **`trading-workflow.deck.json`** — three panes: Claude analysis + Python scratch + dated session journal. AI + analysis layer around your charting platform (which stays in your browser).
-- **`pluto-mind-strategist.deck.json`** — Pluto's own setup for vault-level meta work. Strategist Claude in `C:\Users\pluto` reading the pluto-mind vault. Adapt the cwd paths to your own second-brain.
+After configuring panels + tabs the way you like:
 
-## Where this is going (v1)
+1. Click **💾 export** in the header.
+2. Type a pack name (e.g. "Trading Morning Setup").
+3. Type an optional description.
+4. The file downloads to your Downloads folder as `<your-slug>.deck.json`.
 
-- **In-app pack browser** — UI surface to browse local + remote `.deck.json` packs.
-- **Click-to-load** — opening a pack file in your browser triggers `plutosterminals://load?pack=<base64>` deep link; the app intercepts, asks for confirmation, configures all panels + tabs in one click.
-- **Pack signing** — community packs signed with a Pluto-controlled key; the app verifies before loading from third-party URLs.
-- **MCP one-click installer** — `mcp_servers[]` field becomes wired; popular MCPs install from the UI.
+Share it on Discord, GitHub, anywhere. Anyone with Pluto's Terminals can drag it in or load via 📁 from file.
 
-## Authoring your own pack
+## Settings (`⚙️`)
 
-Copy `example.deck.json` → rename → edit `name`, `description`, `panels[]`, `env_hints[]`, `notes[]`. Schema is at `SCHEMA.md`. Keep packs small and focused — one workflow per pack, not "everything I ever do." Share via PR to this repo's `prompt-packs/` folder if you want it shipped to the community (curation criteria TBD; for v0.0.2 just open an issue describing the pack).
+Click the **⚙️** button in the header for the settings modal:
+
+- **Anthropic API key** — auto-injected as `ANTHROPIC_API_KEY` into every spawned shell. `claude` just works without per-shell setup.
+- **${VAULT} path** — the path that `${VAULT}` resolves to in pack `cwd` strings. Set this to your second-brain / Obsidian vault location to use packs like `pluto-personal-strategist` cross-machine.
+- **Pluto Discord URL** — edit the welcome screen's "Join Pluto Discord" button target.
+- **Factory reset** — wipes ALL state (panels, projects, scrollback, API key, vault path, theme, welcome flag). Useful for testing or clean reinstall.
+
+## MCP servers (`🔌 MCPs`)
+
+Click **🔌 MCPs** for a curated list of popular MCP (Model Context Protocol) servers — filesystem, GitHub, Puppeteer, Brave Search, Fetch, Memory. Each shows the install command for Claude Code; click **copy command**, paste into any terminal pane, run.
+
+One-click install (no copy-paste) is on the roadmap. Today's UX is curated discovery + safe copy-paste.
+
+## Quick-spawn agent grid (`⚡ agent grid`)
+
+One click → 4-panel layout: Researcher / Coder / Reviewer / Journal. Each panel runs its own Claude Code session with a role hint. Useful for parallel multi-agent workflows.
+
+## Templated paths (`${VARNAME}`)
+
+Pack `cwd` values can include `${VARNAME}` placeholders that expand at spawn time:
+
+- `${USERPROFILE}` — Windows home directory (auto-set by Windows)
+- `${HOME}` — Mac/Linux home directory
+- `${VAULT}` — your second-brain vault path (set in ⚙️ settings)
+- Any other process env variable
+
+Resolution order: settings (VAULT, etc.) → process env → empty string for unknowns.
+
+This is what makes packs cross-machine. `pluto-personal-strategist.deck.json` uses `${USERPROFILE}` and `${VAULT}` so the same pack works for everyone.
+
+## Authoring a pack
+
+Easiest path: configure your setup in the app, click **💾 export**, edit the resulting JSON if needed.
+
+Hand-authoring: copy `example.deck.json` → rename → edit `name`, `description`, `panels[]`. See `SCHEMA.md` for the full schema.
+
+To share with the community: open a PR adding your pack to this folder. Curation criteria TBD; for now, packs that demonstrate a useful workflow with clear documentation get merged.

@@ -3,6 +3,8 @@ import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
 import ProjectDialog from "./ProjectDialog";
 import OnboardingOverlay from "./OnboardingOverlay";
+import SettingsModal from "../../components/SettingsModal.jsx";
+import McpInstaller from "../../components/McpInstaller.jsx";
 import { gridDims, MAX_PANELS } from "./grid";
 import { THEMES } from "./themes";
 
@@ -75,6 +77,10 @@ export default function TerminalsTab({ st, save }) {
 
   // Dialog: null = closed; { mode: "add" } or { mode: "edit", projectId }
   const [dialog, setDialog] = useState(null);
+
+  // Modal toggles
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mcpOpen, setMcpOpen] = useState(false);
 
   // Per-tab activity state ({tabId: 'idle'|'active'|'done'}). NOT persisted —
   // it's transient and meaningless across app restarts (PTYs respawn fresh).
@@ -387,6 +393,51 @@ export default function TerminalsTab({ st, save }) {
     });
   }, [applyPack]);
 
+  // ── Pack export (v0.1.0) ───────────────────────────────────────────
+  // Serialize the current panel/tab layout to a .deck.json file and
+  // trigger a browser download. The exported pack has no PTY state —
+  // just the structure (panels, tabs, cwd, startCommands) — so users
+  // can clone their setup, share it on Discord/GitHub, or reload after
+  // a factory reset.
+
+  const onExportPack = useCallback(() => {
+    const name = window.prompt("Pack name?", "My Pluto's Terminals Setup");
+    if (!name || !name.trim()) return;
+    const description = window.prompt(
+      "Pack description (optional)?",
+      "Exported from Pluto's Terminals — multi-panel layout with cwd + start commands per tab."
+    ) || "";
+
+    const pack = {
+      schema: "plutos-terminals/deck.json/v0",
+      name: name.trim(),
+      description: description.trim(),
+      created: new Date().toISOString().slice(0, 10),
+      panels: state.panels.map((p) => ({
+        tabs: p.tabs.map((t) => ({
+          label: t.label || "Tab",
+          cwd: t.cwd || null,
+          startCommands: Array.isArray(t.startCommands) ? t.startCommands : [],
+        })),
+      })),
+      mcp_servers: [],
+      env_hints: [],
+      notes: ["Exported from Pluto's Terminals. Edit this file to share or refine."],
+    };
+
+    const json = JSON.stringify(pack, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "pluto-pack";
+    a.download = `${slug}.deck.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [state]);
+
   // ── Project mutations ──────────────────────────────────────────────
 
   const upsertProject = useCallback((data, editingId) => {
@@ -583,6 +634,54 @@ export default function TerminalsTab({ st, save }) {
         >
           ⚡ agent grid
         </button>
+        <button
+          onClick={onExportPack}
+          style={{
+            background: "transparent",
+            border: `1px solid ${BORDER}`,
+            color: ACCENT,
+            cursor: "pointer",
+            padding: "3px 10px",
+            borderRadius: 3,
+            fontFamily: M,
+            fontSize: 11,
+          }}
+          title="Export current panel layout as a .deck.json prompt pack"
+        >
+          💾 export
+        </button>
+        <button
+          onClick={() => setMcpOpen(true)}
+          style={{
+            background: "transparent",
+            border: `1px solid ${BORDER}`,
+            color: ACCENT,
+            cursor: "pointer",
+            padding: "3px 10px",
+            borderRadius: 3,
+            fontFamily: M,
+            fontSize: 11,
+          }}
+          title="Curated MCP servers — copy the install commands"
+        >
+          🔌 MCPs
+        </button>
+        <button
+          onClick={() => setSettingsOpen(true)}
+          style={{
+            background: "transparent",
+            border: `1px solid ${BORDER}`,
+            color: FG,
+            cursor: "pointer",
+            padding: "3px 10px",
+            borderRadius: 3,
+            fontFamily: M,
+            fontSize: 11,
+          }}
+          title="Settings: API key, VAULT path, Discord URL, factory reset"
+        >
+          ⚙️
+        </button>
 
         <select
           value={state.themeKey || "default"}
@@ -679,6 +778,18 @@ export default function TerminalsTab({ st, save }) {
         initial={dialogInitial}
         onClose={() => setDialog(null)}
         onSave={handleSaveDialog}
+      />
+
+      <SettingsModal
+        open={settingsOpen}
+        st={st}
+        save={save}
+        onClose={() => setSettingsOpen(false)}
+      />
+
+      <McpInstaller
+        open={mcpOpen}
+        onClose={() => setMcpOpen(false)}
       />
 
       {!st?.terminalsOnboarded && (
