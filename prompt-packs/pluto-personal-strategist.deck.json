@@ -1,0 +1,46 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Pluto Personal — Strategist + Vault Scratch",
+  "description": "Pluto's actual personal workflow: Claude Code at the user-home level acting as 'Strategist Claude' over an Obsidian-based second-brain vault, paired with a vault-root scratch shell for grep/git/file ops. Demonstrates the dual-Claude pattern (Strategist in this app + Claudian inside Obsidian). REQUIRES adaptation: the cwd paths are Pluto's machine. To use it as a template, edit the cwd values to your own home dir + your own second-brain vault path before loading. If you don't have a second-brain vault, this pack will spawn shells in directories that don't exist on your machine — load `claude-code-basic.deck.json` instead.",
+  "created": "2026-05-04",
+  "panels": [
+    {
+      "label": "strategist",
+      "tabs": [
+        {
+          "label": "Strategist Claude",
+          "cwd": "C:\\Users\\pluto",
+          "startCommands": [
+            "echo 'STRATEGIST: edit cwd to your own home dir before loading. Pluto reads pluto-mind/CLAUDE.md, hot.md, GOALS.md, patterns.md on first request.'",
+            "claude"
+          ],
+          "system_prompt_hint": "Strategist Claude per the user's own second-brain CLAUDE.md (if it exists). Read meta files first before responding to anything substantive. Be blunt and direct. Surface patterns by name."
+        }
+      ]
+    },
+    {
+      "label": "vault",
+      "tabs": [
+        {
+          "label": "Vault scratch",
+          "cwd": "C:\\Users\\pluto\\Documents\\pluto-mind",
+          "startCommands": [
+            "echo 'VAULT: edit cwd to your own vault path. Use this for grep, ls, file moves, git, etc.'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "purpose": "Required for the strategist pane. If saved on welcome screen, auto-injected."
+    }
+  ],
+  "notes": [
+    "ADAPT BEFORE LOADING: change C:\\Users\\pluto to YOUR home dir, change C:\\Users\\pluto\\Documents\\pluto-mind to YOUR second-brain vault path.",
+    "Pluto's full second-brain reference layout (pluto-mind) is documented separately. If you don't have one yet, watch Pluto's video on building one or use claude-code-basic.deck.json instead.",
+    "On Mac/Linux: paths look like /Users/<you>/Documents/myvault or /home/<you>/notes — adjust accordingly."
+  ]
+}

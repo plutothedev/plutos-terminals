@@ -1,7 +1,7 @@
 {
   "schema": "plutos-terminals/deck.json/v0",
-  "name": "Example Pluto Setup",
-  "description": "Sample prompt pack demonstrating the .deck.json schema. v0 has no auto-loader UI yet — open this file manually to see the format. Packs describe a multi-panel terminal layout, starting commands, and env hints.",
+  "name": "Example — schema reference",
+  "description": "Schema reference pack. Shows every field. Don't load this for actual work — go to one of the practical packs (claude-code-basic, dual-claude-pair, trading-workflow, pluto-personal-strategist). See SCHEMA.md for the full field-by-field breakdown.",
   "created": "2026-05-04",
   "panels": [
     {
@@ -11,10 +11,9 @@
           "label": "Claude Code",
           "cwd": null,
           "startCommands": [
-            "echo 'Pluto Claude Code session — set ANTHROPIC_API_KEY before running claude'",
-            "$env:ANTHROPIC_API_KEY  # confirm key is set"
+            "echo 'Schema reference. Replace this with your real setup before sharing.'"
           ],
-          "system_prompt_hint": "You are Claude Code running in Pluto's Terminals. Default to short explanations and runnable commands."
+          "system_prompt_hint": "Optional hint to remind the user what this tab is for."
         }
       ]
     },
@@ -33,11 +32,11 @@
   "env_hints": [
     {
       "key": "ANTHROPIC_API_KEY",
-      "purpose": "Required for Claude Code. Paste your key in the welcome screen or set it in the shell."
+      "purpose": "If you saved your key on the welcome screen, it's auto-injected. Otherwise paste it in the shell."
     }
   ],
   "notes": [
-    "v0 does NOT auto-load this file — the schema exists so v1 can wire a click-to-load flow.",
-    "v1 candidates: signed packs, MCP one-click install, optional prompt-pack store via secure storage, in-app pack browser."
+    "v0 cwd values are absolute paths. Use null to default to user home.",
+    "v1 will support templated paths like ${HOME}/Documents/myvault."
   ]
 }
