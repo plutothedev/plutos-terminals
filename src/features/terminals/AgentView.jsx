@@ -19,6 +19,48 @@ const PLUTO_MAGENTA = "#FF0080";
 const BORDER = "#2B2B2B";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
+// Segmented-control toggle (mirrored from TerminalsTab's ViewToggle so both
+// views show the same control). Renamed to avoid collision when both modules
+// are imported elsewhere.
+function ViewToggleAgent({ viewMode, onChange }) {
+  const halfStyle = (active) => ({
+    background: active ? ACCENT : "transparent",
+    color: active ? "#001" : FG,
+    border: "none",
+    padding: "4px 12px",
+    fontFamily: M,
+    fontSize: 11,
+    fontWeight: active ? 700 : 500,
+    letterSpacing: 0.5,
+    cursor: active ? "default" : "pointer",
+    transition: "background 100ms, color 100ms",
+  });
+  return (
+    <div
+      style={{ display: "inline-flex", border: `1px solid ${BORDER}`, borderRadius: 4, overflow: "hidden" }}
+      role="group"
+      aria-label="View mode"
+    >
+      <button
+        onClick={() => viewMode !== "terminal" && onChange("terminal")}
+        style={halfStyle(viewMode === "terminal")}
+        title="Terminal view — xterm panes"
+        aria-pressed={viewMode === "terminal"}
+      >
+        💻 TERMINAL
+      </button>
+      <button
+        onClick={() => viewMode !== "agent" && onChange("agent")}
+        style={halfStyle(viewMode === "agent")}
+        title="Agent view — compact cards monitoring all sessions"
+        aria-pressed={viewMode === "agent"}
+      >
+        🤖 AGENT
+      </button>
+    </div>
+  );
+}
+
 const ACTIVITY_COLORS = {
   active: "#FBBF24",
   done:   "#34D399",
@@ -31,7 +73,7 @@ const ACTIVITY_LABELS = {
   idle:   "idle",
 };
 
-export default function AgentView({ panels, projects, tabActivities, tabCosts, totalCost, onFocusTab }) {
+export default function AgentView({ panels, projects, tabActivities, tabCosts, totalCost, onFocusTab, viewMode, onSwitchView }) {
   // Flatten all tabs across all panels into a single ordered list for the grid.
   const allTabs = [];
   for (const panel of panels) {
@@ -63,7 +105,10 @@ export default function AgentView({ panels, projects, tabActivities, tabCosts, t
           gap: 14,
         }}
       >
-        <span style={{ color: FG_ACTIVE, letterSpacing: 0.5 }}>🤖 AGENTS</span>
+        {onSwitchView && (
+          <ViewToggleAgent viewMode={viewMode || "agent"} onChange={onSwitchView} />
+        )}
+        <span style={{ color: FG_DIM, opacity: 0.4 }}>·</span>
         <span style={{ color: FG_DIM }}>
           {allTabs.length} agent{allTabs.length === 1 ? "" : "s"} across {panels.length} panel{panels.length === 1 ? "" : "s"}
         </span>

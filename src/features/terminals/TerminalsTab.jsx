@@ -13,6 +13,56 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { gridDims, MAX_PANELS } from "./grid";
 import { THEMES } from "./themes";
 
+// Segmented-control view toggle. Always visible in both terminal + agent
+// view headers so the user can flip back from either side.
+function ViewToggle({ viewMode, onChange }) {
+  const ACCENT_LOCAL = "#4DAAFC";
+  const FG_DIM_LOCAL = "#9D9D9D";
+  const BORDER_LOCAL = "#2B2B2B";
+  const M_LOCAL = "'JetBrains Mono', Menlo, Monaco, monospace";
+  const halfStyle = (active) => ({
+    background: active ? ACCENT_LOCAL : "transparent",
+    color: active ? "#001" : FG_DIM_LOCAL,
+    border: "none",
+    padding: "4px 12px",
+    fontFamily: M_LOCAL,
+    fontSize: 11,
+    fontWeight: active ? 700 : 500,
+    letterSpacing: 0.5,
+    cursor: active ? "default" : "pointer",
+    transition: "background 100ms, color 100ms",
+  });
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        border: `1px solid ${BORDER_LOCAL}`,
+        borderRadius: 4,
+        overflow: "hidden",
+      }}
+      role="group"
+      aria-label="View mode"
+    >
+      <button
+        onClick={() => viewMode !== "terminal" && onChange("terminal")}
+        style={halfStyle(viewMode === "terminal")}
+        title="Terminal view — xterm panes"
+        aria-pressed={viewMode === "terminal"}
+      >
+        💻 TERMINAL
+      </button>
+      <button
+        onClick={() => viewMode !== "agent" && onChange("agent")}
+        style={halfStyle(viewMode === "agent")}
+        title="Agent view — compact cards monitoring all sessions"
+        aria-pressed={viewMode === "agent"}
+      >
+        🤖 AGENT
+      </button>
+    </div>
+  );
+}
+
 // Bundled prompt packs — eagerly imported at build time from the repo's
 // prompt-packs/ folder. Anyone who downloads a binary release gets all the
 // shipped packs available in-app via the 📚 packs dropdown without having to
@@ -619,6 +669,8 @@ export default function TerminalsTab({ st, save }) {
           tabCosts={tabCosts}
           totalCost={totalCost}
           onFocusTab={onFocusTabInTerminalView}
+          viewMode={viewMode}
+          onSwitchView={(mode) => save({ ...st, viewMode: mode })}
         />
       </div>
 
@@ -639,24 +691,10 @@ export default function TerminalsTab({ st, save }) {
           boxSizing: "border-box",
         }}
       >
-        <button
-          onClick={() => save({ ...st, viewMode: viewMode === "terminal" ? "agent" : "terminal" })}
-          style={{
-            background: "transparent",
-            border: `1px solid ${ACCENT}`,
-            color: ACCENT,
-            cursor: "pointer",
-            padding: "3px 10px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: 0.5,
-          }}
-          title={viewMode === "terminal" ? "Switch to agent view (cards grid; PTYs stay alive)" : "Switch to terminal view (xterm panes)"}
-        >
-          {viewMode === "terminal" ? "💻 TERMINAL" : "🤖 AGENT"}
-        </button>
+        <ViewToggle
+          viewMode={viewMode}
+          onChange={(mode) => save({ ...st, viewMode: mode })}
+        />
         <span style={{ color: FG_DIM, opacity: 0.4 }}>·</span>
         <span style={{ color: FG_DIM }}>
           {state.panels.length} panel{state.panels.length === 1 ? "" : "s"}
@@ -947,7 +985,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.3</span>
+        <span>v0.1.4</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <button
           onClick={() => setSetupOpen(true)}
