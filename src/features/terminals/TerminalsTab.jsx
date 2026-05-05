@@ -93,16 +93,27 @@ export default function TerminalsTab({ st, save }) {
   // Terminal view ↔ Agent view toggle. Persisted in st so the user's
   // preferred view sticks across restarts. PTYs stay alive across toggles —
   // we display:none the inactive view rather than unmount.
+  //
+  // NOTE: don't reference `persist` in callbacks defined here — `persist` is
+  // declared later in the function body via useCallback, so referencing it
+  // earlier hits a temporal-dead-zone ReferenceError on every render and
+  // crashes the whole TerminalsTab tree. Both callbacks below do everything
+  // in a single save() call instead.
   const viewMode = st?.viewMode === "agent" ? "agent" : "terminal";
-  const setViewMode = useCallback((mode) => {
-    persist({ ...state, /* state lives in st.terminalsState */ });
-    save({ ...st, viewMode: mode });
-  }, [st, save, state, persist]);
 
   const onFocusTabInTerminalView = useCallback((panelId, tabId) => {
-    save({ ...st, viewMode: "terminal" });
-    persist({ ...state, panels: state.panels.map(p => p.id === panelId ? { ...p, activeTabId: tabId } : p), activePanelId: panelId });
-  }, [st, save, state, persist]);
+    save({
+      ...st,
+      viewMode: "terminal",
+      terminalsState: {
+        ...state,
+        panels: state.panels.map((p) =>
+          p.id === panelId ? { ...p, activeTabId: tabId } : p
+        ),
+        activePanelId: panelId,
+      },
+    });
+  }, [st, save, state]);
 
   // Claude CLI availability — checked once on mount, surfaced in the status
   // bar. Doesn't gate behavior; just informs.
@@ -936,7 +947,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.2</span>
+        <span>v0.1.3</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <button
           onClick={() => setSetupOpen(true)}
