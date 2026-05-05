@@ -4,7 +4,7 @@ import UpdateBanner from "./components/UpdateBanner.jsx";
 
 const STORAGE_KEY = "plutos-terminals:state:v0";
 const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "0.1.1";
 
 const PAGE_BG = "#0a0a0a";
 const FG = "#9D9D9D";
@@ -118,9 +118,13 @@ function Welcome({ initialKey, discordUrl, onContinue }) {
               boxSizing: "border-box",
             }}
           />
-          <div style={{ color: FG_DIM, fontSize: 10, marginTop: 6 }}>
+          <div style={{ color: FG_DIM, fontSize: 10, marginTop: 6, lineHeight: 1.6 }}>
             Stored in this app's local data dir (plain JSON). Skip if you'd rather paste per-shell.
             You can edit, clear, or factory-reset later via the ⚙️ settings button in the header.
+          </div>
+          <div style={{ color: PLUTO_MAGENTA, fontSize: 10, marginTop: 10, lineHeight: 1.6 }}>
+            ⚠️ First time? You'll also need <strong>Node.js</strong> + the <strong>Claude Code CLI</strong> installed for <code style={{ background: "#0a0a0a", padding: "0 4px", borderRadius: 2 }}>claude</code> to work in any tab.
+            Click <strong>🚀 setup</strong> in the header after enter for a guided checklist + live API test.
           </div>
         </div>
 

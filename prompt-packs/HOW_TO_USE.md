@@ -1,6 +1,17 @@
 # How to use prompt packs
 
-A `.deck.json` prompt pack describes a multi-panel terminal layout you can clone in one click. v0.1.0 makes loading + authoring easy.
+A `.deck.json` prompt pack describes a multi-panel terminal layout you can clone in one click. v0.1.1 makes loading + authoring easy and includes a setup checker to verify your machine is ready.
+
+## First time? Run the setup check (`🚀 setup`)
+
+Before loading any pack, click **🚀 setup** in the header. The modal verifies:
+- ✅ Node.js installed
+- ✅ npm available
+- ✅ Claude Code CLI installed (`npm install -g @anthropic-ai/claude-code`)
+- ✅ Anthropic API key saved (paste in the welcome screen or ⚙️ settings)
+- ✅ Live API test passes (1-token throwaway call to verify your key)
+
+If any step's missing, the modal shows the exact install command + a copy button. The setup modal auto-opens on first launch if `claude` isn't on your PATH; re-open anytime via the header button.
 
 ## Three ways to load a pack
 

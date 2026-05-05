@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
 import ProjectDialog from "./ProjectDialog";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
+import SetupChecker from "../../components/SetupChecker.jsx";
 import { gridDims, MAX_PANELS } from "./grid";
 import { THEMES } from "./themes";
 
@@ -81,6 +83,36 @@ export default function TerminalsTab({ st, save }) {
   // Modal toggles
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+
+  // First-launch auto-detect: if user has never seen the setup checker AND
+  // `claude` isn't on PATH, auto-open the modal so they don't type `claude`
+  // and hit "command not recognized" as their first impression. Set
+  // st.setupSeen after first run so we don't auto-open again.
+  useEffect(() => {
+    if (st?.setupSeen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const claudeVersion = await invoke("check_command_version", { name: "claude" });
+        if (cancelled) return;
+        if (!claudeVersion) {
+          setSetupOpen(true);
+        }
+      } catch (_) {
+        // If the check itself errors (Tauri command not registered, etc.),
+        // open the setup modal anyway — better safe than silent.
+        if (!cancelled) setSetupOpen(true);
+      } finally {
+        if (!cancelled) {
+          // Mark seen even if claude was found, so subsequent launches skip.
+          save({ ...st, setupSeen: true });
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Per-tab activity state ({tabId: 'idle'|'active'|'done'}). NOT persisted —
   // it's transient and meaningless across app restarts (PTYs respawn fresh).
@@ -667,6 +699,22 @@ export default function TerminalsTab({ st, save }) {
           🔌 MCPs
         </button>
         <button
+          onClick={() => setSetupOpen(true)}
+          style={{
+            background: "transparent",
+            border: `1px solid ${BORDER}`,
+            color: ACCENT,
+            cursor: "pointer",
+            padding: "3px 10px",
+            borderRadius: 3,
+            fontFamily: M,
+            fontSize: 11,
+          }}
+          title="Setup check: Node.js + Claude CLI + API key + live API test"
+        >
+          🚀 setup
+        </button>
+        <button
           onClick={() => setSettingsOpen(true)}
           style={{
             background: "transparent",
@@ -790,6 +838,13 @@ export default function TerminalsTab({ st, save }) {
       <McpInstaller
         open={mcpOpen}
         onClose={() => setMcpOpen(false)}
+      />
+
+      <SetupChecker
+        open={setupOpen}
+        st={st}
+        onClose={() => setSetupOpen(false)}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       {!st?.terminalsOnboarded && (

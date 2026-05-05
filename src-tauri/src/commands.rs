@@ -66,6 +66,37 @@ pub fn pick_directory() -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
+// ── Setup-check helpers (used by SetupChecker for first-run prereq detection) ──
+//
+// The app expects users to have Node.js + Claude Code CLI on PATH. These
+// commands try `<bin> --version` and report the trimmed stdout if it succeeds,
+// or None if the binary isn't found / the call fails. Used by the 🚀 setup
+// modal to show users a clear "Node ✓ / Claude ✗ / API key ✓" checklist on
+// first launch instead of letting them type `claude` and hit "command not
+// recognized" as their first impression.
+
+#[tauri::command]
+pub fn check_command_version(name: String) -> Option<String> {
+    if name.is_empty() || name.contains(['/', '\\', '.', ' ']) {
+        // Reject obviously-malformed inputs — only bare command names allowed.
+        return None;
+    }
+    let output = std::process::Command::new(&name)
+        .arg("--version")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let combined = if !output.stdout.is_empty() {
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    } else {
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    };
+    let first_line = combined.lines().next().unwrap_or("").trim().to_string();
+    if first_line.is_empty() { None } else { Some(first_line) }
+}
+
 // ── Git branch + dirty status for a project's cwd ─────────────────
 
 #[derive(Serialize, Deserialize)]

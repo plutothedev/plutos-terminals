@@ -96,6 +96,7 @@ pub fn run() {
             commands::scrollback_delete,
             commands::transcript_append,
             commands::recent_files,
+            commands::check_command_version,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

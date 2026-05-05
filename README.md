@@ -8,6 +8,21 @@ Free multi-terminal desktop app for the Pluto community. Run AI agents in parall
 
 A Tauri + React + xterm.js desktop app for running multiple AI agents (Claude Code, Codex, etc.) side by side in a single window. Save and share multi-panel terminal setups as `.deck.json` **prompt packs** — clone someone else's exact configuration in one click.
 
+## Prerequisites
+
+Pluto's Terminals is a **terminal app** — it expects a few things on your machine before AI agents will run:
+
+1. **Node.js** (LTS) — install from [nodejs.org](https://nodejs.org/)
+2. **Claude Code CLI** — once Node is installed, run in any terminal:
+   ```
+   npm install -g @anthropic-ai/claude-code
+   ```
+3. **Anthropic API key** — get one from [console.anthropic.com](https://console.anthropic.com/), paste it into the Pluto's Terminals welcome screen or ⚙️ settings modal
+
+The app ships with a **🚀 setup** modal that detects all three on first launch and walks you through anything missing. It also includes a "test connection" button that makes a tiny live API call to verify your key works — no need to type `claude` and pray.
+
+If you already have all three on your machine, the app is plug-and-play.
+
 ## Features (v0.1.0)
 
 - **Multi-panel terminal grid** with up to 8 panels, multiple tabs per panel
