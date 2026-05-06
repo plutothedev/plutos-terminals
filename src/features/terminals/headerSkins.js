@@ -158,6 +158,56 @@ export function getSkinXtermTheme(skinId, opts = {}) {
   return skin.xterm;
 }
 
+// Header button styles — orthogonal axis to skins. Skin sets colors;
+// button-style sets shape / border / padding / hover behavior. Combine any
+// skin with any button-style. Default keeps current bordered-rectangle look.
+export const HEADER_BUTTON_STYLES = [
+  {
+    id: "default",
+    label: "Default — bordered rectangle",
+    description: "Current button look. Subtle, gets out of the way.",
+  },
+  {
+    id: "pill",
+    label: "Pill — fully rounded with soft fill",
+    description: "Rounded ends, subtle filled background, lift on hover. Friendlier feel.",
+  },
+  {
+    id: "ghost",
+    label: "Ghost — underline only on hover",
+    description: "No border at rest, underline appears on hover. Most minimal.",
+  },
+  {
+    id: "filled",
+    label: "Filled — solid accent CTA",
+    description: "Every button reads as a primary action. Loud, confident.",
+  },
+  {
+    id: "bracket",
+    label: "Bracket — terminal [label] aesthetic",
+    description: "No borders, text wrapped in [brackets]. Pure terminal feel.",
+  },
+  {
+    id: "chip",
+    label: "Chip — rounded with shadow",
+    description: "Soft corners, subtle drop-shadow, slight elevation. Modern SaaS.",
+  },
+];
+
+export function getButtonStyleId(stored) {
+  const ids = HEADER_BUTTON_STYLES.map((s) => s.id);
+  if (typeof stored === "string" && ids.includes(stored)) return stored;
+  return "default";
+}
+
+// Apply button style globally on <html> alongside data-phn-skin so button
+// shape/border/padding rules cascade everywhere (header, modals, etc.).
+export function applyGlobalButtonStyle(styleId) {
+  if (typeof document === "undefined") return;
+  const id = HEADER_BUTTON_STYLES.find((s) => s.id === styleId) ? styleId : "default";
+  document.documentElement.dataset.phnBtnStyle = id;
+}
+
 export function getSkinId(stored) {
   const ids = HEADER_SKINS.map((s) => s.id);
   if (typeof stored === "string" && ids.includes(stored)) return stored;
@@ -695,6 +745,121 @@ const CSS = `
   --phn-text-active: #1d1d1f;
   --phn-text-dim: #6e6e73;
   --phn-link: #0066cc;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   HEADER BUTTON STYLES — orthogonal to skins. Set on <html> via data-phn-
+   btn-style. Placed AFTER skin rules so they win order-based ties at equal
+   specificity. Use !important sparingly (only where skin :hover bg would
+   otherwise override an intentional opacity / transparency).
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── pill ── */
+[data-phn-btn-style="pill"] .phn-btn,
+[data-phn-btn-style="pill"] .phn-select {
+  border-radius: 999px;
+  padding: 4px 14px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+[data-phn-btn-style="pill"] .phn-btn:hover:not(:disabled),
+[data-phn-btn-style="pill"] .phn-select:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+}
+
+/* ── ghost ── */
+[data-phn-btn-style="ghost"] .phn-btn,
+[data-phn-btn-style="ghost"] .phn-select {
+  border: none !important;
+  border-radius: 0;
+  padding: 5px 8px;
+  background: transparent !important;
+  position: relative;
+  text-shadow: none;
+}
+[data-phn-btn-style="ghost"] .phn-btn::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 2px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+[data-phn-btn-style="ghost"] .phn-btn:hover:not(:disabled)::after {
+  opacity: 0.7;
+}
+[data-phn-btn-style="ghost"] .phn-btn:hover:not(:disabled),
+[data-phn-btn-style="ghost"] .phn-select:hover {
+  background: transparent !important;
+  box-shadow: none;
+}
+
+/* ── filled ── */
+[data-phn-btn-style="filled"] .phn-btn,
+[data-phn-btn-style="filled"] .phn-select {
+  background: var(--phn-link, #4DAAFC) !important;
+  border: 1px solid var(--phn-link, #4DAAFC) !important;
+  color: var(--phn-page-bg, #0a0a0a) !important;
+  font-weight: 600;
+  text-shadow: none;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+[data-phn-btn-style="filled"] .phn-btn:hover:not(:disabled),
+[data-phn-btn-style="filled"] .phn-select:hover {
+  filter: brightness(1.18);
+  transform: translateY(-1px);
+}
+[data-phn-btn-style="filled"] .phn-muted {
+  background: transparent !important;
+  border: 1px solid var(--phn-surface-border, #2B2B2B) !important;
+  color: var(--phn-text-fg, #9D9D9D) !important;
+  font-weight: normal;
+}
+
+/* ── bracket ── */
+[data-phn-btn-style="bracket"] .phn-btn,
+[data-phn-btn-style="bracket"] .phn-select {
+  border: none !important;
+  background: transparent !important;
+  padding: 3px 4px;
+  position: relative;
+  text-shadow: none;
+}
+[data-phn-btn-style="bracket"] .phn-btn::before {
+  content: "[ ";
+  opacity: 0.45;
+  transition: opacity 100ms ease;
+}
+[data-phn-btn-style="bracket"] .phn-btn::after {
+  content: " ]";
+  opacity: 0.45;
+  transition: opacity 100ms ease;
+}
+[data-phn-btn-style="bracket"] .phn-btn:hover:not(:disabled) {
+  background: transparent !important;
+}
+[data-phn-btn-style="bracket"] .phn-btn:hover:not(:disabled)::before,
+[data-phn-btn-style="bracket"] .phn-btn:hover:not(:disabled)::after {
+  opacity: 1;
+}
+
+/* ── chip ── */
+[data-phn-btn-style="chip"] .phn-btn,
+[data-phn-btn-style="chip"] .phn-select {
+  border-radius: 6px;
+  padding: 4px 11px;
+  box-shadow: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.2);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  transition: transform 100ms ease, box-shadow 100ms ease, background 100ms ease;
+}
+[data-phn-btn-style="chip"] .phn-btn:hover:not(:disabled),
+[data-phn-btn-style="chip"] .phn-select:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 0 rgba(255,255,255,0.06) inset, 0 4px 10px rgba(0,0,0,0.3);
 }
 `;
 

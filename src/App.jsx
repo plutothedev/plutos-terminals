@@ -6,7 +6,7 @@ import { ConfirmProvider } from "./components/ConfirmModal.jsx";
 
 const STORAGE_KEY = "plutos-terminals:state:v0";
 const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.12";
+const APP_VERSION = "0.1.13";
 
 const PAGE_BG = "#0a0a0a";
 const FG = "#9D9D9D";

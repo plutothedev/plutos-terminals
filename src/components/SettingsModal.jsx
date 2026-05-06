@@ -4,7 +4,12 @@ import { useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
 import { useConfirm } from "./ConfirmModal.jsx";
-import { HEADER_SKINS, getSkinId } from "../features/terminals/headerSkins.js";
+import {
+  HEADER_SKINS,
+  HEADER_BUTTON_STYLES,
+  getSkinId,
+  getButtonStyleId,
+} from "../features/terminals/headerSkins.js";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const PLUTO_MAGENTA = "#FF0080";
@@ -12,6 +17,7 @@ const PLUTO_MAGENTA = "#FF0080";
 export default function SettingsModal({ open, st, save, onClose }) {
   const [anthropicKey, setAnthropicKey] = useState(st.anthropicKey || "");
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
+  const [headerButtonStyle, setHeaderButtonStyle] = useState(getButtonStyleId(st.headerButtonStyle));
   const [pureBlackTerminal, setPureBlackTerminal] = useState(!!st.pureBlackTerminal);
   const [showKey, setShowKey] = useState(false);
   const toast = useToast();
@@ -26,6 +32,7 @@ export default function SettingsModal({ open, st, save, onClose }) {
       ...st,
       anthropicKey,
       headerSkin: getSkinId(headerSkin),
+      headerButtonStyle: getButtonStyleId(headerButtonStyle),
       pureBlackTerminal,
     });
     toast.success("Settings saved.");
@@ -44,8 +51,18 @@ export default function SettingsModal({ open, st, save, onClose }) {
     save({ ...st, pureBlackTerminal: next });
   };
 
+  // Live button-style preview — applies as soon as user picks.
+  const handleButtonStyleChange = (id) => {
+    const next = getButtonStyleId(id);
+    setHeaderButtonStyle(next);
+    save({ ...st, headerButtonStyle: next });
+  };
+
   const activeSkinDescription =
     HEADER_SKINS.find((s) => s.id === headerSkin)?.description || "";
+
+  const activeButtonStyleDescription =
+    HEADER_BUTTON_STYLES.find((s) => s.id === headerButtonStyle)?.description || "";
 
   const handleClearKey = async () => {
     const ok = await confirm(
@@ -104,6 +121,21 @@ export default function SettingsModal({ open, st, save, onClose }) {
           ))}
         </select>
         <Hint>{activeSkinDescription} The skin themes the entire app — header, sidebar, status bar, and terminal background. Changes apply instantly.</Hint>
+      </Field>
+
+      <Field label="HEADER BUTTONS (LIVE PREVIEW)">
+        <select
+          value={headerButtonStyle}
+          onChange={(e) => handleButtonStyleChange(e.target.value)}
+          style={inputStyle}
+        >
+          {HEADER_BUTTON_STYLES.map((s) => (
+            <option key={s.id} value={s.id} style={{ background: "var(--phn-page-bg, #0a0a0a)", color: FG_ACTIVE }}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+        <Hint>{activeButtonStyleDescription} Combines with any skin — same colors, different button shape / border / hover. Pick what feels right for your skin.</Hint>
       </Field>
 
       <Field label="TERMINAL BACKGROUND">
