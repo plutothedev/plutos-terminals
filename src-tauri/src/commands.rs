@@ -7,7 +7,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use tauri::Manager;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
