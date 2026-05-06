@@ -13,8 +13,14 @@
 //
 // Reference: https://docs.asciinema.org/manual/asciicast/v2/
 
-const recordings = new Map(); // tabId → { startTs, width, height, label, events: [] }
+const recordings = new Map(); // tabId → { startTs, width, height, label, events: [], capped }
 const listeners = new Set();
+
+// v0.1.22: cap recordings at 100k events (~10-20 MB depending on chunk
+// size). A long-running session at 100KB/s of output otherwise grows to
+// hundreds of MB in RAM. When the cap is hit, pushOutput stops appending
+// and sets `capped = true` so the UI can warn the user to save and stop.
+const MAX_EVENTS = 100_000;
 
 function notify() {
   for (const l of listeners) {
@@ -52,9 +58,26 @@ export function isRecording(tabId) {
 export function pushOutput(tabId, data) {
   const rec = recordings.get(tabId);
   if (!rec) return;
+  if (rec.capped) return;
   const t = (performance.now() - rec.startTs) / 1000;
   rec.events.push([t, "o", data]);
+  if (rec.events.length >= MAX_EVENTS) {
+    rec.capped = true;
+    notify(); // surfaces in UI so user knows to save and stop
+  }
 }
+
+// Returns true if any recording has hit the cap. UI uses this to show a
+// magenta warning in the status bar telling the user to save.
+export function anyCapped() {
+  for (const rec of recordings.values()) {
+    if (rec.capped) return true;
+  }
+  return false;
+}
+
+// Returns the cap (so UI can mention the limit if it shows).
+export const RECORDING_MAX_EVENTS = MAX_EVENTS;
 
 export function activeTabIds() {
   return Array.from(recordings.keys());

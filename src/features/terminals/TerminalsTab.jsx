@@ -19,8 +19,6 @@ import {
   getSkinXtermTheme,
   injectHeaderSkinsCss,
   applyGlobalSkin,
-  getButtonStyleId,
-  applyGlobalButtonStyle,
 } from "./headerSkins";
 import * as recording from "./recording.js";
 
@@ -98,10 +96,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Recording state — subscribe to recording-module changes so the status
   // bar indicator + command palette labels update when start/stop fires.
+  // Also tracks cap-hit (v0.1.22) — long recordings auto-stop appending
+  // events at MAX_EVENTS to bound memory growth.
   const [recordingTabIds, setRecordingTabIds] = useState(() => recording.activeTabIds());
+  const [recordingCapHit, setRecordingCapHit] = useState(() => recording.anyCapped());
   useEffect(() => {
     const unsubscribe = recording.onChange(() => {
       setRecordingTabIds(recording.activeTabIds());
+      setRecordingCapHit(recording.anyCapped());
     });
     return unsubscribe;
   }, []);
@@ -139,11 +141,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   useEffect(() => {
     applyGlobalSkin(headerSkinId);
   }, [headerSkinId]);
-
-  const headerButtonStyleId = getButtonStyleId(st?.headerButtonStyle);
-  useEffect(() => {
-    applyGlobalButtonStyle(headerButtonStyleId);
-  }, [headerButtonStyleId]);
 
   // Keyboard shortcuts (v0.1.16). Window-level capture so they fire even
   // when xterm has focus. Uses Ctrl+Shift+ for tab/window ops to avoid
@@ -1109,7 +1106,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.21</span>
+        <span>v0.1.22</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}
@@ -1164,9 +1161,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 fontSize: 10,
                 fontWeight: 600,
               }}
-              title={activeTabRecording ? "Click to stop & save the active tab's recording" : "Click to switch to the recording tab"}
+              title={recordingCapHit
+                ? `Recording hit ${recording.RECORDING_MAX_EVENTS / 1000}k events (memory cap). Save now and start a new recording for further capture.`
+                : activeTabRecording
+                  ? "Click to stop & save the active tab's recording"
+                  : "Click to switch to the recording tab"}
             >
-              ● rec {recordingTabIds.length > 1 ? `(×${recordingTabIds.length})` : ""}
+              {recordingCapHit ? "⚠ rec capped — save" : `● rec${recordingTabIds.length > 1 ? ` (×${recordingTabIds.length})` : ""}`}
             </button>
           </>
         )}

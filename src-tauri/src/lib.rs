@@ -78,11 +78,21 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Intercept window close: hide the window instead of quitting.
-            // Use the tray "Quit" menu to actually end the process.
+            // v0.1.22 close behavior:
+            // - Main window (label "main") → hide on close (system tray pattern;
+            //   PTYs keep running; tray Show / Quit are the controls).
+            // - Secondary windows (label starts with "win-") → close normally.
+            //   They have no per-window tray entry, so hiding them would lose
+            //   them. Destroying frees their PTYs cleanly via Drop on the
+            //   webview unmount; user can re-spawn from any other window via
+            //   Ctrl+K → Open new window.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                let label = window.label();
+                if label == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                // else: let the close proceed (api.prevent_close not called).
             }
         })
         .invoke_handler(tauri::generate_handler![
