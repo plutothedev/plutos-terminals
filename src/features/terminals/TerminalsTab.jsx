@@ -22,6 +22,7 @@ import {
   getButtonStyleId,
   applyGlobalButtonStyle,
 } from "./headerSkins";
+import * as recording from "./recording.js";
 
 // Bundled prompt packs — eagerly imported at build time from the repo's
 // prompt-packs/ folder. Anyone who downloads a binary release gets all the
@@ -94,6 +95,16 @@ export default function TerminalsTab({ st, save }) {
   const [urlOpen, setUrlOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  // Recording state — subscribe to recording-module changes so the status
+  // bar indicator + command palette labels update when start/stop fires.
+  const [recordingTabIds, setRecordingTabIds] = useState(() => recording.activeTabIds());
+  useEffect(() => {
+    const unsubscribe = recording.onChange(() => {
+      setRecordingTabIds(recording.activeTabIds());
+    });
+    return unsubscribe;
+  }, []);
 
 
   // Inject header-skin CSS once. Idempotent inside injectHeaderSkinsCss.
@@ -704,6 +715,57 @@ export default function TerminalsTab({ st, save }) {
   const canAddPanel = state.panels.length < MAX_PANELS;
   const canClosePanel = state.panels.length > 1;
 
+  // Recording: start / stop+save handlers for the active tab.
+  const activePanel = state.panels.find((p) => p.id === state.activePanelId);
+  const activeTabId = activePanel?.activeTabId;
+  const activeTab = activePanel?.tabs.find((t) => t.id === activeTabId);
+  const activeTabRecording = activeTabId ? recordingTabIds.includes(activeTabId) : false;
+
+  const startRecordingActive = useCallback(() => {
+    if (!activeTabId) return;
+    if (recording.isRecording(activeTabId)) {
+      toast.info("This tab is already being recorded.");
+      return;
+    }
+    recording.startRecording(activeTabId, {
+      width: 80,
+      height: 24,
+      label: activeTab?.label || "tab",
+    });
+    toast.success(`🎬 Recording "${activeTab?.label || "tab"}" — pick "Stop & save" when done.`);
+  }, [activeTabId, activeTab, toast]);
+
+  const stopAndSaveRecording = useCallback(async () => {
+    if (!activeTabId) return;
+    if (!recording.isRecording(activeTabId)) {
+      toast.error("This tab isn't being recorded.");
+      return;
+    }
+    const cast = recording.stopRecording(activeTabId);
+    if (!cast) {
+      toast.error("Recording was empty — nothing to save.");
+      return;
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const safeLabel = (activeTab?.label || "session").replace(/[^a-zA-Z0-9_-]+/g, "_");
+    const suggested = `plutos-terminals_${safeLabel}_${stamp}.cast`;
+    try {
+      const path = await invoke("save_text_to_file", {
+        suggestedName: suggested,
+        extension: "cast",
+        extensionLabel: "Asciinema cast file (.cast)",
+        contents: cast,
+      });
+      if (path) {
+        toast.success(`Saved recording to ${path}`);
+      } else {
+        toast.info("Recording discarded (save canceled).");
+      }
+    } catch (err) {
+      toast.error(`Save failed: ${err}`);
+    }
+  }, [activeTabId, activeTab, toast]);
+
   // Wire keyboard-shortcut callbacks. Updates per-render so closures see the
   // latest state (no stale captures).
   shortcutsRef.current = {
@@ -967,6 +1029,21 @@ export default function TerminalsTab({ st, save }) {
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
           { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
           { id: "settings", icon: "⚙️", label: "Open settings", hint: "API key, app skin, header style, density, terminal bg", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },
+          activeTabRecording
+            ? {
+                id: "stop-recording",
+                icon: "⏹",
+                label: "Stop & save recording",
+                hint: `Save .cast file for the active tab (${activeTab?.label || "tab"})`,
+                action: () => stopAndSaveRecording(),
+              }
+            : {
+                id: "start-recording",
+                icon: "🎬",
+                label: "Start recording active tab",
+                hint: `Record terminal output of "${activeTab?.label || "tab"}" as an asciinema .cast file`,
+                action: () => startRecordingActive(),
+              },
           {
             id: "reset-workspace",
             icon: "♻️",
@@ -1014,7 +1091,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.17</span>
+        <span>v0.1.18</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}
@@ -1041,6 +1118,40 @@ export default function TerminalsTab({ st, save }) {
         </button>
         <span className="phn-statusbar-divider">·</span>
         <span>terminal bg: {pureBlackTerminal ? "pure black" : "skin"}</span>
+        {recordingTabIds.length > 0 && (
+          <>
+            <span className="phn-statusbar-divider">·</span>
+            <button
+              onClick={() => {
+                if (activeTabRecording) stopAndSaveRecording();
+                else if (recordingTabIds[0]) {
+                  // Switch to the recording tab so user can save it.
+                  const target = state.panels.find((p) => p.tabs.some((t) => t.id === recordingTabIds[0]));
+                  if (target) {
+                    setActivePanel(target.id);
+                    persist({ ...state, activePanelId: target.id, panels: state.panels.map((p) =>
+                      p.id === target.id ? { ...p, activeTabId: recordingTabIds[0] } : p
+                    ) });
+                  }
+                }
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                margin: 0,
+                cursor: "pointer",
+                color: "#FF0080",
+                fontFamily: M,
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+              title={activeTabRecording ? "Click to stop & save the active tab's recording" : "Click to switch to the recording tab"}
+            >
+              ● rec {recordingTabIds.length > 1 ? `(×${recordingTabIds.length})` : ""}
+            </button>
+          </>
+        )}
         {(totalCost.cost > 0 || totalCost.tokens > 0) && (
           <>
             <span className="phn-statusbar-divider">·</span>

@@ -66,6 +66,34 @@ pub fn pick_directory() -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
+// ── Save text to a user-picked file path (v0.1.18 session recording) ──
+//
+// Used by the asciinema recorder to write .cast files. Caller passes the
+// suggested filename + extension; user picks final path via native save
+// dialog. Returns Ok(Some(path)) on success, Ok(None) if user canceled,
+// Err on disk error. Frontend handles user feedback (toast).
+
+#[tauri::command]
+pub fn save_text_to_file(
+    suggested_name: String,
+    extension: String,
+    extension_label: String,
+    contents: String,
+) -> Result<Option<String>, String> {
+    let dialog = rfd::FileDialog::new()
+        .set_file_name(&suggested_name)
+        .add_filter(&extension_label, &[&extension])
+        .add_filter("All files", &["*"]);
+    let chosen = dialog.save_file();
+    match chosen {
+        Some(path) => {
+            fs::write(&path, contents).map_err(|e| e.to_string())?;
+            Ok(Some(path.to_string_lossy().to_string()))
+        }
+        None => Ok(None),
+    }
+}
+
 // ── Setup-check helpers (used by SetupChecker for first-run prereq detection) ──
 //
 // The app expects users to have Node.js + Claude Code CLI on PATH. These

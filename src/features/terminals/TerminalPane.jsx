@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import { pushOutput as pushRecordingOutput } from "./recording.js";
 
 const MIN_COLS = 40;
 const MIN_ROWS = 10;
@@ -365,6 +366,10 @@ export default function TerminalPane({
           if (!alive) return;
           const payload = e.payload || "";
           term.write(payload);
+
+          // v0.1.18: feed the asciinema recorder if this tab is being recorded.
+          // Helper is a no-op when there's no active recording for tabId.
+          pushRecordingOutput(tabId, payload);
 
           // Feed the various analysis buffers.
           appendScrollback(payload);
