@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
+use tauri::Manager;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
@@ -64,6 +65,46 @@ pub fn pick_directory() -> Option<String> {
     rfd::FileDialog::new()
         .pick_folder()
         .map(|p| p.to_string_lossy().to_string())
+}
+
+// ── Spawn a new app window (v0.1.19 multi-window) ──────────────────
+//
+// Each new window gets its own URL fragment (?w=<id>) so the React app
+// can isolate localStorage state per window via STORAGE_KEY suffix. The
+// window inherits app config + dev tools + tray-hide behavior. Closing
+// secondary windows hides them like the main window (so PTY sessions
+// keep running). True quit still happens via the tray menu.
+
+#[tauri::command]
+pub async fn spawn_new_window(app: tauri::AppHandle, window_id: String) -> Result<String, String> {
+    let safe_id: String = window_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(32)
+        .collect();
+    if safe_id.is_empty() {
+        return Err("window_id must contain at least one alphanumeric char".into());
+    }
+    let label = format!("win-{}", safe_id);
+    if app.get_webview_window(&label).is_some() {
+        // Already exists — focus it.
+        if let Some(w) = app.get_webview_window(&label) {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+        return Ok(label);
+    }
+
+    let url = tauri::WebviewUrl::App(format!("index.html?w={}", safe_id).into());
+    tauri::WebviewWindowBuilder::new(&app, &label, url)
+        .title(&format!("Pluto's Terminals — {}", safe_id))
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(900.0, 600.0)
+        .resizable(true)
+        .decorations(true)
+        .build()
+        .map_err(|e| format!("spawn_new_window failed: {e}"))?;
+    Ok(label)
 }
 
 // ── Save text to a user-picked file path (v0.1.18 session recording) ──

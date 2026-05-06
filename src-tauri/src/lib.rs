@@ -99,6 +99,7 @@ pub fn run() {
             commands::check_command_version,
             commands::mcp_install,
             commands::save_text_to_file,
+            commands::spawn_new_window,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

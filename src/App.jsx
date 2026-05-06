@@ -13,9 +13,23 @@ import {
   applyGlobalLayout,
 } from "./features/terminals/headerSkins.js";
 
-const STORAGE_KEY = "plutos-terminals:state:v0";
+// Per-window storage key (v0.1.19 multi-window). The default window has no
+// ?w= query param → uses the original key for backward compat. Secondary
+// windows spawned via the spawn_new_window Tauri command get ?w=<id> →
+// suffix the key so each window has independent state (panels, skin, etc.).
+function getWindowStorageKey() {
+  if (typeof window === "undefined") return "plutos-terminals:state:v0";
+  const w = new URLSearchParams(window.location.search).get("w");
+  if (!w) return "plutos-terminals:state:v0";
+  return `plutos-terminals:state:v0:${w}`;
+}
+const STORAGE_KEY = getWindowStorageKey();
+const WINDOW_ID = (() => {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("w") || null;
+})();
 const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.18";
+const APP_VERSION = "0.1.19";
 
 const PAGE_BG = "var(--phn-page-bg, #0a0a0a)";
 const FG = "var(--phn-text-fg, #9D9D9D)";

@@ -1045,6 +1045,21 @@ export default function TerminalsTab({ st, save }) {
                 action: () => startRecordingActive(),
               },
           {
+            id: "new-window",
+            icon: "🪟",
+            label: "Open new window",
+            hint: "Spawns a fresh window with its own independent panel layout, skin, and packs",
+            action: async () => {
+              try {
+                const id = `${Date.now().toString(36)}`.slice(-6);
+                const label = await invoke("spawn_new_window", { windowId: id });
+                toast.success(`New window opened: ${label}`);
+              } catch (err) {
+                toast.error(`Failed to open new window: ${err}`);
+              }
+            },
+          },
+          {
             id: "reset-workspace",
             icon: "♻️",
             label: "Reset workspace",
@@ -1091,7 +1106,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.18</span>
+        <span>v0.1.19</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}
