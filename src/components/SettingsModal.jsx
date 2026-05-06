@@ -1,6 +1,5 @@
-// Settings modal. Edit Anthropic API key, VAULT path, Discord invite URL,
-// default theme, custom env overrides. Plus factory reset (clears all
-// localStorage state).
+// Settings modal. Edit Anthropic API key, Discord invite URL,
+// plus factory reset (clears all localStorage state).
 
 import { useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
@@ -13,7 +12,6 @@ const DEFAULT_DISCORD = "https://discord.gg/3cZQVgKF";
 
 export default function SettingsModal({ open, st, save, onClose }) {
   const [anthropicKey, setAnthropicKey] = useState(st.anthropicKey || "");
-  const [vaultPath, setVaultPath] = useState(st.vaultPath || "");
   const [discordUrl, setDiscordUrl] = useState(st.discordUrl || DEFAULT_DISCORD);
   const [showKey, setShowKey] = useState(false);
   const toast = useToast();
@@ -27,7 +25,6 @@ export default function SettingsModal({ open, st, save, onClose }) {
     save({
       ...st,
       anthropicKey,
-      vaultPath,
       discordUrl: discordUrl || DEFAULT_DISCORD,
     });
     toast.success("Settings saved.");
@@ -47,7 +44,7 @@ export default function SettingsModal({ open, st, save, onClose }) {
 
   const handleFactoryReset = async () => {
     const ok = await confirm(
-      "Factory reset wipes ALL Pluto's Terminals state from this machine: panel layout, projects, scrollback, API key, vault path, theme, and welcome flag. The app reloads to the welcome screen. Continue?",
+      "Factory reset wipes ALL Pluto's Terminals state from this machine: panel layout, projects, scrollback, API key, theme, and welcome flag. The app reloads to the welcome screen. Continue?",
       { title: "Factory reset?", confirmLabel: "reset everything", destructive: true }
     );
     if (!ok) return;
@@ -76,17 +73,6 @@ export default function SettingsModal({ open, st, save, onClose }) {
           </button>
         </div>
         <Hint>Auto-injected as ANTHROPIC_API_KEY into every new shell. Stored in plain JSON in app local data dir.</Hint>
-      </Field>
-
-      <Field label="${VAULT} PATH">
-        <input
-          type="text"
-          value={vaultPath}
-          onChange={(e) => setVaultPath(e.target.value)}
-          placeholder="C:\Users\you\Documents\my-second-brain"
-          style={inputStyle}
-        />
-        <Hint>Used by packs that reference ${"${VAULT}"} in their cwd (e.g. <code style={codeStyle}>pluto-personal-strategist</code>). Leave blank if you don't have a second-brain vault.</Hint>
       </Field>
 
       <Field label="PLUTO DISCORD INVITE URL">

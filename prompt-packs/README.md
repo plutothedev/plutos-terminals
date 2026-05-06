@@ -52,22 +52,6 @@ A `.deck.json` prompt pack describes a multi-panel terminal layout you can clone
 
 ---
 
-## `pluto-personal-strategist.deck.json` (template — requires adaptation)
-
-**Purpose:** demonstrates Pluto's actual workflow — Claude Code at home-dir level acting as "Strategist Claude" over an Obsidian-based second-brain vault, paired with a vault-root scratch shell.
-
-**Layout:** 2 panels × 1 tab each.
-
-**Agents:** Claude Code (Strategist) + scratch shell. The Strategist reads vault meta files on first request.
-
-**⚠️ Requires adaptation:** the cwd paths are Pluto's machine (`C:\Users\pluto` and `C:\Users\pluto\Documents\pluto-mind`). On a fresh download those won't exist on your machine. **Edit the cwd values to your own home + your own second-brain vault path before loading.**
-
-**When to use:** you have your own Obsidian-based second-brain (or similar) and want to run Claude as a meta-strategist over it. If you don't have a vault, load `claude-code-basic.deck.json` instead.
-
-**Requires:** `ANTHROPIC_API_KEY` + a second-brain vault at the path you set.
-
----
-
 ## `example.deck.json` (schema reference)
 
 Don't load this for real work. It exists as a schema reference — every field, with comments. Use it as a starting template when authoring your own pack. See `SCHEMA.md` for the field-by-field breakdown.
@@ -88,8 +72,7 @@ To share your pack with the community: open a PR adding it to this folder. Curat
 
 ## v1+ roadmap
 
-- **In-app pack browser** — UI to browse local + remote packs without file picker
+- **In-app pack browser** — UI to browse local + remote packs without file picker (current: `📚 packs…` dropdown for bundled, `📁 from file` for local, `🔗 from URL` for remote)
 - **Click-to-load deep links** — `plutosterminals://load?pack=<base64>` URLs that the app intercepts; one-click load from a video description or social post
 - **Pack signing** — community packs signed with a Pluto-controlled key for trust on third-party loads
-- **Templated paths** — `${HOME}`, `${VAULT}` variables so packs work cross-machine without manual editing
-- **MCP one-click installer** — `mcp_servers[]` field becomes wired; popular MCPs install from the UI
+- **MCP one-click installer** — ✅ shipped v0.1.8: `🔌 MCPs` modal `install` button runs `claude mcp add ...` for you

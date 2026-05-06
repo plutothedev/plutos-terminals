@@ -331,9 +331,9 @@ export default function TerminalPane({
         const cols = Math.max(term.cols, MIN_COLS);
         const rows = Math.max(term.rows, MIN_ROWS);
         // Read persisted settings from app state and inject into the spawned
-        // shell so `claude` + ${VAULT} cwd expansion + custom env overrides
-        // just work without per-shell pastes. Failsafe: if state is unreadable,
-        // spawn without env overrides — user can paste manually.
+        // shell so `claude` + custom env overrides just work without per-shell
+        // pastes. Failsafe: if state is unreadable, spawn without env overrides
+        // — user can paste manually.
         let extraEnv = null;
         try {
           const raw = localStorage.getItem("plutos-terminals:state:v0");
@@ -342,9 +342,6 @@ export default function TerminalPane({
             const env = {};
             if (persisted && typeof persisted.anthropicKey === "string" && persisted.anthropicKey.length > 0) {
               env.ANTHROPIC_API_KEY = persisted.anthropicKey;
-            }
-            if (persisted && typeof persisted.vaultPath === "string" && persisted.vaultPath.length > 0) {
-              env.VAULT = persisted.vaultPath;
             }
             if (persisted && persisted.envOverrides && typeof persisted.envOverrides === "object") {
               for (const [k, v] of Object.entries(persisted.envOverrides)) {

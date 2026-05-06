@@ -39,15 +39,15 @@ If you already have all three on your machine, the app is plug-and-play.
 - **System tray + hide-on-close** — sessions keep running in background
 - **Project sidebar** — pin folders with cwd + start commands; drag projects into panels
 - **Pluto Dark / Pluto Light** terminal themes
-- **📚 Bundled prompt packs** — 5 packs ship in the binary (`claude-code-basic`, `dual-claude-pair`, `trading-workflow`, `pluto-personal-strategist`, `example`)
+- **📚 Bundled prompt packs** — 4 packs ship in the binary (`claude-code-basic`, `dual-claude-pair`, `trading-workflow`, `example`)
 - **📁 Custom pack loading** — pick any `.deck.json` from disk, or drag-and-drop onto the window
 - **💾 Pack export** — save current panel layout as a shareable `.deck.json`
 - **⚡ Quick-spawn agent grid** — 4-up Researcher / Coder / Reviewer / Journal in one click
 - **🔌 MCP installer** — curated catalog with copy-paste install commands (filesystem, GitHub, Puppeteer, Brave Search, Fetch, Memory)
 - **🚀 Setup checker** — first-launch detection of Node.js + npm + Claude Code CLI + saved API key, with copy-command buttons for anything missing + live API test
-- **⚙️ Settings modal** — Anthropic API key, `${VAULT}` path, Discord URL, factory reset (with format validation + branded confirms)
+- **⚙️ Settings modal** — Anthropic API key, Discord URL, factory reset (with format validation + branded confirms)
 - **API key auto-injection** — saved key flows into every new shell so `claude` works without per-shell setup
-- **Templated `${VARNAME}` paths in packs** — `${USERPROFILE}` / `${HOME}` / `${VAULT}` / any process env var expand at spawn time
+- **Templated `${VARNAME}` paths in packs** — `${USERPROFILE}` / `${HOME}` / any process env var expand at spawn time
 - **Status bar** — version, Claude availability, total cost, theme, GitHub + Discord links — always visible at the bottom
 - **Auto-update banner** — surfaces newer GitHub releases on launch
 - **Pluto-branded icons** — terminal-window silhouette with Pluto-magenta cursor signature
