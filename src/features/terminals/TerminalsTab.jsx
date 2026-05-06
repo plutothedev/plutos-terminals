@@ -12,8 +12,7 @@ import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { gridDims, MAX_PANELS } from "./grid";
-import { THEMES } from "./themes";
-import { getSkinId, injectHeaderSkinsCss } from "./headerSkins";
+import { getSkinId, getSkinXtermTheme, injectHeaderSkinsCss } from "./headerSkins";
 
 // Bundled prompt packs — eagerly imported at build time from the repo's
 // prompt-packs/ folder. Anyone who downloads a binary release gets all the
@@ -31,13 +30,6 @@ const BUNDLED_PACKS = Object.entries(BUNDLED_PACK_MODULES)
   }))
   .sort((a, b) => (a.data?.name || a.filename).localeCompare(b.data?.name || b.filename));
 
-const HEADER_BG = "#181818";
-const PAGE_BG = "#0a0a0a";
-const FG = "#9D9D9D";
-const FG_ACTIVE = "#E6E6E6";
-const FG_DIM = "#555555";
-const ACCENT = "#4DAAFC";
-const BORDER = "#2B2B2B";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 function freshId(prefix) {
@@ -60,7 +52,6 @@ function defaultState() {
     activePanelId: panel.id,
     gridMode: "auto",
     projects: [],
-    themeKey: "default",
   };
 }
 
@@ -100,6 +91,11 @@ export default function TerminalsTab({ st, save }) {
   }, []);
 
   const headerSkinId = getSkinId(st?.headerSkin);
+  const pureBlackTerminal = !!st?.pureBlackTerminal;
+  const xtermTheme = useMemo(
+    () => getSkinXtermTheme(headerSkinId, { pureBlackTerminal }),
+    [headerSkinId, pureBlackTerminal]
+  );
 
   // Claude CLI availability — checked once on mount, surfaced in the status
   // bar. Doesn't gate behavior; just informs.
@@ -333,11 +329,6 @@ export default function TerminalsTab({ st, save }) {
     }
     let activePanelId = panels.find(p => p.id === tgtPanelId) ? tgtPanelId : panels[0].id;
     persist({ ...state, panels, activePanelId });
-  }, [state, persist]);
-
-  const setTheme = useCallback((key) => {
-    if (state.themeKey === key) return;
-    persist({ ...state, themeKey: key });
   }, [state, persist]);
 
   // ── Pack loader (v0.0.2) ───────────────────────────────────────────
@@ -577,11 +568,11 @@ export default function TerminalsTab({ st, save }) {
   const canClosePanel = state.panels.length > 1;
 
   return (
-    <div style={{ height: "100%", position: "relative", background: PAGE_BG, fontFamily: M }}>
+    <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative", fontFamily: M }}>
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Header — visual treatment driven by user-selected skin (headerSkins.js).
           Layout-only inline styles here; colors/borders/effects come from CSS. */}
-      <div className="phn-header" data-phn-skin={headerSkinId} style={{ gap: 12 }}>
+      <div className="phn-header" style={{ gap: 12 }}>
         <span className="phn-title">TERMINALS</span>
         <span className="phn-meta phn-meta-dot">·</span>
         <span className="phn-meta">
@@ -671,16 +662,6 @@ export default function TerminalsTab({ st, save }) {
           ⚙️
         </button>
 
-        <select
-          className="phn-select phn-muted"
-          value={state.themeKey || "default"}
-          onChange={(e) => setTheme(e.target.value)}
-          title="Terminal color theme"
-        >
-          {Object.entries(THEMES).map(([key, t]) => (
-            <option key={key} value={key}>{t.label}</option>
-          ))}
-        </select>
         <button
           className="phn-btn"
           onClick={addPanel}
@@ -725,7 +706,7 @@ export default function TerminalsTab({ st, save }) {
               isActive={panel.id === state.activePanelId}
               canClosePanel={canClosePanel}
               tabActivities={tabActivities}
-              themeKey={state.themeKey || "default"}
+              xtermTheme={xtermTheme}
               tabAutoApprove={tabAutoApprove}
               tabProjectNames={tabProjectNames}
               onActivate={() => setActivePanel(panel.id)}
@@ -780,24 +761,22 @@ export default function TerminalsTab({ st, save }) {
         />
       )}
 
-      {/* Status bar — bottom strip with version, claude availability, cost, theme */}
+      {/* Status bar — bottom strip with version, claude availability, cost. Skin-controlled. */}
       <div
+        className="phn-statusbar"
         style={{
           flexShrink: 0,
           padding: "5px 12px",
-          background: HEADER_BG,
-          borderTop: `1px solid ${BORDER}`,
           fontSize: 10,
           fontFamily: M,
-          color: FG_DIM,
           display: "flex",
           alignItems: "center",
           gap: 14,
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.10</span>
-        <span style={{ opacity: 0.4 }}>·</span>
+        <span>v0.1.11</span>
+        <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}
           style={{
@@ -809,7 +788,7 @@ export default function TerminalsTab({ st, save }) {
             color:
               claudeAvailable === true ? "#34D399"
               : claudeAvailable === false ? "#FF0080"
-              : FG_DIM,
+              : "inherit",
             fontFamily: M,
             fontSize: 10,
           }}
@@ -821,11 +800,11 @@ export default function TerminalsTab({ st, save }) {
         >
           {claudeAvailable === true ? "claude ✓" : claudeAvailable === false ? "claude ✗ — setup" : "claude …"}
         </button>
-        <span style={{ opacity: 0.4 }}>·</span>
-        <span>theme: {(THEMES[state.themeKey || "default"]?.label) || "Default"}</span>
+        <span className="phn-statusbar-divider">·</span>
+        <span>terminal bg: {pureBlackTerminal ? "pure black" : "skin"}</span>
         {(totalCost.cost > 0 || totalCost.tokens > 0) && (
           <>
-            <span style={{ opacity: 0.4 }}>·</span>
+            <span className="phn-statusbar-divider">·</span>
             <span style={{ color: "#34D399" }} title="Aggregate live spend across all sessions">
               ${totalCost.cost.toFixed(2)}
               {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tokens`}
@@ -837,12 +816,12 @@ export default function TerminalsTab({ st, save }) {
           href="https://github.com/plutothedev/plutos-terminals"
           target="_blank"
           rel="noreferrer"
-          style={{ color: FG_DIM, textDecoration: "none" }}
+          className="phn-statusbar-link"
           title="Open repo on GitHub"
         >
           github
         </a>
-        <span style={{ opacity: 0.4 }}>·</span>
+        <span className="phn-statusbar-divider">·</span>
         <a
           href="https://discord.gg/3cZQVgKF"
           target="_blank"

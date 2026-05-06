@@ -72,7 +72,7 @@ export default function TerminalPanel({
   isActive,
   canClosePanel,
   tabActivities,
-  themeKey,
+  xtermTheme,
   tabAutoApprove,
   tabProjectNames,
   onActivate,
@@ -332,7 +332,7 @@ export default function TerminalPanel({
             cwd={tab.cwd || null}
             startCommands={tab.startCommands || null}
             systemPrompt={tab.systemPrompt || null}
-            themeKey={themeKey}
+            xtermTheme={xtermTheme}
             tabId={tab.id}
             projectName={tabProjectNames?.[tab.id] || null}
             autoApprove={tabAutoApprove?.[tab.id] || false}

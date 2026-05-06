@@ -1,4 +1,4 @@
-// Settings modal. Edit Anthropic API key, header skin + factory reset.
+// Settings modal. Edit Anthropic API key, app skin, terminal-bg override + factory reset.
 
 import { useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
@@ -12,6 +12,7 @@ const PLUTO_MAGENTA = "#FF0080";
 export default function SettingsModal({ open, st, save, onClose }) {
   const [anthropicKey, setAnthropicKey] = useState(st.anthropicKey || "");
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
+  const [pureBlackTerminal, setPureBlackTerminal] = useState(!!st.pureBlackTerminal);
   const [showKey, setShowKey] = useState(false);
   const toast = useToast();
   const confirm = useConfirm();
@@ -25,6 +26,7 @@ export default function SettingsModal({ open, st, save, onClose }) {
       ...st,
       anthropicKey,
       headerSkin: getSkinId(headerSkin),
+      pureBlackTerminal,
     });
     toast.success("Settings saved.");
     onClose();
@@ -35,6 +37,11 @@ export default function SettingsModal({ open, st, save, onClose }) {
     const next = getSkinId(id);
     setHeaderSkin(next);
     save({ ...st, headerSkin: next });
+  };
+
+  const handlePureBlackToggle = (next) => {
+    setPureBlackTerminal(next);
+    save({ ...st, pureBlackTerminal: next });
   };
 
   const activeSkinDescription =
@@ -84,7 +91,7 @@ export default function SettingsModal({ open, st, save, onClose }) {
         <Hint>Auto-injected as ANTHROPIC_API_KEY into every new shell. Stored in plain JSON in app local data dir.</Hint>
       </Field>
 
-      <Field label="HEADER SKIN (LIVE PREVIEW)">
+      <Field label="APP SKIN (LIVE PREVIEW)">
         <select
           value={headerSkin}
           onChange={(e) => handleSkinChange(e.target.value)}
@@ -96,7 +103,20 @@ export default function SettingsModal({ open, st, save, onClose }) {
             </option>
           ))}
         </select>
-        <Hint>{activeSkinDescription} Changes apply instantly — pick whichever you like, the header updates as you choose.</Hint>
+        <Hint>{activeSkinDescription} The skin themes the entire app — header, sidebar, status bar, and terminal background. Changes apply instantly.</Hint>
+      </Field>
+
+      <Field label="TERMINAL BACKGROUND">
+        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={pureBlackTerminal}
+            onChange={(e) => handlePureBlackToggle(e.target.checked)}
+            style={{ accentColor: ACCENT, cursor: "pointer" }}
+          />
+          <span style={{ color: FG_ACTIVE, fontSize: 11 }}>Use pure black terminal background</span>
+        </label>
+        <Hint>By default the terminal background matches the app skin (e.g. amber, daylight, sunset). Check this to force a classic black terminal regardless of skin.</Hint>
       </Field>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24 }}>

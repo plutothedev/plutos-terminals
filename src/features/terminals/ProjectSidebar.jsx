@@ -238,26 +238,23 @@ export default function ProjectSidebar({
 
   return (
     <div
+      className="phn-sidebar"
       style={{
         width: 200,
         flexShrink: 0,
         display: "flex",
         flexDirection: "column",
-        background: SIDEBAR_BG,
-        borderRight: `1px solid ${BORDER}`,
         fontFamily: M,
         fontSize: 11,
-        color: FG,
         overflow: "hidden",
       }}
     >
       <div
+        className="phn-sidebar-header"
         style={{
           display: "flex",
           alignItems: "center",
           padding: "6px 8px 6px 10px",
-          background: HEADER_BG,
-          borderBottom: `1px solid ${BORDER}`,
           minHeight: 32,
           boxSizing: "border-box",
         }}

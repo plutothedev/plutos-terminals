@@ -5,7 +5,6 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import { getTheme } from "./themes";
 
 const MIN_COLS = 40;
 const MIN_ROWS = 10;
@@ -94,7 +93,9 @@ function transcriptName(projectName, tabId) {
 // One terminal pane: spawns its own PTY on mount, kills it on unmount.
 // `visible` toggles display so a hidden tab keeps its PTY + scrollback alive.
 // `startCommands` is captured at mount and auto-typed after the shell init.
-// `themeKey` selects the live xterm color theme.
+// `xtermTheme` is the xterm.js theme object (background / foreground / cursor /
+//   ANSI palette). Driven by the active app skin via headerSkins.js
+//   getSkinXtermTheme(). Passed down from TerminalsTab → TerminalPanel → here.
 // `tabId` keys the on-disk scrollback file.
 // `projectName` shapes the transcript filename.
 // `autoApprove` enables Claude permission auto-confirmation.
@@ -104,7 +105,7 @@ export default function TerminalPane({
   cwd,
   startCommands,
   systemPrompt,
-  themeKey,
+  xtermTheme,
   tabId,
   projectName,
   autoApprove,
@@ -118,6 +119,8 @@ export default function TerminalPane({
   startCommandsRef.current = startCommands;
   const systemPromptRef = useRef(systemPrompt);
   systemPromptRef.current = systemPrompt;
+  const xtermThemeRef = useRef(xtermTheme);
+  xtermThemeRef.current = xtermTheme;
 
   // Activity tracking refs.
   const activityRef = useRef("idle");
@@ -281,7 +284,7 @@ export default function TerminalPane({
     const cmdsAtSpawn = Array.isArray(startCommandsRef.current) ? [...startCommandsRef.current] : [];
 
     const term = new Terminal({
-      theme: getTheme(themeKey),
+      theme: xtermThemeRef.current,
       fontSize: 13,
       fontFamily: "'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace",
       cursorBlink: true,
@@ -489,9 +492,9 @@ export default function TerminalPane({
   }, [visible]);
 
   useEffect(() => {
-    if (!termRef.current) return;
-    try { termRef.current.options.theme = getTheme(themeKey); } catch {}
-  }, [themeKey]);
+    if (!termRef.current || !xtermTheme) return;
+    try { termRef.current.options.theme = xtermTheme; } catch {}
+  }, [xtermTheme]);
 
   // Auto-dismiss the hint after 12 seconds of being visible. Resets when
   // the user toggles back to a tab so each pane gets a fair window.
