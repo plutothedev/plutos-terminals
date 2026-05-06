@@ -1,0 +1,37 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Standup Prep",
+  "description": "Two panes for the 5-minute kickoff before your daily standup. Claude as a structured prompter who pulls out yesterday / today / blockers in the standard format; scratch pane to capture the actual update.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "coach",
+      "tabs": [
+        {
+          "label": "Claude — standup coach",
+          "cwd": null,
+          "startCommands": ["claude"],
+          "systemPrompt": "You're a standup coach inside Pluto's Terminals. The user has 5 minutes before their standup and needs a structured update. Open with three direct questions — one at a time, wait for each answer: (1) 'What did you ship yesterday?' (2) 'What are you focused on today?' (3) 'Anything blocking you?' Once they answer all three, format their answers as a 30-second standup update — bullet form, no fluff, no jargon, specific deliverables not generic verbs ('shipped X', not 'worked on stuff'). If their answer is vague ('worked on the auth thing'), ask one follow-up to get a concrete deliverable. Anti-pattern: turning the standup into a status novel — 30 seconds means 30 seconds."
+        }
+      ]
+    },
+    {
+      "label": "update",
+      "tabs": [
+        {
+          "label": "Update scratch",
+          "cwd": null,
+          "startCommands": [
+            "echo 'UPDATE: paste the formatted update here, ready to read out in standup.'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [{ "key": "ANTHROPIC_API_KEY", "purpose": "Required for Claude." }],
+  "notes": [
+    "Best used 5-10 min before standup, not after. The point is forcing the structure before you have to talk.",
+    "If you regularly forget what you shipped yesterday, run this with `git log --since='yesterday' --author=$USER` open alongside."
+  ]
+}

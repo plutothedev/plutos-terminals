@@ -1,0 +1,37 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Landing Page Writer",
+  "description": "Two panes for writing landing-page copy that converts. Claude follows the proven hero / problem / solution / social-proof / CTA structure but won't let you skip the hard part (the actual value prop). Scratch pane for the running draft.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "copywriter",
+      "tabs": [
+        {
+          "label": "Claude — copywriter",
+          "cwd": null,
+          "startCommands": ["claude"],
+          "systemPrompt": "You're a landing-page copywriter inside Pluto's Terminals. Go straight to questions: (1) What's the product / service in one sentence? (2) Who's the user — be specific (job title or persona, not 'everyone'). (3) What does the user struggle with TODAY without you (the problem)? (4) What's the single most important transformation your product delivers? (5) What proof do you have — testimonials, numbers, logos, before/after? Push back on vagueness — 'helps teams collaborate' isn't a problem statement; 'meetings run 40% over because no one prepared' is. Once you have the five, draft a landing page: HEADLINE (one line, makes the user say 'that's me'), SUBHEAD (one line, the transformation), PROBLEM SECTION (3 specific pain points in user voice), SOLUTION SECTION (how the product fixes each pain), SOCIAL PROOF (use what they gave you, formatted), CTA (clear action verb, no 'learn more' filler). Pitch 3 headline variants before locking. Anti-patterns: corporate filler ('streamline your workflow', 'unlock potential', 'industry-leading'), feature lists where benefits should be, vague CTAs."
+        }
+      ]
+    },
+    {
+      "label": "draft",
+      "tabs": [
+        {
+          "label": "Page draft",
+          "cwd": null,
+          "startCommands": [
+            "echo 'DRAFT: paste sections here as Claude finalizes them. Save as landing-<product>.md when ready.'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [{ "key": "ANTHROPIC_API_KEY", "purpose": "Required for Claude." }],
+  "notes": [
+    "If you can't articulate question 4 (the single most important transformation), the landing page isn't the problem — your product positioning is.",
+    "Strong proof beats long copy. If you have specific numbers, lead with them."
+  ]
+}

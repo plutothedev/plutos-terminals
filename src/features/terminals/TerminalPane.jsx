@@ -7,6 +7,43 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 
+// v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
+// rather than an mp3 asset so there's nothing to bundle. Two-note ascending
+// pluck — short enough to not annoy, distinct enough to register. Lazy-init
+// the AudioContext on first call (browsers require user gesture before).
+let _audioCtx = null;
+function playDoneCue() {
+  if (typeof window === "undefined") return;
+  try {
+    if (!_audioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      _audioCtx = new Ctx();
+    }
+    if (_audioCtx.state === "suspended") {
+      _audioCtx.resume().catch(() => {});
+    }
+    const now = _audioCtx.currentTime;
+    [
+      { freq: 660, start: 0, dur: 0.08 },
+      { freq: 880, start: 0.08, dur: 0.16 },
+    ].forEach(({ freq, start, dur }) => {
+      const osc = _audioCtx.createOscillator();
+      const gain = _audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.value = 0;
+      gain.gain.linearRampToValueAtTime(0.06, now + start + 0.01);
+      gain.gain.linearRampToValueAtTime(0, now + start + dur);
+      osc.connect(gain).connect(_audioCtx.destination);
+      osc.start(now + start);
+      osc.stop(now + start + dur + 0.01);
+    });
+  } catch (_) {
+    // Audio is non-critical — silent fail.
+  }
+}
+
 const MIN_COLS = 40;
 const MIN_ROWS = 10;
 
@@ -168,8 +205,17 @@ export default function TerminalPane({
 
   const setActivity = (next) => {
     if (activityRef.current === next) return;
+    const prev = activityRef.current;
     activityRef.current = next;
     try { onActivityRef.current?.(next); } catch {}
+    // v0.1.25: audio cue when an agent transitions from working to done.
+    // Soft Web-Audio-generated tone — no asset to bundle. Only fires when
+    // the tab is NOT currently visible (you don't need a ding for the tab
+    // you're staring at). Respects user gesture requirements: AudioContext
+    // is created on demand and resumed if needed.
+    if (prev === "active" && next === "done" && !visibleRef.current) {
+      try { playDoneCue(); } catch {}
+    }
   };
   const clearDoneTimer = () => {
     if (doneTimerRef.current) {

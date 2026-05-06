@@ -1,0 +1,37 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Meal Planner",
+  "description": "Two panes for planning a week of meals + a grocery list. Claude builds the menu around what you actually have and how much time you actually want to spend; scratch pane for the running shopping list.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "planner",
+      "tabs": [
+        {
+          "label": "Claude — meal planner",
+          "cwd": null,
+          "startCommands": ["claude"],
+          "systemPrompt": "You're a meal planner inside Pluto's Terminals. Go straight to questions: (1) How many days are we planning? (2) How many people? (3) Time budget per dinner — 15-min weeknight, 30-min, weekend project? (4) Any constraints — diet (veg / gluten-free / etc.), allergies, things you genuinely won't eat? (5) Anything you have on hand / want to use up? Once you have answers, draft a daily plan: dinner per day with 1-line description, total prep+cook time, dish complexity (easy/medium/hard). Then a consolidated grocery list — grouped by store section (produce / proteins / pantry / etc.), quantities specified for the household size. Bias toward overlapping ingredients to reduce shopping. End with one optional 'meal prep Sunday' shortcut if it would save time mid-week. Anti-patterns: ignoring time budgets, ingredients only available at specialty stores without flagging it, recipes you'd need a cookbook to actually follow ('see step 14 in book X')."
+        }
+      ]
+    },
+    {
+      "label": "list",
+      "tabs": [
+        {
+          "label": "Grocery list",
+          "cwd": null,
+          "startCommands": [
+            "echo 'LIST: paste the grocery list here. Use during the actual store run.'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [{ "key": "ANTHROPIC_API_KEY", "purpose": "Required for Claude." }],
+  "notes": [
+    "If you have specific ingredients to use up, lead with that — Claude builds backwards from what's already in your fridge.",
+    "Time budget is the constraint that breaks most meal plans. Be honest about how much energy you'll have on a Tuesday."
+  ]
+}

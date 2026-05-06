@@ -1,158 +1,123 @@
 # Prompt Packs Catalog
 
-A `.deck.json` prompt pack describes a multi-panel terminal layout you can clone in one click via the `📦 load pack` button in the app header. Each pack below is shipped in this folder; download the file (or clone the repo), open Pluto's Terminals, click load, point at the file. Done.
+A `.deck.json` prompt pack describes a multi-panel terminal layout you can clone in one click via the `📚 packs…` dropdown or `🔍 find` search in the app header. Each pack below is shipped in the binary — no separate download needed.
 
-> **Quick start:** see `HOW_TO_USE.md` for the loading flow + `SCHEMA.md` for the file format. To author your own pack, copy `example.deck.json` and edit.
+> **Quick start:** see `HOW_TO_USE.md` for the loading flow + `SCHEMA.md` for the file format. To author your own pack, copy `example.deck.json` and edit. Press `Ctrl+P` in the app to search this catalog by name or description.
 
----
+**Catalog organization (25 functional + 1 reference):**
 
-## `claude-code-basic.deck.json`
-
-**Purpose:** simplest possible Claude Code setup. One panel, one tab, one job.
-
-**Layout:** 1 panel × 1 tab. cwd defaults to your home dir.
-
-**Agent:** Claude Code (single session).
-
-**When to use:** you're learning Claude Code or doing a focused single-task session. Best starting point if you've never used the app before.
-
-**Requires:** `ANTHROPIC_API_KEY` (auto-injected if you saved it on the welcome screen).
-
-**Loads in:** 2 seconds.
+- **Coding** — claude-code-basic, dual-claude-pair, codebase-explorer, debug-session, code-review
+- **Writing** — writing-helper, content-script-writer, tweet-thread-writer, email-drafter, landing-page-writer, prd-writer
+- **Learning** — language-learning, interview-prep, prompt-engineer-lab, ai-tool-comparison
+- **Productivity** — research-assistant, pros-vs-cons, rubber-duck, standup-prep, weekly-retro, journal-buddy, resume-tailoring
+- **Life** — trip-planner, meal-planner
+- **Pluto Style** — trading-workflow
 
 ---
 
-## `dual-claude-pair.deck.json`
+## Coding
 
-**Purpose:** parallel Claude Code sessions for split work — one for hands-on code edits, the other for planning / architecture / research. The two sessions don't share context; that's the point.
+### `claude-code-basic`
+Simplest possible Claude Code setup. One panel, one tab, one job. Best starting point for first-time users. **When to use:** focused single-task session.
 
-**Layout:** 2 panels × 1 tab each. Both cwd default to home.
+### `dual-claude-pair`
+Two Claudes side-by-side: one for hands-on edits (CODE), one for architecture/planning (PLAN). They don't share context — each gets a focused thread. **When to use:** stuck on a build and want to step over to "plan" mode without losing your code session.
 
-**Agents:** Claude Code (×2). Each gets its own thread, its own token spend (watch the live `total cost` indicator in the header).
+### `codebase-explorer`
+Two panes: Claude (read-first/recommend-second) + inspect shell. **When to use:** you've cloned an unfamiliar repo and need to map it before editing.
 
-**When to use:** you're stuck on a build and want to step over to "plan" mode without losing your code session. Or doing back-and-forth between writing and reviewing.
+### `debug-session`
+Two panes: Claude in root-cause-chaser mode + repro shell. Pushes back on symptom-patches (try/catch / default values / retry-loops). **When to use:** something is broken; you don't want a band-aid.
 
-**Requires:** `ANTHROPIC_API_KEY`.
-
----
-
-## `codebase-explorer.deck.json`
-
-**Purpose:** understand an unfamiliar codebase before changing it. Claude on the left tuned to read first / recommend second; a shell on the right for cheap inspection (git log, file listings, dep checks).
-
-**Layout:** 2 panels × 1 tab each.
-
-**Agents:** Claude Code (explorer-tuned systemPrompt). Right pane is a plain shell.
-
-**When to use:** you've cloned a repo and need to map it before editing. Pairs well with `git log --oneline` and project-tree commands in the inspect pane.
-
-**Requires:** `ANTHROPIC_API_KEY`.
+### `code-review`
+Two panes: senior reviewer (BLOCKER / IMPORTANT / NIT severities, no praise filler) + follow-ups scratch. **When to use:** reviewing a diff before you PR.
 
 ---
 
-## `writing-helper.deck.json`
+## Writing
 
-**Purpose:** focused writing partner. Drafting, editing, line-level critique. The Claude session treats the conversation as the deliverable — won't pivot to file-editing unless asked.
+### `writing-helper`
+Single Claude pane tuned for drafting/editing/critique. Conversation IS the deliverable; no file-edit bias. **When to use:** anything where you want the words back, not a plan to make the words.
 
-**Layout:** 1 panel × 1 tab.
+### `content-script-writer`
+Video / podcast / livestream script collaborator. Works in beats (hook/body/callbacks/close), returns camera-ready prose, matches your voice. **When to use:** YouTube long-form, shorts, podcasts, livestream scripts.
 
-**Agents:** Claude Code (writing-tuned systemPrompt — direct, voice-matching, no filler hype).
+### `tweet-thread-writer`
+Twitter/X thread writer that doesn't read like AI. Anchored to mechanics that make threads land — strong hook, one idea per tweet, callback at the end. **When to use:** drafting a thread.
 
-**When to use:** blog posts, video outlines, scripts, copy, emails. Anything where you want the words back, not a plan to make the words.
+### `email-drafter`
+Single Claude pane that drafts email replies in your voice. 3-sentence default, no corporate filler, three tones (warm / neutral / firm). **When to use:** any email reply you've been putting off.
 
-**Requires:** `ANTHROPIC_API_KEY`.
+### `landing-page-writer`
+Two panes: copywriter following hero/problem/solution/social-proof/CTA structure + scratch. Won't let you skip the value prop. **When to use:** writing landing-page copy that converts.
 
----
-
-## `debug-session.deck.json`
-
-**Purpose:** focused debugging. Claude on the left primed to chase root causes (reproduce → hypothesize → verify → fix); a shell on the right for re-running the failing command and tailing logs.
-
-**Layout:** 2 panels × 1 tab each.
-
-**Agents:** Claude Code (debugger-tuned systemPrompt). Right pane is a plain shell for repro work.
-
-**When to use:** something is broken and you need to figure out why. The Claude pane will push back on symptom-patches (try/catch, default-value, retry-loop) and ask you to articulate the root cause.
-
-**Requires:** `ANTHROPIC_API_KEY`.
+### `prd-writer`
+Two panes: PM coach (problem / user / metric / scope cut) + draft scratch. Pulls out missing context before drafting. **When to use:** writing a product requirements doc.
 
 ---
 
-## `language-learning.deck.json`
+## Learning
 
-**Purpose:** patient language tutor. You pick the target language; Claude drills you on vocabulary, grammar, and short conversational exchanges, correcting mistakes inline.
+### `language-learning`
+Patient language tutor with structured drills (5–7 exchanges per round). Uses target language for prompts; English only for grammar explanations at beginner level. **When to use:** 15-minute daily practice sessions.
 
-**Layout:** 1 panel × 1 tab.
+### `interview-prep`
+Mock interviewer with two panes (interviewer + notes). Stays neutral mid-loop (no "great answer!"), pushes back on vague claims, gives feedback after each answer + pattern summary at end. **When to use:** any interview prep — technical, behavioral, system-design, case, leadership.
 
-**Agents:** Claude Code with language-tutor systemPrompt — encouraging without being saccharine, slows down on stuck topics, mixes in cultural notes.
+### `prompt-engineer-lab` ⭐
+Two panes: prompt-engineering tutor + clean test bench. Iterate on your prompts in real time — tutor rewrites, bench executes, you see what changed. **When to use:** improving any AI prompt for your daily workflow.
 
-**When to use:** daily 15-minute practice sessions. Pair with an audio app for pronunciation (Claude can't pronounce).
-
-**Requires:** `ANTHROPIC_API_KEY`.
-
----
-
-## `interview-prep.deck.json`
-
-**Purpose:** mock interviews. Claude as the interviewer — drives questioning, asks follow-ups, holds you to specifics. Notes pane for capturing patterns.
-
-**Layout:** 2 panels × 1 tab each.
-
-**Agents:** Claude Code with interviewer systemPrompt — pushes back on vague claims, gives feedback after each answer, ends with pattern summary.
-
-**When to use:** any interview prep — technical, behavioral, system-design, case, leadership. Switch persona mid-session by saying "now play the hiring manager."
-
-**Requires:** `ANTHROPIC_API_KEY`.
+### `ai-tool-comparison`
+Single Claude pane that helps you pick between AI tools (Claude / GPT / Gemini / specialized agents) for a specific task. Concrete tradeoffs grounded in real strengths. **When to use:** deciding what tool to use before starting a project.
 
 ---
 
-## `content-script-writer.deck.json`
+## Productivity
 
-**Purpose:** video / podcast / livestream script collaboration. Claude works in beats — hook, body, callbacks, close — and returns camera-ready prose (not bullet outlines).
+### `research-assistant`
+Two panes: researcher + notes scratch. Surfaces high-signal sources, summarizes each in 2 sentences, synthesizes across them. **When to use:** "I need to learn X in 30 minutes" — not skim.
 
-**Layout:** 2 panels × 1 tab each.
+### `pros-vs-cons`
+Three panes: PRO side (argues only for) + CON side (argues only against) + SYNTHESIZER (finds the load-bearing assumption). **When to use:** decision-making when you're hedging instead of deciding.
 
-**Agents:** Claude Code with content-writer systemPrompt — matches your voice if calibrated, pushes back on weak openings, tracks callbacks across sections.
+### `rubber-duck`
+Single Claude pane in pure rubber-duck mode. Asks short clarifying questions until you figure it out yourself. NEVER solves, never gives code, holds the role. **When to use:** stuck on something and can't tell why.
 
-**When to use:** YouTube long-form, shorts, podcasts, livestream scripts. Voice tip: paste a transcript of an old video first to teach Claude your voice.
+### `standup-prep`
+Two panes: standup coach (yesterday / today / blockers) + update scratch. Forces structure 5 minutes before standup. **When to use:** before any daily-standup meeting.
 
-**Requires:** `ANTHROPIC_API_KEY`.
+### `weekly-retro`
+Two panes: retro coach (shipped / blocked / next-week-bet / pattern-noticed) + retro doc. **When to use:** end-of-week reflection. Pairs with `journal-buddy`.
 
----
+### `journal-buddy`
+Single Claude pane for daily reflection. Three structured questions in 5 minutes — not therapy, not woo. Outputs a clean dated entry. **When to use:** every morning OR every evening, not both.
 
-## `rubber-duck.deck.json`
-
-**Purpose:** rubber-duck debugging. You explain the problem; Claude asks short clarifying questions until you talk yourself into the answer.
-
-**Layout:** 1 panel × 1 tab.
-
-**Agents:** Claude Code with rubber-duck systemPrompt — does NOT solve, does NOT propose; asks questions under 10 words, holds the role even if you ask for a solution.
-
-**When to use:** stuck on something and can't tell why. Best deployed before you've written code on the problem.
-
-**Requires:** `ANTHROPIC_API_KEY`.
+### `resume-tailoring`
+Two panes: resume advisor (matches your bullets to the JD's emphasis) + draft scratch. Doesn't invent experience — surfaces what's already there. **When to use:** before applying to any specific job.
 
 ---
 
-## `trading-workflow.deck.json` (Pluto Style)
+## Life
 
-**Purpose:** focused trading session layout. One pane for AI analysis (paste setups, ask for confluences, sanity-check theses), one Python scratch for backtests / data work, one append-only daily session journal. ICT-trader-specialized.
+### `trip-planner`
+Two panes: trip planner (specific itinerary based on real constraints) + plan scratch. **When to use:** planning any trip without 14 browser tabs.
 
-**Layout:** 3 panels × 1 tab each.
-
-**Agents:** Claude Code (analysis pane only, with ICT-trader systemPrompt). Other panes are just shells.
-
-**When to use:** you're trading futures or any market session and want the AI + analysis + log layer around your charting platform (TradingView stays in your browser; this is everything else). Non-traders: just don't load this one.
-
-**Requires:** `ANTHROPIC_API_KEY` for the analysis pane. PowerShell on Windows for the journal pane's date-formatted file commands (default).
-
-**Note:** the journal pane creates `session-log-YYYY-MM-DD.md` in whatever cwd it spawns in. Use `Get-Content session-log-*.md` to grep across days.
+### `meal-planner`
+Two panes: meal planner (week of dinners + grocery list, time-budgeted) + grocery list scratch. **When to use:** Sunday meal-prep ritual or before any grocery run.
 
 ---
 
-## `example.deck.json` (schema reference)
+## Pluto Style
 
-Don't load this for real work. It exists as a schema reference — every field, with comments. Use it as a starting template when authoring your own pack. See `SCHEMA.md` for the field-by-field breakdown.
+### `trading-workflow`
+Three panes: Claude analysis (ICT methodology — FVG, OB, Power of Three, Killzones, OTE, Liquidity, MSS) + Python scratch + dated session journal. ICT-trader-specialized. **When to use:** futures trading session prep.
+
+---
+
+## Reference
+
+### `example`
+Don't load this for real work. Schema reference — every field with comments. Use as starting template when authoring your own pack. See `SCHEMA.md` for the field-by-field breakdown.
 
 ---
 
@@ -161,16 +126,24 @@ Don't load this for real work. It exists as a schema reference — every field, 
 1. Copy `example.deck.json` → rename to `<your-slug>.deck.json`.
 2. Edit `name` and `description`.
 3. Replace `panels[]` with your actual layout.
-4. Set `cwd` per tab — absolute path, or `null` to default to home.
+4. Set `cwd` per tab — absolute path, `null` for home, or templated like `${USERPROFILE}/Documents/myrepo` (any process env var resolves).
 5. Set `startCommands` per tab — array of commands run in sequence on shell spawn.
-6. Add `env_hints[]` for any env vars users need to set themselves.
-7. Document anything tricky in `notes[]`.
+6. Set `systemPrompt` per tab — string auto-typed into Claude 2 seconds after spawn (the actual specialization mechanism).
+7. Add `env_hints[]` for any env vars users need to set themselves.
+8. Document anything tricky in `notes[]`.
 
-To share your pack with the community: open a PR adding it to this folder. Curation criteria TBD; for now, packs that demonstrate a useful workflow with clear documentation get merged.
+To share your pack: open a PR adding it to this folder, OR publish a gist and tell people to use `🔗 from URL` in the app.
+
+## Quality bar for shipped packs
+
+- **Goes straight to first question** (don't introduce yourself or explain the format)
+- **3-4 question opening intake** if applicable, anchoring scope before drafting
+- **Concrete anti-patterns** (what Claude must NOT do)
+- **Specific tone calibration** (not generic "be helpful")
+- **Tested with real prompts** before shipping
 
 ## v1+ roadmap
 
-- **In-app pack browser** — UI to browse local + remote packs without file picker (current: `📚 packs…` dropdown for bundled, `📁 from file` for local, `🔗 from URL` for remote)
-- **Click-to-load deep links** — `plutosterminals://load?pack=<base64>` URLs that the app intercepts; one-click load from a video description or social post
+- **Pack categories surfaced in the dropdown** — once catalog grows past ~30, group by category
+- **Community pack marketplace** — submit packs without opening a PR
 - **Pack signing** — community packs signed with a Pluto-controlled key for trust on third-party loads
-- **MCP one-click installer** — ✅ shipped v0.1.8: `🔌 MCPs` modal `install` button runs `claude mcp add ...` for you

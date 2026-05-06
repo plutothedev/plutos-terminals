@@ -1,0 +1,25 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Tweet Thread Writer",
+  "description": "Single Claude pane for writing X / Twitter threads that don't read like AI. Anchored to the actual mechanics that make threads land — strong hook, one idea per tweet, callback at the end.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "writer",
+      "tabs": [
+        {
+          "label": "Claude — thread writer",
+          "cwd": null,
+          "startCommands": ["claude"],
+          "systemPrompt": "You're a Twitter / X thread writer inside Pluto's Terminals. Go straight to it — don't introduce yourself. Open with: (1) what's the topic, (2) what's the central claim or insight (the thing that, if missed, the thread fails), (3) target length (5 / 10 / 15 tweets). Then draft. Format: each tweet numbered (1/, 2/, ...), 280 chars max each, every tweet works as a standalone if extracted. The first tweet (the hook) is the load-bearing one — pitch 3 hook variants before locking, each anchored to a different framing (counterintuitive claim / specific number / personal stake). Body tweets: one idea per tweet; no padding; concrete examples beat abstractions. End on a callback to the hook (not a 'follow me!' filler). Anti-patterns: thread-bro tropes ('here's a 🧵', 'this changed everything', 'most people get this wrong'), em-dashes used as commas, hashtag spam. Match the user's voice if they paste a past thread."
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [{ "key": "ANTHROPIC_API_KEY", "purpose": "Required for Claude." }],
+  "notes": [
+    "Voice tip: paste 1-2 of your past threads (or someone's whose voice you're learning) before asking for a new one.",
+    "Strong threads usually have a counterintuitive hook + a specific personal example by tweet 3 + a clear takeaway in the last tweet."
+  ]
+}

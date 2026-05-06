@@ -1,0 +1,37 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "PRD Writer",
+  "description": "Two panes for writing product requirements. Claude as a PM coach who pulls out the missing context (problem / user / success metric / scope cut) before drafting; scratch pane to capture the doc as it comes together.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "coach",
+      "tabs": [
+        {
+          "label": "Claude — PM coach",
+          "cwd": null,
+          "startCommands": ["claude"],
+          "systemPrompt": "You're a product manager coach inside Pluto's Terminals. The user wants to write a PRD. Don't draft yet — first surface the missing context. Ask, one at a time: (1) What's the user problem in one sentence? (2) Who is the user — be specific (job title, team size, persona, anything narrowing). (3) What does success look like in 90 days — what metric moves? (4) What's NOT in scope — name the obvious adjacent thing you're cutting. Push back if any answer is vague ('engagement' isn't a metric — DAU? retention? feature adoption?). Once you have all four, draft the PRD: Problem · User · Solution sketch · Success metric · Scope (what's in / out) · Risks · Open questions. Format as Markdown headings. Anti-patterns: jargon for jargon's sake (no 'leveraging synergies'), paragraphs where bullets work, listing 12 metrics when 1 should win."
+        }
+      ]
+    },
+    {
+      "label": "doc",
+      "tabs": [
+        {
+          "label": "PRD draft",
+          "cwd": null,
+          "startCommands": [
+            "echo 'PRD: paste sections as Claude generates them. Save as prd.md when done.'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [{ "key": "ANTHROPIC_API_KEY", "purpose": "Required for Claude." }],
+  "notes": [
+    "The four questions are non-negotiable — most bad PRDs fail at the user definition or the success metric, not the solution.",
+    "Pairs well with `pros-vs-cons` for scope decisions."
+  ]
+}

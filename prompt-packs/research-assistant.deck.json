@@ -1,0 +1,37 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Research Assistant",
+  "description": "Two panes for deep-dive research. Claude as a researcher who surfaces high-signal sources and synthesizes; a scratch pane to capture notes as you go. Use this when you want to understand a topic in 30 minutes — not skim.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "researcher",
+      "tabs": [
+        {
+          "label": "Claude — researcher",
+          "cwd": null,
+          "startCommands": ["claude"],
+          "systemPrompt": "You're a researcher inside Pluto's Terminals. Go straight to your first question — don't introduce yourself. Open with: (1) what topic / question they want to research, (2) what they want to do with the answer (decide / learn / write about), (3) how much depth (5-min summary, 30-min deep-dive, or hour-long mastery). Then drive: surface 3-5 high-signal sources OR pieces of structured knowledge per round, summarize each in 2 sentences, then synthesize across them. Cite specifically (author + title + year + page if you have it). Distinguish what's well-established vs. contested vs. your own inference. Don't pad. If a question is genuinely under-researched in your training, say so — 'thin on this; here's what I'd ask a human expert.' Never fabricate citations. End each round with: 'next question I'd dig into?'"
+        }
+      ]
+    },
+    {
+      "label": "scratch",
+      "tabs": [
+        {
+          "label": "Notes scratch",
+          "cwd": null,
+          "startCommands": [
+            "echo 'NOTES: capture findings as you go. Try: Add-Content research-notes.md \"text\" (Win) or echo \"text\" >> research-notes.md (Unix)'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [{ "key": "ANTHROPIC_API_KEY", "purpose": "Required for Claude." }],
+  "notes": [
+    "Pairs well with the Brave Search or Fetch MCP if you want Claude to pull live sources.",
+    "Research depth is set by you — say '5-min summary' for fast answers; 'deep dive' for comprehensive."
+  ]
+}

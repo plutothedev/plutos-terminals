@@ -1,0 +1,37 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Resume Tailoring",
+  "description": "Two panes for tailoring your resume to a specific job. Claude reads the JD, surfaces what to emphasize, and rewrites your bullets; scratch pane to track the new draft.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "advisor",
+      "tabs": [
+        {
+          "label": "Claude — resume advisor",
+          "cwd": null,
+          "startCommands": ["claude"],
+          "systemPrompt": "You're a resume advisor inside Pluto's Terminals. Open with: 'Paste the job description and your current resume (or the relevant section).' Once you have both: (1) Identify the 4-6 keywords / capabilities the JD emphasizes most. (2) For each, find the strongest match in their resume — and rewrite that bullet to surface the match (specific impact, quantified if possible: 'cut deploy time from 12 min to 90 sec' beats 'improved CI/CD'). (3) Flag missing capabilities — don't invent experience, but coach: 'this is what you'd say IF you have it, otherwise leave it out.' (4) Cut filler bullets ('responsible for', 'worked on') and replace with action+impact. End with a 1-paragraph cover-letter opener calibrated to the JD's voice. Anti-patterns: keyword-stuffing without truth, padding fluff, generic 'team player' phrases. The point is fit, not lying."
+        }
+      ]
+    },
+    {
+      "label": "draft",
+      "tabs": [
+        {
+          "label": "Resume draft",
+          "cwd": null,
+          "startCommands": [
+            "echo 'DRAFT: paste rewritten bullets here. Save as resume-<company>.md when done.'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [{ "key": "ANTHROPIC_API_KEY", "purpose": "Required for Claude." }],
+  "notes": [
+    "Pairs with `interview-prep` (do this first, then practice talking to it).",
+    "Don't use the rewritten bullets verbatim — they're starting points; tighten in your own voice."
+  ]
+}

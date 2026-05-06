@@ -233,17 +233,18 @@ export default function TerminalPanel({
                 title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click to rename)`}
               >
                 <span
+                  className={tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
                   style={{
                     display: "inline-block",
-                    width: 7,
-                    height: 7,
+                    width: 10,
+                    height: 10,
                     borderRadius: "50%",
                     background: dotColor(tabState),
                     flexShrink: 0,
                     boxShadow: tabState === "active"
-                      ? `0 0 6px ${DOT_ACTIVE}`
+                      ? `0 0 8px ${DOT_ACTIVE}`
                       : tabState === "done"
-                        ? `0 0 6px ${DOT_DONE}`
+                        ? `0 0 10px ${DOT_DONE}`
                         : "none",
                     transition: "background 0.2s, box-shadow 0.2s",
                   }}
