@@ -36,15 +36,57 @@ A `.deck.json` prompt pack describes a multi-panel terminal layout you can clone
 
 ---
 
-## `trading-workflow.deck.json`
+## `codebase-explorer.deck.json`
 
-**Purpose:** focused trading session layout. One pane for AI analysis (paste setups, ask for confluences, sanity-check theses), one Python scratch for backtests / data work, one append-only daily session journal.
+**Purpose:** understand an unfamiliar codebase before changing it. Claude on the left tuned to read first / recommend second; a shell on the right for cheap inspection (git log, file listings, dep checks).
+
+**Layout:** 2 panels × 1 tab each.
+
+**Agents:** Claude Code (explorer-tuned systemPrompt). Right pane is a plain shell.
+
+**When to use:** you've cloned a repo and need to map it before editing. Pairs well with `git log --oneline` and project-tree commands in the inspect pane.
+
+**Requires:** `ANTHROPIC_API_KEY`.
+
+---
+
+## `writing-helper.deck.json`
+
+**Purpose:** focused writing partner. Drafting, editing, line-level critique. The Claude session treats the conversation as the deliverable — won't pivot to file-editing unless asked.
+
+**Layout:** 1 panel × 1 tab.
+
+**Agents:** Claude Code (writing-tuned systemPrompt — direct, voice-matching, no filler hype).
+
+**When to use:** blog posts, video outlines, scripts, copy, emails. Anything where you want the words back, not a plan to make the words.
+
+**Requires:** `ANTHROPIC_API_KEY`.
+
+---
+
+## `debug-session.deck.json`
+
+**Purpose:** focused debugging. Claude on the left primed to chase root causes (reproduce → hypothesize → verify → fix); a shell on the right for re-running the failing command and tailing logs.
+
+**Layout:** 2 panels × 1 tab each.
+
+**Agents:** Claude Code (debugger-tuned systemPrompt). Right pane is a plain shell for repro work.
+
+**When to use:** something is broken and you need to figure out why. The Claude pane will push back on symptom-patches (try/catch, default-value, retry-loop) and ask you to articulate the root cause.
+
+**Requires:** `ANTHROPIC_API_KEY`.
+
+---
+
+## `trading-workflow.deck.json` (Pluto Style)
+
+**Purpose:** focused trading session layout. One pane for AI analysis (paste setups, ask for confluences, sanity-check theses), one Python scratch for backtests / data work, one append-only daily session journal. ICT-trader-specialized.
 
 **Layout:** 3 panels × 1 tab each.
 
-**Agents:** Claude Code (analysis pane only). Other panes are just shells.
+**Agents:** Claude Code (analysis pane only, with ICT-trader systemPrompt). Other panes are just shells.
 
-**When to use:** you're trading futures or any market session and want the AI + analysis + log layer around your charting platform (TradingView stays in your browser; this is everything else).
+**When to use:** you're trading futures or any market session and want the AI + analysis + log layer around your charting platform (TradingView stays in your browser; this is everything else). Non-traders: just don't load this one.
 
 **Requires:** `ANTHROPIC_API_KEY` for the analysis pane. PowerShell on Windows for the journal pane's date-formatted file commands (default).
 

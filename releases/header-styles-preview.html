@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Pluto's Terminals — Header Style Brainstorm</title>
+<style>
+  :root {
+    --page-bg: #0a0a0a;
+    --header-bg: #181818;
+    --fg: #9D9D9D;
+    --fg-active: #E6E6E6;
+    --fg-dim: #555555;
+    --accent: #4DAAFC;
+    --magenta: #FF0080;
+    --green: #34D399;
+    --border: #2B2B2B;
+    --m: 'JetBrains Mono', Menlo, Monaco, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--fg);
+    font-family: var(--m);
+    font-size: 13px;
+    padding: 32px 24px;
+  }
+  h1 { color: var(--fg-active); font-size: 20px; letter-spacing: 1.5px; margin: 0 0 4px; }
+  .lede { color: var(--fg-dim); font-size: 11px; margin-bottom: 32px; line-height: 1.6; }
+  .lede code { color: var(--accent); }
+  .preview {
+    margin-bottom: 40px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .preview-meta {
+    background: #111;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .preview-meta h2 { color: var(--fg-active); font-size: 13px; margin: 0; letter-spacing: 0.5px; }
+  .preview-meta .pros { color: var(--fg-dim); font-size: 10px; line-height: 1.5; max-width: 520px; text-align: right; }
+  .preview-meta .pros strong { color: var(--accent); font-weight: 400; }
+  .preview-canvas {
+    background: var(--page-bg);
+    /* Show the header on a faux body so it has context */
+  }
+  .body-mock {
+    height: 60px;
+    background:
+      repeating-linear-gradient(
+        90deg,
+        #0a0a0a,
+        #0a0a0a 2px,
+        #0c0c0c 2px,
+        #0c0c0c 4px
+      );
+    color: var(--fg-dim);
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-top: 1px solid #1a1a1a;
+  }
+  .body-mock::before { content: "[ terminal grid renders here ]"; }
+
+  /* ── Shared header chrome ── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 10px;
+    background: var(--header-bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--fg);
+    min-height: 32px;
+  }
+  .header .title { color: var(--fg-active); letter-spacing: 0.5px; font-weight: 600; }
+  .header .dot { color: var(--fg-dim); opacity: 0.4; }
+  .header .meta { color: var(--fg-dim); }
+  .header .cost { color: var(--green); margin-left: 4px; }
+  .spacer { flex: 1; }
+  .btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--accent);
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-family: var(--m);
+    font-size: 11px;
+  }
+  .btn.muted { color: var(--fg); }
+  .btn.icon { padding: 3px 8px; }
+  .btn:hover { background: rgba(77,170,252,0.08); }
+  .select {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--accent);
+    padding: 3px 6px;
+    border-radius: 3px;
+    font-family: var(--m);
+    font-size: 11px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  /* ── Style A: current (baseline) ── */
+  .style-a .header { gap: 6px; flex-wrap: nowrap; }
+
+  /* ── Style B: grouped pills ── */
+  .group {
+    display: inline-flex;
+    background: #111;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .group .btn {
+    border: none;
+    border-radius: 0;
+    border-right: 1px solid var(--border);
+    color: var(--fg);
+    padding: 4px 12px;
+  }
+  .group .btn:last-child { border-right: none; }
+  .group .btn.primary { color: var(--accent); }
+  .group .btn:hover { background: rgba(77,170,252,0.10); }
+
+  /* ── Style C: command palette ── */
+  .cmdk {
+    flex: 1;
+    max-width: 360px;
+    background: #111;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--fg-dim);
+    font-family: var(--m);
+    font-size: 11px;
+    padding: 5px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: text;
+  }
+  .cmdk:hover { border-color: var(--accent); color: var(--fg); }
+  .cmdk .kbd {
+    margin-left: auto;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    color: var(--fg-dim);
+    background: #181818;
+  }
+  .cmdk-secondary {
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  /* ── Style D: icon-rail (compact icons + tooltip) ── */
+  .icon-rail {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    background: #111;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px;
+  }
+  .icon-rail .ibtn {
+    background: transparent;
+    border: none;
+    color: var(--fg);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: var(--m);
+    font-size: 14px;
+    line-height: 1;
+    transition: all 100ms ease;
+  }
+  .icon-rail .ibtn:hover {
+    background: rgba(77,170,252,0.12);
+    color: var(--fg-active);
+  }
+  .icon-rail .divider {
+    width: 1px;
+    align-self: stretch;
+    background: var(--border);
+    margin: 4px 4px;
+  }
+
+  /* ── Style E: primary CTA + overflow menu ── */
+  .primary-cta {
+    background: rgba(77,170,252,0.12);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 4px 14px;
+    border-radius: 4px;
+    font-family: var(--m);
+    font-size: 11px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .primary-cta:hover { background: rgba(77,170,252,0.18); }
+  .menu-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-family: var(--m);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .menu-btn:hover { color: var(--fg-active); border-color: var(--fg-dim); }
+
+  /* ── Style F: two-row (top: identity + status, bottom: actions) ── */
+  .style-f .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+  }
+  .row-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .row-top .brand {
+    color: var(--fg-active);
+    letter-spacing: 1.5px;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .row-top .brand .magenta { color: var(--magenta); }
+  .row-bottom {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+  }
+
+  /* ── Style G: minimal — only "load pack" + overflow ── */
+  .minimal { gap: 8px; }
+  .pack-launcher {
+    background: linear-gradient(180deg, #1f1f1f 0%, #161616 100%);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--fg-active);
+    padding: 5px 14px;
+    font-family: var(--m);
+    font-size: 11px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pack-launcher .arrow { color: var(--fg-dim); font-size: 9px; }
+  .pack-launcher:hover { border-color: var(--accent); }
+  .pack-launcher .accent { color: var(--accent); }
+
+  .picker-note {
+    margin-top: 32px;
+    border: 1px dashed var(--border);
+    padding: 16px 20px;
+    border-radius: 6px;
+    color: var(--fg-dim);
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .picker-note strong { color: var(--accent); }
+  .picker-note code { color: var(--fg-active); }
+
+  .section-header {
+    margin: 56px 0 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-header h2 {
+    color: var(--fg-active);
+    font-size: 14px;
+    letter-spacing: 1.5px;
+    margin: 0 0 6px;
+  }
+  .section-header p {
+    color: var(--fg-dim);
+    font-size: 11px;
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  /* ── Body mock with content for skins (so glass blur has something to blur) ── */
+  .body-mock-content {
+    height: 80px;
+    background: #0a0a0a;
+    color: #34D399;
+    font-family: var(--m);
+    font-size: 10px;
+    padding: 10px 14px;
+    line-height: 1.5;
+  }
+  .body-mock-content .prompt { color: var(--accent); }
+  .body-mock-content .dim { color: var(--fg-dim); }
+
+  /* ── H · NEON CYBERPUNK ── */
+  .skin-neon .header {
+    background: linear-gradient(180deg, #050510 0%, #0a0a14 100%);
+    border-bottom: 1px solid rgba(255,0,128,0.5);
+    box-shadow: inset 0 -1px 0 rgba(0,255,247,0.2), 0 0 12px rgba(255,0,128,0.1);
+  }
+  .skin-neon .title {
+    color: #00fff7;
+    text-shadow: 0 0 8px rgba(0,255,247,0.6);
+    letter-spacing: 2px;
+  }
+  .skin-neon .meta { color: rgba(0,255,247,0.4); }
+  .skin-neon .cost { color: #FF0080; text-shadow: 0 0 4px rgba(255,0,128,0.4); }
+  .skin-neon .btn {
+    border: 1px solid rgba(255,0,128,0.4);
+    color: #FF0080;
+    text-shadow: 0 0 4px rgba(255,0,128,0.4);
+    background: rgba(255,0,128,0.04);
+  }
+  .skin-neon .btn:hover {
+    border-color: #00fff7;
+    color: #00fff7;
+    background: rgba(0,255,247,0.06);
+    text-shadow: 0 0 8px rgba(0,255,247,0.7);
+    box-shadow: 0 0 12px rgba(0,255,247,0.3);
+  }
+  .skin-neon .btn.muted { color: rgba(0,255,247,0.6); border-color: rgba(0,255,247,0.3); }
+  .skin-neon .select {
+    border: 1px solid rgba(255,0,128,0.4);
+    color: #FF0080;
+    text-shadow: 0 0 4px rgba(255,0,128,0.4);
+    background: rgba(255,0,128,0.04);
+  }
+
+  /* ── I · PLUTO MAGENTA (brand-forward) ── */
+  .skin-magenta .header {
+    background: #181818;
+    border-bottom: 1px solid #2B2B2B;
+  }
+  .skin-magenta .title { color: var(--fg-active); }
+  .skin-magenta .btn {
+    border-color: rgba(255,0,128,0.35);
+    color: var(--magenta);
+  }
+  .skin-magenta .btn:hover {
+    background: rgba(255,0,128,0.10);
+    border-color: var(--magenta);
+    color: #FF40A0;
+  }
+  .skin-magenta .btn.muted { color: var(--fg); border-color: var(--border); }
+  .skin-magenta .select {
+    border-color: rgba(255,0,128,0.35);
+    color: var(--magenta);
+  }
+
+  /* ── J · RETRO CRT GREEN ── */
+  .skin-crt .header {
+    background: #001408;
+    border-bottom: 1px dashed #33ff66;
+    font-family: 'Courier New', 'Courier', monospace;
+  }
+  .skin-crt .title {
+    color: #33ff66;
+    text-shadow: 0 0 6px rgba(51,255,102,0.6);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+  }
+  .skin-crt .meta { color: rgba(51,255,102,0.5); }
+  .skin-crt .cost { color: #66ff99; text-shadow: 0 0 4px rgba(102,255,153,0.5); }
+  .skin-crt .btn {
+    background: transparent;
+    border: 1px dashed rgba(51,255,102,0.6);
+    color: #33ff66;
+    text-shadow: 0 0 4px rgba(51,255,102,0.4);
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.5px;
+  }
+  .skin-crt .btn:hover {
+    background: rgba(51,255,102,0.12);
+    border-style: solid;
+  }
+  .skin-crt .select {
+    background: transparent;
+    border: 1px dashed rgba(51,255,102,0.6);
+    color: #33ff66;
+    text-shadow: 0 0 4px rgba(51,255,102,0.4);
+    font-family: 'Courier New', monospace;
+  }
+
+  /* ── K · LINEAR / MODERN DARK (refined polish) ── */
+  .skin-linear .header {
+    background: linear-gradient(180deg, #1c1c20 0%, #18181b 100%);
+    border-bottom: 1px solid #27272a;
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.04);
+    padding: 8px 14px;
+  }
+  .skin-linear .title {
+    color: #fafafa;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+  }
+  .skin-linear .meta { color: #71717a; }
+  .skin-linear .cost { color: #4ade80; }
+  .skin-linear .btn {
+    background: #27272a;
+    border: 1px solid #3f3f46;
+    color: #d4d4d8;
+    border-radius: 5px;
+    padding: 5px 11px;
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.05);
+    font-weight: 500;
+  }
+  .skin-linear .btn:hover {
+    background: #3f3f46;
+    color: #fafafa;
+    border-color: #52525b;
+  }
+  .skin-linear .btn.muted { color: #a1a1aa; }
+  .skin-linear .select {
+    background: #27272a;
+    border: 1px solid #3f3f46;
+    color: #d4d4d8;
+    border-radius: 5px;
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.05);
+  }
+
+  /* ── L · BRUTALIST MONO ── */
+  .skin-brutal .header {
+    background: #000;
+    border-bottom: 2px solid #fff;
+    padding: 8px 12px;
+  }
+  .skin-brutal .title {
+    color: #fff;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+  }
+  .skin-brutal .meta { color: #888; text-transform: uppercase; letter-spacing: 1px; }
+  .skin-brutal .cost { color: #fff; }
+  .skin-brutal .btn {
+    background: #000;
+    border: 2px solid #fff;
+    color: #fff;
+    border-radius: 0;
+    padding: 3px 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 10px;
+  }
+  .skin-brutal .btn:hover {
+    background: #fff;
+    color: #000;
+  }
+  .skin-brutal .btn.muted { color: #fff; }
+  .skin-brutal .select {
+    background: #000;
+    border: 2px solid #fff;
+    color: #fff;
+    border-radius: 0;
+    padding: 3px 6px;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 10px;
+  }
+
+  /* ── M · GLASSMORPHIC ── */
+  .skin-glass .preview-canvas {
+    background:
+      radial-gradient(circle at 15% 30%, rgba(77,170,252,0.45), transparent 45%),
+      radial-gradient(circle at 85% 70%, rgba(255,0,128,0.4), transparent 45%),
+      radial-gradient(circle at 50% 100%, rgba(52,211,153,0.3), transparent 50%),
+      #0a0a14;
+  }
+  .skin-glass .header {
+    background: rgba(20, 20, 30, 0.45);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+  }
+  .skin-glass .title { color: rgba(255,255,255,0.95); letter-spacing: 0.5px; }
+  .skin-glass .meta { color: rgba(255,255,255,0.5); }
+  .skin-glass .cost { color: rgba(52,211,153,0.95); }
+  .skin-glass .btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.85);
+    backdrop-filter: blur(8px);
+  }
+  .skin-glass .btn:hover {
+    background: rgba(255,255,255,0.14);
+    border-color: rgba(255,255,255,0.30);
+    color: #fff;
+  }
+  .skin-glass .btn.muted { color: rgba(255,255,255,0.7); }
+  .skin-glass .select {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.85);
+  }
+  .skin-glass .body-mock-content {
+    background: transparent;
+  }
+
+  /* ── N · SYNTHWAVE SUNSET ── */
+  .skin-sunset .header {
+    background: linear-gradient(135deg, #2a0845 0%, #6441a5 50%, #ff4500 100%);
+    border-bottom: 1px solid rgba(255,110,199,0.5);
+    box-shadow: 0 2px 12px rgba(255,110,199,0.25);
+  }
+  .skin-sunset .title {
+    color: #ff6ec7;
+    text-shadow: 0 0 8px rgba(255,110,199,0.7), 0 0 2px rgba(255,255,255,0.5);
+    letter-spacing: 1.5px;
+  }
+  .skin-sunset .meta { color: rgba(255,255,255,0.65); }
+  .skin-sunset .cost { color: #ffd700; text-shadow: 0 0 4px rgba(255,215,0,0.5); }
+  .skin-sunset .btn {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,110,199,0.5);
+    color: #ffd0e8;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+  .skin-sunset .btn:hover {
+    background: rgba(255,110,199,0.25);
+    border-color: #ff6ec7;
+    color: #fff;
+  }
+  .skin-sunset .btn.muted { color: rgba(255,255,255,0.85); }
+  .skin-sunset .select {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,110,199,0.5);
+    color: #ffd0e8;
+  }
+
+  /* ── O · SOLARIZED AMBER ── */
+  .skin-amber .header {
+    background: #1a0f00;
+    border-bottom: 1px solid #663300;
+  }
+  .skin-amber .title {
+    color: #ffb000;
+    text-shadow: 0 0 6px rgba(255,176,0,0.45);
+    letter-spacing: 0.8px;
+  }
+  .skin-amber .meta { color: rgba(255,176,0,0.5); }
+  .skin-amber .cost { color: #ffd966; text-shadow: 0 0 3px rgba(255,217,102,0.4); }
+  .skin-amber .btn {
+    background: transparent;
+    border: 1px solid rgba(255,176,0,0.45);
+    color: #ffb000;
+    text-shadow: 0 0 3px rgba(255,176,0,0.35);
+  }
+  .skin-amber .btn:hover {
+    background: rgba(255,176,0,0.10);
+    border-color: #ffb000;
+  }
+  .skin-amber .btn.muted { color: rgba(255,176,0,0.7); }
+  .skin-amber .select {
+    background: transparent;
+    border: 1px solid rgba(255,176,0,0.45);
+    color: #ffb000;
+  }
+
+  /* ── P · DAYLIGHT (LIGHT THEME) ── */
+  .skin-daylight .preview-canvas { background: #ffffff; }
+  .skin-daylight .header {
+    background: #f5f5f7;
+    border-bottom: 1px solid #d1d1d6;
+  }
+  .skin-daylight .title {
+    color: #1d1d1f;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .skin-daylight .meta { color: #6e6e73; }
+  .skin-daylight .cost { color: #007a4d; }
+  .skin-daylight .btn {
+    background: #ffffff;
+    border: 1px solid #d1d1d6;
+    color: #0066cc;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.04);
+  }
+  .skin-daylight .btn:hover {
+    background: #f0f0f3;
+    border-color: #0066cc;
+  }
+  .skin-daylight .btn.muted { color: #1d1d1f; }
+  .skin-daylight .select {
+    background: #ffffff;
+    border: 1px solid #d1d1d6;
+    color: #0066cc;
+  }
+  .skin-daylight .body-mock-content { background: #ffffff; color: #1d1d1f; }
+  .skin-daylight .body-mock-content .prompt { color: #0066cc; }
+  .skin-daylight .body-mock-content .dim { color: #86868b; }
+</style>
+</head>
+<body>
+
+<h1>HEADER STYLE BRAINSTORM</h1>
+<p class="lede">
+  Current header (Style A) packs <strong style="color:var(--fg-active)">9 controls</strong> into a flat row of accent-blue buttons. Hard to scan because everything looks the same weight. Below: 6 alternative directions. Each shows the actual chrome above a faux terminal body so you can compare. Pick a number/letter and we ship it in v0.1.10.
+</p>
+
+<!-- ─────────────────────────── A: CURRENT BASELINE ─────────────────────────── -->
+<div class="preview style-a">
+  <div class="preview-meta">
+    <h2>A · CURRENT (baseline, for comparison)</h2>
+    <div class="pros">9 buttons, all same weight, all accent blue. <strong>Cost:</strong> hard to scan, no visual hierarchy.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 packs…</option></select>
+      <button class="btn">📁 from file</button>
+      <button class="btn">🔗 from URL</button>
+      <button class="btn">💾 export</button>
+      <button class="btn">🔌 MCPs</button>
+      <button class="btn">🚀 setup</button>
+      <button class="btn muted icon">⚙️</button>
+      <select class="select"><option>Pluto Dark</option></select>
+      <button class="btn">+ pane</button>
+    </div>
+    <div class="body-mock"></div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── B: GROUPED PILLS ─────────────────────────── -->
+<div class="preview">
+  <div class="preview-meta">
+    <h2>B · GROUPED PILLS — actions clustered by purpose</h2>
+    <div class="pros">Three pill-groups: <strong>packs</strong>, <strong>tools</strong>, <strong>app</strong>. <strong>Win:</strong> visual hierarchy, scannable. Reads as "here are the things you can do."</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+
+      <div class="group">
+        <button class="btn primary">📚 packs</button>
+        <button class="btn">📁 file</button>
+        <button class="btn">🔗 url</button>
+        <button class="btn">💾 export</button>
+      </div>
+
+      <div class="group">
+        <button class="btn">🔌 MCPs</button>
+        <button class="btn">🚀 setup</button>
+      </div>
+
+      <div class="group">
+        <button class="btn">+ pane</button>
+        <button class="btn">⚙️</button>
+      </div>
+    </div>
+    <div class="body-mock"></div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── C: COMMAND PALETTE ─────────────────────────── -->
+<div class="preview">
+  <div class="preview-meta">
+    <h2>C · COMMAND PALETTE — Ctrl+K-style search bar</h2>
+    <div class="pros">Single search input replaces most buttons. <strong>Win:</strong> scales to N actions without UI growth — power-user pattern (Linear, Raycast, VS Code). <strong>Cost:</strong> discoverability for first-timers; needs a visible hint or 3-4 quick-access buttons next to it.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel</span>
+      <span class="cost">· $0.00</span>
+      <div class="cmdk">
+        <span style="color:var(--fg-dim)">⌘</span>
+        <span>load pack, install MCP, run setup…</span>
+        <span class="kbd">⌃ K</span>
+      </div>
+      <div class="cmdk-secondary">
+        <button class="btn">📚 packs</button>
+        <button class="btn">+ pane</button>
+        <button class="btn muted icon">⚙️</button>
+      </div>
+    </div>
+    <div class="body-mock"></div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── D: ICON RAIL ─────────────────────────── -->
+<div class="preview">
+  <div class="preview-meta">
+    <h2>D · ICON RAIL — compact emoji-only with tooltips</h2>
+    <div class="pros">Density. <strong>Win:</strong> all 9 controls fit in &lt;200px, hover to learn what each does. <strong>Cost:</strong> ambiguity — 🔌 vs 🚀 vs ⚙️ vs 📚 not self-evident on first sight.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+
+      <div class="icon-rail">
+        <button class="ibtn" title="Load bundled pack">📚</button>
+        <button class="ibtn" title="Load pack from file">📁</button>
+        <button class="ibtn" title="Load pack from URL">🔗</button>
+        <button class="ibtn" title="Export current layout">💾</button>
+        <span class="divider"></span>
+        <button class="ibtn" title="MCP servers">🔌</button>
+        <button class="ibtn" title="Setup checker">🚀</button>
+        <span class="divider"></span>
+        <button class="ibtn" title="Add panel">＋</button>
+        <button class="ibtn" title="Settings">⚙️</button>
+      </div>
+    </div>
+    <div class="body-mock"></div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── E: PRIMARY CTA + OVERFLOW MENU ─────────────────────────── -->
+<div class="preview">
+  <div class="preview-meta">
+    <h2>E · PRIMARY CTA + OVERFLOW — one filled CTA, rest in a "more" menu</h2>
+    <div class="pros">Defines the most-used path (load a pack) as the single hero button. <strong>Win:</strong> first-timers know where to start. <strong>Cost:</strong> two-click to less-frequent items (export, MCPs, setup).</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+
+      <button class="primary-cta">📚 load pack</button>
+      <button class="menu-btn">+ pane</button>
+      <button class="menu-btn">⚙ more ▾</button>
+    </div>
+    <div class="body-mock"></div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── F: TWO-ROW (BRAND + ACTIONS) ─────────────────────────── -->
+<div class="preview style-f">
+  <div class="preview-meta">
+    <h2>F · TWO-ROW — top is brand + status, bottom is actions</h2>
+    <div class="pros">Splits "what is this" from "what can I do here." <strong>Win:</strong> brand presence (PLUTO'S TERMINALS reads). Identity gets full top row. <strong>Cost:</strong> +20px vertical space (less terminal area).</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <div class="row-top">
+        <span class="brand">PLUTO<span class="magenta">'S</span> TERMINALS</span>
+        <span class="dot">·</span>
+        <span class="meta">1 panel · 0 projects</span>
+        <span class="cost">· $0.00 · 0 tokens</span>
+        <div class="spacer"></div>
+        <span class="meta" style="font-size:10px">v0.1.10 · ✓ claude</span>
+      </div>
+      <div class="row-bottom">
+        <select class="select"><option>📚 packs…</option></select>
+        <button class="btn">📁 file</button>
+        <button class="btn">🔗 url</button>
+        <button class="btn">💾 export</button>
+        <div class="spacer"></div>
+        <button class="btn">🔌 MCPs</button>
+        <button class="btn">🚀 setup</button>
+        <button class="btn muted icon">⚙️</button>
+        <button class="btn">+ pane</button>
+      </div>
+    </div>
+    <div class="body-mock"></div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── G: MINIMAL — JUST "LOAD A PACK" ─────────────────────────── -->
+<div class="preview">
+  <div class="preview-meta">
+    <h2>G · MINIMAL — one big "load a pack" launcher, everything else hidden</h2>
+    <div class="pros">Radical reduction. The app's <strong>core verb is "load a pack"</strong>; everything else (export, settings, MCPs) is rare. <strong>Win:</strong> ruthless focus, beautiful. <strong>Cost:</strong> the rare stuff is now 2 clicks deep — needs a discoverable overflow.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header minimal">
+      <span class="title">TERMINALS</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+
+      <button class="pack-launcher">
+        <span class="accent">📚</span>
+        <span>load a pack</span>
+        <span class="arrow">▾</span>
+      </button>
+
+      <button class="btn">+ pane</button>
+      <button class="btn muted icon">⋯</button>
+    </div>
+    <div class="body-mock"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════ -->
+<!--                        VISUAL SKINS (same layout as A)                       -->
+<!-- ════════════════════════════════════════════════════════════════════════════ -->
+
+<div class="section-header">
+  <h2>VISUAL SKINS — same layout, different look</h2>
+  <p>All 9 controls from baseline A, identical arrangement. Only the visual language changes — colors, borders, typography, effects. Pick one of these to combine with a layout (A–G) above. e.g. "B + I" = grouped pills with magenta accent.</p>
+</div>
+
+<!-- ─────────────────────────── H · NEON CYBERPUNK ─────────────────────────── -->
+<div class="preview skin-neon">
+  <div class="preview-meta">
+    <h2>H · NEON CYBERPUNK — magenta + cyan glow</h2>
+    <div class="pros">Edgy, brand-leaning, pops on dark backgrounds. <strong>Win:</strong> distinctive — looks like nothing else in the dev-tool space. <strong>Cost:</strong> can read as juvenile if overdone; glow eats slight bit of legibility on small text.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 packs…</option></select>
+      <button class="btn">📁 from file</button>
+      <button class="btn">🔗 from URL</button>
+      <button class="btn">💾 export</button>
+      <button class="btn">🔌 MCPs</button>
+      <button class="btn">🚀 setup</button>
+      <button class="btn muted icon">⚙️</button>
+      <select class="select"><option>Pluto Dark</option></select>
+      <button class="btn">+ pane</button>
+    </div>
+    <div class="body-mock-content">
+      <div><span class="prompt">›</span> claude</div>
+      <div class="dim">starting Claude Code session…</div>
+      <div class="dim">ready. paste your prompt or systemPrompt arrives in 2s.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── I · PLUTO MAGENTA ─────────────────────────── -->
+<div class="preview skin-magenta">
+  <div class="preview-meta">
+    <h2>I · PLUTO MAGENTA — brand color as primary accent</h2>
+    <div class="pros">Cyan accent → magenta accent. <strong>Win:</strong> reads as "Pluto's" instantly; matches your YouTube thumbnails + Discord. <strong>Cost:</strong> magenta is louder than cyan; harder to make subtle.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 packs…</option></select>
+      <button class="btn">📁 from file</button>
+      <button class="btn">🔗 from URL</button>
+      <button class="btn">💾 export</button>
+      <button class="btn">🔌 MCPs</button>
+      <button class="btn">🚀 setup</button>
+      <button class="btn muted icon">⚙️</button>
+      <select class="select"><option>Pluto Dark</option></select>
+      <button class="btn">+ pane</button>
+    </div>
+    <div class="body-mock-content">
+      <div><span class="prompt">›</span> claude</div>
+      <div class="dim">starting Claude Code session…</div>
+      <div class="dim">ready.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── J · RETRO CRT GREEN ─────────────────────────── -->
+<div class="preview skin-crt">
+  <div class="preview-meta">
+    <h2>J · RETRO CRT — green-on-black phosphor terminal</h2>
+    <div class="pros">Classic VT100 / phosphor aesthetic, all caps. <strong>Win:</strong> unambiguously says "I am a terminal." Authentic, hacker-feel. <strong>Cost:</strong> heavy aesthetic — overrides the whole app's mood; harder to read for long sessions.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 PACKS…</option></select>
+      <button class="btn">📁 FILE</button>
+      <button class="btn">🔗 URL</button>
+      <button class="btn">💾 EXPORT</button>
+      <button class="btn">🔌 MCPS</button>
+      <button class="btn">🚀 SETUP</button>
+      <button class="btn muted icon">⚙️</button>
+      <select class="select"><option>PLUTO DARK</option></select>
+      <button class="btn">+ PANE</button>
+    </div>
+    <div class="body-mock-content" style="color:#33ff66;text-shadow:0 0 4px rgba(51,255,102,0.5);font-family:'Courier New', monospace">
+      <div>&gt; CLAUDE</div>
+      <div style="color:rgba(51,255,102,0.5)">STARTING CLAUDE CODE SESSION…</div>
+      <div style="color:rgba(51,255,102,0.5)">READY.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── K · LINEAR / MODERN DARK ─────────────────────────── -->
+<div class="preview skin-linear">
+  <div class="preview-meta">
+    <h2>K · LINEAR / MODERN DARK — refined polish, subtle gradients</h2>
+    <div class="pros">Linear / Vercel / Raycast aesthetic. Filled buttons, soft gradients, micro-shadows. <strong>Win:</strong> reads as "professional SaaS"; lowest friction for non-dev YouTube viewers. <strong>Cost:</strong> looks like every other dev-tool app; less Pluto-distinct.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">Terminals</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 packs…</option></select>
+      <button class="btn">📁 from file</button>
+      <button class="btn">🔗 from URL</button>
+      <button class="btn">💾 export</button>
+      <button class="btn">🔌 MCPs</button>
+      <button class="btn">🚀 setup</button>
+      <button class="btn muted icon">⚙️</button>
+      <select class="select"><option>Pluto Dark</option></select>
+      <button class="btn">+ pane</button>
+    </div>
+    <div class="body-mock-content" style="color:#a1a1aa">
+      <div><span style="color:#fafafa">›</span> claude</div>
+      <div>starting Claude Code session…</div>
+      <div>ready.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── L · BRUTALIST MONO ─────────────────────────── -->
+<div class="preview skin-brutal">
+  <div class="preview-meta">
+    <h2>L · BRUTALIST MONO — pure black/white, sharp corners, all caps</h2>
+    <div class="pros">No accent color, no rounded corners, no glow. <strong>Win:</strong> ruthlessly distinct, will go viral on dev-twitter, signals confidence. <strong>Cost:</strong> aggressive — alienates softer users; hard hover state (full inversion) can feel jarring.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 PANEL · 0 PROJECTS</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 PACKS…</option></select>
+      <button class="btn">📁 FILE</button>
+      <button class="btn">🔗 URL</button>
+      <button class="btn">💾 EXPORT</button>
+      <button class="btn">🔌 MCPS</button>
+      <button class="btn">🚀 SETUP</button>
+      <button class="btn muted icon">⚙</button>
+      <select class="select"><option>PLUTO DARK</option></select>
+      <button class="btn">+ PANE</button>
+    </div>
+    <div class="body-mock-content" style="background:#000;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:1px">
+      <div>&gt; CLAUDE</div>
+      <div style="color:#888">STARTING CLAUDE CODE SESSION…</div>
+      <div style="color:#888">READY.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── M · GLASSMORPHIC ─────────────────────────── -->
+<div class="preview skin-glass">
+  <div class="preview-meta">
+    <h2>M · GLASSMORPHIC — translucent header floating over terminal</h2>
+    <div class="pros">Backdrop-blur over a colorful background; macOS Big Sur / Vision Pro aesthetic. <strong>Win:</strong> premium feel, modern. <strong>Cost:</strong> needs colored content under it (dark terminal output makes the blur invisible); slight perf cost on weak GPUs.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 packs…</option></select>
+      <button class="btn">📁 from file</button>
+      <button class="btn">🔗 from URL</button>
+      <button class="btn">💾 export</button>
+      <button class="btn">🔌 MCPs</button>
+      <button class="btn">🚀 setup</button>
+      <button class="btn muted icon">⚙️</button>
+      <select class="select"><option>Pluto Dark</option></select>
+      <button class="btn">+ pane</button>
+    </div>
+    <div class="body-mock-content">
+      <div style="color:rgba(255,255,255,0.9)">› claude</div>
+      <div style="color:rgba(255,255,255,0.5)">starting Claude Code session…</div>
+      <div style="color:rgba(255,255,255,0.5)">ready.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── N · SYNTHWAVE SUNSET ─────────────────────────── -->
+<div class="preview skin-sunset">
+  <div class="preview-meta">
+    <h2>N · SYNTHWAVE SUNSET — purple→orange gradient, retro-future</h2>
+    <div class="pros">80s sunset gradient, hot pink title with glow. <strong>Win:</strong> chromatic, looks unlike any dev tool, photogenic for social. <strong>Cost:</strong> heavy color load — eyes tire faster than flat themes; might fight with terminal output below.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 packs…</option></select>
+      <button class="btn">📁 from file</button>
+      <button class="btn">🔗 from URL</button>
+      <button class="btn">💾 export</button>
+      <button class="btn">🔌 MCPs</button>
+      <button class="btn">🚀 setup</button>
+      <button class="btn muted icon">⚙️</button>
+      <select class="select"><option>Pluto Dark</option></select>
+      <button class="btn">+ pane</button>
+    </div>
+    <div class="body-mock-content">
+      <div><span class="prompt">›</span> claude</div>
+      <div class="dim">starting Claude Code session…</div>
+      <div class="dim">ready.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── O · SOLARIZED AMBER ─────────────────────────── -->
+<div class="preview skin-amber">
+  <div class="preview-meta">
+    <h2>O · SOLARIZED AMBER — vintage Hercules monochrome</h2>
+    <div class="pros">Warm amber-on-black, classic 80s monochrome monitor. <strong>Win:</strong> warm + readable for long sessions, easier on eyes than green CRT. <strong>Cost:</strong> mono-amber is a strong commitment — looks dated to some, retro-cool to others.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">TERMINALS</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 packs…</option></select>
+      <button class="btn">📁 from file</button>
+      <button class="btn">🔗 from URL</button>
+      <button class="btn">💾 export</button>
+      <button class="btn">🔌 MCPs</button>
+      <button class="btn">🚀 setup</button>
+      <button class="btn muted icon">⚙️</button>
+      <select class="select"><option>Pluto Dark</option></select>
+      <button class="btn">+ pane</button>
+    </div>
+    <div class="body-mock-content" style="color:#ffb000;text-shadow:0 0 3px rgba(255,176,0,0.4);background:#1a0f00">
+      <div>› claude</div>
+      <div style="color:rgba(255,176,0,0.5)">starting Claude Code session…</div>
+      <div style="color:rgba(255,176,0,0.5)">ready.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── P · DAYLIGHT (LIGHT THEME) ─────────────────────────── -->
+<div class="preview skin-daylight">
+  <div class="preview-meta">
+    <h2>P · DAYLIGHT — actual light theme for sun + bright environments</h2>
+    <div class="pros">White bg, dark text, blue accent — looks like macOS / Linear in light mode. <strong>Win:</strong> only skin usable outdoors / in bright rooms; pairs with a light xterm theme. <strong>Cost:</strong> dramatic shift from app's dark identity; needs a matching terminal-body theme to not clash.</div>
+  </div>
+  <div class="preview-canvas">
+    <div class="header">
+      <span class="title">Terminals</span>
+      <span class="dot">·</span>
+      <span class="meta">1 panel · 0 projects</span>
+      <span class="cost">· $0.00</span>
+      <div class="spacer"></div>
+      <select class="select"><option>📚 packs…</option></select>
+      <button class="btn">📁 from file</button>
+      <button class="btn">🔗 from URL</button>
+      <button class="btn">💾 export</button>
+      <button class="btn">🔌 MCPs</button>
+      <button class="btn">🚀 setup</button>
+      <button class="btn muted icon">⚙️</button>
+      <select class="select"><option>Pluto Light</option></select>
+      <button class="btn">+ pane</button>
+    </div>
+    <div class="body-mock-content">
+      <div><span class="prompt">›</span> claude</div>
+      <div class="dim">starting Claude Code session…</div>
+      <div class="dim">ready.</div>
+    </div>
+  </div>
+</div>
+
+<div class="picker-note">
+  <strong>10 SKINS — user picks from settings dropdown.</strong> Each ships with default values for header bg, accent, button states, hover states. The active skin name persists in localStorage; first-launch defaults to "default" (current).<br>
+  <br>
+  <strong style="color:var(--fg-active)">SKINS:</strong><br>
+  &nbsp;&nbsp;<code>1 · default</code> — flat dark, cyan accent (current)<br>
+  &nbsp;&nbsp;<code>2 · neon</code> (H) — magenta + cyan glow, cyberpunk<br>
+  &nbsp;&nbsp;<code>3 · magenta</code> (I) — Pluto brand magenta as primary<br>
+  &nbsp;&nbsp;<code>4 · crt</code> (J) — retro green-on-black phosphor<br>
+  &nbsp;&nbsp;<code>5 · linear</code> (K) — refined SaaS polish (Linear/Vercel)<br>
+  &nbsp;&nbsp;<code>6 · brutal</code> (L) — black/white brutalist<br>
+  &nbsp;&nbsp;<code>7 · glass</code> (M) — translucent backdrop-blur<br>
+  &nbsp;&nbsp;<code>8 · sunset</code> (N) — synthwave purple→orange gradient<br>
+  &nbsp;&nbsp;<code>9 · amber</code> (O) — Hercules vintage monochrome amber<br>
+  &nbsp;&nbsp;<code>10 · daylight</code> (P) — actual light theme<br>
+  <br>
+  <strong style="color:var(--fg-active)">LAYOUTS</strong> (still pending — not part of this skin shipment):<br>
+  &nbsp;&nbsp;<code>A</code> baseline · <code>B</code> grouped pills · <code>C</code> command palette · <code>D</code> icon rail · <code>E</code> CTA + overflow · <code>F</code> two-row · <code>G</code> minimal launcher<br>
+  <br>
+  <strong>Plan:</strong> shipping all 10 skins as a user picker in settings (v0.1.10). Layout stays as <code>A</code> for now — once the skins are live and you've used them a few sessions, we revisit which layout to ship next.
+</div>
+
+</body>
+</html>

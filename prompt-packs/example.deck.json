@@ -1,8 +1,8 @@
 {
   "schema": "plutos-terminals/deck.json/v0",
   "name": "Example — schema reference",
-  "description": "Schema reference pack. Shows every field. Don't load this for actual work — go to one of the practical packs (claude-code-basic, dual-claude-pair, trading-workflow, pluto-personal-strategist). See SCHEMA.md for the full field-by-field breakdown.",
-  "created": "2026-05-04",
+  "description": "Schema reference pack. Shows every field. Don't load this for actual work — go to one of the practical packs (claude-code-basic, dual-claude-pair, codebase-explorer, writing-helper, debug-session, trading-workflow). See SCHEMA.md for the full field-by-field breakdown.",
+  "created": "2026-05-06",
   "panels": [
     {
       "label": "claude-code",
@@ -13,7 +13,7 @@
           "startCommands": [
             "echo 'Schema reference. Replace this with your real setup before sharing.'"
           ],
-          "system_prompt_hint": "Optional hint to remind the user what this tab is for."
+          "systemPrompt": "Optional. If present, this string is auto-typed into the PTY 2 seconds after spawn — perfect for role priming, persona, or task framing. Empty / missing means no auto-prompt."
         }
       ]
     },
@@ -36,7 +36,7 @@
     }
   ],
   "notes": [
-    "v0 cwd values are absolute paths. Use null to default to user home.",
-    "v1 will support templated paths like ${HOME}/Documents/myvault."
+    "cwd: absolute path, null for user home, or templated like ${USERPROFILE}/Documents/myrepo (any process env var resolves).",
+    "systemPrompt: optional per-tab string written to the PTY 2s after startCommands run. Used to prime Claude / the agent in that tab."
   ]
 }

@@ -13,6 +13,7 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { gridDims, MAX_PANELS } from "./grid";
 import { THEMES } from "./themes";
+import { getSkinId, injectHeaderSkinsCss } from "./headerSkins";
 
 // Bundled prompt packs — eagerly imported at build time from the repo's
 // prompt-packs/ folder. Anyone who downloads a binary release gets all the
@@ -92,6 +93,13 @@ export default function TerminalsTab({ st, save }) {
   const [setupOpen, setSetupOpen] = useState(false);
   const [urlOpen, setUrlOpen] = useState(false);
 
+
+  // Inject header-skin CSS once. Idempotent inside injectHeaderSkinsCss.
+  useEffect(() => {
+    injectHeaderSkinsCss();
+  }, []);
+
+  const headerSkinId = getSkinId(st?.headerSkin);
 
   // Claude CLI availability — checked once on mount, surfaced in the status
   // bar. Doesn't gate behavior; just informs.
@@ -432,24 +440,6 @@ export default function TerminalsTab({ st, save }) {
     };
   }, [applyPack]);
 
-  const onQuickSpawnGrid = useCallback(async () => {
-    const ok = await confirm(
-      "Replace current panels with a 4-up agent grid (Researcher / Coder / Reviewer / Journal)? Existing sessions will be killed.",
-      { title: "Spawn agent grid?", confirmLabel: "spawn grid", destructive: true }
-    );
-    if (!ok) return;
-    applyPack({
-      schema: "plutos-terminals/deck.json/v0",
-      name: "Agent Grid",
-      panels: [
-        { tabs: [{ label: "Researcher", startCommands: ["echo 'RESEARCHER — paste your research query, then run claude'"] }] },
-        { tabs: [{ label: "Coder", startCommands: ["echo 'CODER — Claude Code session for hands-on edits, run claude'"] }] },
-        { tabs: [{ label: "Reviewer", startCommands: ["echo 'REVIEWER — code review focus, run claude'"] }] },
-        { tabs: [{ label: "Journal", startCommands: ["echo 'JOURNAL — running session log, append with Add-Content'"] }] },
-      ],
-    });
-  }, [applyPack, confirm]);
-
   // ── Pack export (v0.1.0) ───────────────────────────────────────────
   // Serialize the current panel/tab layout to a .deck.json file and
   // trigger a browser download. The exported pack has no PTY state —
@@ -589,31 +579,19 @@ export default function TerminalsTab({ st, save }) {
   return (
     <div style={{ height: "100%", position: "relative", background: PAGE_BG, fontFamily: M }}>
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "6px 10px",
-          background: HEADER_BG,
-          borderBottom: `1px solid ${BORDER}`,
-          fontSize: 11,
-          color: FG,
-          flexShrink: 0,
-          minHeight: 32,
-          boxSizing: "border-box",
-        }}
-      >
-        <span style={{ color: FG_ACTIVE, letterSpacing: 0.5, fontWeight: 600 }}>TERMINALS</span>
-        <span style={{ color: FG_DIM, opacity: 0.4 }}>·</span>
-        <span style={{ color: FG_DIM }}>
+      {/* Header — visual treatment driven by user-selected skin (headerSkins.js).
+          Layout-only inline styles here; colors/borders/effects come from CSS. */}
+      <div className="phn-header" data-phn-skin={headerSkinId} style={{ gap: 12 }}>
+        <span className="phn-title">TERMINALS</span>
+        <span className="phn-meta phn-meta-dot">·</span>
+        <span className="phn-meta">
           {state.panels.length} panel{state.panels.length === 1 ? "" : "s"}
           {projects.length > 0 && ` · ${projects.length} project${projects.length === 1 ? "" : "s"}`}
         </span>
         {(totalCost.cost > 0 || totalCost.tokens > 0) && (
           <span
-            style={{ color: "#34D399", marginLeft: 4 }}
+            className="phn-cost"
+            style={{ marginLeft: 4 }}
             title="Live aggregate from Claude /cost output across all sessions"
           >
             · ${totalCost.cost.toFixed(2)}
@@ -622,7 +600,6 @@ export default function TerminalsTab({ st, save }) {
         )}
         <div style={{ flex: 1 }} />
 
-        {/* Pack loader + quick-spawn agent grid (v0.0.2) */}
         <input
           ref={fileInputRef}
           type="file"
@@ -632,6 +609,7 @@ export default function TerminalsTab({ st, save }) {
         />
         {BUNDLED_PACKS.length > 0 && (
           <select
+            className="phn-select"
             value=""
             onChange={(e) => {
               const idx = parseInt(e.target.value, 10);
@@ -641,156 +619,72 @@ export default function TerminalsTab({ st, save }) {
               e.target.value = "";
             }}
             title="Load a bundled prompt pack — see prompt-packs/README.md for catalog"
-            style={{
-              background: "transparent",
-              border: `1px solid ${BORDER}`,
-              color: ACCENT,
-              padding: "3px 6px",
-              borderRadius: 3,
-              fontFamily: M,
-              fontSize: 11,
-              outline: "none",
-              cursor: "pointer",
-            }}
           >
-            <option value="" style={{ background: "#181818", color: FG }}>📚 packs…</option>
+            <option value="">📚 packs…</option>
             {BUNDLED_PACKS.map((p, i) => (
-              <option key={p.filename} value={i} style={{ background: "#181818", color: FG }}>
+              <option key={p.filename} value={i}>
                 {p.data?.name || p.filename}
               </option>
             ))}
           </select>
         )}
         <button
+          className="phn-btn"
           onClick={() => fileInputRef.current?.click()}
-          style={{
-            background: "transparent",
-            border: `1px solid ${BORDER}`,
-            color: ACCENT,
-            cursor: "pointer",
-            padding: "3px 10px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-          }}
           title="Load a .deck.json prompt pack from disk (or drag-drop onto window)"
         >
           📁 from file
         </button>
         <button
+          className="phn-btn"
           onClick={() => setUrlOpen(true)}
-          style={{
-            background: "transparent",
-            border: `1px solid ${BORDER}`,
-            color: ACCENT,
-            cursor: "pointer",
-            padding: "3px 10px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-          }}
           title="Load a .deck.json prompt pack from a URL (gist / GitHub raw / any HTTPS source)"
         >
           🔗 from URL
         </button>
         <button
+          className="phn-btn"
           onClick={onExportPack}
-          style={{
-            background: "transparent",
-            border: `1px solid ${BORDER}`,
-            color: ACCENT,
-            cursor: "pointer",
-            padding: "3px 10px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-          }}
           title="Export current panel layout as a .deck.json prompt pack"
         >
           💾 export
         </button>
         <button
+          className="phn-btn"
           onClick={() => setMcpOpen(true)}
-          style={{
-            background: "transparent",
-            border: `1px solid ${BORDER}`,
-            color: ACCENT,
-            cursor: "pointer",
-            padding: "3px 10px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-          }}
-          title="Curated MCP servers — copy the install commands"
+          title="Curated MCP servers — copy or one-click install"
         >
           🔌 MCPs
         </button>
         <button
+          className="phn-btn"
           onClick={() => setSetupOpen(true)}
-          style={{
-            background: "transparent",
-            border: `1px solid ${BORDER}`,
-            color: ACCENT,
-            cursor: "pointer",
-            padding: "3px 10px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-          }}
           title="Setup check: Node.js + Claude CLI + API key + live API test"
         >
           🚀 setup
         </button>
         <button
+          className="phn-btn phn-muted"
           onClick={() => setSettingsOpen(true)}
-          style={{
-            background: "transparent",
-            border: `1px solid ${BORDER}`,
-            color: FG,
-            cursor: "pointer",
-            padding: "3px 10px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-          }}
-          title="Settings: API key, VAULT path, Discord URL, factory reset"
+          title="Settings: API key + header skin + factory reset"
         >
           ⚙️
         </button>
 
         <select
+          className="phn-select phn-muted"
           value={state.themeKey || "default"}
           onChange={(e) => setTheme(e.target.value)}
           title="Terminal color theme"
-          style={{
-            background: "transparent",
-            border: `1px solid ${BORDER}`,
-            color: FG,
-            padding: "3px 6px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-            outline: "none",
-            cursor: "pointer",
-          }}
         >
           {Object.entries(THEMES).map(([key, t]) => (
-            <option key={key} value={key} style={{ background: "#181818", color: FG }}>{t.label}</option>
+            <option key={key} value={key}>{t.label}</option>
           ))}
         </select>
         <button
+          className="phn-btn"
           onClick={addPanel}
           disabled={!canAddPanel}
-          style={{
-            background: "transparent",
-            border: `1px solid ${canAddPanel ? BORDER : "#222"}`,
-            color: canAddPanel ? ACCENT : "#444",
-            cursor: canAddPanel ? "pointer" : "not-allowed",
-            padding: "3px 10px",
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 11,
-          }}
           title={canAddPanel ? "Add panel" : `Max ${MAX_PANELS} panels`}
         >
           + pane
@@ -902,7 +796,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.9</span>
+        <span>v0.1.10</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <button
           onClick={() => setSetupOpen(true)}

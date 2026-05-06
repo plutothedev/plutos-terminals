@@ -1,0 +1,44 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Codebase Explorer",
+  "description": "Two panels for understanding an unfamiliar codebase. Claude on the left with explorer-tuned guidance (read first, recommend second); a scratch shell on the right for git inspection, dependency checks, file listings. Use this when you've cloned a repo and need to map it before changing anything.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "claude",
+      "tabs": [
+        {
+          "label": "Claude — explorer",
+          "cwd": null,
+          "startCommands": [
+            "claude"
+          ],
+          "systemPrompt": "You're the EXPLORER pane in Pluto's Terminals. The user just cloned a codebase and wants to understand it before changing anything. Default behavior: read first, recommend second. Start by orienting — entry points, main modules, build/test config, deps. Cite file paths. When the user asks 'where does X happen', point to specific files and line numbers. Do NOT propose edits unless explicitly asked. If the user wants to change something, first confirm you understand the surrounding code. Be direct, no hype."
+        }
+      ]
+    },
+    {
+      "label": "shell",
+      "tabs": [
+        {
+          "label": "Inspect shell",
+          "cwd": null,
+          "startCommands": [
+            "echo 'INSPECT: cd into your repo, then try: git log --oneline -20 ; git ls-files | Measure-Object ; Get-ChildItem -Recurse -Filter package.json | Select FullName'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "purpose": "Required for Claude. The shell pane is for read-only inspection — no AI key needed there."
+    }
+  ],
+  "notes": [
+    "Doesn't auto-cd into a repo — you point it at your project (`cd C:\\path\\to\\repo` in the shell pane, or use Claude's /cd).",
+    "Cheap pack: Claude reads your code, the shell runs cheap inspection commands. Token spend is just the Claude side."
+  ]
+}
