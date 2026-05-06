@@ -340,11 +340,24 @@ export default function TerminalPane({
         // — user can paste manually.
         let extraEnv = null;
         try {
-          const raw = localStorage.getItem("plutos-terminals:state:v0");
-          if (raw) {
-            const persisted = JSON.parse(raw);
-            const env = {};
-            if (persisted && typeof persisted.anthropicKey === "string" && persisted.anthropicKey.length > 0) {
+          // v0.1.21: anthropicKey now lives in the shared user-state key
+          // so multi-window users don't re-enter it per window. Fall back
+          // to legacy window-state location for migration safety.
+          const env = {};
+          let userRaw = null;
+          try { userRaw = localStorage.getItem("plutos-terminals:user:v0"); } catch (_) { /* ignore */ }
+          if (userRaw) {
+            const userPersisted = JSON.parse(userRaw);
+            if (userPersisted && typeof userPersisted.anthropicKey === "string" && userPersisted.anthropicKey.length > 0) {
+              env.ANTHROPIC_API_KEY = userPersisted.anthropicKey;
+            }
+          }
+          // envOverrides (and the legacy anthropicKey for not-yet-migrated
+          // users) still live in the per-window state.
+          const winRaw = localStorage.getItem("plutos-terminals:state:v0");
+          if (winRaw) {
+            const persisted = JSON.parse(winRaw);
+            if (!env.ANTHROPIC_API_KEY && persisted && typeof persisted.anthropicKey === "string" && persisted.anthropicKey.length > 0) {
               env.ANTHROPIC_API_KEY = persisted.anthropicKey;
             }
             if (persisted && persisted.envOverrides && typeof persisted.envOverrides === "object") {
@@ -352,8 +365,8 @@ export default function TerminalPane({
                 if (typeof v === "string" && v.length > 0) env[k] = v;
               }
             }
-            if (Object.keys(env).length > 0) extraEnv = env;
           }
+          if (Object.keys(env).length > 0) extraEnv = env;
         } catch (_) { /* ignore */ }
         const id = await invoke("pty_spawn", { cwd: cwd || null, cols, rows, extraEnv });
         if (!alive) {

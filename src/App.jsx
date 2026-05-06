@@ -23,12 +23,40 @@ function getWindowStorageKey() {
   return `plutos-terminals:state:v0:${w}`;
 }
 const STORAGE_KEY = getWindowStorageKey();
+
+// Shared user-level state (v0.1.21): welcomeDone, anthropicKey,
+// terminalsOnboarded. These are user preferences, not window preferences —
+// re-prompting for the API key on every new window or replaying the
+// onboarding tour each time you spawn a window is a confidence-killer.
+// Stored under a constant key so all windows in the same Tauri origin
+// share it via localStorage.
+const USER_STORAGE_KEY = "plutos-terminals:user:v0";
+
+function readUserState() {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(USER_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeUserState(next) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(next));
+  } catch (err) {
+    console.warn("Pluto's Terminals: user-state localStorage write failed", err);
+  }
+}
+
 const WINDOW_ID = (() => {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get("w") || null;
 })();
 const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.20";
+const APP_VERSION = "0.1.21";
 
 const PAGE_BG = "var(--phn-page-bg, #0a0a0a)";
 const FG = "var(--phn-text-fg, #9D9D9D)";
@@ -58,6 +86,29 @@ function AppInner() {
     }
   });
 
+  // Shared user-level state. Synchronous one-time migration on first run
+  // of v0.1.21+: if userState is empty but window-state has the user-level
+  // fields (welcomeDone / anthropicKey / terminalsOnboarded), copy them over
+  // so existing users don't see Welcome / onboarding again on upgrade.
+  const [userSt, setUserSt] = useState(() => {
+    let us = readUserState();
+    if (Object.keys(us).length === 0) {
+      try {
+        const winRaw = localStorage.getItem(STORAGE_KEY);
+        const winSt = winRaw ? JSON.parse(winRaw) : {};
+        if (winSt.welcomeDone || winSt.anthropicKey || winSt.terminalsOnboarded) {
+          us = {
+            welcomeDone: winSt.welcomeDone === true,
+            anthropicKey: typeof winSt.anthropicKey === "string" ? winSt.anthropicKey : "",
+            terminalsOnboarded: winSt.terminalsOnboarded === true,
+          };
+          writeUserState(us);
+        }
+      } catch { /* ignore */ }
+    }
+    return us;
+  });
+
   const save = useCallback((next) => {
     setSt(next);
     try {
@@ -65,6 +116,27 @@ function AppInner() {
     } catch (err) {
       console.warn("Pluto's Terminals: localStorage write failed", err);
     }
+  }, []);
+
+  const saveUser = useCallback((next) => {
+    setUserSt(next);
+    writeUserState(next);
+  }, []);
+
+  // Cross-window sync: if another window updates user state, pick it up here.
+  // localStorage `storage` events fire in OTHER tabs/windows of the same
+  // origin (not the originating one). Useful when window 1 dismisses the
+  // tour and window 2 is already open.
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === USER_STORAGE_KEY && e.newValue) {
+        try {
+          setUserSt(JSON.parse(e.newValue));
+        } catch { /* ignore */ }
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   // Inject skin CSS once + apply skin/button-style/layout globally on <html>
@@ -78,22 +150,20 @@ function AppInner() {
   useEffect(() => { applyGlobalButtonStyle("bracket"); }, []);
   useEffect(() => { applyGlobalLayout(layoutId); }, [layoutId]);
 
-  const [welcomeDone, setWelcomeDone] = useState(() => st.welcomeDone === true);
+  const welcomeDone = userSt.welcomeDone === true;
 
   if (!welcomeDone) {
     return (
       <>
         <Welcome
-          initialKey={typeof st.anthropicKey === "string" ? st.anthropicKey : ""}
-          discordUrl={st.discordUrl || DEFAULT_DISCORD_URL}
+          initialKey={typeof userSt.anthropicKey === "string" ? userSt.anthropicKey : ""}
+          discordUrl={DEFAULT_DISCORD_URL}
           onContinue={(apiKey) => {
-            const next = {
-              ...st,
+            saveUser({
+              ...userSt,
               welcomeDone: true,
-              anthropicKey: apiKey || st.anthropicKey || "",
-            };
-            save(next);
-            setWelcomeDone(true);
+              anthropicKey: apiKey || userSt.anthropicKey || "",
+            });
           }}
         />
         <UpdateBanner currentVersion={APP_VERSION} />
@@ -103,7 +173,7 @@ function AppInner() {
 
   return (
     <>
-      <TerminalsTab st={st} save={save} />
+      <TerminalsTab st={st} save={save} userSt={userSt} saveUser={saveUser} />
       <UpdateBanner currentVersion={APP_VERSION} />
     </>
   );

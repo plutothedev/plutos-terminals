@@ -79,7 +79,7 @@ function renumberDefaultLabels(tabs) {
   });
 }
 
-export default function TerminalsTab({ st, save }) {
+export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {} }) {
   const state = st?.terminalsState || defaultState();
   const projects = state.projects || [];
   const toast = useToast();
@@ -988,6 +988,8 @@ export default function TerminalsTab({ st, save }) {
         open={settingsOpen}
         st={st}
         save={save}
+        userSt={userSt}
+        saveUser={saveUser}
         onClose={() => setSettingsOpen(false)}
       />
 
@@ -999,6 +1001,7 @@ export default function TerminalsTab({ st, save }) {
       <SetupChecker
         open={setupOpen}
         st={st}
+        userSt={userSt}
         onClose={() => setSetupOpen(false)}
         onOpenSettings={() => setSettingsOpen(true)}
       />
@@ -1086,9 +1089,9 @@ export default function TerminalsTab({ st, save }) {
         onClose={() => setCommandPaletteOpen(false)}
       />
 
-      {!st?.terminalsOnboarded && (
+      {!userSt?.terminalsOnboarded && (
         <OnboardingOverlay
-          onDismiss={() => save({ ...st, terminalsOnboarded: true })}
+          onDismiss={() => saveUser({ ...userSt, terminalsOnboarded: true })}
         />
       )}
 
@@ -1106,7 +1109,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.20</span>
+        <span>v0.1.21</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}

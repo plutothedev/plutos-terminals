@@ -19,7 +19,7 @@ const YELLOW = "#FBBF24";
 
 const CLAUDE_INSTALL_CMD = "npm install -g @anthropic-ai/claude-code";
 
-export default function SetupChecker({ open, st, onClose, onOpenSettings }) {
+export default function SetupChecker({ open, st, userSt = {}, onClose, onOpenSettings }) {
   const toast = useToast();
   // Each check: pending | found | missing
   const [nodeStatus, setNodeStatus] = useState({ state: "pending", value: null });
@@ -29,7 +29,11 @@ export default function SetupChecker({ open, st, onClose, onOpenSettings }) {
   const [apiTest, setApiTest] = useState({ state: "idle", message: "" });
   const [copied, setCopied] = useState(false);
 
-  const apiKey = (st && typeof st.anthropicKey === "string") ? st.anthropicKey : "";
+  // v0.1.21: anthropicKey moved from per-window st to shared userSt.
+  // Fall back to st.anthropicKey for users still on legacy state.
+  const apiKey = (userSt && typeof userSt.anthropicKey === "string" && userSt.anthropicKey.length > 0)
+    ? userSt.anthropicKey
+    : ((st && typeof st.anthropicKey === "string") ? st.anthropicKey : "");
   const hasKey = apiKey.length > 0;
 
   const runChecks = useCallback(async () => {

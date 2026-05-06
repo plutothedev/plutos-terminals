@@ -14,8 +14,10 @@ import {
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const PLUTO_MAGENTA = "#FF0080";
 
-export default function SettingsModal({ open, st, save, onClose }) {
-  const [anthropicKey, setAnthropicKey] = useState(st.anthropicKey || "");
+export default function SettingsModal({ open, st, save, userSt = {}, saveUser = () => {}, onClose }) {
+  // anthropicKey lives in shared user-state since v0.1.21 (multi-window
+  // shouldn't re-prompt). Other settings remain per-window.
+  const [anthropicKey, setAnthropicKey] = useState(userSt.anthropicKey || "");
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
   const [headerLayout, setHeaderLayout] = useState(getLayoutId(st.headerLayout));
   const [pureBlackTerminal, setPureBlackTerminal] = useState(!!st.pureBlackTerminal);
@@ -28,9 +30,9 @@ export default function SettingsModal({ open, st, save, onClose }) {
       toast.error("API key doesn't look right — should start with 'sk-ant-'. Double-check.");
       return;
     }
+    saveUser({ ...userSt, anthropicKey });
     save({
       ...st,
-      anthropicKey,
       headerSkin: getSkinId(headerSkin),
       headerLayout: getLayoutId(headerLayout),
       pureBlackTerminal,
@@ -71,18 +73,25 @@ export default function SettingsModal({ open, st, save, onClose }) {
     );
     if (!ok) return;
     setAnthropicKey("");
-    save({ ...st, anthropicKey: "" });
+    saveUser({ ...userSt, anthropicKey: "" });
     toast.info("API key cleared.");
   };
 
   const handleFactoryReset = async () => {
     const ok = await confirm(
-      "Factory reset wipes ALL Pluto's Terminals state from this machine: panel layout, projects, scrollback, API key, theme, and welcome flag. The app reloads to the welcome screen. Continue?",
+      "Factory reset wipes ALL Pluto's Terminals state from this machine: panel layout, projects, scrollback, API key, theme, welcome flag, and onboarding flag (across every window). The app reloads to the welcome screen. Continue?",
       { title: "Factory reset?", confirmLabel: "reset everything", destructive: true }
     );
     if (!ok) return;
     try {
-      localStorage.removeItem("plutos-terminals:state:v0");
+      // v0.1.21: also wipe shared user state + any per-window state from
+      // multi-window setups. Walks all keys to catch suffixed window states.
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k === "plutos-terminals:user:v0" || k.startsWith("plutos-terminals:state:v0"))) {
+          localStorage.removeItem(k);
+        }
+      }
     } catch (_) { /* ignore */ }
     window.location.reload();
   };
