@@ -307,6 +307,50 @@ const CSS = `
   /* base styling lives inline; this class is just a hook for future skin overrides */
 }
 
+/* ── Drag-drop pack overlay — appears when user drags a file over window. ── */
+.phn-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9985;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: phn-drop-in 120ms ease-out;
+}
+.phn-drop-overlay-card {
+  border: 2px dashed var(--phn-link, #4DAAFC);
+  border-radius: 12px;
+  padding: 36px 56px;
+  background: var(--phn-surface-bg, #181818);
+  color: var(--phn-text-active, #E6E6E6);
+  font-family: 'JetBrains Mono', Menlo, Monaco, monospace;
+  text-align: center;
+  box-shadow: 0 0 32px rgba(77,170,252,0.15);
+}
+.phn-drop-overlay-title {
+  font-size: 16px;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.phn-drop-overlay-subtitle {
+  font-size: 11px;
+  color: var(--phn-text-dim, #9D9D9D);
+}
+.phn-drop-overlay-subtitle code {
+  background: var(--phn-page-bg, #0a0a0a);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--phn-link, #4DAAFC);
+}
+@keyframes phn-drop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ── Glass skin: extend backdrop-filter to all surfaces, not just header. ── */
 [data-phn-skin="glass"] .phn-statusbar,
 [data-phn-skin="glass"] .phn-sidebar,

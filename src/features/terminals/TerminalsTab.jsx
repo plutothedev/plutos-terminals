@@ -418,17 +418,44 @@ export default function TerminalsTab({ st, save }) {
   // Drag-and-drop pack files anywhere on the window — alternative to the file
   // picker. Browsers route drop events through window if no inner element
   // handles them; we preventDefault to avoid the browser navigating to the
-  // file:// URL.
+  // file:// URL. While dragging, show a full-window overlay so the feature
+  // is discoverable instead of invisible.
+  const [draggingFile, setDraggingFile] = useState(false);
+  const dragLeaveTimerRef = useRef(null);
   useEffect(() => {
+    const isFileDrag = (e) => {
+      const types = Array.from(e.dataTransfer?.types || []);
+      return types.includes("Files");
+    };
     const onDragOver = (e) => {
-      if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) {
-        e.preventDefault();
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      // Throttle: clear any pending leave-timer; show overlay.
+      if (dragLeaveTimerRef.current) {
+        clearTimeout(dragLeaveTimerRef.current);
+        dragLeaveTimerRef.current = null;
       }
+      setDraggingFile(true);
+    };
+    const onDragLeave = (e) => {
+      // dragleave fires when crossing element boundaries — debounce so we only
+      // hide the overlay when the cursor truly leaves the window.
+      if (dragLeaveTimerRef.current) clearTimeout(dragLeaveTimerRef.current);
+      dragLeaveTimerRef.current = setTimeout(() => setDraggingFile(false), 80);
     };
     const onDrop = (e) => {
+      setDraggingFile(false);
+      if (dragLeaveTimerRef.current) {
+        clearTimeout(dragLeaveTimerRef.current);
+        dragLeaveTimerRef.current = null;
+      }
       const file = e.dataTransfer?.files?.[0];
       if (!file) return;
-      if (!file.name.endsWith(".deck.json") && !file.name.endsWith(".json")) return;
+      if (!file.name.endsWith(".deck.json") && !file.name.endsWith(".json")) {
+        toast.error(`Not a pack file: ${file.name} (need .deck.json or .json)`);
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       const reader = new FileReader();
       reader.onload = () => {
@@ -436,18 +463,20 @@ export default function TerminalsTab({ st, save }) {
           const pack = JSON.parse(reader.result);
           applyPack(pack);
         } catch (err) {
-          window.alert(`Failed to load pack: ${err.message}`);
+          toast.error(`Failed to load pack: ${err.message}`);
         }
       };
       reader.readAsText(file);
     };
     window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
     window.addEventListener("drop", onDrop);
     return () => {
       window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
       window.removeEventListener("drop", onDrop);
     };
-  }, [applyPack]);
+  }, [applyPack, toast]);
 
   // ── Pack export (v0.1.0) ───────────────────────────────────────────
   // Serialize the current panel/tab layout to a .deck.json file and
@@ -587,6 +616,20 @@ export default function TerminalsTab({ st, save }) {
 
   return (
     <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative", fontFamily: M }}>
+      {draggingFile && (
+        <div
+          className="phn-drop-overlay"
+          aria-hidden="true"
+        >
+          <div className="phn-drop-overlay-card">
+            <div style={{ fontSize: 48, lineHeight: 1, marginBottom: 12 }}>📥</div>
+            <div className="phn-drop-overlay-title">Drop a prompt pack to load it</div>
+            <div className="phn-drop-overlay-subtitle">
+              <code>.deck.json</code> file · replaces current panels
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Header — visual treatment driven by user-selected skin (headerSkins.js).
           Layout-only inline styles here; colors/borders/effects come from CSS. */}
@@ -793,7 +836,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.13</span>
+        <span>v0.1.14</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}

@@ -1,18 +1,25 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import { ToastProvider } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
+import {
+  getSkinId,
+  getButtonStyleId,
+  injectHeaderSkinsCss,
+  applyGlobalSkin,
+  applyGlobalButtonStyle,
+} from "./features/terminals/headerSkins.js";
 
 const STORAGE_KEY = "plutos-terminals:state:v0";
 const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.13";
+const APP_VERSION = "0.1.14";
 
-const PAGE_BG = "#0a0a0a";
-const FG = "#9D9D9D";
-const FG_ACTIVE = "#E6E6E6";
-const FG_DIM = "#555555";
-const ACCENT = "#4DAAFC";
+const PAGE_BG = "var(--phn-page-bg, #0a0a0a)";
+const FG = "var(--phn-text-fg, #9D9D9D)";
+const FG_ACTIVE = "var(--phn-text-active, #E6E6E6)";
+const FG_DIM = "var(--phn-text-dim, #555555)";
+const ACCENT = "var(--phn-link, #4DAAFC)";
 const PLUTO_MAGENTA = "#FF0080";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
@@ -44,6 +51,14 @@ function AppInner() {
       console.warn("Pluto's Terminals: localStorage write failed", err);
     }
   }, []);
+
+  // Inject skin CSS once + apply skin/button-style globally on <html>
+  // BEFORE Welcome screen renders so first-launch picks up saved skin too.
+  useEffect(() => { injectHeaderSkinsCss(); }, []);
+  const skinId = getSkinId(st.headerSkin);
+  const btnStyleId = getButtonStyleId(st.headerButtonStyle);
+  useEffect(() => { applyGlobalSkin(skinId); }, [skinId]);
+  useEffect(() => { applyGlobalButtonStyle(btnStyleId); }, [btnStyleId]);
 
   const [welcomeDone, setWelcomeDone] = useState(() => st.welcomeDone === true);
 

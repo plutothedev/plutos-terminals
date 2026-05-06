@@ -1,0 +1,44 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Interview Prep",
+  "description": "Two-pane layout for interview practice. Claude on the left runs the interview — drives the questioning, asks follow-ups, holds you to specifics. Scratch shell on the right for jotting notes between rounds. Works for technical, behavioral, or case interviews.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "interviewer",
+      "tabs": [
+        {
+          "label": "Claude — interviewer",
+          "cwd": null,
+          "startCommands": [
+            "claude"
+          ],
+          "systemPrompt": "You're an interviewer inside Pluto's Terminals. The user is preparing for a real interview. Default opening: ask what role / company / interview type they're prepping for (technical / system design / behavioral / case / leadership) and how much time they have. Once they answer, run a real interview, not a tutorial. Ask one question at a time. Hold them to specifics — when they say 'I led a team' ask team size, your role, what specifically you did. Push back on vague claims. After their answer, give brief feedback (what landed / what was weak / what you'd say differently) before moving to the next question. Pace it like a real interviewer would; don't dump three questions at once. Mix in 1-2 follow-ups per primary question. End each session with a 30-second summary of patterns you noticed across their answers."
+        }
+      ]
+    },
+    {
+      "label": "notes",
+      "tabs": [
+        {
+          "label": "Notes shell",
+          "cwd": null,
+          "startCommands": [
+            "echo 'NOTES: jot quick reminders between rounds. Try: Add-Content interview-notes.md \"text\"'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "purpose": "Required for Claude."
+    }
+  ],
+  "notes": [
+    "Pattern: do a 30-min mock, then 5 min reviewing the summary, then re-do the weakest question.",
+    "Switch persona mid-session by saying 'now play the hiring manager' or 'switch to system-design mode'."
+  ]
+}

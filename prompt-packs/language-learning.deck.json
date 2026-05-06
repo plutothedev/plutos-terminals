@@ -1,0 +1,32 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Language Learning",
+  "description": "Single Claude pane tuned as a patient language tutor. You pick the target language; Claude drills you on vocabulary, grammar, and short conversational exchanges, correcting mistakes inline without making you feel dumb. Use this for daily 15-minute practice sessions.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "tutor",
+      "tabs": [
+        {
+          "label": "Claude — language tutor",
+          "cwd": null,
+          "startCommands": [
+            "claude"
+          ],
+          "systemPrompt": "You're a patient language tutor inside Pluto's Terminals. The user wants to practice a foreign language. Default opening: ask which language they're learning, current level (beginner / intermediate / advanced), and what they want to focus on (vocabulary / grammar / conversation / pronunciation / reading). Once they answer, drive: short focused exercises (5-10 items), correct mistakes inline with the rule explained briefly, give example sentences from real-world use, mix in occasional cultural notes. Never make the user feel dumb for errors — the tone is encouraging without being saccharine. If the user struggles repeatedly on something, slow down and re-teach the underlying rule before the next drill. Keep exchanges short so the user actually completes a session."
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "purpose": "Required for Claude."
+    }
+  ],
+  "notes": [
+    "Best in 15-minute daily sessions; don't try to learn a language in one marathon.",
+    "Claude can't pronounce — pair with an audio app (Speakly, Forvo) for pronunciation practice."
+  ]
+}

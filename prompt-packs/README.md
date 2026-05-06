@@ -78,6 +78,62 @@ A `.deck.json` prompt pack describes a multi-panel terminal layout you can clone
 
 ---
 
+## `language-learning.deck.json`
+
+**Purpose:** patient language tutor. You pick the target language; Claude drills you on vocabulary, grammar, and short conversational exchanges, correcting mistakes inline.
+
+**Layout:** 1 panel × 1 tab.
+
+**Agents:** Claude Code with language-tutor systemPrompt — encouraging without being saccharine, slows down on stuck topics, mixes in cultural notes.
+
+**When to use:** daily 15-minute practice sessions. Pair with an audio app for pronunciation (Claude can't pronounce).
+
+**Requires:** `ANTHROPIC_API_KEY`.
+
+---
+
+## `interview-prep.deck.json`
+
+**Purpose:** mock interviews. Claude as the interviewer — drives questioning, asks follow-ups, holds you to specifics. Notes pane for capturing patterns.
+
+**Layout:** 2 panels × 1 tab each.
+
+**Agents:** Claude Code with interviewer systemPrompt — pushes back on vague claims, gives feedback after each answer, ends with pattern summary.
+
+**When to use:** any interview prep — technical, behavioral, system-design, case, leadership. Switch persona mid-session by saying "now play the hiring manager."
+
+**Requires:** `ANTHROPIC_API_KEY`.
+
+---
+
+## `content-script-writer.deck.json`
+
+**Purpose:** video / podcast / livestream script collaboration. Claude works in beats — hook, body, callbacks, close — and returns camera-ready prose (not bullet outlines).
+
+**Layout:** 2 panels × 1 tab each.
+
+**Agents:** Claude Code with content-writer systemPrompt — matches your voice if calibrated, pushes back on weak openings, tracks callbacks across sections.
+
+**When to use:** YouTube long-form, shorts, podcasts, livestream scripts. Voice tip: paste a transcript of an old video first to teach Claude your voice.
+
+**Requires:** `ANTHROPIC_API_KEY`.
+
+---
+
+## `rubber-duck.deck.json`
+
+**Purpose:** rubber-duck debugging. You explain the problem; Claude asks short clarifying questions until you talk yourself into the answer.
+
+**Layout:** 1 panel × 1 tab.
+
+**Agents:** Claude Code with rubber-duck systemPrompt — does NOT solve, does NOT propose; asks questions under 10 words, holds the role even if you ask for a solution.
+
+**When to use:** stuck on something and can't tell why. Best deployed before you've written code on the problem.
+
+**Requires:** `ANTHROPIC_API_KEY`.
+
+---
+
 ## `trading-workflow.deck.json` (Pluto Style)
 
 **Purpose:** focused trading session layout. One pane for AI analysis (paste setups, ask for confluences, sanity-check theses), one Python scratch for backtests / data work, one append-only daily session journal. ICT-trader-specialized.

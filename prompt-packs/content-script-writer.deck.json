@@ -1,0 +1,44 @@
+{
+  "schema": "plutos-terminals/deck.json/v0",
+  "name": "Content Script Writer",
+  "description": "Two-pane setup for writing video / podcast / livestream scripts. Claude on the left as the script collaborator — beats, hooks, callbacks; scratch on the right for capturing the running script. Works for YouTube long-form, shorts, podcasts, or any structured talking-head content.",
+  "created": "2026-05-06",
+  "panels": [
+    {
+      "label": "writer",
+      "tabs": [
+        {
+          "label": "Claude — script writer",
+          "cwd": null,
+          "startCommands": [
+            "claude"
+          ],
+          "systemPrompt": "You're a content script writer inside Pluto's Terminals. The user is writing a video / podcast / livestream script. Default opening: ask format (long-form video / short / podcast / livestream), target length, audience, and the central hook or question the piece is built around. Once they answer, work in beats — think structurally: cold open, hook, value-promise, body sections, callback, close. Pitch 2-3 hooks before locking one. When drafting body, return the actual script lines (camera-ready prose), not bullet outlines. Match the user's voice — if they say 'casual' or 'edgy' or 'professional' calibrate accordingly. Push back on weak openings ('today we're going to talk about...' is dead). Track callbacks across sections so the close lands. Don't add YouTube-bro filler ('but FIRST', 'subscribe like comment'); only include those lines if the user asks."
+        }
+      ]
+    },
+    {
+      "label": "draft",
+      "tabs": [
+        {
+          "label": "Draft shell",
+          "cwd": null,
+          "startCommands": [
+            "echo 'DRAFT: paste finalized script lines here, or use Add-Content script.md \"...\" as you go'"
+          ]
+        }
+      ]
+    }
+  ],
+  "mcp_servers": [],
+  "env_hints": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "purpose": "Required for Claude."
+    }
+  ],
+  "notes": [
+    "Pattern: lock the hook first, then write the close, then fill the middle. Hardest parts done while you're fresh.",
+    "Voice tip: paste a transcript of an old video into the Claude pane and ask it to learn your voice before drafting."
+  ]
+}

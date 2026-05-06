@@ -410,7 +410,35 @@ export default function TerminalPane({
           }
         });
 
+        // Pre-flight check (v0.1.14): if any startCommand invokes `claude` and
+        // the CLI isn't on PATH, the shell would respond "claude is not
+        // recognized" and the systemPrompt write 2s later would dump prose
+        // into a confused shell. Catch it cleanly and surface a fix path.
+        let skipPackCommands = false;
         if (cmdsAtSpawn.length > 0) {
+          const willInvokeClaude = cmdsAtSpawn.some((cmd) => {
+            const t = (cmd || "").trim();
+            return t === "claude" || t.startsWith("claude ") || t.startsWith("claude\t");
+          });
+          if (willInvokeClaude) {
+            let claudeAvailable = false;
+            try {
+              const v = await invoke("check_command_version", { name: "claude" });
+              claudeAvailable = !!v;
+            } catch {}
+            if (!claudeAvailable && alive) {
+              term.writeln("");
+              term.writeln("\x1b[33m[pluto's terminals]\x1b[0m \x1b[31mClaude CLI not found on PATH.\x1b[0m");
+              term.writeln("\x1b[2m  Install:  \x1b[0m\x1b[36mnpm install -g @anthropic-ai/claude-code\x1b[0m");
+              term.writeln("\x1b[2m  Or click \x1b[0m\x1b[36m🚀 setup\x1b[0m\x1b[2m in the header for guided steps + live API test.\x1b[0m");
+              term.writeln("\x1b[2m  Skipping pack startCommands and systemPrompt; shell is yours.\x1b[0m");
+              term.writeln("");
+              skipPackCommands = true;
+            }
+          }
+        }
+
+        if (!skipPackCommands && cmdsAtSpawn.length > 0) {
           await new Promise(r => setTimeout(r, 600));
           for (let i = 0; i < cmdsAtSpawn.length; i++) {
             if (!alive || !ptyId) break;
@@ -428,7 +456,7 @@ export default function TerminalPane({
         // then type the system prompt as the first user message. Turns
         // packs from "tab labels" into actual specialized agents.
         const sysPrompt = systemPromptRef.current;
-        if (sysPrompt && typeof sysPrompt === "string" && sysPrompt.trim().length > 0 && alive && ptyId) {
+        if (!skipPackCommands && sysPrompt && typeof sysPrompt === "string" && sysPrompt.trim().length > 0 && alive && ptyId) {
           // 2s lets `claude` finish initializing + render its prompt before
           // we paste. If Claude isn't ready yet, the input buffers and gets
           // consumed once the REPL is alive.

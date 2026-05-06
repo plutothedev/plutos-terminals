@@ -2,14 +2,17 @@ import { useRef, useState } from "react";
 import TerminalPane from "./TerminalPane";
 import "./terminals.css";
 
-// Colors are kept inline so the panel doesn't depend on the global theme `T`
-// from CommandCenter — the Terminals tab paints its own dark surface.
-const PANEL_BG = "#0a0a0a";
-const STRIP_BG = "rgba(17,17,17,0.95)";
-const BORDER_DIM = "rgba(255,255,255,0.06)";
-const TAB_FG = "#9D9D9D";
-const TAB_FG_ACTIVE = "#E6E6E6";
-const ACCENT = "#4DAAFC";
+// Colors come from the active app skin via CSS vars on <html>. Module-level
+// fallback constants are used by drag-ghost helpers and as defaults if vars
+// haven't been injected yet (first paint pre-mount). Component reads
+// xtermTheme.background for the panel bg so the active tab's bg seamlessly
+// merges with the terminal output area below.
+const STRIP_BG = "var(--phn-surface-bg, rgba(17,17,17,0.95))";
+const BORDER_DIM = "var(--phn-surface-border, rgba(255,255,255,0.08))";
+const TAB_FG = "var(--phn-text-fg, #9D9D9D)";
+const TAB_FG_ACTIVE = "var(--phn-text-active, #E6E6E6)";
+const ACCENT = "var(--phn-link, #4DAAFC)";
+const ACCENT_FALLBACK = "#4DAAFC"; // for drag ghost (DOM-built outside React)
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 // Activity colors mirror Moon Dev: yellow while running, green when finished.
@@ -27,7 +30,7 @@ function makeTabGhost(label) {
   el.style.cssText = [
     "position:fixed","top:0","left:0",
     "pointer-events:none","z-index:99999",
-    `background:${ACCENT}`,"color:#001",
+    `background:${ACCENT_FALLBACK}`,"color:#001",
     "padding:3px 9px","border-radius:3px",
     `font:11px/1 ${M}`,"font-weight:600",
     "box-shadow:0 4px 12px rgba(0,0,0,0.55)",
@@ -47,7 +50,7 @@ function clearTabDropHighlights() {
 function highlightTabDrop(el) {
   if (!el || el.getAttribute("data-tab-drop") === "1") return;
   el.setAttribute("data-tab-drop", "1");
-  el.style.outline = `2px solid ${ACCENT}`;
+  el.style.outline = `2px solid ${ACCENT_FALLBACK}`;
   el.style.outlineOffset = "-2px";
 }
 
@@ -87,6 +90,10 @@ export default function TerminalPanel({
 }) {
   const activeTab = panel.tabs.find(t => t.id === panel.activeTabId) || panel.tabs[0];
   const panelState = aggregatePanelActivity(panel, tabActivities);
+
+  // Panel bg = xterm bg so the active tab visually merges with the terminal
+  // output area below. Falls back to dark if no xterm theme provided yet.
+  const PANEL_BG = xtermTheme?.background || "#0a0a0a";
 
   // Inline rename state — only one tab in a panel can be renamed at a time.
   const [renamingId, setRenamingId] = useState(null);
