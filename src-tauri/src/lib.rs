@@ -97,6 +97,7 @@ pub fn run() {
             commands::transcript_append,
             commands::recent_files,
             commands::check_command_version,
+            commands::mcp_install,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

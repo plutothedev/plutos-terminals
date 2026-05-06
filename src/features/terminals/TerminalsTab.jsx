@@ -7,6 +7,7 @@ import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
 import SetupChecker from "../../components/SetupChecker.jsx";
+import PackUrlModal from "../../components/PackUrlModal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
@@ -89,6 +90,7 @@ export default function TerminalsTab({ st, save }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [urlOpen, setUrlOpen] = useState(false);
 
 
   // Claude CLI availability — checked once on mount, surfaced in the status
@@ -350,6 +352,7 @@ export default function TerminalsTab({ st, save }) {
         label: (t && t.label) || `Tab ${i + 1}`,
         cwd: (t && t.cwd) || null,
         startCommands: Array.isArray(t && t.startCommands) ? t.startCommands : [],
+        systemPrompt: (t && typeof t.systemPrompt === "string") ? t.systemPrompt : null,
         projectId: null,
       }));
       return {
@@ -675,6 +678,22 @@ export default function TerminalsTab({ st, save }) {
           📁 from file
         </button>
         <button
+          onClick={() => setUrlOpen(true)}
+          style={{
+            background: "transparent",
+            border: `1px solid ${BORDER}`,
+            color: ACCENT,
+            cursor: "pointer",
+            padding: "3px 10px",
+            borderRadius: 3,
+            fontFamily: M,
+            fontSize: 11,
+          }}
+          title="Load a .deck.json prompt pack from a URL (gist / GitHub raw / any HTTPS source)"
+        >
+          🔗 from URL
+        </button>
+        <button
           onClick={onExportPack}
           style={{
             background: "transparent",
@@ -855,6 +874,12 @@ export default function TerminalsTab({ st, save }) {
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
+      <PackUrlModal
+        open={urlOpen}
+        onClose={() => setUrlOpen(false)}
+        onLoadPack={(pack) => applyPack(pack)}
+      />
+
       {!st?.terminalsOnboarded && (
         <OnboardingOverlay
           onDismiss={() => save({ ...st, terminalsOnboarded: true })}
@@ -877,7 +902,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.7</span>
+        <span>v0.1.8</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <button
           onClick={() => setSetupOpen(true)}

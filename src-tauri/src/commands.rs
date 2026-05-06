@@ -75,6 +75,54 @@ pub fn pick_directory() -> Option<String> {
 // first launch instead of letting them type `claude` and hit "command not
 // recognized" as their first impression.
 
+// ── MCP installer (v0.1.8 Tier 1 #2) ──────────────────────────────
+//
+// Spawns the `claude mcp add ...` command via the system shell so the user
+// doesn't have to copy + paste install commands. Result is reported back
+// to the frontend as { ok, stdout, stderr }.
+//
+// Security guard: only accepts commands that start with "claude " and
+// reject shell-metacharacters that could chain commands. Everything in the
+// MCP catalog is hard-coded in the frontend; no user input flows through.
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct McpInstallResult {
+    pub ok: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[tauri::command]
+pub fn mcp_install(command: String) -> Result<McpInstallResult, String> {
+    let trimmed = command.trim();
+    if !trimmed.starts_with("claude ") {
+        return Err("Only `claude` invocations are allowed.".to_string());
+    }
+    for ch in trimmed.chars() {
+        if matches!(ch, '|' | ';' | '&' | '>' | '<' | '`') {
+            return Err("Command contains disallowed shell metacharacters.".to_string());
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    let output = std::process::Command::new("cmd")
+        .args(["/c", trimmed])
+        .output()
+        .map_err(|e| format!("Failed to spawn cmd: {e}"))?;
+
+    #[cfg(not(target_os = "windows"))]
+    let output = std::process::Command::new("sh")
+        .args(["-c", trimmed])
+        .output()
+        .map_err(|e| format!("Failed to spawn sh: {e}"))?;
+
+    Ok(McpInstallResult {
+        ok: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
 #[tauri::command]
 pub fn check_command_version(name: String) -> Option<String> {
     if name.is_empty() || name.contains(['/', '\\', '.', ' ']) {

@@ -13,7 +13,7 @@
           "startCommands": [
             "claude"
           ],
-          "system_prompt_hint": "Single Claude Code session. Default to clear, runnable answers. Cite file paths when referencing code."
+          "systemPrompt": "You're a single Claude Code session running inside Pluto's Terminals. Default to clear, runnable answers. Cite file paths when referencing code. Be direct, no hype. If I ask vague questions, ask one clarifying question before advising."
         }
       ]
     }

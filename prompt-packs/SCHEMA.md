@@ -30,12 +30,18 @@ One entry per terminal panel that should open. Order is preserved.
     {
       "label": "Tab name",
       "cwd": "absolute/path/or/null",
-      "startCommands": ["echo first", "echo second"],
-      "system_prompt_hint": "Optional — guidance for the AI agent in this tab"
+      "startCommands": ["claude"],
+      "systemPrompt": "You are a research assistant. Default mode: synthesize sources I provide..."
     }
   ]
 }
 ```
+
+### `systemPrompt` (v0.1.8+)
+
+If a tab has a `systemPrompt` string AND its `startCommands` launches an interactive REPL like `claude`, the app waits 2 seconds after the start commands run (giving `claude` time to boot), then types the system prompt as the first user message. This is what turns packs from "tabs with labels" into actual specialized agents — Researcher, Coder, Reviewer, etc. each prefixed with role-specific guidance Claude treats as its operating context.
+
+Keep system prompts concise (1-3 sentences). Long prompts work but add to your token cost on every Claude turn.
 
 ## `mcp_servers[]` (v1)
 

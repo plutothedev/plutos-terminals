@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Pluto's Terminals",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "identifier": "com.plutothedev.terminals",
   "build": {
     "frontendDist": "../dist",

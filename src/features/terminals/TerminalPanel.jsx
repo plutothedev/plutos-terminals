@@ -331,6 +331,7 @@ export default function TerminalPanel({
             visible={tab.id === activeTab?.id}
             cwd={tab.cwd || null}
             startCommands={tab.startCommands || null}
+            systemPrompt={tab.systemPrompt || null}
             themeKey={themeKey}
             tabId={tab.id}
             projectName={tabProjectNames?.[tab.id] || null}

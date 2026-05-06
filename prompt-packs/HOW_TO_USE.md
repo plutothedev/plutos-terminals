@@ -34,6 +34,10 @@ Click **📁 from file** in the header → pick any `.deck.json` from your disk.
 
 Drag a `.deck.json` file from File Explorer / Finder onto the app window. Loads immediately.
 
+### 4. From URL (`🔗 from URL`)
+
+Click **🔗 from URL** in the header → paste a URL to a `.deck.json` file (raw GitHub, gist, any HTTPS host that allows CORS) → click load. The pack downloads + validates + applies in one click. Combined with **💾 export**, this closes the share loop: export your setup, upload to gist, share the URL — anyone can load with one click.
+
 ## Save your own setup as a pack (`💾 export`)
 
 After configuring panels + tabs the way you like:
@@ -56,9 +60,12 @@ Click the **⚙️** button in the header for the settings modal:
 
 ## MCP servers (`🔌 MCPs`)
 
-Click **🔌 MCPs** for a curated list of popular MCP (Model Context Protocol) servers — filesystem, GitHub, Puppeteer, Brave Search, Fetch, Memory. Each shows the install command for Claude Code; click **copy command**, paste into any terminal pane, run.
+Click **🔌 MCPs** for a curated list of popular MCP (Model Context Protocol) servers — filesystem, GitHub, Puppeteer, Brave Search, Fetch, Memory.
 
-One-click install (no copy-paste) is on the roadmap. Today's UX is curated discovery + safe copy-paste.
+- **`install` button (v0.1.8+)** — app runs `claude mcp add ...` for you in a hidden shell. Toast reports success or error. **Restart any open Claude sessions** after install for them to pick up the new MCP.
+- **`copy` button** — copies the command to clipboard if you'd rather paste it into a pane manually.
+
+Filesystem MCP needs a path argument; the install button substitutes `${PWD}` with `%USERPROFILE%` (your home dir). Edit the resolved path manually if you want a different scope.
 
 ## Quick-spawn agent grid (`⚡ agent grid`)
 
@@ -83,4 +90,23 @@ Easiest path: configure your setup in the app, click **💾 export**, edit the r
 
 Hand-authoring: copy `example.deck.json` → rename → edit `name`, `description`, `panels[]`. See `SCHEMA.md` for the full schema.
 
-To share with the community: open a PR adding your pack to this folder. Curation criteria TBD; for now, packs that demonstrate a useful workflow with clear documentation get merged.
+### `systemPrompt` field (v0.1.8+)
+
+Each tab can include a `"systemPrompt": "..."` string. After the tab's start commands launch `claude` (or any interactive REPL), the app waits 2 seconds then types the system prompt as the first user message. Real role specialization in one field.
+
+Example:
+
+```json
+{
+  "label": "Code reviewer",
+  "cwd": null,
+  "startCommands": ["claude"],
+  "systemPrompt": "You're a code review assistant. When I show you a diff, find bugs and suggest improvements. Be terse, concrete, no hype."
+}
+```
+
+Bundled v0.1.8 packs all use systemPrompt — see `claude-code-basic.deck.json` etc. for examples.
+
+### Sharing
+
+To share with the community: open a PR adding your pack to this folder. Or upload to a public gist and share the raw URL — recipients can load via **🔗 from URL** in one click.

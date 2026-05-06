@@ -4,6 +4,7 @@
 // having to google "how to install MCP filesystem server claude code."
 
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
 
@@ -62,6 +63,8 @@ const MCPS = [
 
 export default function McpInstaller({ open, onClose }) {
   const [copiedId, setCopiedId] = useState(null);
+  // installState[id] = "idle" | "installing" | "ok" | "error"
+  const [installState, setInstallState] = useState({});
   const toast = useToast();
 
   const onCopy = (mcp) => {
@@ -74,11 +77,31 @@ export default function McpInstaller({ open, onClose }) {
     });
   };
 
+  const onInstall = async (mcp) => {
+    // Filesystem MCP needs a path argument — default to user home via the
+    // Windows env var expansion that cmd.exe handles natively.
+    let cmd = mcp.command.replace(/\$\{PWD\}/g, "%USERPROFILE%");
+    setInstallState((s) => ({ ...s, [mcp.id]: "installing" }));
+    try {
+      const result = await invoke("mcp_install", { command: cmd });
+      if (result && result.ok) {
+        setInstallState((s) => ({ ...s, [mcp.id]: "ok" }));
+        toast.success(`${mcp.name} installed. Restart any open Claude sessions to pick it up.`);
+      } else {
+        setInstallState((s) => ({ ...s, [mcp.id]: "error" }));
+        const detail = (result && (result.stderr || result.stdout)) || "Unknown error";
+        toast.error(`${mcp.name} install failed: ${String(detail).slice(0, 200)}`);
+      }
+    } catch (err) {
+      setInstallState((s) => ({ ...s, [mcp.id]: "error" }));
+      toast.error(`${mcp.name} install failed: ${String(err).slice(0, 200)}`);
+    }
+  };
+
   return (
     <Modal open={open} title="MCP Servers — Install Commands" onClose={onClose} width={680}>
       <p style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.7, marginBottom: 18 }}>
-        Curated list of popular MCP (Model Context Protocol) servers that extend Claude Code. Click <strong style={{ color: ACCENT }}>copy command</strong>,
-        paste into any terminal pane, run. Auto-installer (one-click) is on the roadmap but the install commands themselves are stable and copy-paste-able today.
+        Curated list of popular MCP (Model Context Protocol) servers that extend Claude Code. Click <strong style={{ color: ACCENT }}>install</strong> and the app runs <code style={{ background: "#0a0a0a", padding: "1px 4px", borderRadius: 2 }}>claude mcp add ...</code> for you. Or click <strong>copy</strong> to paste the command into a pane manually. <strong>Restart any open Claude sessions</strong> after install for them to pick up the new MCP.
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -126,23 +149,60 @@ export default function McpInstaller({ open, onClose }) {
               <div style={{ color: FG_DIM, fontSize: 10, lineHeight: 1.5, flex: 1 }}>
                 {mcp.notes}
               </div>
-              <button
-                onClick={() => onCopy(mcp)}
-                style={{
-                  background: copiedId === mcp.id ? "#34D399" : "transparent",
-                  border: `1px solid ${copiedId === mcp.id ? "#34D399" : ACCENT}`,
-                  color: copiedId === mcp.id ? "#001" : ACCENT,
-                  padding: "5px 12px",
-                  borderRadius: 3,
-                  fontFamily: M,
-                  fontSize: 10,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                }}
-              >
-                {copiedId === mcp.id ? "✓ copied" : "copy command"}
-              </button>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button
+                  onClick={() => onCopy(mcp)}
+                  style={{
+                    background: copiedId === mcp.id ? "#34D399" : "transparent",
+                    border: `1px solid ${copiedId === mcp.id ? "#34D399" : BORDER}`,
+                    color: copiedId === mcp.id ? "#001" : FG,
+                    padding: "5px 10px",
+                    borderRadius: 3,
+                    fontFamily: M,
+                    fontSize: 10,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                  title="Copy the install command to clipboard"
+                >
+                  {copiedId === mcp.id ? "✓ copied" : "copy"}
+                </button>
+                <button
+                  onClick={() => onInstall(mcp)}
+                  disabled={installState[mcp.id] === "installing"}
+                  style={{
+                    background:
+                      installState[mcp.id] === "ok" ? "#34D399"
+                      : installState[mcp.id] === "error" ? "#FF0080"
+                      : ACCENT,
+                    border: `1px solid ${
+                      installState[mcp.id] === "ok" ? "#34D399"
+                      : installState[mcp.id] === "error" ? "#FF0080"
+                      : ACCENT
+                    }`,
+                    color:
+                      installState[mcp.id] === "error" ? "#fff" : "#001",
+                    padding: "5px 12px",
+                    borderRadius: 3,
+                    fontFamily: M,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    cursor: installState[mcp.id] === "installing" ? "wait" : "pointer",
+                    whiteSpace: "nowrap",
+                    opacity: installState[mcp.id] === "installing" ? 0.7 : 1,
+                  }}
+                  title={
+                    installState[mcp.id] === "ok" ? "Already installed in this session"
+                    : installState[mcp.id] === "error" ? "Last install failed — check toast for details"
+                    : `Run "${mcp.command}" via your shell`
+                  }
+                >
+                  {installState[mcp.id] === "installing" ? "installing…"
+                    : installState[mcp.id] === "ok" ? "✓ installed"
+                    : installState[mcp.id] === "error" ? "✗ retry"
+                    : "install"}
+                </button>
+              </div>
             </div>
           </div>
         ))}

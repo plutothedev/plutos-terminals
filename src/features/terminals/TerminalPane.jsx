@@ -103,6 +103,7 @@ export default function TerminalPane({
   visible,
   cwd,
   startCommands,
+  systemPrompt,
   themeKey,
   tabId,
   projectName,
@@ -115,6 +116,8 @@ export default function TerminalPane({
   const termRef = useRef(null);
   const startCommandsRef = useRef(startCommands);
   startCommandsRef.current = startCommands;
+  const systemPromptRef = useRef(systemPrompt);
+  systemPromptRef.current = systemPrompt;
 
   // Activity tracking refs.
   const activityRef = useRef("idle");
@@ -417,6 +420,23 @@ export default function TerminalPane({
             if (i < cmdsAtSpawn.length - 1) {
               await new Promise(r => setTimeout(r, 300));
             }
+          }
+        }
+
+        // System prompt injection (v0.1.8 Tier 1 #1) — after start commands
+        // run (typically `claude`), wait for Claude Code to finish booting,
+        // then type the system prompt as the first user message. Turns
+        // packs from "tab labels" into actual specialized agents.
+        const sysPrompt = systemPromptRef.current;
+        if (sysPrompt && typeof sysPrompt === "string" && sysPrompt.trim().length > 0 && alive && ptyId) {
+          // 2s lets `claude` finish initializing + render its prompt before
+          // we paste. If Claude isn't ready yet, the input buffers and gets
+          // consumed once the REPL is alive.
+          await new Promise(r => setTimeout(r, 2000));
+          if (alive && ptyId) {
+            try {
+              await invoke("pty_write", { id: ptyId, data: sysPrompt.trim() + "\r" });
+            } catch {}
           }
         }
       } catch (err) {

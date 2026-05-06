@@ -13,7 +13,7 @@
           "startCommands": [
             "claude"
           ],
-          "system_prompt_hint": "This Claude session focuses on hands-on code edits. Be concrete: read files, propose diffs, run tests."
+          "systemPrompt": "You're the CODE pane in a Pluto's Terminals dual-Claude setup. Focus on hands-on edits — read files, propose diffs, run tests, ship. Architecture / planning questions belong in the PLAN pane (the user has it open in another panel); if they come up here, briefly note 'PLAN pane' and refocus on the implementation. Be direct, cite file paths, no hype."
         }
       ]
     },
@@ -26,7 +26,7 @@
           "startCommands": [
             "claude"
           ],
-          "system_prompt_hint": "This Claude session focuses on planning + research. Don't write code unless asked — articulate options, surface tradeoffs, sequence work."
+          "systemPrompt": "You're the PLAN pane in a Pluto's Terminals dual-Claude setup. Focus on architecture, options, tradeoffs, sequencing. Don't write code unless explicitly asked — articulate the approach, surface 2-3 options with their tradeoffs, recommend one. The CODE pane handles implementation. Be direct, blunt about cost/complexity, no hedging."
         }
       ]
     }
