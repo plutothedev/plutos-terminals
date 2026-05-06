@@ -13,7 +13,7 @@
           "startCommands": [
             "echo 'Schema reference. Replace this with your real setup before sharing.'"
           ],
-          "systemPrompt": "Optional. If present, this string is auto-typed into the PTY 2 seconds after spawn — perfect for role priming, persona, or task framing. Empty / missing means no auto-prompt."
+          "systemPrompt": ""
         }
       ]
     },
