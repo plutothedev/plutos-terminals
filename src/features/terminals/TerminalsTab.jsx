@@ -101,6 +101,26 @@ export default function TerminalsTab({ st, save }) {
     injectHeaderSkinsCss();
   }, []);
 
+  // Session-restore confirmation toast — fires once per app launch (not per
+  // React remount) when there's a non-trivial saved state to restore.
+  // localStorage already persists everything; PTYs respawn from cwd +
+  // startCommands; scrollback replays from disk via TerminalPane mount.
+  // This toast just surfaces what already happens silently. v0.1.17.
+  const restoreToastFiredRef = useRef(false);
+  useEffect(() => {
+    if (restoreToastFiredRef.current) return;
+    restoreToastFiredRef.current = true;
+    const panels = state.panels || [];
+    const tabCount = panels.reduce((n, p) => n + (p.tabs?.length || 0), 0);
+    const panelCount = panels.length;
+    // Don't toast on first-ever launch (single default empty panel).
+    const isDefaultLayout = panelCount === 1 && tabCount === 1 && (!panels[0]?.tabs?.[0]?.startCommands || panels[0].tabs[0].startCommands.length === 0);
+    if (!isDefaultLayout) {
+      toast.info(`Session restored — ${panelCount} panel${panelCount === 1 ? "" : "s"} · ${tabCount} tab${tabCount === 1 ? "" : "s"}`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const headerSkinId = getSkinId(st?.headerSkin);
 
   // Apply skin globally on <html> so portaled/sibling elements (toasts,
@@ -947,6 +967,21 @@ export default function TerminalsTab({ st, save }) {
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
           { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
           { id: "settings", icon: "⚙️", label: "Open settings", hint: "API key, app skin, header style, density, terminal bg", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },
+          {
+            id: "reset-workspace",
+            icon: "♻️",
+            label: "Reset workspace",
+            hint: "Clear all panels and tabs (keeps API key, skin, projects)",
+            action: async () => {
+              const ok = await confirm(
+                "Reset workspace? Closes every panel and tab. API key, skin, button style, density, projects, and recent packs are kept. The app reloads to a single empty panel.",
+                { title: "Reset workspace?", confirmLabel: "reset", destructive: true }
+              );
+              if (!ok) return;
+              const fresh = defaultState();
+              persist({ ...state, panels: fresh.panels, activePanelId: fresh.activePanelId });
+            },
+          },
           ...state.panels.map((p, i) => ({
             id: `panel-${p.id}`,
             icon: i + 1 < 10 ? `${i + 1}` : "•",
@@ -979,7 +1014,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.16</span>
+        <span>v0.1.17</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}

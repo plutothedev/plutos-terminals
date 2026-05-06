@@ -1,6 +1,6 @@
 [package]
 name = "plutos-terminals"
-version = "0.1.16"
+version = "0.1.17"
 description = "Pluto's Terminals — multi-terminal desktop app for the Pluto AI YouTube community"
 authors = ["Michael T. Cinnamon"]
 license = "MIT"
