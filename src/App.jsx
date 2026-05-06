@@ -6,14 +6,16 @@ import { ConfirmProvider } from "./components/ConfirmModal.jsx";
 import {
   getSkinId,
   getButtonStyleId,
+  getLayoutId,
   injectHeaderSkinsCss,
   applyGlobalSkin,
   applyGlobalButtonStyle,
+  applyGlobalLayout,
 } from "./features/terminals/headerSkins.js";
 
 const STORAGE_KEY = "plutos-terminals:state:v0";
 const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.14";
+const APP_VERSION = "0.1.15";
 
 const PAGE_BG = "var(--phn-page-bg, #0a0a0a)";
 const FG = "var(--phn-text-fg, #9D9D9D)";
@@ -52,13 +54,15 @@ function AppInner() {
     }
   }, []);
 
-  // Inject skin CSS once + apply skin/button-style globally on <html>
-  // BEFORE Welcome screen renders so first-launch picks up saved skin too.
+  // Inject skin CSS once + apply skin/button-style/layout globally on <html>
+  // BEFORE Welcome screen renders so first-launch picks up saved settings.
   useEffect(() => { injectHeaderSkinsCss(); }, []);
   const skinId = getSkinId(st.headerSkin);
   const btnStyleId = getButtonStyleId(st.headerButtonStyle);
+  const layoutId = getLayoutId(st.headerLayout);
   useEffect(() => { applyGlobalSkin(skinId); }, [skinId]);
   useEffect(() => { applyGlobalButtonStyle(btnStyleId); }, [btnStyleId]);
+  useEffect(() => { applyGlobalLayout(layoutId); }, [layoutId]);
 
   const [welcomeDone, setWelcomeDone] = useState(() => st.welcomeDone === true);
 

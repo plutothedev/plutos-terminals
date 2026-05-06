@@ -7,8 +7,10 @@ import { useConfirm } from "./ConfirmModal.jsx";
 import {
   HEADER_SKINS,
   HEADER_BUTTON_STYLES,
+  HEADER_LAYOUTS,
   getSkinId,
   getButtonStyleId,
+  getLayoutId,
 } from "../features/terminals/headerSkins.js";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
@@ -18,6 +20,7 @@ export default function SettingsModal({ open, st, save, onClose }) {
   const [anthropicKey, setAnthropicKey] = useState(st.anthropicKey || "");
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
   const [headerButtonStyle, setHeaderButtonStyle] = useState(getButtonStyleId(st.headerButtonStyle));
+  const [headerLayout, setHeaderLayout] = useState(getLayoutId(st.headerLayout));
   const [pureBlackTerminal, setPureBlackTerminal] = useState(!!st.pureBlackTerminal);
   const [showKey, setShowKey] = useState(false);
   const toast = useToast();
@@ -33,6 +36,7 @@ export default function SettingsModal({ open, st, save, onClose }) {
       anthropicKey,
       headerSkin: getSkinId(headerSkin),
       headerButtonStyle: getButtonStyleId(headerButtonStyle),
+      headerLayout: getLayoutId(headerLayout),
       pureBlackTerminal,
     });
     toast.success("Settings saved.");
@@ -58,11 +62,21 @@ export default function SettingsModal({ open, st, save, onClose }) {
     save({ ...st, headerButtonStyle: next });
   };
 
+  // Live layout-density preview.
+  const handleLayoutChange = (id) => {
+    const next = getLayoutId(id);
+    setHeaderLayout(next);
+    save({ ...st, headerLayout: next });
+  };
+
   const activeSkinDescription =
     HEADER_SKINS.find((s) => s.id === headerSkin)?.description || "";
 
   const activeButtonStyleDescription =
     HEADER_BUTTON_STYLES.find((s) => s.id === headerButtonStyle)?.description || "";
+
+  const activeLayoutDescription =
+    HEADER_LAYOUTS.find((s) => s.id === headerLayout)?.description || "";
 
   const handleClearKey = async () => {
     const ok = await confirm(
@@ -136,6 +150,21 @@ export default function SettingsModal({ open, st, save, onClose }) {
           ))}
         </select>
         <Hint>{activeButtonStyleDescription} Combines with any skin — same colors, different button shape / border / hover. Pick what feels right for your skin.</Hint>
+      </Field>
+
+      <Field label="HEADER DENSITY (LIVE PREVIEW)">
+        <select
+          value={headerLayout}
+          onChange={(e) => handleLayoutChange(e.target.value)}
+          style={inputStyle}
+        >
+          {HEADER_LAYOUTS.map((s) => (
+            <option key={s.id} value={s.id} style={{ background: "var(--phn-page-bg, #0a0a0a)", color: FG_ACTIVE }}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+        <Hint>{activeLayoutDescription}</Hint>
       </Field>
 
       <Field label="TERMINAL BACKGROUND">

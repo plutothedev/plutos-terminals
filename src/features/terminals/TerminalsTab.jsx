@@ -8,6 +8,7 @@ import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
 import SetupChecker from "../../components/SetupChecker.jsx";
 import PackUrlModal from "../../components/PackUrlModal.jsx";
+import PackSearchModal from "../../components/PackSearchModal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
@@ -90,6 +91,7 @@ export default function TerminalsTab({ st, save }) {
   const [mcpOpen, setMcpOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [urlOpen, setUrlOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
 
   // Inject header-skin CSS once. Idempotent inside injectHeaderSkinsCss.
@@ -357,7 +359,7 @@ export default function TerminalsTab({ st, save }) {
 
   const fileInputRef = useRef(null);
 
-  const applyPack = useCallback((pack) => {
+  const applyPack = useCallback((pack, source = "unknown") => {
     if (!pack || !Array.isArray(pack.panels) || pack.panels.length === 0) {
       toast.error("Invalid pack: missing or empty panels[] array.");
       return;
@@ -378,13 +380,22 @@ export default function TerminalsTab({ st, save }) {
         activeTabId: tabs[0].id,
       };
     });
+
+    // Recent-packs history (v0.1.15) — track last 5 loaded packs in
+    // localStorage so users can quickly re-load. Dedupe by pack.name.
+    // Stores the full pack JSON (~1-3KB each, 5 max ~15KB total — fine).
+    const recentEntry = { name: pack.name || "(unnamed)", source, data: pack, ts: Date.now() };
+    const prevRecents = Array.isArray(st?.recentPacks) ? st.recentPacks : [];
+    const dedupedRecents = [recentEntry, ...prevRecents.filter((r) => r.name !== recentEntry.name)].slice(0, 5);
+
     persist({
       ...state,
       panels: newPanels,
       activePanelId: newPanels[0].id,
+      recentPacks: dedupedRecents,
     });
     toast.success(`Pack "${pack.name || "(unnamed)"}" loaded — ${newPanels.length} panel${newPanels.length === 1 ? "" : "s"}.`);
-  }, [state, persist, toast]);
+  }, [state, persist, st, toast]);
 
   const onLoadPackFile = useCallback((e) => {
     const file = e.target.files && e.target.files[0];
@@ -394,7 +405,7 @@ export default function TerminalsTab({ st, save }) {
     reader.onload = () => {
       try {
         const pack = JSON.parse(reader.result);
-        applyPack(pack);
+        applyPack(pack, "file");
       } catch (err) {
         toast.error(`Failed to load pack: ${err.message}`);
       }
@@ -412,8 +423,13 @@ export default function TerminalsTab({ st, save }) {
       { title: "Load pack?", confirmLabel: "load", destructive: false }
     );
     if (!ok) return;
-    applyPack(pack.data);
+    applyPack(pack.data, "bundled");
   }, [applyPack, confirm]);
+
+  const onLoadRecentPack = useCallback((entry) => {
+    if (!entry || !entry.data) return;
+    applyPack(entry.data, entry.source || "recent");
+  }, [applyPack]);
 
   // Drag-and-drop pack files anywhere on the window — alternative to the file
   // picker. Browsers route drop events through window if no inner element
@@ -461,7 +477,7 @@ export default function TerminalsTab({ st, save }) {
       reader.onload = () => {
         try {
           const pack = JSON.parse(reader.result);
-          applyPack(pack);
+          applyPack(pack, "file");
         } catch (err) {
           toast.error(`Failed to load pack: ${err.message}`);
         }
@@ -664,22 +680,45 @@ export default function TerminalsTab({ st, save }) {
             className="phn-select"
             value=""
             onChange={(e) => {
-              const idx = parseInt(e.target.value, 10);
-              if (!Number.isNaN(idx) && BUNDLED_PACKS[idx]) {
-                onLoadBundledPack(BUNDLED_PACKS[idx]);
+              const v = e.target.value;
+              if (v.startsWith("recent:")) {
+                const idx = parseInt(v.slice(7), 10);
+                const recents = Array.isArray(st?.recentPacks) ? st.recentPacks : [];
+                if (recents[idx]) onLoadRecentPack(recents[idx]);
+              } else if (v.startsWith("bundled:")) {
+                const idx = parseInt(v.slice(8), 10);
+                if (BUNDLED_PACKS[idx]) onLoadBundledPack(BUNDLED_PACKS[idx]);
               }
               e.target.value = "";
             }}
-            title="Load a bundled prompt pack — see prompt-packs/README.md for catalog"
+            title="Load a prompt pack — recents at top, bundled below"
           >
             <option value="">📚 packs…</option>
-            {BUNDLED_PACKS.map((p, i) => (
-              <option key={p.filename} value={i}>
-                {p.data?.name || p.filename}
-              </option>
-            ))}
+            {Array.isArray(st?.recentPacks) && st.recentPacks.length > 0 && (
+              <optgroup label="🕐 RECENT">
+                {st.recentPacks.map((r, i) => (
+                  <option key={`recent-${i}-${r.name}`} value={`recent:${i}`}>
+                    {r.name} {r.source === "bundled" ? "" : `· ${r.source}`}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label="📦 BUNDLED">
+              {BUNDLED_PACKS.map((p, i) => (
+                <option key={p.filename} value={`bundled:${i}`}>
+                  {p.data?.name || p.filename}
+                </option>
+              ))}
+            </optgroup>
           </select>
         )}
+        <button
+          className="phn-btn"
+          onClick={() => setSearchOpen(true)}
+          title="Search all packs (recents + bundled) by name or description (Ctrl+P)"
+        >
+          🔍 find
+        </button>
         <button
           className="phn-btn"
           onClick={() => fileInputRef.current?.click()}
@@ -813,7 +852,15 @@ export default function TerminalsTab({ st, save }) {
       <PackUrlModal
         open={urlOpen}
         onClose={() => setUrlOpen(false)}
-        onLoadPack={(pack) => applyPack(pack)}
+        onLoadPack={(pack) => applyPack(pack, "url")}
+      />
+
+      <PackSearchModal
+        open={searchOpen}
+        recentPacks={st?.recentPacks || []}
+        bundledPacks={BUNDLED_PACKS}
+        onLoad={(pack, source) => applyPack(pack, source)}
+        onClose={() => setSearchOpen(false)}
       />
 
       {!st?.terminalsOnboarded && (
@@ -836,7 +883,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.14</span>
+        <span>v0.1.15</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}

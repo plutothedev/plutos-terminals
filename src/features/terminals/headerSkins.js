@@ -208,6 +208,38 @@ export function applyGlobalButtonStyle(styleId) {
   document.documentElement.dataset.phnBtnStyle = id;
 }
 
+// Layout density — third axis. Skin sets colors, button-style sets shape,
+// layout sets sizing/spacing of the header row. Three options for v0.1.15.
+export const HEADER_LAYOUTS = [
+  {
+    id: "default",
+    label: "Default — standard density",
+    description: "Current spacing. Balanced for typical use.",
+  },
+  {
+    id: "compact",
+    label: "Compact — tight density (more buttons fit)",
+    description: "Smaller padding, tighter gap, smaller font. Good for narrow windows or when you want all controls visible without crowding.",
+  },
+  {
+    id: "spacious",
+    label: "Spacious — generous density (easier to click)",
+    description: "Larger padding and gap. Easier touch targets, more breathing room, slightly bigger text.",
+  },
+];
+
+export function getLayoutId(stored) {
+  const ids = HEADER_LAYOUTS.map((s) => s.id);
+  if (typeof stored === "string" && ids.includes(stored)) return stored;
+  return "default";
+}
+
+export function applyGlobalLayout(layoutId) {
+  if (typeof document === "undefined") return;
+  const id = HEADER_LAYOUTS.find((s) => s.id === layoutId) ? layoutId : "default";
+  document.documentElement.dataset.phnLayout = id;
+}
+
 export function getSkinId(stored) {
   const ids = HEADER_SKINS.map((s) => s.id);
   if (typeof stored === "string" && ids.includes(stored)) return stored;
@@ -904,6 +936,35 @@ const CSS = `
 [data-phn-btn-style="chip"] .phn-select:hover {
   transform: translateY(-1px);
   box-shadow: 0 1px 0 0 rgba(255,255,255,0.06) inset, 0 4px 10px rgba(0,0,0,0.3);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   HEADER LAYOUT DENSITY — third axis (sizing/spacing). Set on <html> via
+   data-phn-layout. Combines with skin (colors) + btn-style (shape).
+   ════════════════════════════════════════════════════════════════════════ */
+
+[data-phn-layout="compact"] .phn-header {
+  gap: 4px;
+  padding: 3px 8px;
+  min-height: 26px;
+  font-size: 10px;
+}
+[data-phn-layout="compact"] .phn-btn,
+[data-phn-layout="compact"] .phn-select {
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
+[data-phn-layout="spacious"] .phn-header {
+  gap: 10px;
+  padding: 9px 14px;
+  min-height: 42px;
+  font-size: 12px;
+}
+[data-phn-layout="spacious"] .phn-btn,
+[data-phn-layout="spacious"] .phn-select {
+  padding: 6px 14px;
+  font-size: 12px;
 }
 `;
 
