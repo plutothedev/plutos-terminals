@@ -5,7 +5,6 @@ import { ToastProvider } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
 import {
   getSkinId,
-  getButtonStyleId,
   getLayoutId,
   injectHeaderSkinsCss,
   applyGlobalSkin,
@@ -29,7 +28,7 @@ const WINDOW_ID = (() => {
   return new URLSearchParams(window.location.search).get("w") || null;
 })();
 const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.19";
+const APP_VERSION = "0.1.20";
 
 const PAGE_BG = "var(--phn-page-bg, #0a0a0a)";
 const FG = "var(--phn-text-fg, #9D9D9D)";
@@ -70,12 +69,13 @@ function AppInner() {
 
   // Inject skin CSS once + apply skin/button-style/layout globally on <html>
   // BEFORE Welcome screen renders so first-launch picks up saved settings.
+  // Header buttons are locked to "bracket" terminal-aesthetic style as of
+  // v0.1.20 (the picker was removed; one canonical look across all skins).
   useEffect(() => { injectHeaderSkinsCss(); }, []);
   const skinId = getSkinId(st.headerSkin);
-  const btnStyleId = getButtonStyleId(st.headerButtonStyle);
   const layoutId = getLayoutId(st.headerLayout);
   useEffect(() => { applyGlobalSkin(skinId); }, [skinId]);
-  useEffect(() => { applyGlobalButtonStyle(btnStyleId); }, [btnStyleId]);
+  useEffect(() => { applyGlobalButtonStyle("bracket"); }, []);
   useEffect(() => { applyGlobalLayout(layoutId); }, [layoutId]);
 
   const [welcomeDone, setWelcomeDone] = useState(() => st.welcomeDone === true);

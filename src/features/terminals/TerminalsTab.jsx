@@ -1106,7 +1106,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.19</span>
+        <span>v0.1.20</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}
