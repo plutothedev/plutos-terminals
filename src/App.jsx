@@ -15,7 +15,7 @@ import {
 
 const STORAGE_KEY = "plutos-terminals:state:v0";
 const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.15";
+const APP_VERSION = "0.1.16";
 
 const PAGE_BG = "var(--phn-page-bg, #0a0a0a)";
 const FG = "var(--phn-text-fg, #9D9D9D)";

@@ -9,6 +9,7 @@ import McpInstaller from "../../components/McpInstaller.jsx";
 import SetupChecker from "../../components/SetupChecker.jsx";
 import PackUrlModal from "../../components/PackUrlModal.jsx";
 import PackSearchModal from "../../components/PackSearchModal.jsx";
+import CommandPalette from "../../components/CommandPalette.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
@@ -92,6 +93,7 @@ export default function TerminalsTab({ st, save }) {
   const [setupOpen, setSetupOpen] = useState(false);
   const [urlOpen, setUrlOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
 
   // Inject header-skin CSS once. Idempotent inside injectHeaderSkinsCss.
@@ -111,6 +113,58 @@ export default function TerminalsTab({ st, save }) {
   useEffect(() => {
     applyGlobalButtonStyle(headerButtonStyleId);
   }, [headerButtonStyleId]);
+
+  // Keyboard shortcuts (v0.1.16). Window-level capture so they fire even
+  // when xterm has focus. Uses Ctrl+Shift+ for tab/window ops to avoid
+  // colliding with shell readline bindings (Ctrl+W = kill word, Ctrl+T =
+  // transpose, etc.). Ctrl+P opens pack search; Ctrl+K opens command
+  // palette; Ctrl+1..8 switches active panel.
+  const shortcutsRef = useRef({});
+  useEffect(() => {
+    const onKey = (e) => {
+      const meta = e.ctrlKey || e.metaKey;
+      if (!meta) return;
+      const key = e.key.toLowerCase();
+      const shift = e.shiftKey;
+
+      const fns = shortcutsRef.current;
+      let handled = false;
+
+      if (shift && key === "t") {
+        // Ctrl+Shift+T → new tab in active panel
+        fns.addTab?.();
+        handled = true;
+      } else if (shift && key === "w") {
+        // Ctrl+Shift+W → close active tab in active panel
+        fns.closeActiveTab?.();
+        handled = true;
+      } else if (key === "p" && !shift) {
+        // Ctrl+P → pack search
+        fns.openPackSearch?.();
+        handled = true;
+      } else if (key === "k" && !shift) {
+        // Ctrl+K → command palette
+        fns.openCommandPalette?.();
+        handled = true;
+      } else if (key === "," && !shift) {
+        // Ctrl+, → settings
+        fns.openSettings?.();
+        handled = true;
+      } else if (/^[1-8]$/.test(e.key) && !shift) {
+        // Ctrl+1..8 → switch active panel by index
+        const idx = parseInt(e.key, 10) - 1;
+        fns.switchPanel?.(idx);
+        handled = true;
+      }
+
+      if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", onKey, true); // capture phase
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
   const pureBlackTerminal = !!st?.pureBlackTerminal;
   const xtermTheme = useMemo(
     () => getSkinXtermTheme(headerSkinId, { pureBlackTerminal }),
@@ -630,6 +684,24 @@ export default function TerminalsTab({ st, save }) {
   const canAddPanel = state.panels.length < MAX_PANELS;
   const canClosePanel = state.panels.length > 1;
 
+  // Wire keyboard-shortcut callbacks. Updates per-render so closures see the
+  // latest state (no stale captures).
+  shortcutsRef.current = {
+    addTab: () => addTab(state.activePanelId),
+    closeActiveTab: () => {
+      const panel = state.panels.find((p) => p.id === state.activePanelId);
+      if (panel && panel.tabs.length > 1 && panel.activeTabId) {
+        closeTab(panel.id, panel.activeTabId);
+      }
+    },
+    openPackSearch: () => setSearchOpen(true),
+    openCommandPalette: () => setCommandPaletteOpen(true),
+    openSettings: () => setSettingsOpen(true),
+    switchPanel: (idx) => {
+      if (state.panels[idx]) setActivePanel(state.panels[idx].id);
+    },
+  };
+
   return (
     <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative", fontFamily: M }}>
       {draggingFile && (
@@ -863,6 +935,30 @@ export default function TerminalsTab({ st, save }) {
         onClose={() => setSearchOpen(false)}
       />
 
+      <CommandPalette
+        open={commandPaletteOpen}
+        commands={[
+          { id: "find-pack", icon: "🔍", label: "Find a pack", hint: "Search recents + bundled by name or description", shortcut: "Ctrl+P", action: () => setSearchOpen(true) },
+          { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
+          { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
+          { id: "load-file", icon: "📁", label: "Load pack from file", hint: ".deck.json picker", action: () => fileInputRef.current?.click() },
+          { id: "load-url", icon: "🔗", label: "Load pack from URL", hint: "GitHub raw / gist / any HTTPS source", action: () => setUrlOpen(true) },
+          { id: "export", icon: "💾", label: "Export current panels as pack", hint: "Save layout to .deck.json", action: () => onExportPack() },
+          { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
+          { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
+          { id: "settings", icon: "⚙️", label: "Open settings", hint: "API key, app skin, header style, density, terminal bg", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },
+          ...state.panels.map((p, i) => ({
+            id: `panel-${p.id}`,
+            icon: i + 1 < 10 ? `${i + 1}` : "•",
+            label: `Switch to panel ${i + 1}`,
+            hint: `${p.tabs.length} tab${p.tabs.length === 1 ? "" : "s"}${p.id === state.activePanelId ? " · active" : ""}`,
+            shortcut: i < 8 ? `Ctrl+${i + 1}` : undefined,
+            action: () => setActivePanel(p.id),
+          })),
+        ]}
+        onClose={() => setCommandPaletteOpen(false)}
+      />
+
       {!st?.terminalsOnboarded && (
         <OnboardingOverlay
           onDismiss={() => save({ ...st, terminalsOnboarded: true })}
@@ -883,7 +979,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.15</span>
+        <span>v0.1.16</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}
