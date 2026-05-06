@@ -11,7 +11,7 @@
           "label": "Claude — code",
           "cwd": null,
           "startCommands": [
-            "echo 'CODE pane: ANTHROPIC_API_KEY then `claude` for hands-on edits'"
+            "claude"
           ],
           "system_prompt_hint": "This Claude session focuses on hands-on code edits. Be concrete: read files, propose diffs, run tests."
         }
@@ -24,7 +24,7 @@
           "label": "Claude — plan",
           "cwd": null,
           "startCommands": [
-            "echo 'PLAN pane: ANTHROPIC_API_KEY then `claude` for architecture / research'"
+            "claude"
           ],
           "system_prompt_hint": "This Claude session focuses on planning + research. Don't write code unless asked — articulate options, surface tradeoffs, sequence work."
         }

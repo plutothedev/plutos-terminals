@@ -11,7 +11,7 @@
           "label": "Claude Code",
           "cwd": null,
           "startCommands": [
-            "echo 'Set ANTHROPIC_API_KEY first if not already set, then run: claude'"
+            "claude"
           ],
           "system_prompt_hint": "Single Claude Code session. Default to clear, runnable answers. Cite file paths when referencing code."
         }

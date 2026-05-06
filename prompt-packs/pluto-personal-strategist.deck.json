@@ -11,7 +11,6 @@
           "label": "Strategist Claude",
           "cwd": "${USERPROFILE}",
           "startCommands": [
-            "echo 'STRATEGIST: cwd is your home via ${USERPROFILE}. If you have a second-brain CLAUDE.md / hot.md, Strategist Claude reads it on first request.'",
             "claude"
           ],
           "system_prompt_hint": "Strategist Claude per the user's own second-brain CLAUDE.md (if it exists). Read meta files first before responding to anything substantive. Be blunt and direct. Surface patterns by name."
