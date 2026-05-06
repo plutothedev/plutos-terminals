@@ -193,6 +193,85 @@ const CSS = `
   border-bottom: 1px solid var(--phn-surface-border, #2B2B2B);
 }
 
+/* ── Modals — driven by global data-phn-skin on <html>. ── */
+.phn-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.62);
+  z-index: 9990;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.phn-modal {
+  background: var(--phn-surface-bg, #181818);
+  border: 1px solid var(--phn-surface-border, #2B2B2B);
+  border-radius: 8px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  font-family: 'JetBrains Mono', Menlo, Monaco, monospace;
+  color: var(--phn-text-fg, #CCCCCC);
+  font-size: 12px;
+  padding: 0;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.phn-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--phn-surface-border, #2B2B2B);
+}
+.phn-modal-title {
+  font-size: 14px;
+  color: var(--phn-text-active, #E6E6E6);
+  letter-spacing: 0.5px;
+}
+.phn-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--phn-text-dim, #9D9D9D);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0 4px;
+  line-height: 1;
+}
+.phn-modal-close:hover { color: var(--phn-text-active, #E6E6E6); }
+.phn-modal-body { padding: 20px; }
+.phn-modal-body input,
+.phn-modal-body select,
+.phn-modal-body textarea {
+  background: var(--phn-page-bg, #0a0a0a);
+  border: 1px solid var(--phn-surface-border, #2B2B2B);
+  color: var(--phn-text-active, #E6E6E6);
+}
+.phn-modal-body code {
+  background: var(--phn-page-bg, #0a0a0a);
+  color: var(--phn-link, #4DAAFC);
+}
+.phn-toast {
+  /* base styling lives inline; this class is just a hook for future skin overrides */
+}
+
+/* ── Glass skin: extend backdrop-filter to all surfaces, not just header. ── */
+[data-phn-skin="glass"] .phn-statusbar,
+[data-phn-skin="glass"] .phn-sidebar,
+[data-phn-skin="glass"] .phn-sidebar-header,
+[data-phn-skin="glass"] .phn-modal,
+[data-phn-skin="glass"] .phn-toast {
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+[data-phn-skin="glass"] .phn-modal-overlay {
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
 /* Base structural rules — apply to every skin. */
 .phn-header {
   display: flex;
@@ -627,4 +706,13 @@ export function injectHeaderSkinsCss() {
   styleEl.textContent = CSS;
   document.head.appendChild(styleEl);
   injected = true;
+}
+
+// Apply the active skin globally on <html> so portaled / sibling elements
+// (toasts, modals rendered above the TerminalsTab subtree) inherit the
+// CSS vars. Safe to call repeatedly; idempotent.
+export function applyGlobalSkin(skinId) {
+  if (typeof document === "undefined") return;
+  const id = HEADER_SKINS.find((s) => s.id === skinId) ? skinId : "default";
+  document.documentElement.dataset.phnSkin = id;
 }

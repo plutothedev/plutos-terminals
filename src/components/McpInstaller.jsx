@@ -101,7 +101,7 @@ export default function McpInstaller({ open, onClose }) {
   return (
     <Modal open={open} title="MCP Servers — Install Commands" onClose={onClose} width={680}>
       <p style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.7, marginBottom: 18 }}>
-        Curated list of popular MCP (Model Context Protocol) servers that extend Claude Code. Click <strong style={{ color: ACCENT }}>install</strong> and the app runs <code style={{ background: "#0a0a0a", padding: "1px 4px", borderRadius: 2 }}>claude mcp add ...</code> for you. Or click <strong>copy</strong> to paste the command into a pane manually. <strong>Restart any open Claude sessions</strong> after install for them to pick up the new MCP.
+        Curated list of popular MCP (Model Context Protocol) servers that extend Claude Code. Click <strong style={{ color: ACCENT }}>install</strong> and the app runs <code style={{ background: "var(--phn-page-bg, #0a0a0a)", padding: "1px 4px", borderRadius: 2 }}>claude mcp add ...</code> for you. Or click <strong>copy</strong> to paste the command into a pane manually. <strong>Restart any open Claude sessions</strong> after install for them to pick up the new MCP.
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -109,7 +109,7 @@ export default function McpInstaller({ open, onClose }) {
           <div
             key={mcp.id}
             style={{
-              background: "#0a0a0a",
+              background: "var(--phn-page-bg, #0a0a0a)",
               border: `1px solid ${BORDER}`,
               borderRadius: 6,
               padding: 14,
@@ -131,7 +131,7 @@ export default function McpInstaller({ open, onClose }) {
             </div>
             <div
               style={{
-                background: "#181818",
+                background: "var(--phn-surface-bg, #181818)",
                 border: `1px solid ${BORDER}`,
                 borderRadius: 4,
                 padding: "8px 10px",
@@ -214,7 +214,7 @@ export default function McpInstaller({ open, onClose }) {
           github.com/modelcontextprotocol/servers ↗
         </a>
         . The standard Claude Code install pattern is{" "}
-        <code style={{ background: "#181818", padding: "1px 4px", borderRadius: 2 }}>claude mcp add &lt;name&gt; -- npx -y &lt;package&gt;</code>.
+        <code style={{ background: "var(--phn-surface-bg, #181818)", padding: "1px 4px", borderRadius: 2 }}>claude mcp add &lt;name&gt; -- npx -y &lt;package&gt;</code>.
       </div>
     </Modal>
   );

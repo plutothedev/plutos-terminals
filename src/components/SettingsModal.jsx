@@ -98,7 +98,7 @@ export default function SettingsModal({ open, st, save, onClose }) {
           style={inputStyle}
         >
           {HEADER_SKINS.map((s) => (
-            <option key={s.id} value={s.id} style={{ background: "#0a0a0a", color: FG_ACTIVE }}>
+            <option key={s.id} value={s.id} style={{ background: "var(--phn-page-bg, #0a0a0a)", color: FG_ACTIVE }}>
               {s.label}
             </option>
           ))}
@@ -149,7 +149,7 @@ function Hint({ children }) {
 
 const inputStyle = {
   width: "100%",
-  background: "#0a0a0a",
+  background: "var(--phn-page-bg, #0a0a0a)",
   border: `1px solid ${BORDER}`,
   color: FG_ACTIVE,
   padding: "8px 10px",

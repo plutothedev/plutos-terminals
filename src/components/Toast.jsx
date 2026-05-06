@@ -62,17 +62,18 @@ export function ToastProvider({ children }) {
         {toasts.map((t) => (
           <div
             key={t.id}
+            className="phn-toast"
             onClick={() => dismiss(t.id)}
             style={{
               pointerEvents: "auto",
-              background: "#181818",
+              background: "var(--phn-surface-bg, #181818)",
               border: `1px solid ${COLORS[t.variant].border}`,
               borderLeft: `4px solid ${COLORS[t.variant].border}`,
               borderRadius: 4,
               padding: "10px 14px",
               fontFamily: M,
               fontSize: 11,
-              color: "#E6E6E6",
+              color: "var(--phn-text-active, #E6E6E6)",
               maxWidth: 360,
               boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
               cursor: "pointer",

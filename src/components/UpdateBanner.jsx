@@ -72,7 +72,7 @@ export default function UpdateBanner({ currentVersion }) {
         position: "fixed",
         bottom: 18,
         right: 18,
-        background: "#181818",
+        background: "var(--phn-surface-bg, #181818)",
         border: `1px solid ${PLUTO_MAGENTA}`,
         borderRadius: 6,
         padding: "12px 14px",

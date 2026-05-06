@@ -82,7 +82,7 @@ export default function PackUrlModal({ open, onClose, onLoadPack }) {
         autoFocus
         style={{
           width: "100%",
-          background: "#0a0a0a",
+          background: "var(--phn-page-bg, #0a0a0a)",
           border: `1px solid ${BORDER}`,
           color: FG_ACTIVE,
           padding: "10px 12px",
@@ -123,7 +123,7 @@ export default function PackUrlModal({ open, onClose, onLoadPack }) {
 }
 
 const codeStyle = {
-  background: "#0a0a0a",
+  background: "var(--phn-page-bg, #0a0a0a)",
   padding: "1px 4px",
   borderRadius: 2,
   fontSize: 10,

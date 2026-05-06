@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./terminals.css";
 
-const SIDEBAR_BG = "#0d0d0d";
-const HEADER_BG = "#181818";
-const FG = "#CCCCCC";
-const FG_DIM = "#9D9D9D";
-const FG_FAINT = "#555555";
-const ACCENT = "#4DAAFC";
-const BORDER = "#2B2B2B";
+const SIDEBAR_BG = "var(--phn-surface-alt-bg, #0d0d0d)";
+const HEADER_BG = "var(--phn-surface-bg, #181818)";
+const FG = "var(--phn-text-fg, #CCCCCC)";
+const FG_DIM = "var(--phn-text-dim, #9D9D9D)";
+const FG_FAINT = "var(--phn-text-dim, #555555)";
+const ACCENT = "var(--phn-link, #4DAAFC)";
+const BORDER = "var(--phn-surface-border, #2B2B2B)";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 const COLOR_PALETTE = [

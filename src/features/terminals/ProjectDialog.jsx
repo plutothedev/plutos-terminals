@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-const BG = "#181818";
-const PAGE = "#0a0a0a";
-const FG = "#CCCCCC";
-const FG_DIM = "#9D9D9D";
-const BORDER = "#2B2B2B";
-const ACCENT = "#4DAAFC";
+const BG = "var(--phn-surface-bg, #181818)";
+const PAGE = "var(--phn-page-bg, #0a0a0a)";
+const FG = "var(--phn-text-fg, #CCCCCC)";
+const FG_DIM = "var(--phn-text-dim, #9D9D9D)";
+const BORDER = "var(--phn-surface-border, #2B2B2B)";
+const ACCENT = "var(--phn-link, #4DAAFC)";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 // Pulls the basename out of a Windows or POSIX path.

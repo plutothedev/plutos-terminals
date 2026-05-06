@@ -12,7 +12,7 @@ import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { gridDims, MAX_PANELS } from "./grid";
-import { getSkinId, getSkinXtermTheme, injectHeaderSkinsCss } from "./headerSkins";
+import { getSkinId, getSkinXtermTheme, injectHeaderSkinsCss, applyGlobalSkin } from "./headerSkins";
 
 // Bundled prompt packs — eagerly imported at build time from the repo's
 // prompt-packs/ folder. Anyone who downloads a binary release gets all the
@@ -91,6 +91,12 @@ export default function TerminalsTab({ st, save }) {
   }, []);
 
   const headerSkinId = getSkinId(st?.headerSkin);
+
+  // Apply skin globally on <html> so portaled/sibling elements (toasts,
+  // modals via Provider tree) inherit skin CSS vars.
+  useEffect(() => {
+    applyGlobalSkin(headerSkinId);
+  }, [headerSkinId]);
   const pureBlackTerminal = !!st?.pureBlackTerminal;
   const xtermTheme = useMemo(
     () => getSkinXtermTheme(headerSkinId, { pureBlackTerminal }),
@@ -775,7 +781,7 @@ export default function TerminalsTab({ st, save }) {
           letterSpacing: 0.3,
         }}
       >
-        <span>v0.1.11</span>
+        <span>v0.1.12</span>
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}

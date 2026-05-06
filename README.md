@@ -7,11 +7,11 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-plutothedev-FF0080?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/3cZQVgKF)
 
-Free multi-terminal desktop app for the Pluto community. Made for running Claude Code, Codex, and other shell-driven AI agents side by side in a single window — with an `agent view` toggle for monitoring, shareable `.deck.json` prompt packs, and a setup checker so non-devs aren't dropped into a blank terminal.
+Free multi-terminal desktop app for the Pluto community. Made for running Claude Code, Codex, and other shell-driven AI agents side by side in a single window — with shareable `.deck.json` prompt packs, a setup checker so non-devs aren't dropped into a blank terminal, and 10 user-pickable visual skins that paint the entire app.
 
-**[Download v0.1.2 ↗](https://github.com/plutothedev/plutos-terminals/releases/latest)** · Windows MSI / standalone `.exe`
+**[Download latest release ↗](https://github.com/plutothedev/plutos-terminals/releases/latest)** · Windows MSI / standalone `.exe`
 
-> **Status (2026-05-05):** v0.1.2 — feature-complete v1 + flawless polish pass. Toast + branded confirms; agent ↔ terminal view toggle; status bar; setup checker; auto-update banner. Mac/Linux + code-signing remain (distribution, not features).
+> **Status (2026-05-06):** v0.1.12 — 10-skin app theming + per-skin terminal background + pure-black-terminal override + 6 functional prompt packs + MCP one-click install + URL pack import + first-launch setup checker + auto-update banner. Mac/Linux + code-signing remain (distribution, not features).
 
 ## What it is
 
@@ -34,24 +34,23 @@ If you already have all three on your machine, the app is plug-and-play.
 
 ## Features
 
-- **`💻 terminal` ↔ `🤖 agent` view toggle** — flip between full xterm panes and a compact card grid showing each agent's status / cost / project at a glance. PTYs stay alive across toggles.
+- **🎨 10 app skins, user-pickable in ⚙️ settings** — Default · Neon Cyberpunk · Pluto Magenta · Retro CRT · Modern Dark (Linear-style) · Brutalist Mono · Glassmorphic · Synthwave Sunset · Solarized Amber · Daylight (light theme). The skin paints the **whole app** — header, sidebar, status bar, modals, and the terminal background — not just chrome. Live preview as you pick.
+- **🖤 Pure-black terminal override** — by default the terminal background matches the active skin (e.g. amber bg under Solarized Amber). Toggle in settings to force classic `#000` regardless of skin.
 - **Multi-panel terminal grid** with up to 8 panels, multiple tabs per panel
 - **System tray + hide-on-close** — sessions keep running in background
 - **Project sidebar** — pin folders with cwd + start commands; drag projects into panels
-- **Pluto Dark / Pluto Light** terminal themes
-- **📚 Bundled prompt packs** — 4 packs ship in the binary (`claude-code-basic`, `dual-claude-pair`, `trading-workflow`, `example`)
-- **📁 Custom pack loading** — pick any `.deck.json` from disk, or drag-and-drop onto the window
+- **📚 Bundled prompt packs** — 6 functional packs + 1 reference ship in the binary: `claude-code-basic`, `dual-claude-pair`, `codebase-explorer`, `writing-helper`, `debug-session`, `trading-workflow` (Pluto Style), `example`. Each pack can ship a `systemPrompt` that auto-types into the Claude session 2s after spawn — real role-priming, not just labels.
+- **📁 Pack loading** — pick a `.deck.json` from disk, drag-and-drop onto the window, or import from URL (gist / GitHub raw / any HTTPS source)
 - **💾 Pack export** — save current panel layout as a shareable `.deck.json`
-- **⚡ Quick-spawn agent grid** — 4-up Researcher / Coder / Reviewer / Journal in one click
-- **🔌 MCP installer** — curated catalog with copy-paste install commands (filesystem, GitHub, Puppeteer, Brave Search, Fetch, Memory)
-- **🚀 Setup checker** — first-launch detection of Node.js + npm + Claude Code CLI + saved API key, with copy-command buttons for anything missing + live API test
-- **⚙️ Settings modal** — Anthropic API key, Discord URL, factory reset (with format validation + branded confirms)
+- **🔌 MCP one-click install** — curated catalog (filesystem, GitHub, Puppeteer, Brave Search, Fetch, Memory) with **install** button that runs `claude mcp add ...` for you (allowlist-guarded), or **copy** to paste manually
+- **🚀 Setup checker** — first-launch detection of Node.js + npm + Claude Code CLI + saved API key, with copy-command buttons for anything missing + live API test (1-token throwaway call to api.anthropic.com to verify key works)
+- **⚙️ Settings modal** — Anthropic API key, app skin (live preview), terminal-bg override, factory reset, with format validation + branded confirms
 - **API key auto-injection** — saved key flows into every new shell so `claude` works without per-shell setup
-- **Templated `${VARNAME}` paths in packs** — `${USERPROFILE}` / `${HOME}` / any process env var expand at spawn time
-- **Status bar** — version, Claude availability, total cost, theme, GitHub + Discord links — always visible at the bottom
+- **Templated `${VARNAME}` paths in packs** — `${USERPROFILE}` / `${HOME}` / any process env var expands at spawn time
+- **Status bar** — version, Claude availability, terminal-bg mode, total cost, GitHub + Discord links — always visible at the bottom
 - **Auto-update banner** — surfaces newer GitHub releases on launch
 - **Pluto-branded icons** — terminal-window silhouette with Pluto-magenta cursor signature
-- **Branded toasts + confirms** — no jarring native dialogs
+- **Branded toasts + confirms** — no jarring native dialogs; toasts and confirm modals also follow the active skin
 
 ## Stack
 

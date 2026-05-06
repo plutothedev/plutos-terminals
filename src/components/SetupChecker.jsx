@@ -175,7 +175,7 @@ export default function SetupChecker({ open, st, onClose, onOpenSettings }) {
         )}
       />
 
-      <div style={{ marginTop: 22, padding: "14px 16px", background: "#0a0a0a", border: `1px solid ${BORDER}`, borderRadius: 6 }}>
+      <div style={{ marginTop: 22, padding: "14px 16px", background: "var(--phn-page-bg, #0a0a0a)", border: `1px solid ${BORDER}`, borderRadius: 6 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <div style={{ color: FG_ACTIVE, fontSize: 12, fontWeight: 600 }}>Live API test</div>
           <button onClick={onTestApi} style={primaryBtnStyle} disabled={apiTest.state === "pending"}>
@@ -238,7 +238,7 @@ function Check({ label, status, installHint }) {
       style={{
         marginBottom: 14,
         padding: "12px 14px",
-        background: "#0a0a0a",
+        background: "var(--phn-page-bg, #0a0a0a)",
         border: `1px solid ${BORDER}`,
         borderRadius: 6,
       }}
@@ -271,7 +271,7 @@ function Code({ children }) {
   return (
     <div
       style={{
-        background: "#181818",
+        background: "var(--phn-surface-bg, #181818)",
         border: `1px solid ${BORDER}`,
         borderRadius: 4,
         padding: "8px 10px",

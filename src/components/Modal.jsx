@@ -1,16 +1,10 @@
-// Reusable modal wrapper. Esc + click-on-backdrop dismiss. Used by
-// SettingsModal, McpInstaller, AboutModal, etc.
+// Reusable modal wrapper. Esc + click-on-backdrop dismiss. Visual treatment
+// driven by the active app skin (headerSkins.js) via .phn-modal-* classes.
+// MODAL_COLORS export retained for backward-compat with components that still
+// reference the old constant names; values intentionally point at safe
+// defaults (the actual rendering uses skin CSS vars via classes).
 
 import { useEffect } from "react";
-
-const BG = "#181818";
-const PAGE = "rgba(0,0,0,0.62)";
-const FG = "#CCCCCC";
-const FG_ACTIVE = "#E6E6E6";
-const FG_DIM = "#9D9D9D";
-const ACCENT = "#4DAAFC";
-const BORDER = "#2B2B2B";
-const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 export default function Modal({ open, title, onClose, children, width = 520 }) {
   useEffect(() => {
@@ -26,68 +20,36 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
 
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: PAGE,
-        zIndex: 9990,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 12,
-        backdropFilter: "blur(2px)",
-      }}
+      className="phn-modal-overlay"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div
-        style={{
-          background: BG,
-          border: `1px solid ${BORDER}`,
-          borderRadius: 8,
-          width,
-          maxWidth: "calc(100vw - 24px)",
-          maxHeight: "calc(100vh - 24px)",
-          overflowY: "auto",
-          boxSizing: "border-box",
-          fontFamily: M,
-          color: FG,
-          fontSize: 12,
-          padding: 0,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "14px 20px",
-            borderBottom: `1px solid ${BORDER}`,
-          }}
-        >
-          <div style={{ fontSize: 14, color: FG_ACTIVE, letterSpacing: 0.5 }}>{title}</div>
+      <div className="phn-modal" style={{ width, maxWidth: "calc(100vw - 24px)" }}>
+        <div className="phn-modal-header">
+          <div className="phn-modal-title">{title}</div>
           <button
+            className="phn-modal-close"
             onClick={onClose}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: FG_DIM,
-              cursor: "pointer",
-              fontSize: 18,
-              padding: "0 4px",
-              lineHeight: 1,
-            }}
             title="Close (Esc)"
           >
             ×
           </button>
         </div>
-        <div style={{ padding: 20 }}>{children}</div>
+        <div className="phn-modal-body">{children}</div>
       </div>
     </div>
   );
 }
 
+// Backward-compat shim for components that destructure these. The actual
+// rendering uses CSS classes that read skin vars; these constants are just
+// fallback values for any inline-style usage that hasn't been migrated yet.
 export const MODAL_COLORS = {
-  BG, PAGE, FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M,
+  BG: "var(--phn-surface-bg, #181818)",
+  PAGE: "rgba(0,0,0,0.62)",
+  FG: "var(--phn-text-fg, #CCCCCC)",
+  FG_ACTIVE: "var(--phn-text-active, #E6E6E6)",
+  FG_DIM: "var(--phn-text-dim, #9D9D9D)",
+  ACCENT: "var(--phn-link, #4DAAFC)",
+  BORDER: "var(--phn-surface-border, #2B2B2B)",
+  M: "'JetBrains Mono', Menlo, Monaco, monospace",
 };
