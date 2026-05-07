@@ -4,14 +4,22 @@ A `.deck.json` prompt pack describes a multi-panel terminal layout you can clone
 
 > **Quick start:** see `HOW_TO_USE.md` for the loading flow + `SCHEMA.md` for the file format. To author your own pack, copy `example.deck.json` and edit. Press `Ctrl+P` in the app to search this catalog by name or description.
 
-**Catalog organization (25 functional + 1 reference):**
+**Catalog organization (21 functional + 1 reference):**
 
+- **🚀 Headline** — agentic-feature-ship (4-pane developer flagship — read · plan · code · debug)
 - **Coding** — claude-code-basic, dual-claude-pair, codebase-explorer, debug-session, code-review
-- **Writing** — writing-helper, content-script-writer, tweet-thread-writer, email-drafter, landing-page-writer, prd-writer
-- **Learning** — language-learning, interview-prep, prompt-engineer-lab, ai-tool-comparison
-- **Productivity** — research-assistant, pros-vs-cons, rubber-duck, standup-prep, weekly-retro, journal-buddy, resume-tailoring
+- **Writing** — writing-helper, content-script-writer, tweet-thread-writer, email-drafter
+- **Learning** — language-learning, interview-prep, prompt-engineer-lab
+- **Productivity** — research-assistant, pros-vs-cons, rubber-duck, journal-buddy, resume-tailoring
 - **Life** — trip-planner, meal-planner
 - **Pluto Style** — trading-workflow
+
+---
+
+## 🚀 Headline pack
+
+### `agentic-feature-ship` ⭐
+Four-pane developer flagship. Explorer reads the codebase (read first, recommend second). Plan designs the approach with options + tradeoffs. Code implements. Debug verifies. Each pane has a different systemPrompt locking it into one role; agents stay in character. The full "shipping a feature" workflow as a single `.deck.json` file. **When to use:** any time you're adding a non-trivial feature to a codebase. Use this pack as the demo.
 
 ---
 
@@ -48,12 +56,6 @@ Twitter/X thread writer that doesn't read like AI. Anchored to mechanics that ma
 ### `email-drafter`
 Single Claude pane that drafts email replies in your voice. 3-sentence default, no corporate filler, three tones (warm / neutral / firm). **When to use:** any email reply you've been putting off.
 
-### `landing-page-writer`
-Two panes: copywriter following hero/problem/solution/social-proof/CTA structure + scratch. Won't let you skip the value prop. **When to use:** writing landing-page copy that converts.
-
-### `prd-writer`
-Two panes: PM coach (problem / user / metric / scope cut) + draft scratch. Pulls out missing context before drafting. **When to use:** writing a product requirements doc.
-
 ---
 
 ## Learning
@@ -67,9 +69,6 @@ Mock interviewer with two panes (interviewer + notes). Stays neutral mid-loop (n
 ### `prompt-engineer-lab` ⭐
 Two panes: prompt-engineering tutor + clean test bench. Iterate on your prompts in real time — tutor rewrites, bench executes, you see what changed. **When to use:** improving any AI prompt for your daily workflow.
 
-### `ai-tool-comparison`
-Single Claude pane that helps you pick between AI tools (Claude / GPT / Gemini / specialized agents) for a specific task. Concrete tradeoffs grounded in real strengths. **When to use:** deciding what tool to use before starting a project.
-
 ---
 
 ## Productivity
@@ -82,12 +81,6 @@ Three panes: PRO side (argues only for) + CON side (argues only against) + SYNTH
 
 ### `rubber-duck`
 Single Claude pane in pure rubber-duck mode. Asks short clarifying questions until you figure it out yourself. NEVER solves, never gives code, holds the role. **When to use:** stuck on something and can't tell why.
-
-### `standup-prep`
-Two panes: standup coach (yesterday / today / blockers) + update scratch. Forces structure 5 minutes before standup. **When to use:** before any daily-standup meeting.
-
-### `weekly-retro`
-Two panes: retro coach (shipped / blocked / next-week-bet / pattern-noticed) + retro doc. **When to use:** end-of-week reflection. Pairs with `journal-buddy`.
 
 ### `journal-buddy`
 Single Claude pane for daily reflection. Three structured questions in 5 minutes — not therapy, not woo. Outputs a clean dated entry. **When to use:** every morning OR every evening, not both.
@@ -141,9 +134,10 @@ To share your pack: open a PR adding it to this folder, OR publish a gist and te
 - **Concrete anti-patterns** (what Claude must NOT do)
 - **Specific tone calibration** (not generic "be helpful")
 - **Tested with real prompts** before shipping
+- **Multi-pane packs** justify the parallelism — don't ship a 3-pane pack if 1 would do
 
 ## v1+ roadmap
 
-- **Pack categories surfaced in the dropdown** — once catalog grows past ~30, group by category
+- **Pack categories surfaced in the dropdown** — once catalog grows past ~30, group by category in the UI
 - **Community pack marketplace** — submit packs without opening a PR
 - **Pack signing** — community packs signed with a Pluto-controlled key for trust on third-party loads

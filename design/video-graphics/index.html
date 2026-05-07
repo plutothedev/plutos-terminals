@@ -402,6 +402,233 @@
     font-size: 11px;
   }
 
+  /* ────────── Section 7: Agent anatomy ────────── */
+  .anatomy {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    max-width: 1200px;
+    align-items: center;
+  }
+  .anatomy-claude {
+    background: var(--surface-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 36px;
+    position: relative;
+  }
+  .anatomy-claude h3 {
+    color: var(--fg-active);
+    font-size: 18px;
+    margin: 0 0 8px;
+    letter-spacing: 0.3px;
+  }
+  .anatomy-claude .sub {
+    color: var(--fg-dim);
+    font-size: 11px;
+    margin-bottom: 24px;
+  }
+  .anatomy-layer {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--border);
+    align-items: start;
+  }
+  .anatomy-layer:last-child { border-bottom: none; }
+  .anatomy-layer-label {
+    font-size: 10px;
+    color: var(--magenta);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding-top: 2px;
+  }
+  .anatomy-layer-content {
+    color: var(--fg);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .anatomy-layer-content code {
+    background: var(--page-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--accent);
+    font-size: 11px;
+  }
+  .anatomy-takeaway {
+    color: var(--fg);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .anatomy-takeaway strong { color: var(--fg-active); }
+  .anatomy-takeaway .accent { color: var(--accent); }
+  .anatomy-takeaway .magenta { color: var(--magenta); }
+
+  /* ────────── Section 8: Pack file anatomy ────────── */
+  .pack-anatomy {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 32px;
+    max-width: 1300px;
+    align-items: start;
+  }
+  .pack-anatomy-code {
+    background: #050510;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    font-size: 12px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+  .pack-anatomy-code .punc { color: #555; }
+  .pack-anatomy-code .key { color: #FF6B9D; }
+  .pack-anatomy-code .str { color: var(--green); }
+  .pack-anatomy-code .num { color: #FFD43B; }
+  .pack-anatomy-code .comment { color: var(--fg-dim); font-style: italic; }
+  .pack-anatomy-callouts {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .callout {
+    background: var(--surface-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+  }
+  .callout-tag {
+    display: inline-block;
+    color: var(--magenta);
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .callout h4 {
+    color: var(--fg-active);
+    margin: 0 0 6px;
+    font-size: 13px;
+  }
+  .callout p {
+    color: var(--fg);
+    font-size: 11px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .callout p code { background: var(--page-bg); color: var(--accent); padding: 1px 4px; border-radius: 3px; font-size: 10px; }
+
+  /* ────────── Section 9: vs alternatives ────────── */
+  .vs-table {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    max-width: 1200px;
+    background: var(--surface-bg);
+  }
+  .vs-row {
+    display: grid;
+    grid-template-columns: 200px repeat(4, 1fr);
+    border-bottom: 1px solid var(--border);
+  }
+  .vs-row:last-child { border-bottom: none; }
+  .vs-row.header {
+    background: var(--page-bg);
+    color: var(--fg-active);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .vs-row.header > div {
+    padding: 14px 16px;
+    border-right: 1px solid var(--border);
+    text-align: center;
+  }
+  .vs-row.header > div:first-child { text-align: left; color: var(--fg-dim); font-weight: 400; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+  .vs-row.header > div:last-child { border-right: none; background: rgba(255,0,128,0.06); color: var(--magenta); }
+  .vs-row > div {
+    padding: 14px 16px;
+    font-size: 11px;
+    border-right: 1px solid var(--border);
+    color: var(--fg);
+    text-align: center;
+  }
+  .vs-row > div:first-child { text-align: left; color: var(--fg-active); font-weight: 600; font-size: 12px; }
+  .vs-row > div:last-child { border-right: none; background: rgba(255,0,128,0.04); }
+  .vs-yes { color: var(--green); font-size: 16px; }
+  .vs-no { color: #555; font-size: 16px; }
+  .vs-partial { color: var(--yellow); font-size: 11px; }
+
+  /* ────────── Section 10: Shareability flow ────────── */
+  .share {
+    background: var(--surface-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px;
+    max-width: 1200px;
+  }
+  .share-flow {
+    display: grid;
+    grid-template-columns: 1fr 60px 1fr 60px 1fr;
+    gap: 0;
+    align-items: center;
+  }
+  .share-step {
+    background: var(--page-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+  }
+  .share-step .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--magenta);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .share-step .step-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+    line-height: 1;
+  }
+  .share-step h4 {
+    color: var(--fg-active);
+    margin: 0 0 6px;
+    font-size: 13px;
+  }
+  .share-step p {
+    color: var(--fg);
+    font-size: 11px;
+    line-height: 1.5;
+    margin: 0;
+  }
+  .share-step p code {
+    background: var(--surface-bg);
+    color: var(--accent);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+  .share-arrow {
+    text-align: center;
+    color: var(--accent);
+    font-size: 22px;
+  }
+  .share-tagline {
+    margin-top: 24px;
+    text-align: center;
+    color: var(--fg-dim);
+    font-size: 13px;
+  }
+  .share-tagline strong { color: var(--accent); }
+
   /* ────────── Section 6: Side-by-side workflow demo ────────── */
   .demo-shot {
     background: var(--surface-bg);
@@ -481,10 +708,14 @@
   <span class="brand">PLUTO'S TERMINALS</span>
   <a href="#hero">intro</a>
   <a href="#compare">single vs multi</a>
-  <a href="#packs">11 packs</a>
+  <a href="#packs">21 packs</a>
   <a href="#workflow">use cases</a>
   <a href="#timeline">parallel flow</a>
   <a href="#demo">live demo</a>
+  <a href="#anatomy">agent anatomy</a>
+  <a href="#pack-anatomy">pack file</a>
+  <a href="#vs">vs alternatives</a>
+  <a href="#share">shareability</a>
   <a href="#proof">why it works</a>
 </nav>
 
@@ -871,7 +1102,234 @@
 </section>
 
 <!-- ════════════════════════════════════════════════════════ -->
-<!--           SECTION 7: WHY IT WORKS (PROOF)                -->
+<!--           SECTION 7: AGENT ANATOMY (educational)         -->
+<!-- ════════════════════════════════════════════════════════ -->
+<section id="anatomy">
+  <div class="label">What's inside an agent</div>
+  <h2>An agent is a <span class="accent">Claude</span> with a <span class="magenta">role</span></h2>
+  <p class="lede">No new model. No fancy framework. Each "agent" in Pluto's Terminals is one Claude Code session that's been primed with a systemPrompt to play a specific role. The auto-typed prompt is the trick.</p>
+
+  <div class="anatomy">
+    <div class="anatomy-claude">
+      <h3>Anatomy of one agent</h3>
+      <div class="sub">What happens in the 3 seconds after you load a pack</div>
+
+      <div class="anatomy-layer">
+        <div class="anatomy-layer-label">step 1 · 0s</div>
+        <div class="anatomy-layer-content">
+          App spawns a real <code>pwsh</code> shell in your chosen <code>cwd</code>. Empty terminal. Cursor blinking.
+        </div>
+      </div>
+
+      <div class="anatomy-layer">
+        <div class="anatomy-layer-label">step 2 · 0.5s</div>
+        <div class="anatomy-layer-content">
+          App auto-runs the pack's <code>startCommands</code> — typically <code>claude</code>. The Claude CLI boots in that shell.
+        </div>
+      </div>
+
+      <div class="anatomy-layer">
+        <div class="anatomy-layer-label">step 3 · 2.0s</div>
+        <div class="anatomy-layer-content">
+          App types the pack's <code>systemPrompt</code> into the Claude session as the first user message — visible character-by-character. <strong style="color:var(--fg-active)">This is the moment.</strong> Claude is now in role.
+        </div>
+      </div>
+
+      <div class="anatomy-layer">
+        <div class="anatomy-layer-label">step 4 · live</div>
+        <div class="anatomy-layer-content">
+          Claude responds in character. Every subsequent message is interpreted through the role. You type, it stays the explorer / debugger / writer / whatever.
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="anatomy-takeaway">
+        <p style="margin-top:0"><strong>Same Claude.</strong> The model isn't fine-tuned. It's not running a custom agent framework. It's just <span class="accent">Claude Code</span> + a <span class="magenta">tuned systemPrompt</span> + the auto-type mechanism.</p>
+        <p>That's the core insight: <strong>specialization is a prompt-engineering problem, not a model problem</strong>. Once you've written the right prompt for "researcher" or "debugger," you can save it as a `.deck.json` file and clone the workflow forever.</p>
+        <p>The 26 packs that ship aren't 26 different AIs. They're 26 different prompts for one Claude. <strong>That's why this is portable</strong> — anyone with Claude CLI can run any pack.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--           SECTION 8: PACK FILE ANATOMY                   -->
+<!-- ════════════════════════════════════════════════════════ -->
+<section id="pack-anatomy">
+  <div class="label">What's in a `.deck.json` file</div>
+  <h2>The unit of <span class="accent">sharing</span> is a single file</h2>
+  <p class="lede">A pack is one JSON file describing a layout, the start commands, and the per-tab system prompts. Drag it into Discord. Anyone with the app loads it in one click.</p>
+
+  <div class="pack-anatomy">
+    <div class="pack-anatomy-code">
+<pre style="margin:0;font-family:'JetBrains Mono',monospace"><span class="punc">{</span>
+  <span class="key">"schema"</span><span class="punc">:</span> <span class="str">"plutos-terminals/deck.json/v0"</span><span class="punc">,</span>
+  <span class="key">"name"</span><span class="punc">:</span> <span class="str">"Codebase Explorer"</span><span class="punc">,</span>
+  <span class="key">"description"</span><span class="punc">:</span> <span class="str">"Two panes for understanding..."</span><span class="punc">,</span>
+
+  <span class="key">"panels"</span><span class="punc">:</span> <span class="punc">[</span>
+    <span class="punc">{</span>
+      <span class="key">"label"</span><span class="punc">:</span> <span class="str">"claude"</span><span class="punc">,</span>
+      <span class="key">"tabs"</span><span class="punc">:</span> <span class="punc">[{</span>
+        <span class="key">"label"</span><span class="punc">:</span> <span class="str">"Claude — explorer"</span><span class="punc">,</span>
+        <span class="key">"cwd"</span><span class="punc">:</span> <span class="str">null</span><span class="punc">,</span>
+        <span class="key">"startCommands"</span><span class="punc">:</span> <span class="punc">[</span><span class="str">"claude"</span><span class="punc">],</span>
+        <span class="key">"systemPrompt"</span><span class="punc">:</span> <span class="str">"You're the EXPLORER pane..."</span>
+      <span class="punc">}]</span>
+    <span class="punc">},</span>
+    <span class="punc">{</span>
+      <span class="key">"label"</span><span class="punc">:</span> <span class="str">"shell"</span><span class="punc">,</span>
+      <span class="key">"tabs"</span><span class="punc">:</span> <span class="punc">[{</span>
+        <span class="key">"label"</span><span class="punc">:</span> <span class="str">"Inspect shell"</span><span class="punc">,</span>
+        <span class="key">"cwd"</span><span class="punc">:</span> <span class="str">null</span><span class="punc">,</span>
+        <span class="key">"startCommands"</span><span class="punc">:</span> <span class="punc">[</span><span class="str">"echo 'INSPECT...'"</span><span class="punc">]</span>
+      <span class="punc">}]</span>
+    <span class="punc">}</span>
+  <span class="punc">]</span>
+<span class="punc">}</span></pre>
+    </div>
+
+    <div class="pack-anatomy-callouts">
+      <div class="callout">
+        <div class="callout-tag">panels</div>
+        <h4>The grid layout</h4>
+        <p>Each entry in <code>panels[]</code> is one terminal panel. Up to 8 panels arranged in a grid. Each panel can hold multiple tabs.</p>
+      </div>
+      <div class="callout">
+        <div class="callout-tag">cwd</div>
+        <h4>Working directory</h4>
+        <p>Absolute path, <code>null</code> for home, or templated like <code>${USERPROFILE}/myrepo</code> — any process env var resolves at spawn.</p>
+      </div>
+      <div class="callout">
+        <div class="callout-tag">startCommands</div>
+        <h4>What runs on spawn</h4>
+        <p>Sequence of shell commands the app types into the terminal automatically. Usually just <code>claude</code> for AI panes.</p>
+      </div>
+      <div class="callout">
+        <div class="callout-tag">systemPrompt</div>
+        <h4>The role anchor</h4>
+        <p>Auto-typed into Claude 2 seconds after spawn. <strong>This is what makes the agent specialized.</strong> Same Claude, different prompt, different agent.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--          SECTION 9: vs ALTERNATIVES                      -->
+<!-- ════════════════════════════════════════════════════════ -->
+<section id="vs">
+  <div class="label">vs the rest of the agent space</div>
+  <h2>Where this fits</h2>
+  <p class="lede">There are good ways to run agents already. Pluto's Terminals isn't trying to replace them — it's filling a specific gap: multi-agent UI for Windows users without tmux, with shareable workflows as one-click files.</p>
+
+  <div class="vs-table">
+    <div class="vs-row header">
+      <div>capability</div>
+      <div>claude.ai chat</div>
+      <div>Cursor / Cline</div>
+      <div>Claude Code + tmux</div>
+      <div>Pluto's Terminals</div>
+    </div>
+    <div class="vs-row">
+      <div>Multiple agents in parallel</div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-partial">one editor</span></div>
+      <div><span class="vs-yes">✓</span></div>
+      <div><span class="vs-yes">✓</span></div>
+    </div>
+    <div class="vs-row">
+      <div>Works on Windows out-of-box</div>
+      <div><span class="vs-yes">✓</span></div>
+      <div><span class="vs-yes">✓</span></div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-yes">✓</span></div>
+    </div>
+    <div class="vs-row">
+      <div>Per-agent specialization (system prompt)</div>
+      <div><span class="vs-partial">manual</span></div>
+      <div><span class="vs-partial">.cursor/rules</span></div>
+      <div><span class="vs-yes">✓</span></div>
+      <div><span class="vs-yes">✓</span></div>
+    </div>
+    <div class="vs-row">
+      <div>Workflow as one shareable file</div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-yes">✓ <code style="background:transparent;color:var(--accent);font-size:10px">.deck.json</code></span></div>
+    </div>
+    <div class="vs-row">
+      <div>Visual UI for non-CLI users</div>
+      <div><span class="vs-yes">✓</span></div>
+      <div><span class="vs-yes">✓</span></div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-yes">✓</span></div>
+    </div>
+    <div class="vs-row">
+      <div>Audio cue when agents finish</div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-yes">✓</span></div>
+    </div>
+    <div class="vs-row">
+      <div>Asciinema-format session export</div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-no">✗</span></div>
+      <div><span class="vs-yes">✓</span></div>
+    </div>
+    <div class="vs-row">
+      <div>Free + open source</div>
+      <div><span class="vs-no">subscription</span></div>
+      <div><span class="vs-no">subscription</span></div>
+      <div><span class="vs-yes">CLI free, agent-teams in beta</span></div>
+      <div><span class="vs-yes">✓ MIT</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--          SECTION 10: SHAREABILITY FLOW                   -->
+<!-- ════════════════════════════════════════════════════════ -->
+<section id="share">
+  <div class="label">The shareable workflow</div>
+  <h2>Your setup → <span class="magenta">someone else's session</span></h2>
+  <p class="lede">A pack is one file. You build the workflow, export it, drop it anywhere — Discord, gist, GitHub. Anyone with the app reproduces your exact setup.</p>
+
+  <div class="share">
+    <div class="share-flow">
+      <div class="share-step">
+        <div class="step-num">1</div>
+        <div class="step-icon">⚙️</div>
+        <h4>Build a layout</h4>
+        <p>Open the app. Set up your panels — packs, cwds, system prompts that work for your task.</p>
+      </div>
+      <div class="share-arrow">→</div>
+      <div class="share-step">
+        <div class="step-num">2</div>
+        <div class="step-icon">💾</div>
+        <h4>Export to file</h4>
+        <p><code>Ctrl+K</code> → <strong>Export current panels as pack</strong>. Save to <code>my-workflow.deck.json</code>.</p>
+      </div>
+      <div class="share-arrow">→</div>
+      <div class="share-step">
+        <div class="step-num">3</div>
+        <div class="step-icon">📤</div>
+        <h4>Share the file</h4>
+        <p>Drop in Discord. Post as a gist. Send via DM. Tweet it. Email it. It's just a file.</p>
+      </div>
+    </div>
+
+    <div class="share-tagline">
+      <strong>The other person:</strong> drag-drops onto their Pluto's Terminals window → instant workflow clone. Same panels, same prompts, same cwds.
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!--           SECTION 11: WHY IT WORKS (PROOF)               -->
 <!-- ════════════════════════════════════════════════════════ -->
 <section id="proof">
   <div class="label">Why this isn't hype</div>
