@@ -8,7 +8,25 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use tauri::{AppHandle, Manager};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+// CREATE_NO_WINDOW — suppresses the conhost.exe console flash that
+// would otherwise appear (and steal focus) each time a child process
+// is spawned from a non-console app. Mandatory on every non-PTY
+// spawn site since git/cmd/etc. are polled periodically by the UI.
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn silent_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
 
 // ── Data directory helper ─────────────────────────────────────────
 // Uses the app's local data directory (e.g., %APPDATA%/com.plutothedev.terminals)
@@ -173,13 +191,13 @@ pub fn mcp_install(command: String) -> Result<McpInstallResult, String> {
     }
 
     #[cfg(target_os = "windows")]
-    let output = std::process::Command::new("cmd")
+    let output = silent_command("cmd")
         .args(["/c", trimmed])
         .output()
         .map_err(|e| format!("Failed to spawn cmd: {e}"))?;
 
     #[cfg(not(target_os = "windows"))]
-    let output = std::process::Command::new("sh")
+    let output = silent_command("sh")
         .args(["-c", trimmed])
         .output()
         .map_err(|e| format!("Failed to spawn sh: {e}"))?;
@@ -197,7 +215,7 @@ pub fn check_command_version(name: String) -> Option<String> {
         // Reject obviously-malformed inputs — only bare command names allowed.
         return None;
     }
-    let output = std::process::Command::new(&name)
+    let output = silent_command(&name)
         .arg("--version")
         .output()
         .ok()?;
@@ -227,7 +245,7 @@ pub fn git_branch_status(cwd: String) -> Option<GitBranchStatus> {
     if !path.exists() || !path.is_dir() {
         return None;
     }
-    let branch_out = std::process::Command::new("git")
+    let branch_out = silent_command("git")
         .arg("rev-parse")
         .arg("--abbrev-ref")
         .arg("HEAD")
@@ -241,7 +259,7 @@ pub fn git_branch_status(cwd: String) -> Option<GitBranchStatus> {
     if branch.is_empty() {
         return None;
     }
-    let status_out = std::process::Command::new("git")
+    let status_out = silent_command("git")
         .arg("status")
         .arg("--porcelain")
         .current_dir(&cwd)
@@ -364,7 +382,7 @@ pub fn recent_files(cwd: String) -> Vec<String> {
     };
 
     // 1. git status --porcelain (currently modified files)
-    if let Ok(out) = std::process::Command::new("git")
+    if let Ok(out) = silent_command("git")
         .args(["status", "--porcelain"])
         .current_dir(&cwd)
         .output()
@@ -384,7 +402,7 @@ pub fn recent_files(cwd: String) -> Vec<String> {
     }
 
     // 2. git log --name-only (recently committed)
-    if let Ok(out) = std::process::Command::new("git")
+    if let Ok(out) = silent_command("git")
         .args(["log", "--all", "--pretty=format:", "--name-only", "-n", "30"])
         .current_dir(&cwd)
         .output()
