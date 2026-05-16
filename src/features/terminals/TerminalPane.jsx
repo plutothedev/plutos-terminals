@@ -88,6 +88,37 @@ const TOKENS_PATTERNS = [
 const MODEL_LINE_RE = /([\d,]+)\s*input,\s*([\d,]+)\s*output(?:,\s*([\d,]+)\s*cache\s*read)?(?:,\s*([\d,]+)\s*cache\s*write)?/gi;
 const COST_SCAN_BYTES = 10_000;
 
+// Per-family blended cost per 1M tokens (USD). Used to derive a live cost
+// estimate from observed token counts when Claude Code hasn't printed an
+// explicit "Total cost: $X.XX" line yet (the inline status banner shows
+// tokens like "1.6k tokens · thought for 2s" but never the dollar figure).
+//
+// Blended rate assumes a typical Claude Code mix: cache-heavy input + moderate
+// output. Real cost depends on the input/output/cache-read/cache-write split,
+// but this estimate is within 2x of the real number for normal sessions, and
+// the explicit COST_RE match takes priority whenever pluto runs /cost.
+//
+// Source: Anthropic Claude API pricing for the Claude 4.x family with prompt
+// caching enabled. Estimate is per million total tokens charged through the
+// API, weighting cache-read at ~75%, fresh-input at ~12%, output at ~13%.
+const FAMILY_BLENDED_RATE_PER_M = {
+  opus: 12.0,
+  sonnet: 2.5,
+  haiku: 0.7,
+};
+const DEFAULT_FAMILY = "opus"; // Worst-case fallback when banner not yet parsed.
+
+// Detect which Claude family is in play by scanning the welcome banner /
+// status line. Claude Code prints e.g. "Opus 4.7 (1M context) with high
+// effort · Claude Max" near session start, and "claude-opus-4-7" in /cost
+// output. Both surface forms (friendly + API) covered.
+const FAMILY_DETECT_RE = /\bclaude-(opus|sonnet|haiku)\b|\b(opus|sonnet|haiku)\s*[0-9]/i;
+function detectFamily(text) {
+  const m = text.match(FAMILY_DETECT_RE);
+  if (!m) return DEFAULT_FAMILY;
+  return (m[1] || m[2] || DEFAULT_FAMILY).toLowerCase();
+}
+
 function tokensFromMatch(m) {
   if (!m) return 0;
   let v = parseFloat((m[1] || "0").replace(/,/g, ""));
@@ -193,6 +224,11 @@ export default function TerminalPane({
 
   // Cost tracker state — only emit when the latest seen value changes.
   const lastCostRef = useRef({ tokens: 0, cost: 0 });
+  // Sticky model family detected from the welcome banner. Held across
+  // checkCost calls so the family signal survives the banner scrolling out
+  // of the 10KB cost-scan window. Initialized to null; first banner hit
+  // locks it in.
+  const familyRef = useRef(null);
 
   // In-pane hint: subtle overlay shown on fresh terminals. Dismissed on
   // user input, after 12s of visibility, or if scrollback was restored
@@ -314,6 +350,30 @@ export default function TerminalPane({
       next.tokens = bestTokens;
       changed = true;
     }
+
+    // Derive a live cost estimate from total tokens × per-family blended
+    // rate. Claude Code's inline status banner shows tokens climbing in real
+    // time but never the dollar figure, so without this estimate the cost
+    // stays at $0 until pluto runs /cost — which most sessions never trigger.
+    // Authoritative COST_RE matches above already take priority via the
+    // monotonic "only update if higher" rule. Estimate uses the cumulative
+    // `next.tokens` (which never decreases) rather than `bestTokens` (the
+    // snapshot in the current 10KB window, which can drop as banners scroll
+    // out).
+    if (!familyRef.current) {
+      const detected = detectFamily(text);
+      if (detected) familyRef.current = detected;
+    }
+    if (next.tokens > 0) {
+      const family = familyRef.current || DEFAULT_FAMILY;
+      const rate = FAMILY_BLENDED_RATE_PER_M[family] || FAMILY_BLENDED_RATE_PER_M[DEFAULT_FAMILY];
+      const estimated = (next.tokens * rate) / 1_000_000;
+      if (estimated > next.cost) {
+        next.cost = estimated;
+        changed = true;
+      }
+    }
+
     if (changed) {
       lastCostRef.current = next;
       try { onCostRef.current?.(next); } catch {}

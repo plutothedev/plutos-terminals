@@ -1,7 +1,7 @@
 {
   "name": "plutos-terminals",
   "private": true,
-  "version": "0.1.27",
+  "version": "0.1.28",
   "description": "Pluto's Terminals — multi-terminal desktop app for AI YouTube viewers. Free download from plutothedev.",
   "type": "module",
   "scripts": {
