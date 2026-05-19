@@ -90,7 +90,7 @@ That's the whole flow.
 - **Status bar** — version, Claude availability, terminal-bg mode, recording indicator, total live cost, GitHub + Discord links — always visible at the bottom
 - **Branded toasts + confirms** — no jarring native dialogs; both follow the active skin
 - **Auto-update banner** — surfaces newer GitHub releases on launch
-- **Scrollback persistence** — last ~500 lines per tab persist to disk and replay on next launch
+- **Scrollback persistence** — up to ~5 MB per tab persists to disk and replays on next launch, even if you tray→Quit or reboot. Owned by the Rust PTY reader thread so there's no IPC race on process exit.
 
 ## Stack
 
@@ -139,10 +139,4 @@ See [`prompt-packs/README.md`](prompt-packs/README.md) for the full catalog of 1
 
 ## Community
 
-Pluto Discord: [discord.gg/3cZQVgKF](https://discord.gg/3cZQVgKF) — share packs, request features, get help.
-
-YouTube: more videos coming as the app evolves; community-built packs surface in the Discord first.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+Pluto Discord: [discord.gg/3cZQVgKF](https://discord.gg/3cZQVgKF) — share packs, request features, get help. Community-built packs surface in the
