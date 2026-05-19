@@ -2763,7 +2763,7 @@ dependencies = [
 
 [[package]]
 name = "plutos-terminals"
-version = "0.1.28"
+version = "0.1.32"
 dependencies = [
  "chrono",
  "log",

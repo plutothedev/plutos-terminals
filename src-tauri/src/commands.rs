@@ -293,13 +293,13 @@ pub fn read_npm_scripts(cwd: String) -> Vec<String> {
 
 // ── Scrollback persistence + session transcripts ──────────────────
 
-fn safe_filename(s: &str) -> String {
+pub fn safe_filename(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
         .collect()
 }
 
-fn scrollback_path(app: &AppHandle, tab_id: &str) -> PathBuf {
+pub fn scrollback_path(app: &AppHandle, tab_id: &str) -> PathBuf {
     get_data_dir(app)
         .join("terminals")
         .join("scrollback")
@@ -322,7 +322,15 @@ pub fn scrollback_load(app: AppHandle, tab_id: String) -> Option<String> {
     if !path.exists() {
         return None;
     }
-    fs::read_to_string(&path).ok()
+    // v0.1.30: read raw bytes + lossy-decode instead of read_to_string. The
+    // previous version returned None for files containing any invalid UTF-8
+    // (e.g. raw bytes written by the v0.1.29 PTY reader thread before we
+    // started lossy-decoding on write). Lossy-decoding means existing files
+    // still load — invalid bytes show as U+FFFD, which is what xterm.js
+    // already renders for those sequences during live output.
+    fs::read(&path)
+        .ok()
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[tauri::command]

@@ -396,7 +396,11 @@ export default function TerminalPane({
       fontFamily: "'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace",
       cursorBlink: true,
       cursorStyle: "bar",
-      scrollback: 5000,
+      // v0.1.32: bumped from 5000 to 10000 lines so restored scrollback from
+      // disk (now up to ~50000 lines worth at 5MB/100chars) has enough live
+      // buffer to actually be scrollable. Memory cost is modest — xterm cells
+      // are compact; ~16MB per pane at full fill, ~150MB across 8 packed panes.
+      scrollback: 10000,
       allowProposedApi: true,
     });
     const fit = new FitAddon();
@@ -474,7 +478,11 @@ export default function TerminalPane({
           }
           if (Object.keys(env).length > 0) extraEnv = env;
         } catch (_) { /* ignore */ }
-        const id = await invoke("pty_spawn", { cwd: cwd || null, cols, rows, extraEnv });
+        // v0.1.29: pass tabId so the PTY reader thread can own the on-disk
+        // scrollback file. Replaces the previous unmount-time renderer-side
+        // scrollback_save, which raced process death on tray→Quit (async
+        // invoke didn't reach Rust before the process exited).
+        const id = await invoke("pty_spawn", { cwd: cwd || null, cols, rows, extraEnv, tabId });
         if (!alive) {
           await invoke("pty_kill", { id }).catch(() => {});
           return;
@@ -612,14 +620,14 @@ export default function TerminalPane({
       }
       flushTranscript();
 
-      // Persist scrollback (last N lines) before tearing down the PTY.
-      const id = tabIdRef.current;
-      if (id) {
-        const all = scrollbackChunksRef.current.join("");
-        const lines = all.split(/\r?\n/);
-        const tail = lines.slice(-SCROLLBACK_REPLAY_LINES).join("\n");
-        invoke("scrollback_save", { tabId: id, content: tail }).catch(() => {});
-      }
+      // v0.1.29: scrollback persistence moved to the Rust PTY reader thread
+      // (see pty.rs::ScrollbackWriter). The renderer-side save here was racy
+      // — invoke() is async, .catch() swallows errors, and tray→Quit fires
+      // app.exit(0) which kills the process before the IPC message reaches
+      // Rust. Even if it had landed, it would have overwritten the rich
+      // byte-level file Rust now owns with a lossy "last 500 lines,
+      // newline-split, ANSI stripped via join" version. So this is now a
+      // no-op — Rust already wrote every chunk to disk as it streamed.
 
       if (unlistenData) unlistenData();
       if (unlistenExit) unlistenExit();

@@ -7,15 +7,43 @@
 // Lifecycle is tied to the SessionRegistry stored as Tauri state. On app exit,
 // kill_all() runs from the RunEvent::ExitRequested handler in lib.rs so we
 // never orphan a shell child.
+//
+// Scrollback persistence (v0.1.29):
+// The reader thread also appends each output chunk to the on-disk scrollback
+// file owned by commands::scrollback_path. This replaces the previous unmount-
+// time renderer-side scrollback_save, which raced the process death on
+// tray→Quit (the async invoke() never reached Rust before the process exited,
+// so scrollback was lost). The Rust-side write is synchronous to the reader
+// thread, so every chunk that hits xterm.js is on disk by the time control
+// returns. Tail-truncation keeps the file bounded.
 
 use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter, State};
+
+use crate::commands::scrollback_path;
+
+// File-size policy: when the on-disk scrollback exceeds MAX_BYTES, rewrite to
+// keep the last KEEP_BYTES (sliced at a line boundary if possible so partial
+// ANSI escape sequences don't strand across the cut).
+//
+// v0.1.32: bumped from 200KB/100KB to 10MB/5MB. The original budget was
+// matched to the renderer-side in-memory cap (100KB), but for restore-on-
+// relaunch the right framing is "how much output does a real session
+// produce?" — easily megabytes for claude code conversations, debug sessions,
+// or anything that prints a file. Disk is cheap; ~50MB per pane × ~8 panes
+// is rounding error on modern storage. xterm's in-memory scrollback at 10000
+// lines becomes the binding constraint on what's visible after restore, not
+// disk.
+const SCROLLBACK_FILE_MAX_BYTES: u64 = 10_000_000;
+const SCROLLBACK_FILE_KEEP_BYTES: usize = 5_000_000;
 
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
@@ -42,6 +70,84 @@ fn new_session_id() -> String {
     format!("pty_{:x}", nanos)
 }
 
+/// On-disk scrollback writer owned by a single PTY reader thread.
+///
+/// Every chunk that flows from PTY → xterm is also appended here, so a hard
+/// process death (tray→Quit, OS shutdown, crash) at most loses the bytes that
+/// are still in the OS write-buffer — typically <4KB. The renderer-side
+/// scrollback_save path used to race the process exit; this owns the file
+/// instead so there's no IPC round-trip on the hot path.
+///
+/// Tail-truncation: when `bytes_on_disk` exceeds SCROLLBACK_FILE_MAX_BYTES,
+/// rewrite the file keeping the last SCROLLBACK_FILE_KEEP_BYTES, sliced at the
+/// next newline boundary to avoid stranding partial ANSI escape sequences
+/// across the cut. Reset the counter to whatever was kept.
+struct ScrollbackWriter {
+    path: PathBuf,
+    bytes_on_disk: u64,
+}
+
+impl ScrollbackWriter {
+    /// Create a new writer for a tab. Creates parent dirs eagerly. Seeds
+    /// `bytes_on_disk` from any existing file so we don't lose track on a
+    /// pane that was previously persisted.
+    fn new(path: PathBuf) -> Self {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let bytes_on_disk = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        Self { path, bytes_on_disk }
+    }
+
+    /// Append a chunk. Best-effort: on I/O failure we silently swallow rather
+    /// than tear down the PTY reader — losing scrollback is worse for the
+    /// pane's correctness than losing scrollback durability.
+    fn append(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        let opened = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path);
+        if let Ok(mut f) = opened {
+            if f.write_all(bytes).is_ok() {
+                self.bytes_on_disk = self.bytes_on_disk.saturating_add(bytes.len() as u64);
+            }
+        }
+        if self.bytes_on_disk > SCROLLBACK_FILE_MAX_BYTES {
+            self.truncate_tail();
+        }
+    }
+
+    /// Rewrite the file to keep only the last SCROLLBACK_FILE_KEEP_BYTES,
+    /// aligned to the first newline after the cut so ANSI escape sequences
+    /// don't straddle the boundary. Atomic via write-tmp + rename.
+    fn truncate_tail(&mut self) {
+        let Ok(data) = fs::read(&self.path) else { return; };
+        if data.len() <= SCROLLBACK_FILE_KEEP_BYTES {
+            self.bytes_on_disk = data.len() as u64;
+            return;
+        }
+        // Initial cut at exactly KEEP bytes from the end.
+        let cut_from_start = data.len() - SCROLLBACK_FILE_KEEP_BYTES;
+        // Walk forward to next newline (within a reasonable window) so we
+        // start cleanly. If no newline within 4KB, take the raw cut.
+        let scan_end = (cut_from_start + 4096).min(data.len());
+        let aligned = data[cut_from_start..scan_end]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map(|i| cut_from_start + i + 1)
+            .unwrap_or(cut_from_start);
+        let kept = &data[aligned..];
+
+        let tmp_path = self.path.with_extension("txt.tmp");
+        if fs::write(&tmp_path, kept).is_ok() && fs::rename(&tmp_path, &self.path).is_ok() {
+            self.bytes_on_disk = kept.len() as u64;
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn pick_shell() -> (String, Vec<String>) {
     let candidates: Vec<Option<String>> = vec![
@@ -60,14 +166,21 @@ fn pick_shell() -> (String, Vec<String>) {
             return (opt, vec!["-NoLogo".into()]);
         }
     }
-    // Fallback: Windows PowerShell 5 with PSReadLine + cleared banner.
+    // Fallback: Windows PowerShell 5 with PSReadLine.
+    //
+    // v0.1.31: dropped the `Clear-Host` that used to run alongside the
+    // PSReadLine import. -NoLogo already suppresses the startup banner, so
+    // Clear-Host was redundant — and when ConPTY translated `[Console]::Clear()`
+    // it sometimes erased the scrollback buffer that scrollback_load had just
+    // replayed (visible briefly, then gone). Removing it lets the replay
+    // survive into the live session, which is the whole point of v0.1.29+.
     (
         "powershell.exe".into(),
         vec![
             "-NoLogo".into(),
             "-NoExit".into(),
             "-Command".into(),
-            "Import-Module PSReadLine -ErrorAction SilentlyContinue; Clear-Host".into(),
+            "Import-Module PSReadLine -ErrorAction SilentlyContinue".into(),
         ],
     )
 }
@@ -118,6 +231,7 @@ pub fn pty_spawn(
     cols: u16,
     rows: u16,
     extra_env: Option<HashMap<String, String>>,
+    tab_id: Option<String>,
 ) -> Result<String, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -189,7 +303,26 @@ pub fn pty_spawn(
         .map_err(|_| "registry mutex poisoned".to_string())?
         .insert(id.clone(), session);
 
-    // Reader thread: pump bytes -> Tauri event. Exits on EOF / read error.
+    // Build the scrollback writer if the renderer supplied a tab_id. Owning
+    // the file from this thread (rather than from a renderer-side unmount
+    // handler) means every chunk that goes to xterm is also on disk before
+    // we move on. tray→Quit and OS shutdown therefore lose at most the bytes
+    // still in the OS write buffer (typically <4KB).
+    let mut scrollback_writer = tab_id
+        .as_ref()
+        .map(|tid| ScrollbackWriter::new(scrollback_path(&app, tid)));
+
+    // Reader thread: pump bytes -> Tauri event AND scrollback file.
+    // Exits on EOF / read error.
+    //
+    // v0.1.30: write the lossy-decoded chunk bytes (same as what we emit to
+    // xterm), not the raw read bytes. PowerShell on Windows can emit non-
+    // UTF-8 bytes (CP-1252 smart quotes, em-dashes, etc.). The xterm emit
+    // path already lossy-converts to valid UTF-8 with U+FFFD replacements;
+    // the disk file needs to match because scrollback_load uses
+    // String::from_utf8_lossy on read — but if the file has invalid UTF-8
+    // and the read implementation is strict, we'd lose the whole file.
+    // Writing the lossy bytes guarantees the file is valid UTF-8.
     let id_for_thread = id.clone();
     let app_for_thread = app.clone();
     thread::spawn(move || {
@@ -200,6 +333,12 @@ pub fn pty_spawn(
                 Ok(0) => break,
                 Ok(n) => {
                     let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    // Persist the same UTF-8 bytes xterm receives, so a hard
+                    // process death between emit and disk-flush still
+                    // preserves what we just rendered. Best-effort.
+                    if let Some(w) = scrollback_writer.as_mut() {
+                        w.append(chunk.as_bytes());
+                    }
                     let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), chunk);
                 }
                 Err(_) => break,
