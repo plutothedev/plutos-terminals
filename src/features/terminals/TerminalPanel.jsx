@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import TerminalPane from "./TerminalPane";
+import VncView from "./VncView";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
 import "./terminals.css";
 
@@ -352,8 +353,8 @@ export default function TerminalPanel({
                 }}
                 title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click to rename)`}
               >
-                <span style={{ flexShrink: 0, fontSize: 11, opacity: 0.9 }} title={tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}>
-                  {tab.connection ? "🔗" : tab.serial ? "⎓" : "❯"}
+                <span style={{ flexShrink: 0, fontSize: 11, opacity: 0.9 }} title={tab.vnc ? "VNC desktop" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}>
+                  {tab.vnc ? "🖥" : tab.connection ? "🔗" : tab.serial ? "⎓" : "❯"}
                 </span>
                 <span
                   className={tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
@@ -491,6 +492,10 @@ export default function TerminalPanel({
               key={tab.id}
               style={{ position: "absolute", inset: 0, display: tabVisible ? "block" : "none" }}
             >
+              {tab.vnc ? (
+                <VncView host={tab.vnc.host} port={tab.vnc.port} tabId={tab.id} visible={tabVisible} />
+              ) : (
+              <>
               {panes.map(({ node, rect }) => {
                 const isRoot = node.id === tab.id;
                 const paneActive = node.id === tabActivePaneId;
@@ -585,6 +590,8 @@ export default function TerminalPanel({
                   />
                 );
               })}
+              </>
+              )}
             </div>
           );
         })}
