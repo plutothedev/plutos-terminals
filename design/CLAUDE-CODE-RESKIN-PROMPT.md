@@ -616,6 +616,46 @@ Remove the old page background inline styles and let the new `.pt-app-layout` ha
 
 ---
 
+## macOS Compatibility (Do These Alongside the Reskin)
+
+The user is building/running this on macOS. Make these 3 small changes **in the same session** so the app works on Mac out of the box.
+
+### 1. `src-tauri/tauri.conf.json`
+
+**Current:** `"targets": ["msi"]`
+
+**Change to:** `"targets": ["msi", "dmg", "app"]`
+
+This enables `.dmg` + `.app` bundle generation on macOS.
+
+### 2. `src/components/McpInstaller.jsx` (line ~83)
+
+**Current:**
+```javascript
+let cmd = mcp.command.replace(/\$\{PWD\}/g, "%USERPROFILE%");
+```
+
+**Replace with:**
+```javascript
+const isWindows = navigator.userAgent.includes("Windows");
+const homeVar = isWindows ? "%USERPROFILE%" : "$HOME";
+let cmd = mcp.command.replace(/\$\{PWD\}/g, homeVar);
+```
+
+This fixes the Filesystem MCP installer on macOS (`$HOME` instead of `%USERPROFILE%`).
+
+### 3. `prompt-packs/HOW_TO_USE.md` and `README.md`
+
+Add `${HOME}` alongside `${USERPROFILE}` in the env-var docs:
+```markdown
+- `${USERPROFILE}` — Windows home directory
+- `${HOME}` — macOS / Linux home directory
+```
+
+The Rust backend already expands any env var — `${HOME}` works on macOS today.
+
+---
+
 ## Implementation Order
 
 1. **Add "pro" skin to `headerSkins.js`** — this gives you the color system immediately. Test by selecting it in the app.
