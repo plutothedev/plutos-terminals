@@ -6,6 +6,7 @@ import SnippetsDrawer from "./SnippetsDrawer";
 import ProjectDialog from "./ProjectDialog";
 import SshPasswordModal from "./SshPasswordModal";
 import SftpBrowser from "./SftpBrowser";
+import TunnelsModal from "./TunnelsModal";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
@@ -1015,6 +1016,61 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [sftp, closeSftp]);
 
+  // ── SSH port forwarding (tunnels) ───────────────────────────────────────
+  const [tunnelsOpen, setTunnelsOpen] = useState(false);
+  const [forwards, setForwards] = useState([]); // { id, localPort, remoteHost, remotePort } (transient)
+  const [tunnelBusy, setTunnelBusy] = useState(false);
+  const [tunnelError, setTunnelError] = useState(null);
+
+  const openTunnels = useCallback(() => {
+    const conn = activeTab?.connection;
+    if (!conn?.host || !conn?.user) {
+      toast.info("Open an SSH session first — tunnels forward ports through it.");
+      return;
+    }
+    setTunnelError(null);
+    setTunnelsOpen(true);
+  }, [activeTab, toast]);
+
+  const startForward = useCallback(async ({ localPort, remoteHost, remotePort }) => {
+    const conn = activeTab?.connection;
+    if (!conn) return;
+    setTunnelBusy(true);
+    setTunnelError(null);
+    try {
+      const method = conn.auth?.method || "password";
+      let password = null;
+      if (method === "password") {
+        password = getTabPassword(activeTabId);
+        if (!password) { try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ } }
+        if (!password) {
+          setTunnelError("No password for this session — reopen the SSH tab first.");
+          return;
+        }
+      }
+      const id = await invoke("port_forward_start", {
+        host: conn.host,
+        port: conn.port || 22,
+        user: conn.user,
+        auth: { ...conn.auth, password },
+        localPort,
+        remoteHost,
+        remotePort,
+      });
+      setForwards((f) => [...f, { id, localPort, remoteHost, remotePort }]);
+      toast.success(`Forwarding 127.0.0.1:${localPort} → ${remoteHost}:${remotePort}`);
+    } catch (e) {
+      setTunnelError(String(e));
+    } finally {
+      setTunnelBusy(false);
+    }
+  }, [activeTab, activeTabId, toast]);
+
+  const stopForward = useCallback(async (id) => {
+    try { await invoke("port_forward_stop", { id }); } catch { /* ignore */ }
+    setForwards((f) => f.filter((x) => x.id !== id));
+  }, []);
+
   const startRecordingActive = useCallback(() => {
     if (!activeTabId) return;
     if (recording.isRecording(activeTabId)) {
@@ -1203,6 +1259,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           📁 files
         </button>
         <button
+          className={tunnelsOpen ? "phn-btn phn-btn-on" : "phn-btn"}
+          onClick={() => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels())}
+          title="SSH port forwarding (tunnels) for the active SSH session"
+        >
+          ⇄ tunnels{forwards.length > 0 ? ` (${forwards.length})` : ""}
+        </button>
+        <button
           className={broadcast ? "phn-btn phn-btn-on" : "phn-btn"}
           onClick={toggleBroadcast}
           title="Broadcast (MultiExec) — type once, send to every visible terminal at once"
@@ -1322,6 +1385,18 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         />
       </div>
 
+      <TunnelsModal
+        open={tunnelsOpen}
+        host={activeTab?.connection?.host}
+        user={activeTab?.connection?.user}
+        forwards={forwards}
+        busy={tunnelBusy}
+        error={tunnelError}
+        onStart={startForward}
+        onStop={stopForward}
+        onClose={() => setTunnelsOpen(false)}
+      />
+
       <ProjectDialog
         open={!!dialog}
         initial={dialogInitial}
@@ -1387,6 +1462,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "export", icon: "💾", label: "Export current panels as pack", hint: "Save layout to .deck.json", action: () => onExportPack() },
           { id: "snippets", icon: "📋", label: "Toggle snippets drawer", hint: "Saved commands — click to insert into the active terminal", action: () => setSnippetsOpen((v) => !v) },
           { id: "sftp", icon: "📁", label: "Remote files (SFTP)", hint: "Browse / transfer files on the active SSH session's host", action: () => (sftp ? closeSftp() : openSftp()) },
+          { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
           { id: "toggle-sidebar", icon: "◧", label: sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar", hint: "Show projects as a full panel or a narrow icon rail", action: () => toggleSidebar() },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },

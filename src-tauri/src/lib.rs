@@ -6,6 +6,7 @@
 // RunEvent::ExitRequested → kill_all() so no shell children orphan.
 
 mod commands;
+mod forward;
 mod pty;
 mod sftp;
 mod vault;
@@ -19,6 +20,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(pty::SessionRegistry::default())
         .manage(sftp::SftpRegistry::default())
+        .manage(forward::ForwardRegistry::default())
         .setup(|app| {
             // Ensure the data directory exists for store + scrollback.
             let data_dir = commands::get_data_dir(app.handle());
@@ -131,6 +133,8 @@ pub fn run() {
             vault::secret_set,
             vault::secret_get,
             vault::secret_delete,
+            forward::port_forward_start,
+            forward::port_forward_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pluto's Terminals")
