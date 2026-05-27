@@ -431,7 +431,7 @@ export default function TerminalPane({
     // Replay saved scrollback if we have one for this tab id.
     const replayScrollback = async () => {
       const id = tabIdRef.current;
-      if (!id) return;
+      if (!id) return false;
       try {
         const saved = await invoke("scrollback_load", { tabId: id });
         if (saved && alive) {
@@ -440,8 +440,10 @@ export default function TerminalPane({
           term.writeln("\x1b[90m─── scrollback restored ───\x1b[0m");
           // Returning tab — not a fresh terminal, hide the hint immediately.
           dismissHintRef.current?.();
+          return true;
         }
       } catch {}
+      return false;
     };
 
     // Periodic transcript flush. Persistent across the pane's lifetime.
@@ -457,7 +459,7 @@ export default function TerminalPane({
     }, TRANSCRIPT_FLUSH_MS);
 
     (async () => {
-      await replayScrollback();
+      const restored = await replayScrollback();
       try {
         const cols = Math.max(term.cols, MIN_COLS);
         const rows = Math.max(term.rows, MIN_ROWS);
@@ -645,6 +647,24 @@ export default function TerminalPane({
             if (i < cmdsAtSpawn.length - 1) {
               await new Promise(r => setTimeout(r, 300));
             }
+          }
+        }
+
+        // MobaXterm-style colorful prompt + welcome banner for a *fresh* local
+        // shell. Skipped for restored tabs (don't wipe replayed scrollback) and
+        // for tabs that launch their own app via startCommands (claude, etc.).
+        // Detects zsh/bash at runtime → a green-date / cyan-time / yellow-path
+        // segmented prompt (uses the skin's ANSI palette), clears, prints a
+        // colored banner. Windows shells keep their default for now.
+        const isWindowsUA = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
+        if (!connection && !serial && !restored && cmdsAtSpawn.length === 0 && !isWindowsUA && alive && ptyId) {
+          await new Promise(r => setTimeout(r, 450));
+          const zshPrompt = "PROMPT='%K{2}%F{0} %D{%m-%d} %K{4}%F{15} %* %K{3}%F{0} %~ %k%f '";
+          const bashPrompt = "PS1='\\[\\e[42;30m\\] \\D{%m-%d} \\[\\e[44;97m\\] \\t \\[\\e[43;30m\\] \\w \\[\\e[0m\\] '";
+          const banner = "printf '\\n \\033[36m┌────────────────────────────────────────┐\\033[0m\\n \\033[36m│\\033[0m  \\033[1;32mPluto'\\''s Terminals\\033[0m  \\033[2m— MobaXterm mode\\033[0m   \\033[36m│\\033[0m\\n \\033[36m└────────────────────────────────────────┘\\033[0m\\n\\n'";
+          const init = `if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; clear; ${banner}`;
+          if (alive && ptyId) {
+            try { await invoke("pty_write", { id: ptyId, data: init + "\r" }); } catch {}
           }
         }
 
