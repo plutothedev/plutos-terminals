@@ -238,6 +238,16 @@
 }
 .moba-stat .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+/* ── Toolbar group divider (dense MobaXterm-style toolbar) ───────────── */
+.phn-toolbar-divider {
+  width: 1px;
+  align-self: center;
+  height: 18px;
+  background: var(--phn-surface-border, #1c1d20);
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+
 /* ── MobaXterm menu bar ──────────────────────────────────────────────── */
 .moba-menubar {
   display: flex;

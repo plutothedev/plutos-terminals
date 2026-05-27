@@ -352,6 +352,9 @@ export default function TerminalPanel({
                 }}
                 title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click to rename)`}
               >
+                <span style={{ flexShrink: 0, fontSize: 11, opacity: 0.9 }} title={tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}>
+                  {tab.connection ? "🔗" : tab.serial ? "⎓" : "❯"}
+                </span>
                 <span
                   className={tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
                   style={{

@@ -1024,24 +1024,17 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       />
       {/* Header — visual treatment driven by user-selected skin (headerSkins.js).
           Layout-only inline styles here; colors/borders/effects come from CSS. */}
-      <div className="phn-header" style={{ gap: 12 }}>
-        <span className="phn-title">TERMINALS</span>
-        <span className="phn-meta phn-meta-dot">·</span>
-        <span className="phn-meta">
-          {state.panels.length} panel{state.panels.length === 1 ? "" : "s"}
-          {projects.length > 0 && ` · ${projects.length} session${projects.length === 1 ? "" : "s"}`}
-        </span>
-        {(totalCost.cost > 0 || totalCost.tokens > 0) && (
-          <span
-            className="phn-cost"
-            style={{ marginLeft: 4 }}
-            title="Live aggregate from Claude /cost output across all sessions"
-          >
-            · ${totalCost.cost.toFixed(2)}
-            {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tokens`}
-          </span>
-        )}
-        <div style={{ flex: 1 }} />
+      <div className="phn-header" style={{ gap: 5 }}>
+        <span className="phn-title" style={{ marginRight: 2 }}>⬢ Pluto</span>
+        <span className="phn-toolbar-divider" />
+
+        {/* Primary actions (MobaXterm-style icon toolbar) */}
+        <button className="phn-btn" onClick={() => setDialog({ mode: "add" })} title="New session (local folder or SSH host)">🌐 session</button>
+        <button className="phn-btn" onClick={() => addTab(state.activePanelId)} title="New tab (Ctrl+Shift+T)">＋ tab</button>
+        <button className="phn-btn" onClick={addPanel} disabled={!canAddPanel} title={canAddPanel ? "Add panel" : `Max ${MAX_PANELS} panels`}>▦ pane</button>
+        <button className="phn-btn" onClick={() => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row")} title="Split pane right">⬌</button>
+        <button className="phn-btn" onClick={() => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col")} title="Split pane down">⬍</button>
+        <span className="phn-toolbar-divider" />
 
         <button
           className={ribbon === "snippets" ? "phn-btn phn-btn-on" : "phn-btn"}
@@ -1079,36 +1072,23 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         >
           📡 broadcast
         </button>
-        <button
-          className="phn-btn"
-          onClick={() => setMcpOpen(true)}
-          title="Curated MCP servers — copy or one-click install"
-        >
-          🔌 MCPs
-        </button>
-        <button
-          className="phn-btn"
-          onClick={() => setSetupOpen(true)}
-          title="Setup check: Node.js + Claude CLI + API key + live API test"
-        >
-          🚀 setup
-        </button>
-        <button
-          className="phn-btn phn-muted"
-          onClick={() => setSettingsOpen(true)}
-          title="Settings: API key + header skin + factory reset"
-        >
-          ⚙️
-        </button>
 
-        <button
-          className="phn-btn"
-          onClick={addPanel}
-          disabled={!canAddPanel}
-          title={canAddPanel ? "Add panel" : `Max ${MAX_PANELS} panels`}
-        >
-          + pane
-        </button>
+        <div style={{ flex: 1 }} />
+
+        {(totalCost.cost > 0 || totalCost.tokens > 0) && (
+          <>
+            <span className="phn-cost" title="Live aggregate from Claude /cost output across all sessions">
+              ${totalCost.cost.toFixed(2)}
+              {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
+            </span>
+            <span className="phn-toolbar-divider" />
+          </>
+        )}
+
+        <button className="phn-btn" onClick={() => setCommandPaletteOpen(true)} title="Command palette (Ctrl+K)">⌘ palette</button>
+        <button className="phn-btn" onClick={() => setMcpOpen(true)} title="Curated MCP servers — copy or one-click install">🔌 MCPs</button>
+        <button className="phn-btn" onClick={() => setSetupOpen(true)} title="Setup check: Node.js + Claude CLI + API key + live API test">🚀 setup</button>
+        <button className="phn-btn phn-muted" onClick={() => setSettingsOpen(true)} title="Settings: API key + skin + factory reset">⚙️</button>
       </div>
 
       {/* Body: MobaXterm vertical ribbon + docked left panel + terminal grid.
