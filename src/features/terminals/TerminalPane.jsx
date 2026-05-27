@@ -571,7 +571,9 @@ export default function TerminalPane({
         });
 
         unlistenExit = await listen(`pty-exit://${id}`, () => {
-          if (alive) term.writeln("\r\n\x1b[90m[process exited]\x1b[0m");
+          if (!alive) return;
+          const msg = serial ? "[serial port closed]" : connection ? "[ssh disconnected]" : "[process exited]";
+          term.writeln(`\r\n\x1b[90m${msg}\x1b[0m`);
         });
 
         term.onData((data) => {

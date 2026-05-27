@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Discord](https://img.shields.io/badge/discord-plutothedev-FF0080?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/3cZQVgKF)
 
-Free multi-terminal desktop app for the Pluto community. Made for running Claude Code, Codex, and other shell-driven AI agents side by side in a single window — with shareable `.deck.json` **prompt packs** that turn each terminal into a specialized agent (researcher, debugger, writer, tutor, …), 10 user-pickable visual skins that paint the entire app, asciinema-format session recording, multi-window support, and a `Ctrl+K` command palette.
+Free multi-terminal desktop app for the Pluto community. Made for running Claude Code, Codex, and other shell-driven AI agents side by side in a single window — with shareable `.deck.json` **prompt packs** that turn each terminal into a specialized agent (researcher, debugger, writer, tutor, …), first-class **remote sessions** (SSH with an SFTP file browser, port forwarding, an OS-keychain credential vault, and serial consoles), split panes, broadcast-to-all input, user-pickable visual skins that paint the entire app, asciinema-format session recording, multi-window support, and a `Ctrl+K` command palette.
 
 **[Download latest release ↗](https://github.com/plutothedev/plutos-terminals/releases/latest)** · Windows MSI / standalone `.exe`
 
@@ -54,6 +54,16 @@ That's the whole flow.
 - **Multi-panel terminal grid** with up to 8 panels, multiple tabs per panel, drag-to-rearrange tabs across panels
 - **Pre-flight `claude` check** — if a pack invokes `claude` and the CLI isn't on PATH, you get a clear in-place error with the install command instead of silent garbage
 - **Templated `${VARNAME}` paths** — `${USERPROFILE}`, `${HOME}`, or any process env var expands at spawn time so packs work cross-machine
+
+### Remote sessions (SSH / SFTP / serial)
+
+The v2 overhaul adds a full remote toolkit alongside local shells — every remote stream rides the same terminal pipeline (scrollback, themes, recording, MultiExec all apply):
+
+- **SSH sessions** — save a host/user as a typed session in the sidebar; connect over SSH (libssh2). **Host keys are verified** against your `~/.ssh/known_hosts` (a changed key is refused). Auth via **password, private key, or ssh-agent**.
+- **Credential vault** — opt-in "remember password" stores it in your **OS keychain** (macOS Keychain / Windows Credential Manager), never in plaintext; saved sessions then reconnect without prompting. "Forget saved password" clears it.
+- **📁 SFTP file browser** — browse the remote filesystem, navigate folders, and **download / upload / rename / delete / mkdir** — transfers run natively, no shell scripting.
+- **⇄ Port forwarding** — local tunnels (`127.0.0.1:port → remote:port`) with correct flow control; manage active forwards in one panel.
+- **⎓ Serial console** — connect to USB/UART devices (`/dev/tty.*`) at a chosen baud rate.
 
 ### Visual customization
 

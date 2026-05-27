@@ -1270,14 +1270,16 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         <button
           className={sftp ? "phn-btn phn-btn-on" : "phn-btn"}
           onClick={() => (sftp ? closeSftp() : openSftp())}
-          title="Remote files (SFTP) for the active SSH session"
+          disabled={!sftp && !activeTab?.connection}
+          title={activeTab?.connection ? "Remote files (SFTP) for the active SSH session" : "Open an SSH session to browse its files"}
         >
           📁 files
         </button>
         <button
           className={tunnelsOpen ? "phn-btn phn-btn-on" : "phn-btn"}
           onClick={() => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels())}
-          title="SSH port forwarding (tunnels) for the active SSH session"
+          disabled={!tunnelsOpen && !activeTab?.connection}
+          title={activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports"}
         >
           ⇄ tunnels{forwards.length > 0 ? ` (${forwards.length})` : ""}
         </button>
