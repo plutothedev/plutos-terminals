@@ -10,6 +10,7 @@ mod forward;
 mod pty;
 mod sftp;
 mod vault;
+mod vncclient;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -21,6 +22,7 @@ pub fn run() {
         .manage(pty::SessionRegistry::default())
         .manage(sftp::SftpRegistry::default())
         .manage(forward::ForwardRegistry::default())
+        .manage(vncclient::VncRegistry::default())
         .setup(|app| {
             // Ensure the data directory exists for store + scrollback.
             let data_dir = commands::get_data_dir(app.handle());
@@ -139,6 +141,10 @@ pub fn run() {
             vault::secret_delete,
             forward::port_forward_start,
             forward::port_forward_stop,
+            vncclient::vnc_connect,
+            vncclient::vnc_pointer,
+            vncclient::vnc_key,
+            vncclient::vnc_disconnect,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pluto's Terminals")

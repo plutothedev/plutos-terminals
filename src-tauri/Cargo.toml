@@ -35,3 +35,5 @@ keyring = { version = "3", features = ["apple-native", "windows-native"] }
 serialport = "4"
 # System stats (CPU / memory / disk) for the MobaXterm-style status bar.
 sysinfo = "0.33"
+# VNC remote-desktop client (sync RFB protocol; fits the worker-thread model).
+vnc = "0.4"
