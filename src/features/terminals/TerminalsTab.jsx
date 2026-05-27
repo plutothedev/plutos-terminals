@@ -13,8 +13,6 @@ import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
 import SetupChecker from "../../components/SetupChecker.jsx";
-import PackUrlModal from "../../components/PackUrlModal.jsx";
-import PackSearchModal from "../../components/PackSearchModal.jsx";
 import CommandPalette from "../../components/CommandPalette.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
@@ -30,22 +28,6 @@ import {
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword, getTabPassword } from "./ptyBridge.js";
 import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
-
-// Bundled prompt packs — eagerly imported at build time from the repo's
-// prompt-packs/ folder. Anyone who downloads a binary release gets all the
-// shipped packs available in-app via the 📚 packs dropdown without having to
-// download .deck.json files separately. Add a new pack to prompt-packs/ and
-// it shows up here on the next build.
-const BUNDLED_PACK_MODULES = import.meta.glob("../../../prompt-packs/*.deck.json", {
-  eager: true,
-  import: "default",
-});
-const BUNDLED_PACKS = Object.entries(BUNDLED_PACK_MODULES)
-  .map(([path, data]) => ({
-    filename: path.split("/").pop(),
-    data,
-  }))
-  .sort((a, b) => (a.data?.name || a.filename).localeCompare(b.data?.name || b.filename));
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
@@ -105,8 +87,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-  const [urlOpen, setUrlOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   // v4.0 MobaXterm layout: a vertical ribbon toggles which panel is docked on
@@ -208,10 +188,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       } else if (shift && key === "w") {
         // Ctrl+Shift+W → close active tab in active panel
         fns.closeActiveTab?.();
-        handled = true;
-      } else if (key === "p" && !shift) {
-        // Ctrl+P → pack search
-        fns.openPackSearch?.();
         handled = true;
       } else if (key === "k" && !shift) {
         // Ctrl+K → command palette
@@ -570,194 +546,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     });
     persist({ ...state, panels });
   }, [state, persist, panelIdForTab]);
-
-  // ── Pack loader (v0.0.2) ───────────────────────────────────────────
-  // Replace the current panel/tab layout with the panels described in a
-  // .deck.json prompt pack. Existing PTY children get killed (TerminalPane
-  // unmount handles cleanup); new tabs spawn fresh shells with the pack's
-  // start commands. State persists via the existing save() pipeline.
-
-  const fileInputRef = useRef(null);
-
-  const applyPack = useCallback((pack, source = "unknown") => {
-    if (!pack || !Array.isArray(pack.panels) || pack.panels.length === 0) {
-      toast.error("Invalid pack: missing or empty panels[] array.");
-      return;
-    }
-    const newPanels = pack.panels.slice(0, MAX_PANELS).map((p) => {
-      const rawTabs = Array.isArray(p.tabs) && p.tabs.length > 0 ? p.tabs : [{}];
-      const tabs = rawTabs.map((t, i) => ({
-        id: freshId("tab"),
-        label: (t && t.label) || `Tab ${i + 1}`,
-        cwd: (t && t.cwd) || null,
-        startCommands: Array.isArray(t && t.startCommands) ? t.startCommands : [],
-        systemPrompt: (t && typeof t.systemPrompt === "string") ? t.systemPrompt : null,
-        projectId: null,
-      }));
-      return {
-        id: freshId("panel"),
-        tabs,
-        activeTabId: tabs[0].id,
-      };
-    });
-
-    // Recent-packs history (v0.1.15) — track last 5 loaded packs in
-    // localStorage so users can quickly re-load. Dedupe by pack.name.
-    // Stores the full pack JSON (~1-3KB each, 5 max ~15KB total — fine).
-    const recentEntry = { name: pack.name || "(unnamed)", source, data: pack, ts: Date.now() };
-    const prevRecents = Array.isArray(st?.recentPacks) ? st.recentPacks : [];
-    const dedupedRecents = [recentEntry, ...prevRecents.filter((r) => r.name !== recentEntry.name)].slice(0, 5);
-
-    persist({
-      ...state,
-      panels: newPanels,
-      activePanelId: newPanels[0].id,
-      recentPacks: dedupedRecents,
-    });
-    toast.success(`Pack "${pack.name || "(unnamed)"}" loaded — ${newPanels.length} panel${newPanels.length === 1 ? "" : "s"}.`);
-  }, [state, persist, st, toast]);
-
-  const onLoadPackFile = useCallback((e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = ""; // reset so re-loading the same file fires onChange
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const pack = JSON.parse(reader.result);
-        applyPack(pack, "file");
-      } catch (err) {
-        toast.error(`Failed to load pack: ${err.message}`);
-      }
-    };
-    reader.onerror = () => {
-      toast.error(`Failed to read pack file: ${reader.error?.message || "unknown error"}`);
-    };
-    reader.readAsText(file);
-  }, [applyPack, toast]);
-
-  const onLoadBundledPack = useCallback(async (pack) => {
-    const desc = (pack.data?.description || "").substring(0, 220);
-    const ok = await confirm(
-      `Replace current panels with "${pack.data?.name || pack.filename}"?\n\n${desc}${desc.length === 220 ? "…" : ""}`,
-      { title: "Load pack?", confirmLabel: "load", destructive: false }
-    );
-    if (!ok) return;
-    applyPack(pack.data, "bundled");
-  }, [applyPack, confirm]);
-
-  const onLoadRecentPack = useCallback((entry) => {
-    if (!entry || !entry.data) return;
-    applyPack(entry.data, entry.source || "recent");
-  }, [applyPack]);
-
-  // Drag-and-drop pack files anywhere on the window — alternative to the file
-  // picker. Browsers route drop events through window if no inner element
-  // handles them; we preventDefault to avoid the browser navigating to the
-  // file:// URL. While dragging, show a full-window overlay so the feature
-  // is discoverable instead of invisible.
-  const [draggingFile, setDraggingFile] = useState(false);
-  const dragLeaveTimerRef = useRef(null);
-  useEffect(() => {
-    const isFileDrag = (e) => {
-      const types = Array.from(e.dataTransfer?.types || []);
-      return types.includes("Files");
-    };
-    const onDragOver = (e) => {
-      if (!isFileDrag(e)) return;
-      e.preventDefault();
-      // Throttle: clear any pending leave-timer; show overlay.
-      if (dragLeaveTimerRef.current) {
-        clearTimeout(dragLeaveTimerRef.current);
-        dragLeaveTimerRef.current = null;
-      }
-      setDraggingFile(true);
-    };
-    const onDragLeave = (e) => {
-      // dragleave fires when crossing element boundaries — debounce so we only
-      // hide the overlay when the cursor truly leaves the window.
-      if (dragLeaveTimerRef.current) clearTimeout(dragLeaveTimerRef.current);
-      dragLeaveTimerRef.current = setTimeout(() => setDraggingFile(false), 80);
-    };
-    const onDrop = (e) => {
-      setDraggingFile(false);
-      if (dragLeaveTimerRef.current) {
-        clearTimeout(dragLeaveTimerRef.current);
-        dragLeaveTimerRef.current = null;
-      }
-      const file = e.dataTransfer?.files?.[0];
-      if (!file) return;
-      if (!file.name.endsWith(".deck.json") && !file.name.endsWith(".json")) {
-        toast.error(`Not a pack file: ${file.name} (need .deck.json or .json)`);
-        e.preventDefault();
-        return;
-      }
-      e.preventDefault();
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const pack = JSON.parse(reader.result);
-          applyPack(pack, "file");
-        } catch (err) {
-          toast.error(`Failed to load pack: ${err.message}`);
-        }
-      };
-      reader.readAsText(file);
-    };
-    window.addEventListener("dragover", onDragOver);
-    window.addEventListener("dragleave", onDragLeave);
-    window.addEventListener("drop", onDrop);
-    return () => {
-      window.removeEventListener("dragover", onDragOver);
-      window.removeEventListener("dragleave", onDragLeave);
-      window.removeEventListener("drop", onDrop);
-    };
-  }, [applyPack, toast]);
-
-  // ── Pack export (v0.1.0) ───────────────────────────────────────────
-  // Serialize the current panel/tab layout to a .deck.json file and
-  // trigger a browser download. The exported pack has no PTY state —
-  // just the structure (panels, tabs, cwd, startCommands) — so users
-  // can clone their setup, share it on Discord/GitHub, or reload after
-  // a factory reset.
-
-  const onExportPack = useCallback(() => {
-    const name = window.prompt("Pack name?", "My Pluto's Terminals Setup");
-    if (!name || !name.trim()) return;
-    const description = window.prompt(
-      "Pack description (optional)?",
-      "Exported from Pluto's Terminals — multi-panel layout with cwd + start commands per tab."
-    ) || "";
-
-    const pack = {
-      schema: "plutos-terminals/deck.json/v0",
-      name: name.trim(),
-      description: description.trim(),
-      created: new Date().toISOString().slice(0, 10),
-      panels: state.panels.map((p) => ({
-        tabs: p.tabs.map((t) => ({
-          label: t.label || "Tab",
-          cwd: t.cwd || null,
-          startCommands: Array.isArray(t.startCommands) ? t.startCommands : [],
-        })),
-      })),
-      mcp_servers: [],
-      env_hints: [],
-      notes: ["Exported from Pluto's Terminals. Edit this file to share or refine."],
-    };
-
-    const json = JSON.stringify(pack, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "pluto-pack";
-    a.download = `${slug}.deck.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [state]);
 
   // ── Project mutations ──────────────────────────────────────────────
 
@@ -1133,7 +921,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         closeTab(panel.id, panel.activeTabId);
       }
     },
-    openPackSearch: () => setSearchOpen(true),
     openCommandPalette: () => setCommandPaletteOpen(true),
     openSettings: () => setSettingsOpen(true),
     switchPanel: (idx) => {
@@ -1143,20 +930,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   return (
     <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative" }}>
-      {draggingFile && (
-        <div
-          className="phn-drop-overlay"
-          aria-hidden="true"
-        >
-          <div className="phn-drop-overlay-card">
-            <div style={{ fontSize: 48, lineHeight: 1, marginBottom: 12 }}>📥</div>
-            <div className="phn-drop-overlay-title">Drop a prompt pack to load it</div>
-            <div className="phn-drop-overlay-subtitle">
-              <code>.deck.json</code> file · replaces current panels
-            </div>
-          </div>
-        </div>
-      )}
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Header — visual treatment driven by user-selected skin (headerSkins.js).
           Layout-only inline styles here; colors/borders/effects come from CSS. */}
@@ -1179,78 +952,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         )}
         <div style={{ flex: 1 }} />
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json,.deck.json"
-          onChange={onLoadPackFile}
-          style={{ display: "none" }}
-        />
-        {BUNDLED_PACKS.length > 0 && (
-          <select
-            className="phn-select"
-            value=""
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v.startsWith("recent:")) {
-                const idx = parseInt(v.slice(7), 10);
-                const recents = Array.isArray(st?.recentPacks) ? st.recentPacks : [];
-                if (recents[idx]) onLoadRecentPack(recents[idx]);
-              } else if (v.startsWith("bundled:")) {
-                const idx = parseInt(v.slice(8), 10);
-                if (BUNDLED_PACKS[idx]) onLoadBundledPack(BUNDLED_PACKS[idx]);
-              }
-              e.target.value = "";
-            }}
-            title="Load a prompt pack — recents at top, bundled below"
-          >
-            <option value="">📚 packs…</option>
-            {Array.isArray(st?.recentPacks) && st.recentPacks.length > 0 && (
-              <optgroup label="🕐 RECENT">
-                {st.recentPacks.map((r, i) => (
-                  <option key={`recent-${i}-${r.name}`} value={`recent:${i}`}>
-                    {r.name} {r.source === "bundled" ? "" : `· ${r.source}`}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            <optgroup label="📦 BUNDLED">
-              {BUNDLED_PACKS.map((p, i) => (
-                <option key={p.filename} value={`bundled:${i}`}>
-                  {p.data?.name || p.filename}
-                </option>
-              ))}
-            </optgroup>
-          </select>
-        )}
-        <button
-          className="phn-btn"
-          onClick={() => setSearchOpen(true)}
-          title="Search all packs (recents + bundled) by name or description (Ctrl+P)"
-        >
-          🔍 find
-        </button>
-        <button
-          className="phn-btn"
-          onClick={() => fileInputRef.current?.click()}
-          title="Load a .deck.json prompt pack from disk (or drag-drop onto window)"
-        >
-          📁 from file
-        </button>
-        <button
-          className="phn-btn"
-          onClick={() => setUrlOpen(true)}
-          title="Load a .deck.json prompt pack from a URL (gist / GitHub raw / any HTTPS source)"
-        >
-          🔗 from URL
-        </button>
-        <button
-          className="phn-btn"
-          onClick={onExportPack}
-          title="Export current panel layout as a .deck.json prompt pack"
-        >
-          💾 export
-        </button>
         <button
           className={ribbon === "snippets" ? "phn-btn phn-btn-on" : "phn-btn"}
           onClick={() => selectRibbon(ribbon === "snippets" ? null : "snippets")}
@@ -1462,32 +1163,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
-      <PackUrlModal
-        open={urlOpen}
-        onClose={() => setUrlOpen(false)}
-        onLoadPack={(pack) => applyPack(pack, "url")}
-      />
-
-      <PackSearchModal
-        open={searchOpen}
-        recentPacks={st?.recentPacks || []}
-        bundledPacks={BUNDLED_PACKS}
-        onLoad={(pack, source) => applyPack(pack, source)}
-        onClose={() => setSearchOpen(false)}
-      />
-
       <CommandPalette
         open={commandPaletteOpen}
         commands={[
-          { id: "find-pack", icon: "🔍", label: "Find a pack", hint: "Search recents + bundled by name or description", shortcut: "Ctrl+P", action: () => setSearchOpen(true) },
           { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
           { id: "new-session", icon: "🌐", label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
           { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
-          { id: "load-file", icon: "📁", label: "Load pack from file", hint: ".deck.json picker", action: () => fileInputRef.current?.click() },
-          { id: "load-url", icon: "🔗", label: "Load pack from URL", hint: "GitHub raw / gist / any HTTPS source", action: () => setUrlOpen(true) },
-          { id: "export", icon: "💾", label: "Export current panels as pack", hint: "Save layout to .deck.json", action: () => onExportPack() },
           { id: "snippets", icon: "📋", label: "Tools / snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
           { id: "sftp", icon: "📁", label: "Remote files (SFTP)", hint: "Browse / transfer files on the active SSH session's host", action: () => selectRibbon(ribbon === "sftp" ? null : "sftp") },
           { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
@@ -1516,7 +1199,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             id: "new-window",
             icon: "🪟",
             label: "Open new window",
-            hint: "Spawns a fresh window with its own independent panel layout, skin, and packs",
+            hint: "Spawns a fresh window with its own independent panel layout, skin, and sessions",
             action: async () => {
               try {
                 const id = `${Date.now().toString(36)}`.slice(-6);
@@ -1534,7 +1217,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             hint: "Clear all panels and tabs (keeps API key, skin, projects)",
             action: async () => {
               const ok = await confirm(
-                "Reset workspace? Closes every panel and tab. API key, skin, button style, density, projects, and recent packs are kept. The app reloads to a single empty panel.",
+                "Reset workspace? Closes every panel and tab. API key, skin, button style, density, and sessions are kept. The app reloads to a single empty panel.",
                 { title: "Reset workspace?", confirmLabel: "reset", destructive: true }
               );
               if (!ok) return;
