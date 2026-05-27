@@ -31,3 +31,5 @@ ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 # OS-native credential store (macOS Keychain / Windows Credential Manager) for
 # the SSH credential vault — secrets never touch localStorage or disk plaintext.
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
+# Serial-port console sessions (USB/UART devices) — cross-platform.
+serialport = "4"

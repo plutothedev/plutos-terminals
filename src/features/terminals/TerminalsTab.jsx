@@ -7,6 +7,7 @@ import ProjectDialog from "./ProjectDialog";
 import SshPasswordModal from "./SshPasswordModal";
 import SftpBrowser from "./SftpBrowser";
 import TunnelsModal from "./TunnelsModal";
+import SerialModal from "./SerialModal";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
@@ -1071,6 +1072,21 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     setForwards((f) => f.filter((x) => x.id !== id));
   }, []);
 
+  // ── Serial console ──────────────────────────────────────────────────────
+  const [serialOpen, setSerialOpen] = useState(false);
+  const connectSerial = useCallback(({ path, baud }) => {
+    const short = path.split("/").pop() || path;
+    spawnSessionTab(state.activePanelId, {
+      id: freshId("tab"),
+      label: `Serial: ${short}`,
+      cwd: null,
+      startCommands: [],
+      projectId: null,
+      serial: { path, baud },
+    });
+    setSerialOpen(false);
+  }, [state.activePanelId, spawnSessionTab]);
+
   const startRecordingActive = useCallback(() => {
     if (!activeTabId) return;
     if (recording.isRecording(activeTabId)) {
@@ -1266,6 +1282,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           ⇄ tunnels{forwards.length > 0 ? ` (${forwards.length})` : ""}
         </button>
         <button
+          className={serialOpen ? "phn-btn phn-btn-on" : "phn-btn"}
+          onClick={() => setSerialOpen((v) => !v)}
+          title="Open a serial console (USB/UART device)"
+        >
+          ⎓ serial
+        </button>
+        <button
           className={broadcast ? "phn-btn phn-btn-on" : "phn-btn"}
           onClick={toggleBroadcast}
           title="Broadcast (MultiExec) — type once, send to every visible terminal at once"
@@ -1397,6 +1420,12 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onClose={() => setTunnelsOpen(false)}
       />
 
+      <SerialModal
+        open={serialOpen}
+        onConnect={connectSerial}
+        onClose={() => setSerialOpen(false)}
+      />
+
       <ProjectDialog
         open={!!dialog}
         initial={dialogInitial}
@@ -1463,6 +1492,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "snippets", icon: "📋", label: "Toggle snippets drawer", hint: "Saved commands — click to insert into the active terminal", action: () => setSnippetsOpen((v) => !v) },
           { id: "sftp", icon: "📁", label: "Remote files (SFTP)", hint: "Browse / transfer files on the active SSH session's host", action: () => (sftp ? closeSftp() : openSftp()) },
           { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+          { id: "serial", icon: "⎓", label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
           { id: "toggle-sidebar", icon: "◧", label: sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar", hint: "Show projects as a full panel or a narrow icon rail", action: () => toggleSidebar() },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },

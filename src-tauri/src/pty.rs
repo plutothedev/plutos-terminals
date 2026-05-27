@@ -22,8 +22,9 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -77,12 +78,21 @@ pub struct SshHandle {
     ctrl: mpsc::Sender<SshCtrl>,
 }
 
-/// A live session, transport-agnostic. Local PTYs and SSH channels share one
-/// registry and one set of `pty_*` commands so none of the renderer's
-/// xterm/scrollback/cost/activity machinery has to know the difference.
+/// Registry-side handle to a serial-port session. The write half lives here for
+/// `pty_write`; the reader thread owns a cloned handle and loops on a short read
+/// timeout, checking `alive` so `pty_kill` can stop it promptly.
+pub struct SerialHandle {
+    writer: Box<dyn serialport::SerialPort>,
+    alive: Arc<AtomicBool>,
+}
+
+/// A live session, transport-agnostic. Local PTYs, SSH channels, and serial
+/// ports share one registry and one set of `pty_*` commands so none of the
+/// renderer's xterm/scrollback/cost/activity machinery has to know the difference.
 pub enum Session {
     Local(PtySession),
     Ssh(SshHandle),
+    Serial(SerialHandle),
 }
 
 #[derive(Default)]
@@ -397,6 +407,10 @@ pub fn pty_write(
                 .send(data.into_bytes())
                 .map_err(|_| "ssh session closed".to_string())?;
         }
+        Session::Serial(h) => {
+            h.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+            let _ = h.writer.flush();
+        }
     }
     Ok(())
 }
@@ -428,6 +442,8 @@ pub fn pty_resize(
                 .send(SshCtrl::Resize(cols.max(40), rows.max(10)))
                 .map_err(|_| "ssh session closed".to_string())?;
         }
+        // Serial ports have no concept of terminal size — nothing to resize.
+        Session::Serial(_) => {}
     }
     Ok(())
 }
@@ -440,9 +456,16 @@ pub fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(), Str
         .map_err(|_| "registry mutex poisoned".to_string())?;
     // Removing the entry drops it: Local → PtySession::drop kills the child;
     // Ssh → SshHandle's senders drop, the reader thread sees the disconnect
-    // and closes the channel + TCP connection.
-    if let Some(Session::Local(mut s)) = sessions.remove(&id) {
-        let _ = s.child.kill();
+    // and closes the channel + TCP connection; Serial → flip `alive` so its
+    // reader thread exits on the next read-timeout tick.
+    match sessions.remove(&id) {
+        Some(Session::Local(mut s)) => {
+            let _ = s.child.kill();
+        }
+        Some(Session::Serial(h)) => {
+            h.alive.store(false, Ordering::Relaxed);
+        }
+        Some(Session::Ssh(_)) | None => {}
     }
     Ok(())
 }
@@ -727,15 +750,93 @@ pub fn ssh_spawn(
     Ok(id)
 }
 
+// ───────────────────────────── Serial console ──────────────────────────────
+
+/// List available serial ports (USB/UART device names).
+#[tauri::command]
+pub fn serial_list() -> Vec<String> {
+    serialport::available_ports()
+        .map(|ports| ports.into_iter().map(|p| p.port_name).collect())
+        .unwrap_or_default()
+}
+
+/// Open a serial port at `baud` and register it behind the same `pty_*` seam.
+/// A reader thread streams bytes as `pty://{id}`; `pty_write` sends to the
+/// device. The reader uses a short read timeout so `pty_kill` (which flips
+/// `alive`) stops it promptly even when the device is silent.
+#[tauri::command]
+pub fn serial_spawn(
+    app: AppHandle,
+    state: State<'_, SessionRegistry>,
+    path: String,
+    baud: u32,
+    tab_id: Option<String>,
+) -> Result<String, String> {
+    let port = serialport::new(&path, baud)
+        .timeout(Duration::from_millis(100))
+        .open()
+        .map_err(|e| format!("open serial {path} failed: {e}"))?;
+    let reader = port
+        .try_clone()
+        .map_err(|e| format!("clone serial handle failed: {e}"))?;
+
+    let alive = Arc::new(AtomicBool::new(true));
+    let id = new_session_id();
+    state
+        .sessions
+        .lock()
+        .map_err(|_| "registry mutex poisoned".to_string())?
+        .insert(
+            id.clone(),
+            Session::Serial(SerialHandle {
+                writer: port,
+                alive: alive.clone(),
+            }),
+        );
+
+    let mut scrollback_writer = tab_id
+        .as_ref()
+        .map(|tid| ScrollbackWriter::new(scrollback_path(&app, tid)));
+
+    let id_for_thread = id.clone();
+    let app_for_thread = app.clone();
+    thread::spawn(move || {
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        while alive.load(Ordering::Relaxed) {
+            match reader.read(&mut buf) {
+                Ok(0) => thread::sleep(Duration::from_millis(20)),
+                Ok(n) => {
+                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    if let Some(w) = scrollback_writer.as_mut() {
+                        w.append(chunk.as_bytes());
+                    }
+                    let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), chunk);
+                }
+                // No data within the timeout — loop to re-check `alive`.
+                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+                // Device unplugged / fatal error.
+                Err(_) => break,
+            }
+        }
+        let _ = app_for_thread.emit(&format!("pty-exit://{}", id_for_thread), ());
+    });
+
+    Ok(id)
+}
+
 /// Kill every live PTY child. Called from RunEvent::ExitRequested so we
 /// never leave a shell process orphaned when the app closes.
 pub fn kill_all(registry: &SessionRegistry) {
     if let Ok(mut sessions) = registry.sessions.lock() {
         for (_id, session) in sessions.drain() {
             // Local: kill the child. Ssh: dropping the handle's senders signals
-            // its reader thread to close the channel + connection.
-            if let Session::Local(mut s) = session {
-                let _ = s.child.kill();
+            // its reader thread to close the channel + connection. Serial: flip
+            // `alive` so its reader thread exits.
+            match session {
+                Session::Local(mut s) => { let _ = s.child.kill(); }
+                Session::Serial(h) => { h.alive.store(false, Ordering::Relaxed); }
+                Session::Ssh(_) => {}
             }
         }
     }

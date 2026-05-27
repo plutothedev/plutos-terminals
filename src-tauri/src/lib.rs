@@ -121,6 +121,8 @@ pub fn run() {
             pty::pty_kill,
             pty::default_shell,
             pty::ssh_spawn,
+            pty::serial_list,
+            pty::serial_spawn,
             sftp::sftp_connect,
             sftp::sftp_home,
             sftp::sftp_list,

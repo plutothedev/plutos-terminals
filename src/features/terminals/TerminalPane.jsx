@@ -183,6 +183,7 @@ export default function TerminalPane({
   active = true,
   cwd,
   connection,
+  serial,
   startCommands,
   systemPrompt,
   xtermTheme,
@@ -502,7 +503,10 @@ export default function TerminalPane({
         // SessionRegistry and stream through the identical pty://{id} event, so
         // everything below (listen, write, resize, scrollback, cost) is shared.
         let id;
-        if (connection) {
+        if (serial) {
+          term.writeln(`\x1b[2m[serial] ${serial.path} @ ${serial.baud} baud…\x1b[0m`);
+          id = await invoke("serial_spawn", { path: serial.path, baud: serial.baud, tabId });
+        } else if (connection) {
           const method = connection.auth?.method || "password";
           let password = null;
           if (method === "password") {
@@ -606,7 +610,7 @@ export default function TerminalPane({
         // Local-only pre-flight: a remote SSH host has its own PATH, so don't
         // gate SSH start-commands on whether `claude` is installed locally.
         let skipPackCommands = false;
-        if (!connection && cmdsAtSpawn.length > 0) {
+        if (!connection && !serial && cmdsAtSpawn.length > 0) {
           const willInvokeClaude = cmdsAtSpawn.some((cmd) => {
             const t = (cmd || "").trim();
             return t === "claude" || t.startsWith("claude ") || t.startsWith("claude\t");
