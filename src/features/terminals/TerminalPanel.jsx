@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import TerminalPane from "./TerminalPane";
+import { getLayout, leafIds, isLeaf } from "./splitTree";
 import "./terminals.css";
 
 // Colors come from the active app skin via CSS vars on <html>. Module-level
@@ -60,14 +61,53 @@ function dotColor(state) {
   return DOT_IDLE;
 }
 
-function aggregatePanelActivity(panel, tabActivities) {
+// Activity for a single tab = the "loudest" of its panes (active > done > idle).
+function aggregateTabActivity(tab, tabActivities) {
   let hasDone = false;
-  for (const t of panel.tabs) {
-    const s = tabActivities?.[t.id] || "idle";
+  for (const id of leafIds(getLayout(tab))) {
+    const s = tabActivities?.[id] || "idle";
     if (s === "active") return "active";
     if (s === "done") hasDone = true;
   }
   return hasDone ? "done" : "idle";
+}
+
+function aggregatePanelActivity(panel, tabActivities) {
+  let hasDone = false;
+  for (const t of panel.tabs) {
+    const s = aggregateTabActivity(t, tabActivities);
+    if (s === "active") return "active";
+    if (s === "done") hasDone = true;
+  }
+  return hasDone ? "done" : "idle";
+}
+
+// Walk a tab's split tree into a flat list of pane rects (percentages of the
+// tab's pane area) + divider descriptors. Flat + percentage-positioned so a
+// split/close/resize only moves existing panes (CSS) — it never restructures
+// the React tree, so a live pane's PTY is never remounted. `dragRatios`
+// overrides a split's stored ratio while its divider is being dragged (local,
+// un-persisted) for smooth resizing.
+function computeLayout(node, dragRatios, rect = { left: 0, top: 0, width: 100, height: 100 }) {
+  if (isLeaf(node)) return { panes: [{ node, rect }], dividers: [] };
+  const ratio = dragRatios[node.id] != null ? dragRatios[node.id] : node.ratio;
+  const isRow = node.dir === "row";
+  let aRect, bRect;
+  if (isRow) {
+    const w = rect.width * ratio;
+    aRect = { left: rect.left, top: rect.top, width: w, height: rect.height };
+    bRect = { left: rect.left + w, top: rect.top, width: rect.width - w, height: rect.height };
+  } else {
+    const h = rect.height * ratio;
+    aRect = { left: rect.left, top: rect.top, width: rect.width, height: h };
+    bRect = { left: rect.left, top: rect.top + h, width: rect.width, height: rect.height - h };
+  }
+  const A = computeLayout(node.a, dragRatios, aRect);
+  const B = computeLayout(node.b, dragRatios, bRect);
+  return {
+    panes: [...A.panes, ...B.panes],
+    dividers: [{ splitId: node.id, dir: node.dir, container: rect, ratio }, ...A.dividers, ...B.dividers],
+  };
 }
 
 export default function TerminalPanel({
@@ -87,6 +127,10 @@ export default function TerminalPanel({
   onTabCostUpdate,
   onRenameTab,
   onMoveTab,
+  onSplitPane,
+  onClosePane,
+  onActivatePane,
+  onSetPaneRatio,
 }) {
   const activeTab = panel.tabs.find(t => t.id === panel.activeTabId) || panel.tabs[0];
   const panelState = aggregatePanelActivity(panel, tabActivities);
@@ -101,6 +145,10 @@ export default function TerminalPanel({
   const renameInputRef = useRef(null);
   // Hovered tab — drives the hover-only close button (Termius style).
   const [hoverTabId, setHoverTabId] = useState(null);
+
+  // Transient divider ratios during an active drag, keyed by splitId. Kept out
+  // of app state so a drag doesn't hammer localStorage; committed on mouseup.
+  const [dragRatios, setDragRatios] = useState({});
 
   // Tab drag between panels. Mouse-event based (HTML5 drag is broken in
   // WebView2 per the code-rule memo). On drop over a different panel, the
@@ -147,6 +195,44 @@ export default function TerminalPanel({
     document.addEventListener("mouseup", onUp);
   };
 
+  // Divider drag. The divider's parent is the tab's pane-area element, so its
+  // bounding rect gives the pixel size to convert a cursor position into a
+  // ratio. We preview via local state and commit once on release.
+  const handleDividerMouseDown = (divider, tabId, e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const areaEl = e.currentTarget.parentElement;
+    if (!areaEl) return;
+    const isRow = divider.dir === "row";
+    const onMove = (ev) => {
+      const r = areaEl.getBoundingClientRect();
+      const subStart = isRow
+        ? r.left + (divider.container.left / 100) * r.width
+        : r.top + (divider.container.top / 100) * r.height;
+      const subSize = isRow
+        ? (divider.container.width / 100) * r.width
+        : (divider.container.height / 100) * r.height;
+      if (subSize <= 0) return;
+      const pos = isRow ? ev.clientX : ev.clientY;
+      let ratio = (pos - subStart) / subSize;
+      ratio = Math.max(0.1, Math.min(0.9, ratio));
+      setDragRatios(prev => ({ ...prev, [divider.splitId]: ratio }));
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      setDragRatios(prev => {
+        const final = prev[divider.splitId];
+        if (final != null) onSetPaneRatio?.(tabId, divider.splitId, final);
+        const { [divider.splitId]: _drop, ...rest } = prev;
+        return rest;
+      });
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
   const startRename = (tab) => {
     setRenamingId(tab.id);
     setRenameValue(tab.label || "");
@@ -175,6 +261,29 @@ export default function TerminalPanel({
     borderColor = GLOW_DONE;
     boxShadow = GLOW_DONE_SHADOW;
   }
+
+  const activePaneId = activeTab?.activePaneId || activeTab?.id;
+  const activeTabMulti = activeTab ? !isLeaf(getLayout(activeTab)) : false;
+
+  const paneIconBtn = (title, glyph, onClick) => (
+    <div
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{
+        padding: "4px 7px",
+        cursor: "pointer",
+        color: "#777",
+        fontSize: 12,
+        lineHeight: 1,
+        userSelect: "none",
+      }}
+      title={title}
+      onMouseEnter={(e) => { e.currentTarget.style.color = TAB_FG_ACTIVE; }}
+      onMouseLeave={(e) => { e.currentTarget.style.color = "#777"; }}
+    >
+      {glyph}
+    </div>
+  );
 
   return (
     <div
@@ -210,8 +319,9 @@ export default function TerminalPanel({
         <div style={{ display: "flex", flex: 1, minWidth: 0, overflow: "auto" }}>
           {panel.tabs.map(tab => {
             const active = tab.id === panel.activeTabId;
-            const tabState = tabActivities?.[tab.id] || "idle";
+            const tabState = aggregateTabActivity(tab, tabActivities);
             const isRenamingThis = renamingId === tab.id;
+            const paneCount = leafIds(getLayout(tab)).length;
             return (
               <div
                 key={tab.id}
@@ -279,6 +389,14 @@ export default function TerminalPanel({
                 ) : (
                   <span>{tab.label}</span>
                 )}
+                {paneCount > 1 && !isRenamingThis && (
+                  <span
+                    title={`${paneCount} panes`}
+                    style={{ color: "#777", fontSize: 9, flexShrink: 0 }}
+                  >
+                    ⊞{paneCount}
+                  </span>
+                )}
                 {panel.tabs.length > 1 && !isRenamingThis && (
                   <span
                     onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
@@ -319,6 +437,16 @@ export default function TerminalPanel({
             +
           </div>
         </div>
+        {activeTab && onSplitPane && paneIconBtn(
+          "Split right (side by side)",
+          "⬌",
+          () => onSplitPane(activeTab.id, activePaneId, "row")
+        )}
+        {activeTab && onSplitPane && paneIconBtn(
+          "Split down (stacked)",
+          "⬍",
+          () => onSplitPane(activeTab.id, activePaneId, "col")
+        )}
         {canClosePanel && (
           <div
             onClick={(e) => { e.stopPropagation(); onClosePanel(); }}
@@ -338,23 +466,116 @@ export default function TerminalPanel({
         )}
       </div>
 
-      {/* Pane area: every tab keeps its PTY mounted; only the active one is shown */}
+      {/* Pane area: every tab stays mounted (only the active one is shown); each
+          tab renders its split tree as flat positioned panes so splits/resizes
+          never remount a live PTY. */}
       <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
-        {panel.tabs.map(tab => (
-          <TerminalPane
-            key={tab.id}
-            visible={tab.id === activeTab?.id}
-            cwd={tab.cwd || null}
-            startCommands={tab.startCommands || null}
-            systemPrompt={tab.systemPrompt || null}
-            xtermTheme={xtermTheme}
-            tabId={tab.id}
-            projectName={tabProjectNames?.[tab.id] || null}
-            autoApprove={tabAutoApprove?.[tab.id] || false}
-            onActivityChange={(state) => onTabActivityChange?.(tab.id, state)}
-            onCostUpdate={(c) => onTabCostUpdate?.(tab.id, c)}
-          />
-        ))}
+        {panel.tabs.map(tab => {
+          const tabVisible = tab.id === activeTab?.id;
+          const layout = getLayout(tab);
+          const { panes, dividers } = computeLayout(layout, dragRatios);
+          const multi = panes.length > 1;
+          const tabActivePaneId = tab.activePaneId || tab.id;
+          return (
+            <div
+              key={tab.id}
+              style={{ position: "absolute", inset: 0, display: tabVisible ? "block" : "none" }}
+            >
+              {panes.map(({ node, rect }) => {
+                const isRoot = node.id === tab.id;
+                const paneActive = node.id === tabActivePaneId;
+                return (
+                  <div
+                    key={`pane-${node.id}`}
+                    onMouseDownCapture={() => { if (multi && !paneActive) onActivatePane?.(tab.id, node.id); }}
+                    style={{
+                      position: "absolute",
+                      left: `${rect.left}%`,
+                      top: `${rect.top}%`,
+                      width: `${rect.width}%`,
+                      height: `${rect.height}%`,
+                      boxSizing: "border-box",
+                      outline: multi && paneActive ? `1px solid ${ACCENT}` : "none",
+                      outlineOffset: "-1px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <TerminalPane
+                      visible={tabVisible}
+                      active={tabVisible && paneActive}
+                      cwd={isRoot ? (tab.cwd || null) : (node.cwd ?? null)}
+                      startCommands={isRoot ? (tab.startCommands || null) : null}
+                      systemPrompt={isRoot ? (tab.systemPrompt || null) : null}
+                      xtermTheme={xtermTheme}
+                      tabId={node.id}
+                      projectName={isRoot ? (tabProjectNames?.[tab.id] || null) : null}
+                      autoApprove={isRoot ? (tabAutoApprove?.[tab.id] || false) : false}
+                      onActivityChange={(state) => onTabActivityChange?.(node.id, state)}
+                      onCostUpdate={(c) => onTabCostUpdate?.(node.id, c)}
+                    />
+                    {multi && (
+                      <span
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); onClosePane?.(tab.id, node.id); }}
+                        title="Close this pane"
+                        style={{
+                          position: "absolute",
+                          top: 3,
+                          right: 5,
+                          zIndex: 5,
+                          color: "#777",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          lineHeight: 1,
+                          padding: "0 3px",
+                          borderRadius: 2,
+                          background: "rgba(0,0,0,0.35)",
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = "#f44"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = "#777"; }}
+                      >
+                        ×
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+              {dividers.map((d) => {
+                const isRow = d.dir === "row";
+                const boundary = isRow
+                  ? d.container.left + d.container.width * d.ratio
+                  : d.container.top + d.container.height * d.ratio;
+                return (
+                  <div
+                    key={`div-${d.splitId}`}
+                    onMouseDown={(e) => handleDividerMouseDown(d, tab.id, e)}
+                    title="Drag to resize"
+                    style={{
+                      position: "absolute",
+                      zIndex: 4,
+                      cursor: isRow ? "col-resize" : "row-resize",
+                      ...(isRow
+                        ? {
+                            left: `calc(${boundary}% - 3px)`,
+                            top: `${d.container.top}%`,
+                            width: 6,
+                            height: `${d.container.height}%`,
+                          }
+                        : {
+                            top: `calc(${boundary}% - 3px)`,
+                            left: `${d.container.left}%`,
+                            height: 6,
+                            width: `${d.container.width}%`,
+                          }),
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(77,170,252,0.35)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  />
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

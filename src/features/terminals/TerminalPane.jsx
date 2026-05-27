@@ -179,6 +179,7 @@ function transcriptName(projectName, tabId) {
 // `onActivityChange(state)` and `onCostUpdate({tokens, cost})` report up.
 export default function TerminalPane({
   visible,
+  active = true,
   cwd,
   startCommands,
   systemPrompt,
@@ -206,6 +207,11 @@ export default function TerminalPane({
   const doneTimerRef = useRef(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  // Whether this pane is the focused one within its tab (relevant when the tab
+  // is split into multiple panes). Gates autofocus-on-show so siblings don't
+  // fight over focus. Read via ref so the visibility effect needn't re-run.
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   // Live-prop refs so we don't have to re-run the spawn effect on prop change.
   const onActivityRef = useRef(onActivityChange);
@@ -676,7 +682,10 @@ export default function TerminalPane({
     setActivity("idle");
     const t = setTimeout(() => {
       try { fitRef.current?.fit(); } catch {}
-      try { termRef.current?.focus(); } catch {}
+      // Only the active pane of a (possibly split) tab steals focus on show.
+      if (activeRef.current) {
+        try { termRef.current?.focus(); } catch {}
+      }
     }, 30);
     return () => clearTimeout(t);
   }, [visible]);

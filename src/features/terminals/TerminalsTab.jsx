@@ -15,6 +15,7 @@ import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { gridDims, MAX_PANELS } from "./grid";
+import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
   getSkinXtermTheme,
@@ -488,6 +489,90 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     let activePanelId = panels.find(p => p.id === tgtPanelId) ? tgtPanelId : panels[0].id;
     persist({ ...state, panels, activePanelId });
   }, [state, persist]);
+
+  // ── In-tab split panes (v3.0) ──────────────────────────────────────
+  // A tab's content is a binary split tree (splitTree.js). Mutations find the
+  // owning panel by tab id so TerminalPanel can call them with just (tabId, …).
+
+  const panelIdForTab = useCallback((tabId) => {
+    const p = state.panels.find((pp) => pp.tabs.some((t) => t.id === tabId));
+    return p?.id || null;
+  }, [state]);
+
+  // Split the pane `paneId` inside `tabId` along `dir` ('row' = side by side,
+  // 'col' = stacked). The new pane inherits the split pane's cwd as a fresh
+  // shell; the existing pane keeps its live PTY (flat render = no remount).
+  const splitPane = useCallback((tabId, paneId, dir) => {
+    const panelId = panelIdForTab(tabId);
+    if (!panelId) return;
+    const newLeafId = freshId("pane");
+    const splitId = freshId("split");
+    const panels = state.panels.map((p) => {
+      if (p.id !== panelId) return p;
+      return {
+        ...p,
+        tabs: p.tabs.map((t) => {
+          if (t.id !== tabId) return t;
+          const layout = getLayout(t);
+          const inheritCwd = leaves(layout).find((l) => l.id === paneId)?.cwd ?? (t.cwd || null);
+          const nextLayout = splitLeaf(layout, paneId, dir, { id: newLeafId, cwd: inheritCwd }, splitId);
+          return { ...t, layout: nextLayout, activePaneId: newLeafId };
+        }),
+      };
+    });
+    persist({ ...state, panels, activePanelId: panelId });
+  }, [state, persist, panelIdForTab]);
+
+  // Close one pane. Closing the last pane of a tab closes the tab.
+  const closePane = useCallback((tabId, paneId) => {
+    const panelId = panelIdForTab(tabId);
+    if (!panelId) return;
+    const tab = state.panels.find((p) => p.id === panelId)?.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const layout = getLayout(tab);
+    if (leafIds(layout).length <= 1) {
+      closeTab(panelId, tabId);
+      return;
+    }
+    const next = removeLeaf(layout, paneId);
+    const remaining = leafIds(next);
+    let activePaneId = tab.activePaneId || tab.id;
+    if (!remaining.includes(activePaneId)) activePaneId = remaining[0];
+    const panels = state.panels.map((p) => {
+      if (p.id !== panelId) return p;
+      return {
+        ...p,
+        tabs: p.tabs.map((t) => (t.id === tabId ? { ...t, layout: next, activePaneId } : t)),
+      };
+    });
+    persist({ ...state, panels });
+  }, [state, persist, panelIdForTab, closeTab]);
+
+  const activatePane = useCallback((tabId, paneId) => {
+    const panelId = panelIdForTab(tabId);
+    if (!panelId) return;
+    const panels = state.panels.map((p) => {
+      if (p.id !== panelId) return p;
+      return {
+        ...p,
+        tabs: p.tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: paneId } : t)),
+      };
+    });
+    persist({ ...state, panels, activePanelId: panelId });
+  }, [state, persist, panelIdForTab]);
+
+  const setPaneRatio = useCallback((tabId, splitId, ratio) => {
+    const panelId = panelIdForTab(tabId);
+    if (!panelId) return;
+    const panels = state.panels.map((p) => {
+      if (p.id !== panelId) return p;
+      return {
+        ...p,
+        tabs: p.tabs.map((t) => (t.id === tabId ? { ...t, layout: setRatio(getLayout(t), splitId, ratio) } : t)),
+      };
+    });
+    persist({ ...state, panels });
+  }, [state, persist, panelIdForTab]);
 
   // ── Pack loader (v0.0.2) ───────────────────────────────────────────
   // Replace the current panel/tab layout with the panels described in a
@@ -1080,6 +1165,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onTabCostUpdate={handleTabCostUpdate}
               onRenameTab={renameTab}
               onMoveTab={moveTab}
+              onSplitPane={splitPane}
+              onClosePane={closePane}
+              onActivatePane={activatePane}
+              onSetPaneRatio={setPaneRatio}
             />
           ))}
         </div>
@@ -1142,6 +1231,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "find-pack", icon: "🔍", label: "Find a pack", hint: "Search recents + bundled by name or description", shortcut: "Ctrl+P", action: () => setSearchOpen(true) },
           { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
           { id: "new-session", icon: "🌐", label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
+          { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+          { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
           { id: "load-file", icon: "📁", label: "Load pack from file", hint: ".deck.json picker", action: () => fileInputRef.current?.click() },
           { id: "load-url", icon: "🔗", label: "Load pack from URL", hint: "GitHub raw / gist / any HTTPS source", action: () => setUrlOpen(true) },
