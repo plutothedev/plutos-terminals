@@ -82,6 +82,25 @@ export function isBroadcast() {
   return broadcastMode;
 }
 
+// ── Transient SSH passwords ─────────────────────────────────────────────────
+// Held in memory only (never localStorage), keyed by tabId. Set when the user
+// enters a password in the connect modal; read by TerminalPane at ssh_spawn.
+// The encrypted credential vault is a later phase; for now a password lives
+// only for the app session and is gone on restart (re-prompt to reconnect).
+const passwords = new Map(); // tabId -> string
+
+export function setTabPassword(tabId, pw) {
+  if (tabId) passwords.set(tabId, pw);
+}
+
+export function getTabPassword(tabId) {
+  return passwords.get(tabId) ?? null;
+}
+
+export function clearTabPassword(tabId) {
+  passwords.delete(tabId);
+}
+
 // ── Writes ──────────────────────────────────────────────────────────────────
 
 // Write to one tab's PTY. Returns false if that tab has no live writer yet.

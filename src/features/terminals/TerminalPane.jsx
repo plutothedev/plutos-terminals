@@ -13,6 +13,7 @@ import {
   setTabVisible,
   isBroadcast,
   writeBroadcast,
+  getTabPassword,
 } from "./ptyBridge.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
@@ -181,6 +182,7 @@ export default function TerminalPane({
   visible,
   active = true,
   cwd,
+  connection,
   startCommands,
   systemPrompt,
   xtermTheme,
@@ -496,7 +498,33 @@ export default function TerminalPane({
         // scrollback file. Replaces the previous unmount-time renderer-side
         // scrollback_save, which raced process death on tray→Quit (async
         // invoke didn't reach Rust before the process exited).
-        const id = await invoke("pty_spawn", { cwd: cwd || null, cols, rows, extraEnv, tabId });
+        // Local PTY vs SSH transport — both register in the same backend
+        // SessionRegistry and stream through the identical pty://{id} event, so
+        // everything below (listen, write, resize, scrollback, cost) is shared.
+        let id;
+        if (connection) {
+          const method = connection.auth?.method || "password";
+          let password = null;
+          if (method === "password") {
+            password = getTabPassword(tabId);
+            if (!password) {
+              term.writeln("\r\n\x1b[31m[SSH]\x1b[0m no password for this session — reopen it from the sidebar to reconnect.");
+              return;
+            }
+          }
+          term.writeln(`\x1b[2m[SSH] connecting to ${connection.user}@${connection.host}:${connection.port || 22}…\x1b[0m`);
+          id = await invoke("ssh_spawn", {
+            host: connection.host,
+            port: connection.port || 22,
+            user: connection.user,
+            auth: { ...connection.auth, password },
+            cols,
+            rows,
+            tabId,
+          });
+        } else {
+          id = await invoke("pty_spawn", { cwd: cwd || null, cols, rows, extraEnv, tabId });
+        }
         if (!alive) {
           await invoke("pty_kill", { id }).catch(() => {});
           return;
@@ -575,8 +603,10 @@ export default function TerminalPane({
         // the CLI isn't on PATH, the shell would respond "claude is not
         // recognized" and the systemPrompt write 2s later would dump prose
         // into a confused shell. Catch it cleanly and surface a fix path.
+        // Local-only pre-flight: a remote SSH host has its own PATH, so don't
+        // gate SSH start-commands on whether `claude` is installed locally.
         let skipPackCommands = false;
-        if (cmdsAtSpawn.length > 0) {
+        if (!connection && cmdsAtSpawn.length > 0) {
           const willInvokeClaude = cmdsAtSpawn.some((cmd) => {
             const t = (cmd || "").trim();
             return t === "claude" || t.startsWith("claude ") || t.startsWith("claude\t");

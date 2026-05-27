@@ -115,6 +115,7 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
             pty::default_shell,
+            pty::ssh_spawn,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pluto's Terminals")

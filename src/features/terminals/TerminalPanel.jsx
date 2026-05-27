@@ -504,6 +504,7 @@ export default function TerminalPanel({
                       visible={tabVisible}
                       active={tabVisible && paneActive}
                       cwd={isRoot ? (tab.cwd || null) : (node.cwd ?? null)}
+                      connection={isRoot ? (tab.connection || null) : null}
                       startCommands={isRoot ? (tab.startCommands || null) : null}
                       systemPrompt={isRoot ? (tab.systemPrompt || null) : null}
                       xtermTheme={xtermTheme}

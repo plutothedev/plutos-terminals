@@ -232,8 +232,9 @@ export default function ProjectDialog({ open, initial, onSave, onClose }) {
               lineHeight: 1.5,
             }}
           >
-            ⓘ <strong style={{ color: ACCENT }}>Preview.</strong> SSH sessions save now so your
-            host library is ready; live connection lands in an upcoming release.
+            ⓘ Connects over SSH (libssh2). The host key is verified against your
+            <code> ~/.ssh/known_hosts</code>; password auth prompts at connect time and
+            is never saved to disk.
           </div>
         )}
 

@@ -4,6 +4,7 @@ import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
 import SnippetsDrawer from "./SnippetsDrawer";
 import ProjectDialog from "./ProjectDialog";
+import SshPasswordModal from "./SshPasswordModal";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
@@ -23,7 +24,7 @@ import {
   applyGlobalSkin,
 } from "./headerSkins";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword } from "./ptyBridge.js";
 import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
 
 // Bundled prompt packs — eagerly imported at build time from the repo's
@@ -806,32 +807,72 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // (target = panel under cursor). When `overrideCommands` is provided, it
   // replaces the project's default startCommands — used by the npm-script
   // launcher in the context menu.
+  // Append a tab to a panel and make it active. Shared by the local and SSH
+  // paths. `extra` carries SSH-only fields (connection); the password (if any)
+  // is recorded transiently in the bridge by the caller, never on the tab.
+  const spawnSessionTab = useCallback((panelId, tab) => {
+    const panels = state.panels.map(p =>
+      p.id === panelId
+        ? { ...p, tabs: [...p.tabs, tab], activeTabId: tab.id }
+        : p
+    );
+    persist({ ...state, panels, activePanelId: panelId });
+  }, [state, persist]);
+
   const openProjectInPanel = useCallback((panelId, projectId, overrideCommands) => {
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
-    // SSH sessions are savable now but have no transport yet — opening one would
-    // wrongly spawn a local shell. Surface the preview state instead.
-    if (project.type === "ssh" || (project.connection && !project.path)) {
-      toast.info(`"${project.name}" is an SSH session — live connection lands in an upcoming release.`);
+
+    // SSH session: connect through the ssh2 transport. Password auth prompts
+    // for the secret first (held in-memory only); key/agent connect directly.
+    const isSsh = project.type === "ssh" || (project.connection && !project.path);
+    if (isSsh) {
+      if (!project.connection?.host || !project.connection?.user) {
+        toast.error(`"${project.name}" is missing a host or user.`);
+        return;
+      }
+      const tabId = freshId("tab");
+      const tab = {
+        id: tabId,
+        label: project.name,
+        cwd: null,
+        startCommands: project.startCommands || [],
+        projectId: project.id,
+        connection: project.connection, // { host, port, user, auth } — no secret
+      };
+      const method = project.connection?.auth?.method || "password";
+      if (method === "password") {
+        // Defer tab creation until the password modal is submitted.
+        setSshPrompt({ panelId, tab, project });
+        return;
+      }
+      spawnSessionTab(panelId, tab); // key / agent need no transient secret
       return;
     }
+
     const cmds = overrideCommands || project.startCommands || [];
     const labelSuffix = overrideCommands && overrideCommands.length === 1
       ? ` · ${overrideCommands[0]}`
       : "";
-    const panels = state.panels.map(p => {
-      if (p.id !== panelId) return p;
-      const newTab = {
-        id: freshId("tab"),
-        label: `${project.name}${labelSuffix}`,
-        cwd: project.path,
-        startCommands: cmds,
-        projectId: project.id,
-      };
-      return { ...p, tabs: [...p.tabs, newTab], activeTabId: newTab.id };
+    spawnSessionTab(panelId, {
+      id: freshId("tab"),
+      label: `${project.name}${labelSuffix}`,
+      cwd: project.path,
+      startCommands: cmds,
+      projectId: project.id,
     });
-    persist({ ...state, panels, activePanelId: panelId });
-  }, [state, persist, projects, toast]);
+  }, [projects, toast, spawnSessionTab]);
+
+  // SSH password prompt: { panelId, tab, project } or null. On submit, stash the
+  // password transiently in the bridge (keyed by the pending tab id) and create
+  // the tab — TerminalPane reads the password at ssh_spawn time.
+  const [sshPrompt, setSshPrompt] = useState(null);
+  const submitSshPassword = useCallback((password) => {
+    if (!sshPrompt) return;
+    setTabPassword(sshPrompt.tab.id, password);
+    spawnSessionTab(sshPrompt.panelId, sshPrompt.tab);
+    setSshPrompt(null);
+  }, [sshPrompt, spawnSessionTab]);
 
   const runProjectScript = useCallback((projectId, scriptName) => {
     openProjectInPanel(state.activePanelId, projectId, [`npm run ${scriptName}`]);
@@ -1187,6 +1228,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         initial={dialogInitial}
         onClose={() => setDialog(null)}
         onSave={handleSaveDialog}
+      />
+
+      <SshPasswordModal
+        open={!!sshPrompt}
+        host={sshPrompt?.project?.connection?.host}
+        user={sshPrompt?.project?.connection?.user}
+        onSubmit={submitSshPassword}
+        onCancel={() => setSshPrompt(null)}
       />
 
       <SettingsModal

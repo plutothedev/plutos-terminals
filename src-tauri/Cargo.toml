@@ -24,3 +24,7 @@ tauri-plugin-log = "2"
 chrono = "0.4"
 portable-pty = "0.8"
 rfd = "0.15"
+# vendored-openssl: build OpenSSL from source for the target arch. Avoids the
+# Homebrew arch-mismatch (Intel openssl@3 vs arm64 binary) and, more importantly,
+# makes release binaries self-contained — users don't need Homebrew's OpenSSL.
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
