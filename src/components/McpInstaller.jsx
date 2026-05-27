@@ -79,8 +79,11 @@ export default function McpInstaller({ open, onClose }) {
 
   const onInstall = async (mcp) => {
     // Filesystem MCP needs a path argument — default to user home via the
-    // Windows env var expansion that cmd.exe handles natively.
-    let cmd = mcp.command.replace(/\$\{PWD\}/g, "%USERPROFILE%");
+    // platform's native env-var expansion (cmd.exe %USERPROFILE% on Windows,
+    // $HOME on macOS / Linux shells).
+    const isWindows = navigator.userAgent.includes("Windows");
+    const homeVar = isWindows ? "%USERPROFILE%" : "$HOME";
+    let cmd = mcp.command.replace(/\$\{PWD\}/g, homeVar);
     setInstallState((s) => ({ ...s, [mcp.id]: "installing" }));
     try {
       const result = await invoke("mcp_install", { command: cmd });

@@ -63,7 +63,7 @@ Click **🔌 MCPs** for a curated list of popular MCP (Model Context Protocol) s
 - **`install` button** — app runs `claude mcp add ...` for you in a hidden shell. Toast reports success or error. **Restart any open Claude sessions** after install for them to pick up the new MCP.
 - **`copy` button** — copies the command to clipboard if you'd rather paste it into a pane manually.
 
-Filesystem MCP needs a path argument; the install button substitutes `${PWD}` with `%USERPROFILE%` (your home dir). Edit the resolved path manually if you want a different scope.
+Filesystem MCP needs a path argument; the install button substitutes `${PWD}` with your home dir — `%USERPROFILE%` on Windows, `$HOME` on macOS / Linux. Edit the resolved path manually if you want a different scope.
 
 ## Templated paths (`${VARNAME}`)
 

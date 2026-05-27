@@ -119,7 +119,7 @@ Don't load this for real work. Schema reference — every field with comments. U
 1. Copy `example.deck.json` → rename to `<your-slug>.deck.json`.
 2. Edit `name` and `description`.
 3. Replace `panels[]` with your actual layout.
-4. Set `cwd` per tab — absolute path, `null` for home, or templated like `${USERPROFILE}/Documents/myrepo` (any process env var resolves).
+4. Set `cwd` per tab — absolute path, `null` for home, or templated like `${USERPROFILE}/Documents/myrepo` (Windows) / `${HOME}/Documents/myrepo` (macOS / Linux) — any process env var resolves.
 5. Set `startCommands` per tab — array of commands run in sequence on shell spawn.
 6. Set `systemPrompt` per tab — string auto-typed into Claude 2 seconds after spawn (the actual specialization mechanism).
 7. Add `env_hints[]` for any env vars users need to set themselves.

@@ -56,3 +56,169 @@
 .tg-shake {
   animation: tg-shake 0.4s ease-out;
 }
+
+/* ============================================================================
+ * (C) v3.0 "Pro" layout — sidebar search/sections/collapse + snippets drawer.
+ * All colors read the active skin's --phn-* vars (set per-skin in
+ * headerSkins.js), so every skin themes the new chrome correctly. Pro is the
+ * default skin (headerSkins.getSkinId fallback).
+ * ========================================================================= */
+
+/* ── Header button "toggled on" state (snippets drawer open, etc.) ────── */
+.phn-btn-on {
+  color: var(--phn-link, #4daafc) !important;
+  border-color: var(--phn-link, #4daafc) !important;
+  background: var(--phn-accent-subtle, rgba(94, 106, 210, 0.15)) !important;
+}
+
+/* ── Sidebar: search box ──────────────────────────────────────────────── */
+.phn-sidebar-search-wrap {
+  padding: 6px 8px 4px;
+  flex-shrink: 0;
+}
+.phn-sidebar-search {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--phn-page-bg, rgba(0, 0, 0, 0.3));
+  border: 1px solid var(--phn-surface-border, #2b2b2b);
+  color: var(--phn-text-fg, #ccc);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.phn-sidebar-search:focus {
+  border-color: var(--phn-link, #4daafc);
+}
+.phn-sidebar-search::placeholder {
+  color: var(--phn-text-dim, #666);
+}
+
+/* ── Sidebar: section header label ────────────────────────────────────── */
+.phn-sidebar-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 4px;
+  color: var(--phn-text-dim, #888);
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+/* ── Sidebar: active project row gets a left accent rail ──────────────── */
+.phn-sidebar-item-active {
+  background: var(--phn-surface-bg, rgba(255, 255, 255, 0.05)) !important;
+  box-shadow: inset 2px 0 0 var(--phn-link, #4daafc);
+}
+
+/* ── Sidebar: collapse toggle + collapsed rail ────────────────────────── */
+.phn-sidebar-collapse-btn {
+  background: transparent;
+  border: none;
+  color: var(--phn-text-dim, #888);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.phn-sidebar-collapse-btn:hover {
+  color: var(--phn-text-active, #fff);
+  background: rgba(255, 255, 255, 0.06);
+}
+/* Collapsed rail: hide everything but the project dots + the expand button. */
+.phn-sidebar-collapsed .phn-sidebar-search-wrap,
+.phn-sidebar-collapsed .phn-sidebar-section,
+.phn-sidebar-collapsed .phn-sidebar-rowtext {
+  display: none !important;
+}
+
+/* ── Snippets drawer (right side, slides in) ──────────────────────────── */
+.phn-snippets-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 300px;
+  background: var(--phn-surface-bg, #161616);
+  border-left: 1px solid var(--phn-surface-border, #2b2b2b);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.18s ease;
+  z-index: 30;
+  box-shadow: -10px 0 26px rgba(0, 0, 0, 0.4);
+}
+.phn-snippets-drawer.open {
+  transform: translateX(0);
+}
+.phn-snippets-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--phn-surface-border, #2b2b2b);
+  color: var(--phn-text-active, #e6e6e6);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+.phn-snippets-close {
+  background: transparent;
+  border: none;
+  color: var(--phn-text-dim, #888);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.phn-snippets-close:hover {
+  color: var(--phn-text-active, #fff);
+  background: rgba(255, 255, 255, 0.06);
+}
+.phn-snippets-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.phn-snippet-item {
+  padding: 7px 10px;
+  border-radius: 4px;
+  margin-bottom: 3px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.phn-snippet-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--phn-surface-border, #2b2b2b);
+}
+.phn-snippet-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--phn-text-active, #e6e6e6);
+  margin-bottom: 2px;
+}
+.phn-snippet-command {
+  font-size: 10px;
+  color: var(--phn-text-dim, #888);
+  font-family: 'JetBrains Mono', Menlo, Monaco, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.phn-snippets-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--phn-text-dim, #777);
+  font-size: 11px;
+  line-height: 1.5;
+}

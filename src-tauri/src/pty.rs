@@ -404,6 +404,19 @@ pub fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(), Str
     Ok(())
 }
 
+/// Basename of the shell new tabs will spawn (e.g. "zsh", "pwsh.exe"). Surfaced
+/// in the status bar so users can see at a glance which shell they're in.
+/// Matches whatever `pick_shell` chooses for this platform.
+#[tauri::command]
+pub fn default_shell() -> String {
+    let (shell, _) = pick_shell();
+    std::path::Path::new(&shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or(shell)
+}
+
 /// Kill every live PTY child. Called from RunEvent::ExitRequested so we
 /// never leave a shell process orphaned when the app closes.
 pub fn kill_all(registry: &SessionRegistry) {

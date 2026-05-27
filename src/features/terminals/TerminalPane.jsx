@@ -6,6 +6,14 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
+import {
+  registerPtyWriter,
+  unregisterPty,
+  setTabDims,
+  setTabVisible,
+  isBroadcast,
+  writeBroadcast,
+} from "./ptyBridge.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
 // rather than an mp3 asset so there's nothing to bundle. Two-note ascending
@@ -489,6 +497,13 @@ export default function TerminalPane({
         }
         ptyId = id;
 
+        // Expose this tab's PTY to the snippets drawer / status bar via the
+        // bridge. Writer closes over the local ptyId; dims reported below.
+        registerPtyWriter(tabId, (data) => {
+          if (ptyId) invoke("pty_write", { id: ptyId, data }).catch(() => {});
+        });
+        try { setTabDims(tabId, term.cols, term.rows); } catch {}
+
         unlistenData = await listen(`pty://${id}`, (e) => {
           if (!alive) return;
           const payload = e.payload || "";
@@ -529,11 +544,19 @@ export default function TerminalPane({
           // Clear the auto-approve match buffer when the user types — they
           // intend to answer the prompt themselves.
           recentOutRef.current = "";
-          invoke("pty_write", { id: ptyId, data }).catch(() => {});
+          // MultiExec: when broadcast is on, fan the keystroke out to every
+          // visible terminal (this pane included, since it's visible) rather
+          // than writing only to our own PTY — so it lands exactly once here.
+          if (isBroadcast()) {
+            writeBroadcast(data);
+          } else {
+            invoke("pty_write", { id: ptyId, data }).catch(() => {});
+          }
         });
 
         term.onResize(({ cols, rows }) => {
           if (alive && ptyId) {
+            setTabDims(tabId, cols, rows);
             invoke("pty_resize", {
               id: ptyId,
               cols: Math.max(cols, MIN_COLS),
@@ -629,6 +652,7 @@ export default function TerminalPane({
       // newline-split, ANSI stripped via join" version. So this is now a
       // no-op — Rust already wrote every chunk to disk as it streamed.
 
+      unregisterPty(tabId);
       if (unlistenData) unlistenData();
       if (unlistenExit) unlistenExit();
       if (ptyId) invoke("pty_kill", { id: ptyId }).catch(() => {});
@@ -637,6 +661,12 @@ export default function TerminalPane({
       fitRef.current = null;
     };
   }, [cwd]);
+
+  // Report visibility to the bridge so MultiExec broadcast only targets the
+  // terminals the user can actually see (the active tab of each panel).
+  useEffect(() => {
+    setTabVisible(tabId, visible);
+  }, [tabId, visible]);
 
   // When a hidden pane becomes visible, refit + focus + reset activity.
   useEffect(() => {

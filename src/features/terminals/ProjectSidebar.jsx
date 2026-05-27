@@ -24,6 +24,10 @@ const COLOR_PALETTE = [
 
 const colorHex = (id) => COLOR_PALETTE.find(c => c.id === id)?.hex || FG_FAINT;
 
+// SSH sessions carry a `connection`; older/local records have a `path`.
+const isSsh = (p) => p?.type === "ssh" || (!!p?.connection && !p?.path);
+const typeGlyph = (p) => (isSsh(p) ? "🌐" : "🖥");
+
 // Spawn a floating drag preview that follows the cursor.
 function makeGhost(label, color) {
   const el = document.createElement("div");
@@ -69,6 +73,8 @@ const DONE_FG = "#34D399";
 export default function ProjectSidebar({
   projects,
   projectActivities,
+  collapsed = false,
+  onToggleCollapse,
   onClickProject,
   onAddProject,
   onRemoveProject,
@@ -79,6 +85,7 @@ export default function ProjectSidebar({
   onRunScript,
 }) {
   const [hoverId, setHoverId] = useState(null);
+  const [query, setQuery] = useState(""); // project name filter
   const [ctxMenu, setCtxMenu] = useState(null); // {x, y, projectId}
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
@@ -236,17 +243,23 @@ export default function ProjectSidebar({
     }
   };
 
+  const q = query.trim().toLowerCase();
+  const visibleProjects = q
+    ? projects.filter((p) => (p.name || "").toLowerCase().includes(q))
+    : projects;
+
   return (
     <div
-      className="phn-sidebar"
+      className={collapsed ? "phn-sidebar phn-sidebar-collapsed" : "phn-sidebar"}
       style={{
-        width: 200,
+        width: collapsed ? 48 : 200,
+        minWidth: collapsed ? 48 : 200,
         flexShrink: 0,
         display: "flex",
         flexDirection: "column",
-        fontFamily: M,
-        fontSize: 11,
+        fontSize: 12,
         overflow: "hidden",
+        transition: "width 0.18s ease, min-width 0.18s ease",
       }}
     >
       <div
@@ -254,38 +267,66 @@ export default function ProjectSidebar({
         style={{
           display: "flex",
           alignItems: "center",
-          padding: "6px 8px 6px 10px",
+          gap: 4,
+          padding: collapsed ? "6px 0" : "6px 8px 6px 10px",
+          justifyContent: collapsed ? "center" : "flex-start",
           minHeight: 32,
           boxSizing: "border-box",
         }}
       >
-        <span style={{ flex: 1, color: FG_DIM, letterSpacing: 0.5, fontSize: 10 }}>PROJECTS</span>
+        {!collapsed && (
+          <span className="phn-sidebar-rowtext" style={{ flex: 1, color: FG_DIM, letterSpacing: 0.5, fontSize: 10 }}>SESSIONS</span>
+        )}
+        {!collapsed && (
+          <button
+            onClick={onAddProject}
+            title="Add session (local shell or SSH host)"
+            style={{
+              background: "transparent",
+              border: `1px solid ${BORDER}`,
+              color: ACCENT,
+              cursor: "pointer",
+              padding: "0 8px",
+              height: 20,
+              borderRadius: 3,
+              fontFamily: M,
+              fontSize: 12,
+              lineHeight: 1,
+            }}
+          >
+            +
+          </button>
+        )}
         <button
-          onClick={onAddProject}
-          title="Add project"
-          style={{
-            background: "transparent",
-            border: `1px solid ${BORDER}`,
-            color: ACCENT,
-            cursor: "pointer",
-            padding: "0 8px",
-            height: 20,
-            borderRadius: 3,
-            fontFamily: M,
-            fontSize: 12,
-            lineHeight: 1,
-          }}
+          className="phn-sidebar-collapse-btn"
+          onClick={onToggleCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          +
+          {collapsed ? "»" : "«"}
         </button>
       </div>
 
+      {!collapsed && projects.length > 0 && (
+        <div className="phn-sidebar-search-wrap">
+          <input
+            className="phn-sidebar-search"
+            type="text"
+            placeholder="Search sessions…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setQuery(""); } }}
+            spellCheck={false}
+          />
+        </div>
+      )}
+
       <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
         {projects.length === 0 ? (
+          collapsed ? null : (
           <div style={{ padding: "28px 16px", color: FG_FAINT, textAlign: "center", fontSize: 11, lineHeight: 1.5 }}>
             <div style={{ fontSize: 24, marginBottom: 12, opacity: 0.6 }}>📁</div>
             <div style={{ marginBottom: 14, color: FG_DIM }}>
-              No projects yet.<br />Add a folder to start running agents.
+              No sessions yet.<br />Add a local folder or an SSH host.
             </div>
             <button
               onClick={onAddProject}
@@ -302,11 +343,14 @@ export default function ProjectSidebar({
               onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(77,170,252,0.1)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
-              + Add project
+              + Add session
             </button>
           </div>
+          )
+        ) : visibleProjects.length === 0 ? (
+          <div className="phn-snippets-empty">No sessions match "{query}".</div>
         ) : (
-          projects.map(p => {
+          visibleProjects.map(p => {
             const isHover = hoverId === p.id;
             const isRenamingThis = renamingId === p.id;
             const isExpanded = expandedId === p.id;
@@ -326,12 +370,13 @@ export default function ProjectSidebar({
                 onContextMenu={(e) => handleRowContextMenu(p, e)}
                 onMouseEnter={() => setHoverId(p.id)}
                 onMouseLeave={() => setHoverId(null)}
-                title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${p.path} (double-click to rename)`}
+                title={collapsed ? p.name : (isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : (isSsh(p) ? `${p.connection?.user || ""}@${p.connection?.host || ""}:${p.connection?.port || 22} (double-click to rename)` : `${p.path} (double-click to rename)`))}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
-                  padding: "5px 10px",
+                  padding: collapsed ? "8px 0" : "7px 12px",
+                  justifyContent: collapsed ? "center" : "flex-start",
                   cursor: isRenamingThis ? "text" : "pointer",
                   background: isHover ? "rgba(255,255,255,0.04)" : "transparent",
                   userSelect: "none",
@@ -349,6 +394,8 @@ export default function ProjectSidebar({
                     transition: "box-shadow 0.2s",
                   }}
                 />
+                {!collapsed && (
+                <>
                 {isRenamingThis ? (
                   <input
                     ref={renameInputRef}
@@ -378,6 +425,12 @@ export default function ProjectSidebar({
                 ) : (
                   <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 5 }}>
                     <span
+                      style={{ flexShrink: 0, fontSize: 10, opacity: 0.85, alignSelf: "center" }}
+                      title={isSsh(p) ? "SSH session" : "Local shell"}
+                    >
+                      {typeGlyph(p)}
+                    </span>
+                    <span
                       style={{
                         flex: 1,
                         minWidth: 0,
@@ -390,29 +443,49 @@ export default function ProjectSidebar({
                     >
                       {p.name}
                     </span>
-                    {gitStatus[p.id] && (
-                      <span
-                        style={{
-                          flexShrink: 0,
-                          color: FG_FAINT,
-                          fontSize: 9,
-                          letterSpacing: 0.3,
-                          maxWidth: 70,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                        title={`Branch: ${gitStatus[p.id].branch}${gitStatus[p.id].dirty ? " (dirty)" : ""}`}
-                      >
-                        {gitStatus[p.id].branch}
-                        {gitStatus[p.id].dirty && (
-                          <span style={{ color: "#FBBF24", marginLeft: 1 }}>*</span>
-                        )}
-                      </span>
+                    {isSsh(p) ? (
+                      p.connection?.host && (
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            color: FG_FAINT,
+                            fontSize: 9,
+                            letterSpacing: 0.3,
+                            maxWidth: 80,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={`${p.connection?.user || ""}@${p.connection.host}:${p.connection?.port || 22}`}
+                        >
+                          {p.connection.host}
+                        </span>
+                      )
+                    ) : (
+                      gitStatus[p.id] && (
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            color: FG_FAINT,
+                            fontSize: 9,
+                            letterSpacing: 0.3,
+                            maxWidth: 70,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={`Branch: ${gitStatus[p.id].branch}${gitStatus[p.id].dirty ? " (dirty)" : ""}`}
+                        >
+                          {gitStatus[p.id].branch}
+                          {gitStatus[p.id].dirty && (
+                            <span style={{ color: "#FBBF24", marginLeft: 1 }}>*</span>
+                          )}
+                        </span>
+                      )
                     )}
                   </div>
                 )}
-                {!isRenamingThis && (
+                {!isRenamingThis && !isSsh(p) && (
                   <span
                     onMouseDown={(e) => { e.stopPropagation(); }}
                     onClick={(e) => { e.stopPropagation(); toggleExpand(p); }}
@@ -434,7 +507,7 @@ export default function ProjectSidebar({
                   <span
                     onMouseDown={(e) => { e.stopPropagation(); }}
                     onClick={(e) => { e.stopPropagation(); onRemoveProject(p.id); }}
-                    title="Remove project"
+                    title="Remove session"
                     style={{
                       color: FG_FAINT,
                       cursor: "pointer",
@@ -448,8 +521,10 @@ export default function ProjectSidebar({
                     ×
                   </span>
                 )}
+                </>
+                )}
               </div>
-              {isExpanded && (
+              {!collapsed && isExpanded && (
                 <div style={{ padding: "2px 0 6px 28px", borderLeft: `1px solid ${BORDER}`, marginLeft: 13 }}>
                   {recentFiles[p.id] === undefined ? (
                     <div style={{ color: FG_FAINT, fontSize: 10, padding: "3px 8px", fontStyle: "italic" }}>loading…</div>
@@ -506,7 +581,7 @@ export default function ProjectSidebar({
                 onClick={() => { onEditProject(project.id); closeCtx(); }}
                 style={ctxBtnStyle()}
               >
-                Edit project…
+                Edit session…
               </button>
 
               <div style={{ padding: "6px 4px 4px", color: FG_DIM, fontSize: 9, letterSpacing: 0.6 }}>COLOR</div>

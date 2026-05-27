@@ -99,6 +99,8 @@ export default function TerminalPanel({
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef(null);
+  // Hovered tab — drives the hover-only close button (Termius style).
+  const [hoverTabId, setHoverTabId] = useState(null);
 
   // Tab drag between panels. Mouse-event based (HTML5 drag is broken in
   // WebView2 per the code-rule memo). On drop over a different panel, the
@@ -199,9 +201,8 @@ export default function TerminalPanel({
           alignItems: "center",
           background: STRIP_BG,
           borderBottom: `1px solid ${BORDER_DIM}`,
-          minHeight: 26,
-          fontFamily: M,
-          fontSize: 11,
+          minHeight: 34,
+          fontSize: 12,
           flexShrink: 0,
           overflow: "hidden",
         }}
@@ -217,11 +218,13 @@ export default function TerminalPanel({
                 onMouseDown={(e) => { handleTabMouseDown(tab, e); }}
                 onClick={(e) => { e.stopPropagation(); if (!isRenamingThis) onSwitchTab(tab.id); }}
                 onDoubleClick={(e) => { e.stopPropagation(); startRename(tab); }}
+                onMouseEnter={() => setHoverTabId(tab.id)}
+                onMouseLeave={() => setHoverTabId((cur) => (cur === tab.id ? null : cur))}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
-                  padding: "4px 8px",
+                  padding: "5px 10px",
                   cursor: isRenamingThis ? "text" : "pointer",
                   background: active ? PANEL_BG : "transparent",
                   color: active ? TAB_FG_ACTIVE : TAB_FG,
@@ -265,8 +268,8 @@ export default function TerminalPanel({
                       background: "rgba(255,255,255,0.08)",
                       border: `1px solid ${ACCENT}`,
                       color: "#fff",
-                      fontFamily: M,
-                      fontSize: 11,
+                      fontFamily: "inherit",
+                      fontSize: 12,
                       padding: "0 4px",
                       width: Math.max(60, renameValue.length * 7 + 12),
                       outline: "none",
@@ -285,6 +288,10 @@ export default function TerminalPanel({
                       padding: "0 2px",
                       fontSize: 12,
                       lineHeight: 1,
+                      // Hover-only close (Termius style). Fades rather than
+                      // unmounts so the tab width doesn't jitter on hover.
+                      opacity: hoverTabId === tab.id ? 1 : 0,
+                      transition: "opacity 0.15s ease",
                     }}
                     onMouseEnter={(e) => { e.currentTarget.style.color = "#f44"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.color = "#666"; }}

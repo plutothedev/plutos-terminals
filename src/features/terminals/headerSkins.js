@@ -148,6 +148,22 @@ export const HEADER_SKINS = [
       ...ANSI_LIGHT,
     },
   },
+  {
+    id: "pro",
+    label: "Pro — Linear-inspired dark",
+    description: "Clean, precise, modern. Professional terminal-emulator aesthetic (Termius / Linear).",
+    xterm: {
+      background: "#08090a",
+      foreground: "#b4b8c0",
+      cursor: "#5e6ad2",
+      selectionBackground: "rgba(94,106,210,0.3)",
+      black: "#1a1a1b", red: "#ef4444", green: "#10b981", yellow: "#f59e0b",
+      blue: "#5e6ad2", magenta: "#a78bfa", cyan: "#22d3ee", white: "#b4b8c0",
+      brightBlack: "#4b4b4d", brightRed: "#f87171", brightGreen: "#34d399",
+      brightYellow: "#fbbf24", brightBlue: "#828fff", brightMagenta: "#c4b5fd",
+      brightCyan: "#67e8f9", brightWhite: "#f7f8f8",
+    },
+  },
 ];
 
 export function getSkinXtermTheme(skinId, opts = {}) {
@@ -243,14 +259,29 @@ export function applyGlobalLayout(layoutId) {
 export function getSkinId(stored) {
   const ids = HEADER_SKINS.map((s) => s.id);
   if (typeof stored === "string" && ids.includes(stored)) return stored;
-  return "default";
+  // v3.0: "pro" (Linear-inspired dark) is the new default aesthetic. Users who
+  // explicitly picked a skin keep it (stored is a valid id); only the unset
+  // case falls through to pro.
+  return "pro";
 }
 
 const CSS = `
+/* v3.0: UI chrome uses a modern sans-serif everywhere (every skin); terminals
+   + code stay monospace. Single source of truth for the chrome font. */
+:root {
+  --phn-ui-font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --phn-mono-font: 'JetBrains Mono', Menlo, Monaco, monospace;
+}
+
 /* ── App-wide skinnable surfaces (read CSS vars set per skin below). ── */
 .phn-page {
   background: var(--phn-page-bg, #0a0a0a);
   color: var(--phn-text-fg, #9D9D9D);
+  font-family: var(--phn-ui-font);
+}
+/* Mono stays opt-in: terminals set their own font; these keep code legible. */
+.phn-snippet-command, .phn-mono, code, pre, kbd, samp {
+  font-family: var(--phn-mono-font) !important;
 }
 .phn-statusbar {
   background: var(--phn-surface-bg, #181818);
@@ -398,31 +429,34 @@ const CSS = `
   -webkit-backdrop-filter: blur(8px);
 }
 
-/* Base structural rules — apply to every skin. */
+/* Base structural rules — apply to every skin (v3.0 "Pro" chrome: sans-serif,
+   taller header, pill buttons, more breathing room). */
 .phn-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  gap: 8px;
+  font-family: var(--phn-ui-font);
+  font-size: 12px;
   flex-shrink: 0;
-  min-height: 32px;
+  min-height: 42px;
   box-sizing: border-box;
-  padding: 6px 10px;
+  padding: 7px 14px;
   transition: background 200ms ease, border-color 200ms ease;
 }
-.phn-title { letter-spacing: 0.5px; font-weight: 600; }
+.phn-title { letter-spacing: 0.2px; font-weight: 700; font-size: 13px; }
 .phn-meta-dot { opacity: 0.4; }
 .phn-btn, .phn-select {
   background: transparent;
   cursor: pointer;
-  padding: 3px 10px;
-  border-radius: 3px;
-  font-family: 'JetBrains Mono', Menlo, Monaco, monospace;
-  font-size: 11px;
+  padding: 5px 11px;
+  border-radius: 7px;
+  font-family: var(--phn-ui-font);
+  font-size: 12px;
+  font-weight: 500;
   outline: none;
   transition: background 100ms ease, border-color 100ms ease, color 100ms ease, box-shadow 100ms ease;
 }
-.phn-select { padding: 3px 6px; }
+.phn-select { padding: 5px 8px; }
 .phn-btn:disabled {
   cursor: not-allowed !important;
   opacity: 0.4;
@@ -710,6 +744,35 @@ const CSS = `
 }
 [data-phn-skin="daylight"] option { background: #ffffff; color: #1d1d1f; }
 
+/* ── pro — Linear-inspired dark ───────────────────────────── */
+[data-phn-skin="pro"] .phn-header {
+  background: #08090a;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+[data-phn-skin="pro"] .phn-title {
+  color: #f7f8f8;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-size: 13px;
+}
+[data-phn-skin="pro"] .phn-meta { color: #8a8f98; }
+[data-phn-skin="pro"] .phn-cost { color: #10b981; }
+[data-phn-skin="pro"] .phn-btn,
+[data-phn-skin="pro"] .phn-select {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: #b4b8c0;
+  border-radius: 6px;
+}
+[data-phn-skin="pro"] .phn-btn:hover:not(:disabled),
+[data-phn-skin="pro"] .phn-select:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.10);
+  color: #f7f8f8;
+}
+[data-phn-skin="pro"] .phn-muted { color: #62666d !important; }
+[data-phn-skin="pro"] option { background: #0f1011; color: #b4b8c0; }
+
 /* ────────── Per-skin CSS variables — drive .phn-page / .phn-statusbar /
    .phn-sidebar / .phn-sidebar-header without per-skin specific rules. ─── */
 
@@ -821,6 +884,17 @@ const CSS = `
   --phn-text-active: #1d1d1f;
   --phn-text-dim: #6e6e73;
   --phn-link: #0066cc;
+}
+
+[data-phn-skin="pro"] {
+  --phn-page-bg: #08090a;
+  --phn-surface-bg: #0f1011;
+  --phn-surface-alt-bg: #141516;
+  --phn-surface-border: rgba(255,255,255,0.06);
+  --phn-text-fg: #8a8f98;
+  --phn-text-active: #f7f8f8;
+  --phn-text-dim: #62666d;
+  --phn-link: #828fff;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

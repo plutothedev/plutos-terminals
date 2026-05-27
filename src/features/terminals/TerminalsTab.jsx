@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
+import SnippetsDrawer from "./SnippetsDrawer";
 import ProjectDialog from "./ProjectDialog";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
@@ -21,6 +22,8 @@ import {
   applyGlobalSkin,
 } from "./headerSkins";
 import * as recording from "./recording.js";
+import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast } from "./ptyBridge.js";
+import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
 
 // Bundled prompt packs — eagerly imported at build time from the repo's
 // prompt-packs/ folder. Anyone who downloads a binary release gets all the
@@ -93,6 +96,48 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [urlOpen, setUrlOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  // v3.0 Pro layout: right-side snippets drawer + collapsible sidebar. Sidebar
+  // collapse persists per-window so a narrow layout survives reloads.
+  const [snippetsOpen, setSnippetsOpen] = useState(false);
+  const sidebarCollapsed = st?.sidebarCollapsed === true;
+  const toggleSidebar = useCallback(() => {
+    save({ ...st, sidebarCollapsed: !(st?.sidebarCollapsed === true) });
+  }, [st, save]);
+
+  // Persisted user snippets. Seeded from the built-in starter set on first use
+  // so the drawer is never empty; edits/additions/deletes persist in app state.
+  const snippets = Array.isArray(st?.snippets) ? st.snippets : DEFAULT_SNIPPETS;
+  const setSnippets = useCallback((next) => {
+    save({ ...st, snippets: next });
+  }, [st, save]);
+
+  // MultiExec broadcast (MobaXterm-style). Transient per-window mode: when on,
+  // a keystroke or snippet goes to every visible terminal at once. Not
+  // persisted — auto-typing into every pane after a restart would surprise.
+  const [broadcast, setBroadcastState] = useState(false);
+  const toggleBroadcast = useCallback(() => {
+    setBroadcastState((on) => {
+      const next = !on;
+      setBroadcast(next);
+      return next;
+    });
+  }, []);
+
+  // Re-render the status bar when the active terminal's dimensions change.
+  const [, bumpDims] = useState(0);
+  useEffect(() => onDimsChange(() => bumpDims((v) => v + 1)), []);
+
+  // Escape closes the snippets drawer (its own search box handles Esc while
+  // focused; this catches Esc when focus is in a terminal).
+  useEffect(() => {
+    if (!snippetsOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setSnippetsOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [snippetsOpen]);
 
   // Recording state — subscribe to recording-module changes so the status
   // bar indicator + command palette labels update when start/stop fires.
@@ -198,6 +243,17 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     () => getSkinXtermTheme(headerSkinId, { pureBlackTerminal }),
     [headerSkinId, pureBlackTerminal]
   );
+
+  // Shell name (basename of the shell new tabs spawn) — fetched once, shown in
+  // the status bar so users can see which shell they're in.
+  const [shellName, setShellName] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    invoke("default_shell")
+      .then((s) => { if (!cancelled && typeof s === "string") setShellName(s); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // Claude CLI availability — checked once on mount, surfaced in the status
   // bar. Doesn't gate behavior; just informs.
@@ -668,6 +724,12 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const openProjectInPanel = useCallback((panelId, projectId, overrideCommands) => {
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
+    // SSH sessions are savable now but have no transport yet — opening one would
+    // wrongly spawn a local shell. Surface the preview state instead.
+    if (project.type === "ssh" || (project.connection && !project.path)) {
+      toast.info(`"${project.name}" is an SSH session — live connection lands in an upcoming release.`);
+      return;
+    }
     const cmds = overrideCommands || project.startCommands || [];
     const labelSuffix = overrideCommands && overrideCommands.length === 1
       ? ` · ${overrideCommands[0]}`
@@ -684,7 +746,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       return { ...p, tabs: [...p.tabs, newTab], activeTabId: newTab.id };
     });
     persist({ ...state, panels, activePanelId: panelId });
-  }, [state, persist, projects]);
+  }, [state, persist, projects, toast]);
 
   const runProjectScript = useCallback((projectId, scriptName) => {
     openProjectInPanel(state.activePanelId, projectId, [`npm run ${scriptName}`]);
@@ -717,6 +779,37 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const activeTabId = activePanel?.activeTabId;
   const activeTab = activePanel?.tabs.find((t) => t.id === activeTabId);
   const activeTabRecording = activeTabId ? recordingTabIds.includes(activeTabId) : false;
+
+  // Snippet insert: type the command into the active tab's shell (no trailing
+  // newline — the user reviews it and presses Enter). Bridges via ptyBridge so
+  // we don't have to thread the PTY id down through TerminalPanel.
+  const insertSnippet = useCallback((command) => {
+    if (!activeTabId) {
+      toast.error("No active terminal to insert into.");
+      return;
+    }
+    // In broadcast mode the snippet lands in every visible terminal; otherwise
+    // just the focused one.
+    if (broadcast) {
+      const n = writeBroadcast(command);
+      if (n === 0) {
+        toast.error("No visible terminal is ready yet — try again in a moment.");
+        return;
+      }
+      toast.info(`Broadcast to ${n} terminal${n === 1 ? "" : "s"}: ${command.length > 32 ? command.slice(0, 32) + "…" : command}`);
+      return;
+    }
+    const ok = writeToTab(activeTabId, command);
+    if (!ok) {
+      toast.error("Active terminal isn't ready yet — try again in a moment.");
+      return;
+    }
+    toast.info(`Inserted: ${command.length > 40 ? command.slice(0, 40) + "…" : command}`);
+  }, [activeTabId, broadcast, toast]);
+
+  // Active terminal size for the status bar (cols × rows), reported by
+  // TerminalPane via the bridge. bumpDims above forces re-read on change.
+  const activeDims = activeTabId ? getTabDims(activeTabId) : null;
 
   const startRecordingActive = useCallback(() => {
     if (!activeTabId) return;
@@ -782,7 +875,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   };
 
   return (
-    <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative", fontFamily: M }}>
+    <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative" }}>
       {draggingFile && (
         <div
           className="phn-drop-overlay"
@@ -805,7 +898,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         <span className="phn-meta phn-meta-dot">·</span>
         <span className="phn-meta">
           {state.panels.length} panel{state.panels.length === 1 ? "" : "s"}
-          {projects.length > 0 && ` · ${projects.length} project${projects.length === 1 ? "" : "s"}`}
+          {projects.length > 0 && ` · ${projects.length} session${projects.length === 1 ? "" : "s"}`}
         </span>
         {(totalCost.cost > 0 || totalCost.tokens > 0) && (
           <span
@@ -892,6 +985,20 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           💾 export
         </button>
         <button
+          className={snippetsOpen ? "phn-btn phn-btn-on" : "phn-btn"}
+          onClick={() => setSnippetsOpen((v) => !v)}
+          title="Snippets — saved commands, click to insert into the active terminal"
+        >
+          📋 snippets
+        </button>
+        <button
+          className={broadcast ? "phn-btn phn-btn-on" : "phn-btn"}
+          onClick={toggleBroadcast}
+          title="Broadcast (MultiExec) — type once, send to every visible terminal at once"
+        >
+          📡 broadcast
+        </button>
+        <button
           className="phn-btn"
           onClick={() => setMcpOpen(true)}
           title="Curated MCP servers — copy or one-click install"
@@ -923,11 +1030,15 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         </button>
       </div>
 
-      {/* Body: sidebar + grid */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0 }}>
+      {/* Body: sidebar + grid (+ snippets drawer, absolutely positioned over
+          the right edge). position:relative anchors the drawer; overflow:hidden
+          clips it while it's translated off-screen. */}
+      <div style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0, position: "relative", overflow: "hidden" }}>
         <ProjectSidebar
           projects={projects}
           projectActivities={projectActivities}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebar}
           onAddProject={() => setDialog({ mode: "add" })}
           onEditProject={(id) => setDialog({ mode: "edit", projectId: id })}
           onRemoveProject={removeProject}
@@ -972,6 +1083,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             />
           ))}
         </div>
+
+        <SnippetsDrawer
+          open={snippetsOpen}
+          onClose={() => setSnippetsOpen(false)}
+          onInsert={insertSnippet}
+          snippets={snippets}
+          onSnippetsChange={setSnippets}
+        />
       </div>
 
       <ProjectDialog
@@ -1022,10 +1141,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         commands={[
           { id: "find-pack", icon: "🔍", label: "Find a pack", hint: "Search recents + bundled by name or description", shortcut: "Ctrl+P", action: () => setSearchOpen(true) },
           { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
+          { id: "new-session", icon: "🌐", label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
           { id: "load-file", icon: "📁", label: "Load pack from file", hint: ".deck.json picker", action: () => fileInputRef.current?.click() },
           { id: "load-url", icon: "🔗", label: "Load pack from URL", hint: "GitHub raw / gist / any HTTPS source", action: () => setUrlOpen(true) },
           { id: "export", icon: "💾", label: "Export current panels as pack", hint: "Save layout to .deck.json", action: () => onExportPack() },
+          { id: "snippets", icon: "📋", label: "Toggle snippets drawer", hint: "Saved commands — click to insert into the active terminal", action: () => setSnippetsOpen((v) => !v) },
+          { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
+          { id: "toggle-sidebar", icon: "◧", label: sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar", hint: "Show projects as a full panel or a narrow icon rail", action: () => toggleSidebar() },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
           { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
           { id: "settings", icon: "⚙️", label: "Open settings", hint: "API key, app skin, header style, density, terminal bg", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },
@@ -1097,16 +1220,21 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         className="phn-statusbar"
         style={{
           flexShrink: 0,
-          padding: "5px 12px",
-          fontSize: 10,
-          fontFamily: M,
+          padding: "6px 14px",
+          fontSize: 11,
           display: "flex",
           alignItems: "center",
           gap: 14,
-          letterSpacing: 0.3,
+          letterSpacing: 0.2,
         }}
       >
         <span>v0.1.26</span>
+        {shellName && (
+          <>
+            <span className="phn-statusbar-divider">·</span>
+            <span title="Shell new tabs spawn">{shellName}</span>
+          </>
+        )}
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => setSetupOpen(true)}
@@ -1120,8 +1248,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               claudeAvailable === true ? "#34D399"
               : claudeAvailable === false ? "#FF0080"
               : "inherit",
-            fontFamily: M,
-            fontSize: 10,
+            fontSize: 11,
           }}
           title={
             claudeAvailable === true ? "Claude Code CLI is on PATH"
@@ -1131,6 +1258,41 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         >
           {claudeAvailable === true ? "claude ✓" : claudeAvailable === false ? "claude ✗ — setup" : "claude …"}
         </button>
+        <span className="phn-statusbar-divider">·</span>
+        <span title="Open panels">{state.panels.length} pane{state.panels.length === 1 ? "" : "s"}</span>
+        {broadcast && (
+          <>
+            <span className="phn-statusbar-divider">·</span>
+            <button
+              onClick={toggleBroadcast}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                margin: 0,
+                cursor: "pointer",
+                color: "#FBBF24",
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+              title="Broadcast (MultiExec) is on — input goes to every visible terminal. Click to turn off."
+            >
+              📡 broadcast on
+            </button>
+          </>
+        )}
+        {activeTab && (
+          <>
+            <span className="phn-statusbar-divider">·</span>
+            <span title="Active tab">{activeTab.label}</span>
+          </>
+        )}
+        {activeDims && (
+          <>
+            <span className="phn-statusbar-divider">·</span>
+            <span title="Active terminal size (columns × rows)">{activeDims.cols}×{activeDims.rows}</span>
+          </>
+        )}
         <span className="phn-statusbar-divider">·</span>
         <span>terminal bg: {pureBlackTerminal ? "pure black" : "skin"}</span>
         {recordingTabIds.length > 0 && (
@@ -1157,8 +1319,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 margin: 0,
                 cursor: "pointer",
                 color: "#FF0080",
-                fontFamily: M,
-                fontSize: 10,
+                fontSize: 11,
                 fontWeight: 600,
               }}
               title={recordingCapHit
