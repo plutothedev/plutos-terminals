@@ -145,12 +145,12 @@ function AppInner() {
   // v0.1.20 (the picker was removed; one canonical look across all skins).
   useEffect(() => { injectHeaderSkinsCss(); }, []);
 
-  // v3.0 one-time migration: force the "pro" skin once so existing users land
-  // on the new look even if they previously had another skin saved. They can
-  // switch again afterward — we only override while proSkinForced is unset.
+  // v4.0 one-time migration: force the "moba" (MobaXterm) skin + layout once so
+  // everyone lands on the new default look. They can switch skins afterward —
+  // we only override while mobaDefaultForced is unset.
   useEffect(() => {
-    if (st?.proSkinForced) return;
-    save({ ...st, headerSkin: "pro", proSkinForced: true });
+    if (st?.mobaDefaultForced) return;
+    save({ ...st, headerSkin: "moba", uiLayout: "moba", mobaDefaultForced: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

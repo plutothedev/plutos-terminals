@@ -164,6 +164,22 @@ export const HEADER_SKINS = [
       brightCyan: "#67e8f9", brightWhite: "#f7f8f8",
     },
   },
+  {
+    id: "moba",
+    label: "MobaXterm — classic toolbox",
+    description: "Blue-grey chrome, pure-black terminal, teal accent. The MobaXterm network-tools look.",
+    xterm: {
+      background: "#000000",
+      foreground: "#cfd6dd",
+      cursor: "#5fd7a7",
+      selectionBackground: "rgba(95,215,167,0.30)",
+      black: "#2e3436", red: "#ef5350", green: "#5fd7a7", yellow: "#e6c34a",
+      blue: "#5aa8e6", magenta: "#c792ea", cyan: "#56c8c8", white: "#cfd6dd",
+      brightBlack: "#5a6066", brightRed: "#ff7b72", brightGreen: "#7ee7bd",
+      brightYellow: "#ffd866", brightBlue: "#7cc0ff", brightMagenta: "#e0b0ff",
+      brightCyan: "#7fe0e0", brightWhite: "#ffffff",
+    },
+  },
 ];
 
 export function getSkinXtermTheme(skinId, opts = {}) {
@@ -259,10 +275,10 @@ export function applyGlobalLayout(layoutId) {
 export function getSkinId(stored) {
   const ids = HEADER_SKINS.map((s) => s.id);
   if (typeof stored === "string" && ids.includes(stored)) return stored;
-  // v3.0: "pro" (Linear-inspired dark) is the new default aesthetic. Users who
-  // explicitly picked a skin keep it (stored is a valid id); only the unset
-  // case falls through to pro.
-  return "pro";
+  // v4.0: "moba" (MobaXterm classic toolbox) is the new default aesthetic.
+  // Explicitly-picked skins are kept (stored is a valid id); only the unset
+  // case falls through to moba. (Pro remains selectable.)
+  return "moba";
 }
 
 const CSS = `
@@ -773,6 +789,35 @@ const CSS = `
 [data-phn-skin="pro"] .phn-muted { color: #62666d !important; }
 [data-phn-skin="pro"] option { background: #0f1011; color: #b4b8c0; }
 
+/* ── moba — MobaXterm classic toolbox (blue-grey chrome) ──── */
+[data-phn-skin="moba"] .phn-header {
+  background: #2b2d31;
+  border-bottom: 1px solid #1c1d20;
+}
+[data-phn-skin="moba"] .phn-title {
+  color: #eaeef2;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-size: 12px;
+}
+[data-phn-skin="moba"] .phn-meta { color: #9aa0a6; }
+[data-phn-skin="moba"] .phn-cost { color: #5fd7a7; }
+[data-phn-skin="moba"] .phn-btn,
+[data-phn-skin="moba"] .phn-select {
+  background: #34373c;
+  border: 1px solid #1c1d20;
+  color: #cfd6dd;
+  border-radius: 4px;
+}
+[data-phn-skin="moba"] .phn-btn:hover:not(:disabled),
+[data-phn-skin="moba"] .phn-select:hover {
+  background: #3f4248;
+  border-color: #5fd7a7;
+  color: #ffffff;
+}
+[data-phn-skin="moba"] .phn-muted { color: #7a7e85 !important; }
+[data-phn-skin="moba"] option { background: #2b2d31; color: #cfd6dd; }
+
 /* ────────── Per-skin CSS variables — drive .phn-page / .phn-statusbar /
    .phn-sidebar / .phn-sidebar-header without per-skin specific rules. ─── */
 
@@ -895,6 +940,17 @@ const CSS = `
   --phn-text-active: #f7f8f8;
   --phn-text-dim: #62666d;
   --phn-link: #828fff;
+}
+
+[data-phn-skin="moba"] {
+  --phn-page-bg: #1e1f22;        /* behind panels; terminal itself is pure black */
+  --phn-surface-bg: #2b2d31;     /* header / menu / status surfaces */
+  --phn-surface-alt-bg: #25272b; /* sidebar / docked panel */
+  --phn-surface-border: #1c1d20;
+  --phn-text-fg: #cfd6dd;
+  --phn-text-active: #ffffff;
+  --phn-text-dim: #8a9099;
+  --phn-link: #5fd7a7;           /* MobaXterm teal-green accent */
 }
 
 /* ════════════════════════════════════════════════════════════════════════

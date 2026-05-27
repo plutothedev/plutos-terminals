@@ -27,7 +27,7 @@ function joinPath(dir, name) {
   return dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
 }
 
-export default function SftpBrowser({ open, connecting, error, sessionId, onClose }) {
+export default function SftpBrowser({ open, connecting, error, sessionId, onClose, docked = false }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [cwd, setCwd] = useState(null);
@@ -52,7 +52,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
 
   // When a session connects, resolve the home dir and list it.
   useEffect(() => {
-    if (!open || !sessionId) return;
+    if ((!open && !docked) || !sessionId) return;
     let alive = true;
     (async () => {
       try {
@@ -63,7 +63,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
       }
     })();
     return () => { alive = false; };
-  }, [open, sessionId, list]);
+  }, [open, docked, sessionId, list]);
 
   const refresh = useCallback(() => { if (cwd) list(cwd); }, [cwd, list]);
 
@@ -128,9 +128,9 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
 
   return (
     <div
-      className={open ? "phn-snippets-drawer open" : "phn-snippets-drawer"}
-      style={{ width: 440 }}
-      aria-hidden={!open}
+      className={docked ? "moba-dock-panel" : open ? "phn-snippets-drawer open" : "phn-snippets-drawer"}
+      style={docked ? undefined : { width: 440 }}
+      aria-hidden={!docked && !open}
     >
       <div className="phn-snippets-header">
         <span>📁 Remote files</span>
@@ -157,7 +157,9 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
       )}
 
       <div className="phn-snippets-list">
-        {connecting ? (
+        {!sessionId && !connecting && !error ? (
+          <div className="phn-snippets-empty">Open an SSH session, then choose <strong>Sftp</strong> to browse its files.</div>
+        ) : connecting ? (
           <div className="phn-snippets-empty">Connecting…</div>
         ) : error ? (
           <div className="phn-snippets-empty" style={{ color: "#f87171" }}>{error}</div>

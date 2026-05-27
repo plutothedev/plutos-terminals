@@ -8,6 +8,7 @@ import SshPasswordModal from "./SshPasswordModal";
 import SftpBrowser from "./SftpBrowser";
 import TunnelsModal from "./TunnelsModal";
 import SerialModal from "./SerialModal";
+import MobaRibbon from "./MobaRibbon";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
@@ -108,13 +109,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
-  // v3.0 Pro layout: right-side snippets drawer + collapsible sidebar. Sidebar
-  // collapse persists per-window so a narrow layout survives reloads.
-  const [snippetsOpen, setSnippetsOpen] = useState(false);
-  const sidebarCollapsed = st?.sidebarCollapsed === true;
-  const toggleSidebar = useCallback(() => {
-    save({ ...st, sidebarCollapsed: !(st?.sidebarCollapsed === true) });
-  }, [st, save]);
+  // v4.0 MobaXterm layout: a vertical ribbon toggles which panel is docked on
+  // the left — "sessions" (project/session list), "snippets" (tools), or "sftp"
+  // (remote files). null = dock collapsed. Defaults to the sessions list.
+  const [ribbon, setRibbon] = useState("sessions");
 
   // Persisted user snippets. Seeded from the built-in starter set on first use
   // so the drawer is never empty; edits/additions/deletes persist in app state.
@@ -138,17 +136,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Re-render the status bar when the active terminal's dimensions change.
   const [, bumpDims] = useState(0);
   useEffect(() => onDimsChange(() => bumpDims((v) => v + 1)), []);
-
-  // Escape closes the snippets drawer (its own search box handles Esc while
-  // focused; this catches Esc when focus is in a terminal).
-  useEffect(() => {
-    if (!snippetsOpen) return;
-    const onKey = (e) => {
-      if (e.key === "Escape") setSnippetsOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [snippetsOpen]);
 
   // Recording state — subscribe to recording-module changes so the status
   // bar indicator + command palette labels update when start/stop fires.
@@ -973,7 +960,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       toast.info("Open an SSH session first — the file browser shows its remote files.");
       return;
     }
-    setSnippetsOpen(false);
     const method = conn.auth?.method || "password";
     let password = null;
     if (method === "password") {
@@ -1010,12 +996,17 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     });
   }, []);
 
-  useEffect(() => {
-    if (!sftp) return;
-    const onKey = (e) => { if (e.key === "Escape") closeSftp(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [sftp, closeSftp]);
+  // Ribbon selection: switch the docked panel. Entering "sftp" connects a
+  // session for the active SSH tab; leaving it disconnects so we don't leak the
+  // connection. Clicking the active tab again (id === null) collapses the dock.
+  const selectRibbon = useCallback((id) => {
+    setRibbon(id);
+    if (id === "sftp") {
+      openSftp();
+    } else if (sftp) {
+      closeSftp();
+    }
+  }, [openSftp, sftp, closeSftp]);
 
   // ── SSH port forwarding (tunnels) ───────────────────────────────────────
   const [tunnelsOpen, setTunnelsOpen] = useState(false);
@@ -1261,16 +1252,16 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           💾 export
         </button>
         <button
-          className={snippetsOpen ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => { const next = !snippetsOpen; setSnippetsOpen(next); if (next && sftp) closeSftp(); }}
-          title="Snippets — saved commands, click to insert into the active terminal"
+          className={ribbon === "snippets" ? "phn-btn phn-btn-on" : "phn-btn"}
+          onClick={() => selectRibbon(ribbon === "snippets" ? null : "snippets")}
+          title="Tools — saved command snippets, click to insert into the active terminal"
         >
           📋 snippets
         </button>
         <button
-          className={sftp ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => (sftp ? closeSftp() : openSftp())}
-          disabled={!sftp && !activeTab?.connection}
+          className={ribbon === "sftp" ? "phn-btn phn-btn-on" : "phn-btn"}
+          onClick={() => selectRibbon(ribbon === "sftp" ? null : "sftp")}
+          disabled={ribbon !== "sftp" && !activeTab?.connection}
           title={activeTab?.connection ? "Remote files (SFTP) for the active SSH session" : "Open an SSH session to browse its files"}
         >
           📁 files
@@ -1329,30 +1320,52 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         </button>
       </div>
 
-      {/* Body: sidebar + grid (+ snippets drawer, absolutely positioned over
-          the right edge). position:relative anchors the drawer; overflow:hidden
-          clips it while it's translated off-screen. */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0, position: "relative", overflow: "hidden" }}>
-        <ProjectSidebar
-          projects={projects}
-          projectActivities={projectActivities}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={toggleSidebar}
-          onAddProject={() => setDialog({ mode: "add" })}
-          onEditProject={(id) => setDialog({ mode: "edit", projectId: id })}
-          onRemoveProject={removeProject}
-          onColorProject={colorProject}
-          onRenameProject={renameProject}
-          onClickProject={(id) => openProjectInPanel(state.activePanelId, id)}
-          onDropProject={(id, panelId) => openProjectInPanel(panelId, id)}
-          onRunScript={runProjectScript}
-          onForgetPassword={(project) => {
-            if (!project?.connection) return;
-            invoke("secret_delete", { account: sshAccount(project.connection) })
-              .then(() => toast.info(`Forgot saved password for ${project.name}.`))
-              .catch((e) => toast.error(`Couldn't clear keychain: ${e}`));
-          }}
-        />
+      {/* Body: MobaXterm vertical ribbon + docked left panel + terminal grid.
+          The ribbon toggles which panel is docked (Sessions / Tools / Sftp). */}
+      <div className="moba-body" style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0, position: "relative", overflow: "hidden" }}>
+        <MobaRibbon active={ribbon} onSelect={selectRibbon} />
+        {ribbon && (
+          <div className="moba-dock">
+            {ribbon === "sessions" && (
+              <ProjectSidebar
+                docked
+                projects={projects}
+                projectActivities={projectActivities}
+                onAddProject={() => setDialog({ mode: "add" })}
+                onEditProject={(id) => setDialog({ mode: "edit", projectId: id })}
+                onRemoveProject={removeProject}
+                onColorProject={colorProject}
+                onRenameProject={renameProject}
+                onClickProject={(id) => openProjectInPanel(state.activePanelId, id)}
+                onDropProject={(id, panelId) => openProjectInPanel(panelId, id)}
+                onRunScript={runProjectScript}
+                onForgetPassword={(project) => {
+                  if (!project?.connection) return;
+                  invoke("secret_delete", { account: sshAccount(project.connection) })
+                    .then(() => toast.info(`Forgot saved password for ${project.name}.`))
+                    .catch((e) => toast.error(`Couldn't clear keychain: ${e}`));
+                }}
+              />
+            )}
+            {ribbon === "snippets" && (
+              <SnippetsDrawer
+                docked
+                onInsert={insertSnippet}
+                snippets={snippets}
+                onSnippetsChange={setSnippets}
+              />
+            )}
+            {ribbon === "sftp" && (
+              <SftpBrowser
+                docked
+                connecting={sftp?.connecting}
+                error={sftp?.error}
+                sessionId={sftp?.id}
+                onClose={() => selectRibbon("sessions")}
+              />
+            )}
+          </div>
+        )}
 
         <div
           style={{
@@ -1392,22 +1405,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             />
           ))}
         </div>
-
-        <SnippetsDrawer
-          open={snippetsOpen}
-          onClose={() => setSnippetsOpen(false)}
-          onInsert={insertSnippet}
-          snippets={snippets}
-          onSnippetsChange={setSnippets}
-        />
-
-        <SftpBrowser
-          open={!!sftp}
-          connecting={sftp?.connecting}
-          error={sftp?.error}
-          sessionId={sftp?.id}
-          onClose={closeSftp}
-        />
       </div>
 
       <TunnelsModal
@@ -1491,12 +1488,12 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "load-file", icon: "📁", label: "Load pack from file", hint: ".deck.json picker", action: () => fileInputRef.current?.click() },
           { id: "load-url", icon: "🔗", label: "Load pack from URL", hint: "GitHub raw / gist / any HTTPS source", action: () => setUrlOpen(true) },
           { id: "export", icon: "💾", label: "Export current panels as pack", hint: "Save layout to .deck.json", action: () => onExportPack() },
-          { id: "snippets", icon: "📋", label: "Toggle snippets drawer", hint: "Saved commands — click to insert into the active terminal", action: () => setSnippetsOpen((v) => !v) },
-          { id: "sftp", icon: "📁", label: "Remote files (SFTP)", hint: "Browse / transfer files on the active SSH session's host", action: () => (sftp ? closeSftp() : openSftp()) },
+          { id: "snippets", icon: "📋", label: "Tools / snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+          { id: "sftp", icon: "📁", label: "Remote files (SFTP)", hint: "Browse / transfer files on the active SSH session's host", action: () => selectRibbon(ribbon === "sftp" ? null : "sftp") },
           { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
           { id: "serial", icon: "⎓", label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
-          { id: "toggle-sidebar", icon: "◧", label: sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar", hint: "Show projects as a full panel or a narrow icon rail", action: () => toggleSidebar() },
+          { id: "toggle-sidebar", icon: "◧", label: ribbon ? "Collapse left panel" : "Show sessions panel", hint: "Show or hide the docked left panel", action: () => selectRibbon(ribbon ? null : "sessions") },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
           { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
           { id: "settings", icon: "⚙️", label: "Open settings", hint: "API key, app skin, header style, density, terminal bg", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },

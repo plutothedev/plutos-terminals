@@ -223,6 +223,58 @@
   line-height: 1.5;
 }
 
+/* ── MobaXterm layout: vertical ribbon + docked left panel ───────────── */
+.moba-ribbon {
+  width: 34px;
+  flex-shrink: 0;
+  background: var(--phn-surface-alt-bg, #25272b);
+  border-right: 1px solid var(--phn-surface-border, #1c1d20);
+  display: flex;
+  flex-direction: column;
+}
+.moba-ribbon-tab {
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  color: var(--phn-text-dim, #8a9099);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 12px 2px;
+  font-family: var(--phn-ui-font);
+  font-size: 10px;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.moba-ribbon-tab:hover { color: var(--phn-text-active, #fff); background: rgba(255, 255, 255, 0.04); }
+.moba-ribbon-tab.active {
+  color: var(--phn-link, #5fd7a7);
+  background: var(--phn-surface-bg, #2b2d31);
+  border-left-color: var(--phn-link, #5fd7a7);
+}
+.moba-ribbon-icon { font-size: 14px; line-height: 1; }
+.moba-ribbon-label { writing-mode: vertical-rl; letter-spacing: 0.5px; }
+
+.moba-dock {
+  width: 240px;
+  min-width: 240px;
+  flex-shrink: 0;
+  background: var(--phn-surface-alt-bg, #25272b);
+  border-right: 1px solid var(--phn-surface-border, #1c1d20);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Drawers (snippets / sftp) rendered inline in the dock instead of sliding in. */
+.moba-dock-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--phn-surface-alt-bg, #25272b);
+}
+
 /* ── SFTP file browser ────────────────────────────────────────────────── */
 .phn-sftp-pathbar {
   display: flex;

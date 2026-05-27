@@ -29,6 +29,7 @@ export default function SnippetsDrawer({
   onInsert,
   snippets,
   onSnippetsChange,
+  docked = false,
 }) {
   const editable = typeof onSnippetsChange === "function";
   const items = Array.isArray(snippets) ? snippets : DEFAULT_SNIPPETS;
@@ -65,10 +66,12 @@ export default function SnippetsDrawer({
     onSnippetsChange?.(items.filter((s) => s.id !== id));
   };
 
+  // In MobaXterm layout the drawer renders inline in the left dock (.moba-dock-panel)
+  // — no slide-over transform, always shown. Otherwise it's a right slide-over.
   return (
     <div
-      className={open ? "phn-snippets-drawer open" : "phn-snippets-drawer"}
-      aria-hidden={!open}
+      className={docked ? "moba-dock-panel" : open ? "phn-snippets-drawer open" : "phn-snippets-drawer"}
+      aria-hidden={!docked && !open}
     >
       <div className="phn-snippets-header">
         <span>📋 Snippets</span>

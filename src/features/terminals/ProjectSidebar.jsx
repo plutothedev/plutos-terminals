@@ -75,6 +75,7 @@ export default function ProjectSidebar({
   projectActivities,
   collapsed = false,
   onToggleCollapse,
+  docked = false,
   onClickProject,
   onAddProject,
   onRemoveProject,
@@ -251,11 +252,11 @@ export default function ProjectSidebar({
 
   return (
     <div
-      className={collapsed ? "phn-sidebar phn-sidebar-collapsed" : "phn-sidebar"}
+      className={collapsed && !docked ? "phn-sidebar phn-sidebar-collapsed" : "phn-sidebar"}
       style={{
-        width: collapsed ? 48 : 200,
-        minWidth: collapsed ? 48 : 200,
-        flexShrink: 0,
+        width: docked ? "100%" : collapsed ? 48 : 200,
+        minWidth: docked ? 0 : collapsed ? 48 : 200,
+        flexShrink: docked ? 1 : 0,
         display: "flex",
         flexDirection: "column",
         fontSize: 12,
@@ -298,13 +299,15 @@ export default function ProjectSidebar({
             +
           </button>
         )}
-        <button
-          className="phn-sidebar-collapse-btn"
-          onClick={onToggleCollapse}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? "»" : "«"}
-        </button>
+        {!docked && (
+          <button
+            className="phn-sidebar-collapse-btn"
+            onClick={onToggleCollapse}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? "»" : "«"}
+          </button>
+        )}
       </div>
 
       {!collapsed && projects.length > 0 && (
