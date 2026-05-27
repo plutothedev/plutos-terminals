@@ -334,12 +334,19 @@ export default function TerminalPanel({
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
-                  padding: "5px 10px",
+                  padding: "5px 11px",
+                  marginTop: 3,
+                  marginRight: 2,
                   cursor: isRenamingThis ? "text" : "pointer",
-                  background: active ? PANEL_BG : "transparent",
+                  // MobaXterm-style tab: active tab is "lifted" — content-colored
+                  // body, rounded top, an accent top edge — so it reads as joined
+                  // to the terminal below. Inactive tabs sit recessed/translucent.
+                  background: active ? PANEL_BG : "rgba(255,255,255,0.03)",
                   color: active ? TAB_FG_ACTIVE : TAB_FG,
+                  borderTop: `2px solid ${active ? ACCENT : "transparent"}`,
+                  borderLeft: `1px solid ${BORDER_DIM}`,
                   borderRight: `1px solid ${BORDER_DIM}`,
-                  borderBottom: active ? `2px solid ${ACCENT}` : "2px solid transparent",
+                  borderRadius: "5px 5px 0 0",
                   whiteSpace: "nowrap",
                   userSelect: "none",
                 }}
