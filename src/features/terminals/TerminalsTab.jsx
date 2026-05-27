@@ -5,6 +5,7 @@ import ProjectSidebar from "./ProjectSidebar";
 import SnippetsDrawer from "./SnippetsDrawer";
 import ProjectDialog from "./ProjectDialog";
 import SshPasswordModal from "./SshPasswordModal";
+import SftpBrowser from "./SftpBrowser";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
@@ -24,7 +25,7 @@ import {
   applyGlobalSkin,
 } from "./headerSkins";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword, getTabPassword } from "./ptyBridge.js";
 import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
 
 // Bundled prompt packs — eagerly imported at build time from the repo's
@@ -937,6 +938,55 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // TerminalPane via the bridge. bumpDims above forces re-read on change.
   const activeDims = activeTabId ? getTabDims(activeTabId) : null;
 
+  // ── SFTP remote file browser (Phase 3) ─────────────────────────────────
+  // Opens for the active SSH tab. Connects a dedicated SFTP session (separate
+  // from the shell, which owns its own connection), reusing the tab's
+  // connection + transient password.
+  const [sftp, setSftp] = useState(null); // { connecting, id, error } | null
+  const openSftp = useCallback(async () => {
+    const conn = activeTab?.connection;
+    if (!conn?.host || !conn?.user) {
+      toast.info("Open an SSH session first — the file browser shows its remote files.");
+      return;
+    }
+    setSnippetsOpen(false);
+    const method = conn.auth?.method || "password";
+    let password = null;
+    if (method === "password") {
+      password = getTabPassword(activeTabId);
+      if (!password) {
+        setSftp({ connecting: false, id: null, error: "No password for this session — reopen the SSH tab, then open files." });
+        return;
+      }
+    }
+    setSftp({ connecting: true, id: null, error: null });
+    try {
+      const id = await invoke("sftp_connect", {
+        host: conn.host,
+        port: conn.port || 22,
+        user: conn.user,
+        auth: { ...conn.auth, password },
+      });
+      setSftp({ connecting: false, id, error: null });
+    } catch (e) {
+      setSftp({ connecting: false, id: null, error: String(e) });
+    }
+  }, [activeTab, activeTabId, toast]);
+
+  const closeSftp = useCallback(() => {
+    setSftp((s) => {
+      if (s?.id) invoke("sftp_disconnect", { id: s.id }).catch(() => {});
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!sftp) return;
+    const onKey = (e) => { if (e.key === "Escape") closeSftp(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sftp, closeSftp]);
+
   const startRecordingActive = useCallback(() => {
     if (!activeTabId) return;
     if (recording.isRecording(activeTabId)) {
@@ -1112,10 +1162,17 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         </button>
         <button
           className={snippetsOpen ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => setSnippetsOpen((v) => !v)}
+          onClick={() => { const next = !snippetsOpen; setSnippetsOpen(next); if (next && sftp) closeSftp(); }}
           title="Snippets — saved commands, click to insert into the active terminal"
         >
           📋 snippets
+        </button>
+        <button
+          className={sftp ? "phn-btn phn-btn-on" : "phn-btn"}
+          onClick={() => (sftp ? closeSftp() : openSftp())}
+          title="Remote files (SFTP) for the active SSH session"
+        >
+          📁 files
         </button>
         <button
           className={broadcast ? "phn-btn phn-btn-on" : "phn-btn"}
@@ -1221,6 +1278,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           snippets={snippets}
           onSnippetsChange={setSnippets}
         />
+
+        <SftpBrowser
+          open={!!sftp}
+          connecting={sftp?.connecting}
+          error={sftp?.error}
+          sessionId={sftp?.id}
+          onClose={closeSftp}
+        />
       </div>
 
       <ProjectDialog
@@ -1287,6 +1352,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "load-url", icon: "🔗", label: "Load pack from URL", hint: "GitHub raw / gist / any HTTPS source", action: () => setUrlOpen(true) },
           { id: "export", icon: "💾", label: "Export current panels as pack", hint: "Save layout to .deck.json", action: () => onExportPack() },
           { id: "snippets", icon: "📋", label: "Toggle snippets drawer", hint: "Saved commands — click to insert into the active terminal", action: () => setSnippetsOpen((v) => !v) },
+          { id: "sftp", icon: "📁", label: "Remote files (SFTP)", hint: "Browse / transfer files on the active SSH session's host", action: () => (sftp ? closeSftp() : openSftp()) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
           { id: "toggle-sidebar", icon: "◧", label: sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar", hint: "Show projects as a full panel or a narrow icon rail", action: () => toggleSidebar() },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },

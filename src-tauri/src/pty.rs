@@ -559,6 +559,60 @@ fn verify_host_key(sess: &ssh2::Session, host: &str, port: u16) -> Result<String
     }
 }
 
+/// Open a TCP connection, complete the SSH handshake, verify the host key, and
+/// authenticate — returning a ready session (blocking mode). Shared by the
+/// interactive shell (`ssh_spawn`) and SFTP (`sftp::sftp_connect`).
+pub fn connect_session(
+    host: &str,
+    port: u16,
+    user: &str,
+    auth: &SshAuth,
+) -> Result<ssh2::Session, String> {
+    let port = if port == 0 { 22 } else { port };
+    let tcp = TcpStream::connect((host, port))
+        .map_err(|e| format!("connect to {host}:{port} failed: {e}"))?;
+    let mut sess = ssh2::Session::new().map_err(|e| e.to_string())?;
+    sess.set_tcp_stream(tcp);
+    sess.handshake().map_err(|e| format!("ssh handshake failed: {e}"))?;
+
+    // Host-key verification — never skipped; refuses on a changed key.
+    verify_host_key(&sess, host, port)?;
+
+    match auth.method.as_str() {
+        "password" => {
+            let pw = auth.password.as_deref().unwrap_or("");
+            sess.userauth_password(user, pw)
+                .map_err(|e| format!("password auth failed: {e}"))?;
+        }
+        "key" => {
+            let key = auth.key_path.as_deref().ok_or("no key path provided")?;
+            sess.userauth_pubkey_file(user, None, std::path::Path::new(key), auth.passphrase.as_deref())
+                .map_err(|e| format!("key auth failed: {e}"))?;
+        }
+        "agent" => {
+            let mut agent = sess.agent().map_err(|e| e.to_string())?;
+            agent.connect().map_err(|e| format!("ssh-agent connect failed: {e}"))?;
+            agent.list_identities().map_err(|e| e.to_string())?;
+            let ids = agent.identities().map_err(|e| e.to_string())?;
+            let mut ok = false;
+            for id in ids {
+                if agent.userauth(user, &id).is_ok() {
+                    ok = true;
+                    break;
+                }
+            }
+            if !ok {
+                return Err("ssh-agent: no identity authenticated".into());
+            }
+        }
+        other => return Err(format!("unknown auth method: {other}")),
+    }
+    if !sess.authenticated() {
+        return Err("authentication failed".into());
+    }
+    Ok(sess)
+}
+
 /// Open an interactive SSH shell and register it behind the same `pty_*` seam
 /// local PTYs use. The `ssh2::Channel` is `!Sync`, so it lives solely on the
 /// reader thread; `pty_write`/`pty_resize` reach it via mpsc channels.
@@ -575,54 +629,7 @@ pub fn ssh_spawn(
     rows: u16,
     tab_id: Option<String>,
 ) -> Result<String, String> {
-    let port = if port == 0 { 22 } else { port };
-    let tcp = TcpStream::connect((host.as_str(), port))
-        .map_err(|e| format!("connect to {host}:{port} failed: {e}"))?;
-    let mut sess = ssh2::Session::new().map_err(|e| e.to_string())?;
-    sess.set_tcp_stream(tcp);
-    sess.handshake().map_err(|e| format!("ssh handshake failed: {e}"))?;
-
-    // Host-key verification — never skipped; refuses on a changed key.
-    let _fingerprint = verify_host_key(&sess, &host, port)?;
-
-    // Authentication.
-    match auth.method.as_str() {
-        "password" => {
-            let pw = auth.password.as_deref().unwrap_or("");
-            sess.userauth_password(&user, pw)
-                .map_err(|e| format!("password auth failed: {e}"))?;
-        }
-        "key" => {
-            let key = auth.key_path.as_deref().ok_or("no key path provided")?;
-            sess.userauth_pubkey_file(
-                &user,
-                None,
-                std::path::Path::new(key),
-                auth.passphrase.as_deref(),
-            )
-            .map_err(|e| format!("key auth failed: {e}"))?;
-        }
-        "agent" => {
-            let mut agent = sess.agent().map_err(|e| e.to_string())?;
-            agent.connect().map_err(|e| format!("ssh-agent connect failed: {e}"))?;
-            agent.list_identities().map_err(|e| e.to_string())?;
-            let ids = agent.identities().map_err(|e| e.to_string())?;
-            let mut ok = false;
-            for id in ids {
-                if agent.userauth(&user, &id).is_ok() {
-                    ok = true;
-                    break;
-                }
-            }
-            if !ok {
-                return Err("ssh-agent: no identity authenticated".into());
-            }
-        }
-        other => return Err(format!("unknown auth method: {other}")),
-    }
-    if !sess.authenticated() {
-        return Err("authentication failed".into());
-    }
+    let sess = connect_session(&host, port, &user, &auth)?;
 
     // Interactive shell on a PTY channel.
     let mut channel = sess.channel_session().map_err(|e| e.to_string())?;

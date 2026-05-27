@@ -7,6 +7,7 @@
 
 mod commands;
 mod pty;
+mod sftp;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -16,6 +17,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .manage(pty::SessionRegistry::default())
+        .manage(sftp::SftpRegistry::default())
         .setup(|app| {
             // Ensure the data directory exists for store + scrollback.
             let data_dir = commands::get_data_dir(app.handle());
@@ -116,6 +118,15 @@ pub fn run() {
             pty::pty_kill,
             pty::default_shell,
             pty::ssh_spawn,
+            sftp::sftp_connect,
+            sftp::sftp_home,
+            sftp::sftp_list,
+            sftp::sftp_download,
+            sftp::sftp_upload,
+            sftp::sftp_mkdir,
+            sftp::sftp_remove,
+            sftp::sftp_rename,
+            sftp::sftp_disconnect,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pluto's Terminals")
