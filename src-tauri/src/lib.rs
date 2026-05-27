@@ -115,6 +115,7 @@ pub fn run() {
             commands::mcp_install,
             commands::save_text_to_file,
             commands::spawn_new_window,
+            commands::system_stats,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

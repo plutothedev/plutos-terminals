@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
 
 #[cfg(target_os = "windows")]
@@ -541,4 +542,50 @@ fn walk_dir(
             }
         }
     }
+}
+
+// ── System stats for the MobaXterm-style status bar ──────────────────
+// A persistent System so CPU usage is a real delta between polls (a freshly
+// constructed System reads ~0%). The frontend polls this every couple seconds.
+
+#[derive(Serialize)]
+pub struct SystemStats {
+    pub cpu: f32,           // overall CPU usage, 0..100
+    pub mem_used: u64,      // bytes
+    pub mem_total: u64,     // bytes
+    pub disk_used_pct: f32, // root / primary disk used %
+}
+
+static SYS: OnceLock<Mutex<sysinfo::System>> = OnceLock::new();
+
+#[tauri::command]
+pub fn system_stats() -> SystemStats {
+    let sys_mutex = SYS.get_or_init(|| Mutex::new(sysinfo::System::new_all()));
+    let (cpu, mem_used, mem_total) = match sys_mutex.lock() {
+        Ok(mut sys) => {
+            sys.refresh_cpu_usage();
+            sys.refresh_memory();
+            (sys.global_cpu_usage(), sys.used_memory(), sys.total_memory())
+        }
+        Err(_) => (0.0, 0, 0),
+    };
+
+    // Disk: prefer the root mount ("/"), else fall back to the first disk.
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let pct = |total: u64, avail: u64| -> f32 {
+        if total == 0 { 0.0 } else { (total.saturating_sub(avail) as f64 / total as f64 * 100.0) as f32 }
+    };
+    let mut disk_used_pct = disks
+        .list()
+        .iter()
+        .find(|d| d.mount_point() == std::path::Path::new("/"))
+        .map(|d| pct(d.total_space(), d.available_space()))
+        .unwrap_or(0.0);
+    if disk_used_pct == 0.0 {
+        if let Some(d) = disks.list().first() {
+            disk_used_pct = pct(d.total_space(), d.available_space());
+        }
+    }
+
+    SystemStats { cpu, mem_used, mem_total, disk_used_pct }
 }

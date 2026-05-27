@@ -38,6 +38,13 @@ function sshAccount(conn) {
   return `${conn.user}@${conn.host}:${conn.port || 22}`;
 }
 
+// Green / amber / red for a 0..100 load gauge (CPU, disk) in the status bar.
+function loadColor(pct) {
+  if (pct >= 85) return "#ef4444";
+  if (pct >= 60) return "#f59e0b";
+  return "#10b981";
+}
+
 function freshId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -228,6 +235,18 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       .then((s) => { if (!cancelled && typeof s === "string") setShellName(s); })
       .catch(() => {});
     return () => { cancelled = true; };
+  }, []);
+
+  // Live system stats (CPU / memory / disk) for the MobaXterm status bar.
+  // Polled every ~2.5s; CPU is a real delta because the backend keeps a
+  // persistent System handle.
+  const [sysStats, setSysStats] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const poll = () => invoke("system_stats").then((s) => { if (alive) setSysStats(s); }).catch(() => {});
+    poll();
+    const t = setInterval(poll, 2500);
+    return () => { alive = false; clearInterval(t); };
   }, []);
 
   // Claude CLI availability — checked once on mount, surfaced in the status
@@ -1323,6 +1342,21 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           <>
             <span className="phn-statusbar-divider">·</span>
             <span title="Shell new tabs spawn">{shellName}</span>
+          </>
+        )}
+        {sysStats && (
+          <>
+            <span className="moba-stat" title="CPU usage">
+              <span className="dot" style={{ background: loadColor(sysStats.cpu) }} />
+              CPU {Math.round(sysStats.cpu)}%
+            </span>
+            <span className="moba-stat" title="Memory used / total">
+              🧠 {(sysStats.mem_used / 1e9).toFixed(2)} / {(sysStats.mem_total / 1e9).toFixed(2)} GB
+            </span>
+            <span className="moba-stat" title="Root disk used">
+              <span className="dot" style={{ background: loadColor(sysStats.disk_used_pct) }} />
+              /: {Math.round(sysStats.disk_used_pct)}%
+            </span>
           </>
         )}
         <span className="phn-statusbar-divider">·</span>

@@ -33,3 +33,5 @@ ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 # Serial-port console sessions (USB/UART devices) — cross-platform.
 serialport = "4"
+# System stats (CPU / memory / disk) for the MobaXterm-style status bar.
+sysinfo = "0.33"
