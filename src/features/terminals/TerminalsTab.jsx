@@ -46,6 +46,12 @@ const BUNDLED_PACKS = Object.entries(BUNDLED_PACK_MODULES)
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
+// Keychain account key for an SSH connection's saved password (vault.rs keys
+// under a fixed service; this is the per-host/user account).
+function sshAccount(conn) {
+  return `${conn.user}@${conn.host}:${conn.port || 22}`;
+}
+
 function freshId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -843,8 +849,19 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       };
       const method = project.connection?.auth?.method || "password";
       if (method === "password") {
-        // Defer tab creation until the password modal is submitted.
-        setSshPrompt({ panelId, tab, project });
+        // Try the keychain first; only prompt if there's no saved password.
+        (async () => {
+          let saved = null;
+          try {
+            saved = await invoke("secret_get", { account: sshAccount(project.connection) });
+          } catch { /* keychain unavailable — fall through to prompt */ }
+          if (saved) {
+            setTabPassword(tabId, saved);
+            spawnSessionTab(panelId, tab);
+          } else {
+            setSshPrompt({ panelId, tab, project });
+          }
+        })();
         return;
       }
       spawnSessionTab(panelId, tab); // key / agent need no transient secret
@@ -868,12 +885,17 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // password transiently in the bridge (keyed by the pending tab id) and create
   // the tab — TerminalPane reads the password at ssh_spawn time.
   const [sshPrompt, setSshPrompt] = useState(null);
-  const submitSshPassword = useCallback((password) => {
+  const submitSshPassword = useCallback((password, remember) => {
     if (!sshPrompt) return;
     setTabPassword(sshPrompt.tab.id, password);
+    if (remember) {
+      invoke("secret_set", { account: sshAccount(sshPrompt.project.connection), secret: password })
+        .then(() => toast.info("Password saved to keychain."))
+        .catch((e) => toast.error(`Couldn't save to keychain: ${e}`));
+    }
     spawnSessionTab(sshPrompt.panelId, sshPrompt.tab);
     setSshPrompt(null);
-  }, [sshPrompt, spawnSessionTab]);
+  }, [sshPrompt, spawnSessionTab, toast]);
 
   const runProjectScript = useCallback((projectId, scriptName) => {
     openProjectInPanel(state.activePanelId, projectId, [`npm run ${scriptName}`]);
@@ -955,7 +977,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     if (method === "password") {
       password = getTabPassword(activeTabId);
       if (!password) {
-        setSftp({ connecting: false, id: null, error: "No password for this session — reopen the SSH tab, then open files." });
+        // Fall back to the keychain (e.g. the shell tab connected from a saved
+        // password, or after a restart).
+        try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ }
+        if (password) setTabPassword(activeTabId, password);
+      }
+      if (!password) {
+        setSftp({ connecting: false, id: null, error: "No saved password for this session — reopen the SSH tab, then open files." });
         return;
       }
     }
@@ -1230,6 +1258,12 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           onClickProject={(id) => openProjectInPanel(state.activePanelId, id)}
           onDropProject={(id, panelId) => openProjectInPanel(panelId, id)}
           onRunScript={runProjectScript}
+          onForgetPassword={(project) => {
+            if (!project?.connection) return;
+            invoke("secret_delete", { account: sshAccount(project.connection) })
+              .then(() => toast.info(`Forgot saved password for ${project.name}.`))
+              .catch((e) => toast.error(`Couldn't clear keychain: ${e}`));
+          }}
         />
 
         <div

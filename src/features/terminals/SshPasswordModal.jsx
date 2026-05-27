@@ -8,6 +8,7 @@ import Modal from "../../components/Modal.jsx";
 
 export default function SshPasswordModal({ open, host, user, onSubmit, onCancel }) {
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const inputRef = useRef(null);
 
   // Clear the field whenever the modal opens, and focus it. Never keep a
@@ -15,6 +16,7 @@ export default function SshPasswordModal({ open, host, user, onSubmit, onCancel 
   useEffect(() => {
     if (open) {
       setPassword("");
+      setRemember(false);
       const t = setTimeout(() => inputRef.current?.focus(), 30);
       return () => clearTimeout(t);
     }
@@ -23,7 +25,7 @@ export default function SshPasswordModal({ open, host, user, onSubmit, onCancel 
   if (!open) return null;
 
   const submit = () => {
-    onSubmit?.(password);
+    onSubmit?.(password, remember);
     setPassword("");
   };
 
@@ -61,6 +63,15 @@ export default function SshPasswordModal({ open, host, user, onSubmit, onCancel 
             outline: "none",
           }}
         />
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--phn-text-fg, #b4b8c0)", cursor: "pointer", userSelect: "none" }}>
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+            style={{ cursor: "pointer" }}
+          />
+          Remember in this Mac's keychain (skip this prompt next time)
+        </label>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button
             onClick={onCancel}

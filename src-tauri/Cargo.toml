@@ -28,3 +28,6 @@ rfd = "0.15"
 # Homebrew arch-mismatch (Intel openssl@3 vs arm64 binary) and, more importantly,
 # makes release binaries self-contained — users don't need Homebrew's OpenSSL.
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+# OS-native credential store (macOS Keychain / Windows Credential Manager) for
+# the SSH credential vault — secrets never touch localStorage or disk plaintext.
+keyring = { version = "3", features = ["apple-native", "windows-native"] }

@@ -83,6 +83,7 @@ export default function ProjectSidebar({
   onRenameProject,
   onDropProject,
   onRunScript,
+  onForgetPassword,
 }) {
   const [hoverId, setHoverId] = useState(null);
   const [query, setQuery] = useState(""); // project name filter
@@ -638,6 +639,16 @@ export default function ProjectSidebar({
                     ))}
                   </div>
                 </>
+              )}
+
+              {isSsh(project) && (project.connection?.auth?.method || "password") === "password" && (
+                <button
+                  onClick={() => { onForgetPassword?.(project); closeCtx(); }}
+                  style={ctxBtnStyle()}
+                  title="Delete this session's saved password from the keychain"
+                >
+                  Forget saved password
+                </button>
               )}
 
               <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />

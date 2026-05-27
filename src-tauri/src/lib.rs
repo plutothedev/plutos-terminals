@@ -8,6 +8,7 @@
 mod commands;
 mod pty;
 mod sftp;
+mod vault;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -127,6 +128,9 @@ pub fn run() {
             sftp::sftp_remove,
             sftp::sftp_rename,
             sftp::sftp_disconnect,
+            vault::secret_set,
+            vault::secret_get,
+            vault::secret_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pluto's Terminals")
