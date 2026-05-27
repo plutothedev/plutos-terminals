@@ -9,6 +9,7 @@ import SftpBrowser from "./SftpBrowser";
 import TunnelsModal from "./TunnelsModal";
 import SerialModal from "./SerialModal";
 import MobaRibbon from "./MobaRibbon";
+import MobaMenuBar from "./MobaMenuBar";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
@@ -931,6 +932,67 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   return (
     <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative" }}>
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* MobaXterm menu bar — classic dropdown menus wired to existing actions. */}
+      <MobaMenuBar
+        menus={[
+          {
+            label: "Terminal",
+            items: [
+              { label: "New tab", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
+              { label: "New panel", disabled: !canAddPanel, action: () => addPanel() },
+              { divider: true },
+              { label: "Split right", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+              { label: "Split down", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+              { divider: true },
+              { label: "Close tab", shortcut: "Ctrl+Shift+W", action: () => { const p = state.panels.find((x) => x.id === state.activePanelId); if (p && p.tabs.length > 1 && p.activeTabId) closeTab(p.id, p.activeTabId); } },
+              { label: "New window", action: async () => { try { const id = `${Date.now().toString(36)}`.slice(-6); await invoke("spawn_new_window", { windowId: id }); } catch (e) { toast.error(`New window failed: ${e}`); } } },
+            ],
+          },
+          {
+            label: "Sessions",
+            items: [
+              { label: "New session…", action: () => setDialog({ mode: "add" }) },
+              { divider: true },
+              { label: "Sessions panel", action: () => selectRibbon("sessions") },
+              { label: "Remote files (SFTP)", disabled: !activeTab?.connection, action: () => selectRibbon("sftp") },
+              { label: "Port forwarding…", disabled: !activeTab?.connection, action: () => openTunnels() },
+              { label: "Serial console…", action: () => setSerialOpen(true) },
+            ],
+          },
+          {
+            label: "Tools",
+            items: [
+              { label: "Snippets / Tools panel", action: () => selectRibbon("snippets") },
+              { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
+              { divider: true },
+              { label: "MCP servers…", action: () => setMcpOpen(true) },
+              { label: "Setup checker…", action: () => setSetupOpen(true) },
+              { label: "Command palette", shortcut: "Ctrl+K", action: () => setCommandPaletteOpen(true) },
+            ],
+          },
+          {
+            label: "View",
+            items: [
+              { label: ribbon ? "Hide left panel" : "Show sessions panel", action: () => selectRibbon(ribbon ? null : "sessions") },
+              { divider: true },
+              { label: "Skins & appearance…", action: () => setSettingsOpen(true) },
+            ],
+          },
+          {
+            label: "Settings",
+            items: [
+              { label: "Settings…", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },
+            ],
+          },
+          {
+            label: "Help",
+            items: [
+              { label: "GitHub repository", action: () => window.open("https://github.com/plutothedev/plutos-terminals", "_blank") },
+              { label: "Pluto Discord", action: () => window.open("https://discord.gg/3cZQVgKF", "_blank") },
+            ],
+          },
+        ]}
+      />
       {/* Header — visual treatment driven by user-selected skin (headerSkins.js).
           Layout-only inline styles here; colors/borders/effects come from CSS. */}
       <div className="phn-header" style={{ gap: 12 }}>

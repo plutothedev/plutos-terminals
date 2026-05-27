@@ -223,6 +223,69 @@
   line-height: 1.5;
 }
 
+/* ── MobaXterm menu bar ──────────────────────────────────────────────── */
+.moba-menubar {
+  display: flex;
+  align-items: stretch;
+  background: var(--phn-surface-bg, #2b2d31);
+  border-bottom: 1px solid var(--phn-surface-border, #1c1d20);
+  flex-shrink: 0;
+  font-family: var(--phn-ui-font);
+  font-size: 12px;
+  -webkit-app-region: drag; /* the menu bar doubles as a window drag strip */
+}
+.moba-menu { position: relative; -webkit-app-region: no-drag; }
+.moba-menu-btn {
+  background: transparent;
+  border: none;
+  color: var(--phn-text-fg, #cfd6dd);
+  cursor: pointer;
+  padding: 5px 11px;
+  font-family: inherit;
+  font-size: 12px;
+}
+.moba-menu-btn:hover, .moba-menu-btn.active {
+  background: var(--phn-hover-bg, rgba(255, 255, 255, 0.07));
+  color: var(--phn-text-active, #fff);
+}
+.moba-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 220px;
+  background: var(--phn-surface-bg, #2b2d31);
+  border: 1px solid var(--phn-surface-border, #1c1d20);
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  z-index: 200;
+}
+.moba-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--phn-text-fg, #cfd6dd);
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+.moba-menu-item:hover:not(:disabled) {
+  background: var(--phn-link, #5fd7a7);
+  color: #06231a;
+}
+.moba-menu-item:disabled { opacity: 0.4; cursor: default; }
+.moba-menu-shortcut { color: var(--phn-text-dim, #8a9099); font-size: 11px; }
+.moba-menu-item:hover:not(:disabled) .moba-menu-shortcut { color: #06231a; }
+.moba-menu-divider { height: 1px; background: var(--phn-surface-border, #1c1d20); margin: 4px 0; }
+
 /* ── MobaXterm layout: vertical ribbon + docked left panel ───────────── */
 .moba-ribbon {
   width: 34px;
