@@ -116,6 +116,7 @@ pub fn run() {
             commands::save_text_to_file,
             commands::spawn_new_window,
             commands::system_stats,
+            commands::list_directory,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

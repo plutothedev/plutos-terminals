@@ -544,6 +544,59 @@ fn walk_dir(
     }
 }
 
+// ── Local file browser (MobaXterm-style left "Sftp" panel for local fs) ──
+
+#[derive(Serialize)]
+pub struct LocalEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
+
+fn local_home() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+/// List a local directory (single level). `path` null/empty → home. Returns the
+/// resolved absolute path + entries (dirs first, then case-insensitive by name).
+#[tauri::command]
+pub fn list_directory(path: Option<String>) -> Result<(String, Vec<LocalEntry>), String> {
+    let dir = match path {
+        Some(p) if !p.trim().is_empty() => PathBuf::from(p),
+        _ => local_home(),
+    };
+    let resolved = fs::canonicalize(&dir).unwrap_or(dir);
+    let read = fs::read_dir(&resolved).map_err(|e| format!("{}: {e}", resolved.display()))?;
+    let mut entries = Vec::new();
+    for ent in read.flatten() {
+        let meta = match ent.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let name = ent.file_name().to_string_lossy().into_owned();
+        // Skip dotfiles to keep the tree tidy (MobaXterm hides them by default).
+        if name.starts_with('.') {
+            continue;
+        }
+        entries.push(LocalEntry {
+            name,
+            path: ent.path().to_string_lossy().into_owned(),
+            is_dir: meta.is_dir(),
+            size: meta.len(),
+        });
+    }
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    Ok((resolved.to_string_lossy().into_owned(), entries))
+}
+
 // ── System stats for the MobaXterm-style status bar ──────────────────
 // A persistent System so CPU usage is a real delta between polls (a freshly
 // constructed System reads ~0%). The frontend polls this every couple seconds.

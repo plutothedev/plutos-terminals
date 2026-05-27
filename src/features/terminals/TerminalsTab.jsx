@@ -10,6 +10,7 @@ import TunnelsModal from "./TunnelsModal";
 import SerialModal from "./SerialModal";
 import MobaRibbon from "./MobaRibbon";
 import MobaMenuBar from "./MobaMenuBar";
+import LocalFileBrowser from "./LocalFileBrowser";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
@@ -804,17 +805,26 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     });
   }, []);
 
-  // Ribbon selection: switch the docked panel. Entering "sftp" connects a
-  // session for the active SSH tab; leaving it disconnects so we don't leak the
-  // connection. Clicking the active tab again (id === null) collapses the dock.
+  // Ribbon selection: switch the docked panel. The "files" panel shows the
+  // local filesystem by default; for an SSH tab it connects remote SFTP.
+  // Leaving "files" disconnects any SFTP session so we don't leak it. Clicking
+  // the active tab again (id === null) collapses the dock.
   const selectRibbon = useCallback((id) => {
     setRibbon(id);
-    if (id === "sftp") {
-      openSftp();
+    if (id === "files") {
+      if (activeTab?.connection) openSftp(); // remote SFTP for SSH tabs
     } else if (sftp) {
       closeSftp();
     }
-  }, [openSftp, sftp, closeSftp]);
+  }, [activeTab, openSftp, sftp, closeSftp]);
+
+  // Write raw data into the active terminal (or all visible, in broadcast mode).
+  // Used by the file browser ("cd here", insert path) and snippets.
+  const sendToActiveTerminal = useCallback((data) => {
+    if (!activeTabId) { toast.error("No active terminal."); return; }
+    if (broadcast) writeBroadcast(data);
+    else writeToTab(activeTabId, data);
+  }, [activeTabId, broadcast, toast]);
 
   // ── SSH port forwarding (tunnels) ───────────────────────────────────────
   const [tunnelsOpen, setTunnelsOpen] = useState(false);
@@ -973,7 +983,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               { label: "New session…", action: () => setDialog({ mode: "add" }) },
               { divider: true },
               { label: "Sessions panel", action: () => selectRibbon("sessions") },
-              { label: "Remote files (SFTP)", disabled: !activeTab?.connection, action: () => selectRibbon("sftp") },
+              { label: "File browser", action: () => selectRibbon("files") },
               { label: "Port forwarding…", disabled: !activeTab?.connection, action: () => openTunnels() },
               { label: "Serial console…", action: () => setSerialOpen(true) },
             ],
@@ -1041,10 +1051,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           📋 snippets
         </button>
         <button
-          className={ribbon === "sftp" ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => selectRibbon(ribbon === "sftp" ? null : "sftp")}
-          disabled={ribbon !== "sftp" && !activeTab?.connection}
-          title={activeTab?.connection ? "Remote files (SFTP) for the active SSH session" : "Open an SSH session to browse its files"}
+          className={ribbon === "files" ? "phn-btn phn-btn-on" : "phn-btn"}
+          onClick={() => selectRibbon(ribbon === "files" ? null : "files")}
+          title={activeTab?.connection ? "Remote files (SFTP) for the active SSH session" : "Local file browser"}
         >
           📁 files
         </button>
@@ -1137,14 +1146,18 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 onSnippetsChange={setSnippets}
               />
             )}
-            {ribbon === "sftp" && (
-              <SftpBrowser
-                docked
-                connecting={sftp?.connecting}
-                error={sftp?.error}
-                sessionId={sftp?.id}
-                onClose={() => selectRibbon("sessions")}
-              />
+            {ribbon === "files" && (
+              activeTab?.connection ? (
+                <SftpBrowser
+                  docked
+                  connecting={sftp?.connecting}
+                  error={sftp?.error}
+                  sessionId={sftp?.id}
+                  onClose={() => selectRibbon("sessions")}
+                />
+              ) : (
+                <LocalFileBrowser onSendToTerminal={sendToActiveTerminal} />
+              )
             )}
           </div>
         )}
@@ -1253,7 +1266,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
           { id: "snippets", icon: "📋", label: "Tools / snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-          { id: "sftp", icon: "📁", label: "Remote files (SFTP)", hint: "Browse / transfer files on the active SSH session's host", action: () => selectRibbon(ribbon === "sftp" ? null : "sftp") },
+          { id: "files", icon: "📁", label: "File browser", hint: "Local files (or remote SFTP for an SSH tab) in the left panel", action: () => selectRibbon(ribbon === "files" ? null : "files") },
           { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
           { id: "serial", icon: "⎓", label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },

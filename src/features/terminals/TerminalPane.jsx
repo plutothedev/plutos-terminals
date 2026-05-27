@@ -659,10 +659,12 @@ export default function TerminalPane({
         const isWindowsUA = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
         if (!connection && !serial && !restored && cmdsAtSpawn.length === 0 && !isWindowsUA && alive && ptyId) {
           await new Promise(r => setTimeout(r, 450));
+          // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less.
+          const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah';";
           const zshPrompt = "PROMPT='%K{2}%F{0} %D{%m-%d} %K{4}%F{15} %* %K{3}%F{0} %~ %k%f '";
           const bashPrompt = "PS1='\\[\\e[42;30m\\] \\D{%m-%d} \\[\\e[44;97m\\] \\t \\[\\e[43;30m\\] \\w \\[\\e[0m\\] '";
           const banner = "printf '\\n \\033[36m┌────────────────────────────────────────┐\\033[0m\\n \\033[36m│\\033[0m  \\033[1;32mPluto'\\''s Terminals\\033[0m  \\033[2m— MobaXterm mode\\033[0m   \\033[36m│\\033[0m\\n \\033[36m└────────────────────────────────────────┘\\033[0m\\n\\n'";
-          const init = `if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; clear; ${banner}`;
+          const init = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; clear; ${banner}`;
           if (alive && ptyId) {
             try { await invoke("pty_write", { id: ptyId, data: init + "\r" }); } catch {}
           }

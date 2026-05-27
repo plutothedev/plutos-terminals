@@ -7,7 +7,7 @@ import "./terminals.css";
 const ITEMS = [
   { id: "sessions", label: "Sessions", icon: "🖥" },
   { id: "snippets", label: "Tools", icon: "🛠" },
-  { id: "sftp", label: "Sftp", icon: "📁" },
+  { id: "files", label: "Files", icon: "📁" },
 ];
 
 export default function MobaRibbon({ active, onSelect }) {
