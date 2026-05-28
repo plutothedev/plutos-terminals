@@ -524,7 +524,7 @@
 }
 .moba-menu-item:hover:not(:disabled) {
   background: var(--phn-link, #5fd7a7);
-  color: #06231a;
+  color: var(--phn-accent-fg, #06231a);
 }
 .moba-menu-item:disabled { opacity: 0.4; cursor: default; }
 .moba-menu-shortcut { color: var(--phn-text-dim, #8a9099); font-size: 11px; }
