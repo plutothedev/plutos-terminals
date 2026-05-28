@@ -664,12 +664,12 @@ export default function TerminalPane({
           // codes, and a few quality-of-life aliases. zsh-syntax-highlighting is
           // sourced if it's on the system (gives real "rainbow as you type").
           const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export GREP_OPTIONS=; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah'; alias la='ls -laGh'; for __zsh in /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ~/.zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh; do [ -f \"$__zsh\" ] && source \"$__zsh\" 2>/dev/null && break; done; unset __zsh;";
-          // MobaXterm two-line prompt: yellow [YYYY-MM-DD HH:MM.SS] + path on the
-          // top line, green [user.host] + red ► on the bottom. zsh uses $'...'
-          // so \n becomes a real newline inside PROMPT; bash stays one-line to
-          // avoid PS1's escape-character collisions with $'...' interpretation.
-          const zshPrompt = "PROMPT=$'%F{yellow}[%D{%Y-%m-%d %H:%M.%S}]%f  %F{15}%~%f\\n%F{green}[%n.%m]%f %F{red}►%f '";
-          const bashPrompt = "PS1='\\[\\e[33m\\][\\D{%Y-%m-%d %H:%M.%S}]\\[\\e[97m\\]  \\w  \\[\\e[32m\\][\\u.\\h]\\[\\e[31m\\] ►\\[\\e[0m\\] '";
+          // MobaXterm v12.4 segmented prompt: green 📅 date · cyan 🕐 time ·
+          // yellow 📁 path, each on its own coloured background block with a
+          // black foreground. (Powerline arrow separators need a patched font,
+          // so we use a thin space between blocks instead.)
+          const zshPrompt = "PROMPT='%K{2}%F{0} 📅 %D{%d/%m/%Y} %k%f %K{6}%F{0} 🕐 %* %k%f %K{3}%F{0} 📁 %~ %k%f '";
+          const bashPrompt = "PS1='\\[\\e[42;30m\\] 📅 \\D{%d/%m/%Y} \\[\\e[0m\\] \\[\\e[46;30m\\] 🕐 \\t \\[\\e[0m\\] \\[\\e[43;30m\\] 📁 \\w \\[\\e[0m\\] '";
           // MobaXterm-style welcome box: a white-bordered rectangle on the pure
           // black terminal, with a cyan title, yellow ► markers, and green ✓
           // checks. Plain text is padded to a fixed inner width BEFORE color is

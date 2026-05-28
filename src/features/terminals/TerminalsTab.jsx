@@ -427,6 +427,19 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     persist({ ...state, panels, activePanelId: panelId });
   }, [state, persist]);
 
+  // Home button (in each panel's tab strip): focus the panel's existing launch
+  // screen if it has one, otherwise open a fresh one.
+  const focusOrAddHomeTab = useCallback((panelId) => {
+    const panel = state.panels.find(p => p.id === panelId);
+    const home = panel?.tabs.find(t => t.home);
+    if (home) {
+      const panels = state.panels.map(p => p.id === panelId ? { ...p, activeTabId: home.id } : p);
+      persist({ ...state, panels, activePanelId: panelId });
+    } else {
+      addHomeTab(panelId);
+    }
+  }, [state, persist, addHomeTab]);
+
   // Turn a home tab into a plain local shell in place (the "Start local
   // terminal" action). Dropping the home flag mounts a TerminalPane, which
   // spawns the PTY. Relabels to the default scheme so it reads like a shell tab.
@@ -1247,6 +1260,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               tabAutoApprove={tabAutoApprove}
               tabProjectNames={tabProjectNames}
               homeApi={homeApi}
+              onHome={() => focusOrAddHomeTab(panel.id)}
               onActivate={() => setActivePanel(panel.id)}
               onAddTab={() => addTab(panel.id)}
               onCloseTab={(tabId) => closeTab(panel.id, tabId)}

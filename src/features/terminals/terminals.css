@@ -277,6 +277,77 @@
 }
 .moba-stat .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+/* ── MobaXterm v12.4 Chrome-style tabs ──────────────────────────────────
+   Browser-tab shape: rounded top corners + outward-curving bottom corners
+   made with masked ::before/::after pseudo-elements. Each tab sets its own
+   background via inline style (active/inactive/hover); the pseudo-elements
+   inherit it, and the radial-gradient mask carves the concave corner so the
+   dark strip shows through. */
+.moba-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  margin: 0 9px;
+  border-radius: 9px 9px 0 0;
+  color: var(--phn-tab-fg, #b6b6b6);
+  background: var(--phn-tab-bg, #2b2b2b);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.moba-tab::before,
+.moba-tab::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 9px;
+  height: 9px;
+  background: inherit;
+}
+.moba-tab::before {
+  left: -9px;
+  -webkit-mask: radial-gradient(circle at top left, transparent 9px, #000 9.5px);
+          mask: radial-gradient(circle at top left, transparent 9px, #000 9.5px);
+}
+.moba-tab::after {
+  right: -9px;
+  -webkit-mask: radial-gradient(circle at top right, transparent 9px, #000 9.5px);
+          mask: radial-gradient(circle at top right, transparent 9px, #000 9.5px);
+}
+.moba-tab.active {
+  background: var(--phn-tab-bg-active, #4d4d4d);
+  color: var(--phn-tab-fg-active, #ffffff);
+  z-index: 3;
+}
+.moba-tab:not(.active):hover { background: var(--phn-tab-bg-hover, #3a3a3a); color: #e0e0e0; }
+
+/* Home button — a dedicated round-cornered button left of the tabs (the
+   blue house in MobaXterm), not a tab itself. */
+.moba-home-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 24px;
+  margin: 0 4px 2px 4px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--phn-link, #4aa8c0);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.moba-home-btn:hover { background: var(--phn-hover-bg, rgba(255,255,255,0.08)); }
+.moba-home-btn.active { background: var(--phn-accent-subtle, rgba(74,168,192,0.18)); }
+
 /* ── MobaXterm grouped icon toolbar (big icon-over-label buttons) ────── */
 .moba-toolbar {
   display: flex;

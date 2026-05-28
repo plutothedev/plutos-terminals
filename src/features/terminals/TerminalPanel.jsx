@@ -122,6 +122,7 @@ export default function TerminalPanel({
   tabAutoApprove,
   tabProjectNames,
   homeApi,
+  onHome,
   onActivate,
   onAddTab,
   onCloseTab,
@@ -324,7 +325,19 @@ export default function TerminalPanel({
           overflow: "hidden",
         }}
       >
-        <div style={{ display: "flex", flex: 1, minWidth: 0, overflow: "auto" }}>
+        {/* Home button — MobaXterm's dedicated house button left of the tabs.
+            Focuses the panel's launch-screen tab (or opens one). */}
+        {onHome && (
+          <button
+            className="moba-home-btn"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onHome(); }}
+            title="Home — session launch screen"
+          >
+            🏠
+          </button>
+        )}
+        <div style={{ display: "flex", flex: 1, minWidth: 0, overflow: "auto", alignItems: "flex-end" }}>
           {panel.tabs.map(tab => {
             const active = tab.id === panel.activeTabId;
             const tabState = aggregateTabActivity(tab, tabActivities);
@@ -333,37 +346,13 @@ export default function TerminalPanel({
             return (
               <div
                 key={tab.id}
+                className={active ? "moba-tab active" : "moba-tab"}
                 onMouseDown={(e) => { handleTabMouseDown(tab, e); }}
                 onClick={(e) => { e.stopPropagation(); if (!isRenamingThis) onSwitchTab(tab.id); }}
                 onDoubleClick={(e) => { e.stopPropagation(); startRename(tab); }}
                 onMouseEnter={() => setHoverTabId(tab.id)}
                 onMouseLeave={() => setHoverTabId((cur) => (cur === tab.id ? null : cur))}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  cursor: isRenamingThis ? "text" : "pointer",
-                  // MobaXterm tab shape: a white→grey gradient slab with a thin
-                  // grey outline and rounded top corners, sitting on the dark
-                  // strip. The active tab is brighter and pulled down 1px
-                  // (marginBottom: -1) so it overlaps the strip's bottom line and
-                  // reads as connected to the content — inactive tabs are dimmer
-                  // and recessed. Text colours are explicit so they read on the
-                  // light slab regardless of skin.
-                  background: active
-                    ? "linear-gradient(180deg, #ffffff 0%, #ededed 100%)"
-                    : "linear-gradient(180deg, #c8c8c8 0%, #b3b3b3 100%)",
-                  color: active ? "#000000" : "#454545",
-                  border: "1px solid #8f8f8f",
-                  borderBottom: "none",
-                  borderRadius: "6px 6px 0 0",
-                  padding: active ? "6px 16px 7px" : "5px 16px",
-                  marginRight: 2,
-                  marginBottom: active ? -1 : 0,
-                  boxShadow: active ? "0 -1px 3px rgba(0,0,0,0.25)" : "none",
-                  whiteSpace: "nowrap",
-                  userSelect: "none",
-                }}
+                style={{ cursor: isRenamingThis ? "text" : "pointer" }}
                 title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click to rename)`}
               >
                 <span style={{ flexShrink: 0, fontSize: 11, opacity: 0.9 }} title={tab.home ? "Session launch screen" : tab.rdp ? "RDP desktop" : tab.vnc ? "VNC desktop" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}>
