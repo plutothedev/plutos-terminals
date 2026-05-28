@@ -23,6 +23,7 @@ import SessionSummary from "./SessionSummary";
 import HistorySearch from "./HistorySearch";
 import WorkspacesModal from "./WorkspacesModal";
 import BroadcastGroupModal from "./BroadcastGroupModal";
+import NetToolsModal from "./NetToolsModal";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
@@ -179,6 +180,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [broadcast, setBroadcastState] = useState(false);
   const [bcastTargets, setBcastTargets] = useState(null); // null = all visible; array = explicit group
   const [broadcastGroupOpen, setBroadcastGroupOpen] = useState(false);
+  const [netToolsOpen, setNetToolsOpen] = useState(false);
   const toggleBroadcast = useCallback(() => {
     setBroadcastState((on) => {
       const next = !on;
@@ -1451,6 +1453,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               { label: "Serial console…", action: () => setSerialOpen(true) },
               { label: "VNC remote desktop…", action: () => setVncOpen(true) },
               { label: "RDP remote desktop…", action: () => setRdpOpen(true) },
+              { label: "Network tools (ping · traceroute · ports · DNS)…", action: () => setNetToolsOpen(true) },
             ],
           },
           {
@@ -1793,6 +1796,12 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onUseAllVisible={useAllVisibleBroadcast}
       />
 
+      <NetToolsModal
+        open={netToolsOpen}
+        initialHost={activeTab?.connection?.host || ""}
+        onClose={() => setNetToolsOpen(false)}
+      />
+
       <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
 
       <MacrosModal
@@ -1844,6 +1853,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "rdp", icon: "🪟", label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
           { id: "broadcast-group", icon: "🎯", label: "Broadcast targets… (choose terminals)", hint: "Pick a subset of terminals for MultiExec instead of all visible", action: () => setBroadcastGroupOpen(true) },
+          { id: "nettools", icon: "🌐", label: "Network tools", hint: "Ping, traceroute, TCP port scan, and DNS lookup", action: () => setNetToolsOpen(true) },
           { id: "toggle-sidebar", icon: "◧", label: ribbon ? "Collapse left panel" : "Show sessions panel", hint: "Show or hide the docked left panel", action: () => selectRibbon(ribbon ? null : "sessions") },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
           { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },

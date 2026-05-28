@@ -7,6 +7,7 @@
 
 mod commands;
 mod forward;
+mod netools;
 mod pty;
 mod rdp;
 mod sftp;
@@ -129,6 +130,10 @@ pub fn run() {
             commands::parse_ssh_config,
             commands::ssh_keys_list,
             commands::ssh_key_generate,
+            netools::net_ping,
+            netools::net_traceroute,
+            netools::net_port_scan,
+            netools::net_dns,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
