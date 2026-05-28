@@ -667,14 +667,15 @@ export default function TerminalPane({
           }
         }
 
-        // MobaXterm-style colorful prompt + welcome banner for a *fresh* local
-        // shell. Skipped for restored tabs (don't wipe replayed scrollback) and
-        // for tabs that launch their own app via startCommands (claude, etc.).
-        // Detects zsh/bash at runtime → a green-date / cyan-time / yellow-path
-        // segmented prompt (uses the skin's ANSI palette), clears, prints a
-        // colored banner. Windows shells keep their default for now.
+        // MobaXterm-style colorful prompt + welcome banner for a local shell.
+        // The prompt (+ colours / aliases) is set on BOTH fresh and restored
+        // tabs so the MobaXterm look is consistent after a restart; the clear +
+        // welcome banner + rainbow line run only on a FRESH tab (a restored tab
+        // keeps its replayed scrollback visible — no clear). Skipped for SSH /
+        // serial tabs and for tabs that launch their own app via startCommands.
+        // Detects zsh/bash at runtime. Windows shells keep their default.
         const isWindowsUA = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
-        if (!connection && !serial && !restored && cmdsAtSpawn.length === 0 && !isWindowsUA && alive && ptyId) {
+        if (!connection && !serial && cmdsAtSpawn.length === 0 && !isWindowsUA && alive && ptyId) {
           await new Promise(r => setTimeout(r, 450));
           // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less.
           // MobaXterm parity: ls/grep stay coloured everywhere, less keeps colour
@@ -727,7 +728,13 @@ export default function TerminalPane({
           // makes the welcome instantly colourful like MobaXterm's banner area.
           const tagline = "  multi-terminal · SSH · SFTP · serial · RDP · VNC · MultiExec · snippets · ⌘+K palette";
           const rainbow = `command -v lolcat >/dev/null 2>&1 && printf '%s\\n\\n' '${tagline}' | lolcat || printf '\\033[2m%s\\033[0m\\n\\n' '${tagline}'`;
-          const init = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; clear; ${banner}; ${rainbow}`;
+          // Always set colours + prompt. Fresh tabs also clear + print the
+          // banner + rainbow; restored tabs skip those so their replayed
+          // scrollback stays visible (just the new coloured prompt follows it).
+          const promptSetup = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi`;
+          const init = restored
+            ? promptSetup
+            : `${promptSetup}; clear; ${banner}; ${rainbow}`;
           if (alive && ptyId) {
             try { await invoke("pty_write", { id: ptyId, data: init + "\r" }); } catch {}
           }
