@@ -516,3 +516,100 @@
   border-radius: 3px;
 }
 .phn-sftp-actions button:hover { color: var(--phn-text-active, #fff); background: rgba(255, 255, 255, 0.08); }
+
+/* ── MobaXterm session launch screen (home tab content) ──────────────── */
+.moba-home {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--phn-page-bg, #1e1e1e);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  font-family: var(--phn-ui-font);
+}
+.moba-home-inner { width: 100%; max-width: 680px; padding: 48px 32px 56px; }
+.moba-home-brand {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--phn-text-active, #fff);
+  letter-spacing: 0.5px;
+}
+.moba-home-tagline { color: var(--phn-text-dim, #888); font-size: 13px; margin: 6px 0 28px; }
+.moba-home-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--phn-link, #4f9fd6);
+  color: var(--phn-page-bg, #06223a);
+  border: none;
+  border-radius: 6px;
+  padding: 12px 22px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: filter 0.12s ease;
+}
+.moba-home-start:hover { filter: brightness(1.12); }
+.moba-home-start-icon { font-size: 12px; }
+.moba-home-quick { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.moba-home-card {
+  width: 118px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 8px;
+  background: var(--phn-surface-bg, #2d2d2d);
+  border: 1px solid var(--phn-surface-border, #1a1a1a);
+  border-radius: 6px;
+  color: var(--phn-text-fg, #c8c8c8);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.moba-home-card:hover { border-color: var(--phn-link, #4f9fd6); background: var(--phn-surface-alt-bg, #262626); }
+.moba-home-card-icon { font-size: 22px; line-height: 1; }
+.moba-home-card-label { font-size: 12px; font-weight: 600; color: var(--phn-text-active, #fff); }
+.moba-home-card-desc { font-size: 9px; color: var(--phn-text-dim, #888); text-align: center; }
+.moba-home-section {
+  margin: 34px 0 12px;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--phn-text-dim, #888);
+}
+.moba-home-sessions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.moba-home-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: var(--phn-surface-bg, #2d2d2d);
+  border: 1px solid var(--phn-surface-border, #1a1a1a);
+  border-radius: 5px;
+  color: var(--phn-text-fg, #c8c8c8);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color 0.12s ease;
+}
+.moba-home-session:hover { border-color: var(--phn-link, #4f9fd6); }
+.moba-home-session-icon { font-size: 14px; flex-shrink: 0; }
+.moba-home-session-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--phn-text-active, #fff);
+}
+.moba-home-session-dot { width: 7px; height: 7px; border-radius: 50%; background: #3c3c3c; flex-shrink: 0; }
+.moba-home-session-dot.active { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
+.moba-home-session-dot.done { background: #34d399; box-shadow: 0 0 6px #34d399; }

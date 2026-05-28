@@ -55,9 +55,12 @@ function freshId(prefix) {
 
 function defaultPanel() {
   const tabId = freshId("tab");
+  // Fresh panels open to the MobaXterm-style launch screen (a "home" tab) rather
+  // than spawning a shell immediately — no PTY is created until the user picks a
+  // session. Existing users keep their persisted panels untouched.
   return {
     id: freshId("panel"),
-    tabs: [{ id: tabId, label: "Tab 1", cwd: null, startCommands: [], projectId: null }],
+    tabs: [{ id: tabId, label: "Home", home: true, cwd: null, startCommands: [], projectId: null }],
     activeTabId: tabId,
   };
 }
@@ -410,6 +413,32 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         projectId: null,
       };
       return { ...p, tabs: [...p.tabs, newTab], activeTabId: newTab.id };
+    });
+    persist({ ...state, panels, activePanelId: panelId });
+  }, [state, persist]);
+
+  // Open a fresh MobaXterm launch screen ("home" tab) in a panel. No PTY spawns
+  // until the user picks a session from it.
+  const addHomeTab = useCallback((panelId) => {
+    const newTab = { id: freshId("tab"), label: "Home", home: true, cwd: null, startCommands: [], projectId: null };
+    const panels = state.panels.map(p =>
+      p.id === panelId ? { ...p, tabs: [...p.tabs, newTab], activeTabId: newTab.id } : p
+    );
+    persist({ ...state, panels, activePanelId: panelId });
+  }, [state, persist]);
+
+  // Turn a home tab into a plain local shell in place (the "Start local
+  // terminal" action). Dropping the home flag mounts a TerminalPane, which
+  // spawns the PTY. Relabels to the default scheme so it reads like a shell tab.
+  const convertHomeToShell = useCallback((panelId, tabId) => {
+    const panels = state.panels.map(p => {
+      if (p.id !== panelId) return p;
+      const numbered = p.tabs.filter(t => /^Tab \d+$/.test(t.label || "")).length;
+      return {
+        ...p,
+        tabs: p.tabs.map(t => t.id === tabId ? { ...t, home: false, label: `Tab ${numbered + 1}` } : t),
+        activeTabId: tabId,
+      };
     });
     persist({ ...state, panels, activePanelId: panelId });
   }, [state, persist]);
@@ -931,6 +960,19 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     setRdpOpen(false);
   }, [state.activePanelId, spawnSessionTab]);
 
+  // Actions surfaced on the MobaXterm launch screen (home tabs). useState
+  // setters have stable identity, so they're omitted from the dep list.
+  const homeApi = useMemo(() => ({
+    projects,
+    projectActivities,
+    startLocal: convertHomeToShell,
+    openProject: openProjectInPanel,
+    newSession: () => setDialog({ mode: "add" }),
+    vnc: () => setVncOpen(true),
+    rdp: () => setRdpOpen(true),
+    serial: () => setSerialOpen(true),
+  }), [projects, projectActivities, convertHomeToShell, openProjectInPanel]);
+
   const startRecordingActive = useCallback(() => {
     if (!activeTabId) return;
     if (recording.isRecording(activeTabId)) {
@@ -1003,6 +1045,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             label: "Terminal",
             items: [
               { label: "New tab", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
+              { label: "Launch screen (home tab)", action: () => addHomeTab(state.activePanelId) },
               { label: "New panel", disabled: !canAddPanel, action: () => addPanel() },
               { divider: true },
               { label: "Split right", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
@@ -1076,6 +1119,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             caption: "Session",
             items: [
               { id: "session", icon: "🌐", label: "Session", title: "New session (local folder or SSH host)", onClick: () => setDialog({ mode: "add" }) },
+              { id: "home", icon: "🏠", label: "Home", title: "Open the session launch screen in a new tab", onClick: () => addHomeTab(state.activePanelId) },
               { id: "tab", icon: "＋", label: "Tab", title: "New tab (Ctrl+Shift+T)", onClick: () => addTab(state.activePanelId) },
             ],
           },
@@ -1194,6 +1238,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               xtermTheme={xtermTheme}
               tabAutoApprove={tabAutoApprove}
               tabProjectNames={tabProjectNames}
+              homeApi={homeApi}
               onActivate={() => setActivePanel(panel.id)}
               onAddTab={() => addTab(panel.id)}
               onCloseTab={(tabId) => closeTab(panel.id, tabId)}
