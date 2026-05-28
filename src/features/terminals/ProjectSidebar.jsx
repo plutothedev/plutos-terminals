@@ -118,6 +118,8 @@ export default function ProjectSidebar({
   const [query, setQuery] = useState(""); // project name filter
   // Collapsed folders in the Sessions tree (transient — names, not ids).
   const [collapsedFolders, setCollapsedFolders] = useState(() => new Set());
+  // The MobaXterm-style "User sessions" tree root (collapsible).
+  const [userSessionsCollapsed, setUserSessionsCollapsed] = useState(false);
   const toggleFolder = (name) =>
     setCollapsedFolders((prev) => {
       const next = new Set(prev);
@@ -609,28 +611,44 @@ export default function ProjectSidebar({
               root.push(p);
             }
           }
+          const folders = order.map((name) => {
+            const isCol = collapsedFolders.has(name);
+            const rows = byFolder.get(name);
+            return (
+              <div key={`folder:${name}`}>
+                <div
+                  className="phn-folder-header"
+                  onClick={() => toggleFolder(name)}
+                  title={isCol ? `Expand "${name}"` : `Collapse "${name}"`}
+                >
+                  <span className="phn-folder-chevron">{isCol ? "▸" : "▾"}</span>
+                  <span className="phn-folder-icon">{folderGlyph(name)}</span>
+                  <span className="phn-folder-name">{name}</span>
+                  <span className="phn-folder-count">{rows.length}</span>
+                </div>
+                {!isCol && <div className="phn-folder-body">{rows.map(renderRow)}</div>}
+              </div>
+            );
+          });
+          // MobaXterm "User sessions" tree root — categories + loose sessions nest under it.
           return (
             <>
-              {root.map(renderRow)}
-              {order.map((name) => {
-                const isCol = collapsedFolders.has(name);
-                const rows = byFolder.get(name);
-                return (
-                  <div key={`folder:${name}`}>
-                    <div
-                      className="phn-folder-header"
-                      onClick={() => toggleFolder(name)}
-                      title={isCol ? `Expand "${name}"` : `Collapse "${name}"`}
-                    >
-                      <span className="phn-folder-chevron">{isCol ? "▸" : "▾"}</span>
-                      <span className="phn-folder-icon">{folderGlyph(name)}</span>
-                      <span className="phn-folder-name">{name}</span>
-                      <span className="phn-folder-count">{rows.length}</span>
-                    </div>
-                    {!isCol && <div className="phn-folder-body">{rows.map(renderRow)}</div>}
-                  </div>
-                );
-              })}
+              <div
+                className="phn-folder-header phn-tree-root"
+                onClick={() => setUserSessionsCollapsed((v) => !v)}
+                title="User sessions"
+              >
+                <span className="phn-folder-chevron">{userSessionsCollapsed ? "▸" : "▾"}</span>
+                <span className="phn-folder-icon">👤</span>
+                <span className="phn-folder-name">User sessions</span>
+                <span className="phn-folder-count">{visibleProjects.length}</span>
+              </div>
+              {!userSessionsCollapsed && (
+                <div className="phn-folder-body">
+                  {folders}
+                  {root.map(renderRow)}
+                </div>
+              )}
             </>
           );
         })()}

@@ -122,6 +122,9 @@
   letter-spacing: 0.2px;
 }
 .phn-folder-header:hover { background: rgba(255, 255, 255, 0.04); color: var(--phn-text-active, #fff); }
+/* "User sessions" tree root — slightly brighter/bolder than category folders. */
+.phn-tree-root { color: var(--phn-text-fg, #cfcfcf); font-weight: 600; }
+.phn-tree-root .phn-folder-name { color: var(--phn-text-active, #fff); }
 .phn-folder-chevron { font-size: 9px; width: 10px; flex-shrink: 0; color: var(--phn-text-dim, #888); }
 .phn-folder-icon { font-size: 12px; flex-shrink: 0; }
 .phn-folder-name {
