@@ -131,6 +131,8 @@ export default function TerminalPanel({
   onTabActivityChange,
   onTabCostUpdate,
   onRenameTab,
+  onDuplicateTab,
+  onCloseOthers,
   onMoveTab,
   onSplitPane,
   onClosePane,
@@ -150,6 +152,8 @@ export default function TerminalPanel({
   const renameInputRef = useRef(null);
   // Hovered tab — drives the hover-only close button (Termius style).
   const [hoverTabId, setHoverTabId] = useState(null);
+  // Right-click tab context menu: { x, y, tabId } or null.
+  const [tabCtxMenu, setTabCtxMenu] = useState(null);
 
   // Transient divider ratios during an active drag, keyed by splitId. Kept out
   // of app state so a drag doesn't hammer localStorage; committed on mouseup.
@@ -350,6 +354,7 @@ export default function TerminalPanel({
                 onMouseDown={(e) => { handleTabMouseDown(tab, e); }}
                 onClick={(e) => { e.stopPropagation(); if (!isRenamingThis) onSwitchTab(tab.id); }}
                 onDoubleClick={(e) => { e.stopPropagation(); startRename(tab); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setTabCtxMenu({ x: e.clientX, y: e.clientY, tabId: tab.id }); }}
                 onMouseEnter={() => setHoverTabId(tab.id)}
                 onMouseLeave={() => setHoverTabId((cur) => (cur === tab.id ? null : cur))}
                 style={{ cursor: isRenamingThis ? "text" : "pointer" }}
@@ -603,6 +608,58 @@ export default function TerminalPanel({
           );
         })}
       </div>
+
+      {/* Tab context menu (right-click a tab). */}
+      {tabCtxMenu && (() => {
+        const tab = panel.tabs.find(t => t.id === tabCtxMenu.tabId);
+        if (!tab) return null;
+        const close = () => setTabCtxMenu(null);
+        const multi = panel.tabs.length > 1;
+        const item = (label, onClick, opts = {}) => (
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); close(); if (!opts.disabled) onClick(); }}
+            disabled={opts.disabled}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              background: "transparent", border: "none",
+              color: opts.danger ? "#f87171" : TAB_FG_ACTIVE,
+              padding: "6px 12px", fontFamily: M, fontSize: 12,
+              cursor: opts.disabled ? "default" : "pointer", opacity: opts.disabled ? 0.4 : 1,
+              whiteSpace: "nowrap", borderRadius: 4, boxSizing: "border-box",
+            }}
+            onMouseEnter={(e) => { if (!opts.disabled) e.currentTarget.style.background = "rgba(127,127,127,0.18)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            {label}
+          </button>
+        );
+        return (
+          <>
+            <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onMouseDown={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />
+            <div
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                position: "fixed",
+                left: Math.min(tabCtxMenu.x, window.innerWidth - 190),
+                top: Math.min(tabCtxMenu.y, window.innerHeight - 180),
+                width: 178,
+                background: "var(--phn-surface-bg, #2d2d2d)",
+                border: `1px solid ${BORDER_DIM}`,
+                borderRadius: 6, padding: 5, zIndex: 9999,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+              }}
+            >
+              {item("Rename", () => startRename(tab))}
+              {item("Duplicate", () => onDuplicateTab?.(tab.id))}
+              {onSplitPane && item("Split right", () => onSplitPane(tab.id, tab.activePaneId || tab.id, "row"))}
+              <div style={{ height: 1, background: BORDER_DIM, margin: "4px 0" }} />
+              {item("Close others", () => onCloseOthers?.(tab.id), { disabled: !multi })}
+              {item("Close", () => onCloseTab?.(tab.id), { disabled: !multi, danger: true })}
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }

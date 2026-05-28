@@ -180,6 +180,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     applyGlobalSkin(headerSkinId);
   }, [headerSkinId]);
 
+  // Dark ⇄ Light chrome toggle (toolbar button + Ctrl+\). Flips the only two
+  // skins; the terminal stays black either way.
+  const toggleTheme = useCallback(() => {
+    const next = headerSkinId === "moba-light" ? "moba" : "moba-light";
+    save({ ...st, headerSkin: next });
+  }, [headerSkinId, st, save]);
+
   // Keyboard shortcuts (v0.1.16). Window-level capture so they fire even
   // when xterm has focus. Uses Ctrl+Shift+ for tab/window ops to avoid
   // colliding with shell readline bindings (Ctrl+W = kill word, Ctrl+T =
@@ -211,6 +218,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       } else if (key === "," && !shift) {
         // Ctrl+, → settings
         fns.openSettings?.();
+        handled = true;
+      } else if (key === "\\" && !shift) {
+        // Ctrl+\ → toggle Dark/Light chrome
+        fns.toggleTheme?.();
         handled = true;
       } else if (/^[1-8]$/.test(e.key) && !shift) {
         // Ctrl+1..8 → switch active panel by index
@@ -490,6 +501,32 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       tabs: p.tabs.map(t => t.id === tabId ? { ...t, label } : t),
     }));
     persist({ ...state, panels });
+  }, [state, persist]);
+
+  // Tab context-menu actions (right-click a tab). Duplicate spawns a fresh tab
+  // with the same config (cwd / connection / serial / start commands) — a new
+  // PTY, single pane (the split layout isn't cloned). Close-others keeps only
+  // the chosen tab in its panel.
+  const duplicateTab = useCallback((panelId, tabId) => {
+    const panel = state.panels.find(p => p.id === panelId);
+    const src = panel?.tabs.find(t => t.id === tabId);
+    if (!src) return;
+    const copy = { ...src, id: freshId("tab"), layout: undefined, activePaneId: undefined };
+    const panels = state.panels.map(p =>
+      p.id === panelId ? { ...p, tabs: [...p.tabs, copy], activeTabId: copy.id } : p
+    );
+    persist({ ...state, panels, activePanelId: panelId });
+  }, [state, persist]);
+
+  const closeOtherTabs = useCallback((panelId, keepTabId) => {
+    const panel = state.panels.find(p => p.id === panelId);
+    if (!panel) return;
+    const kept = panel.tabs.filter(t => t.id === keepTabId);
+    if (kept.length === 0) return;
+    const panels = state.panels.map(p =>
+      p.id === panelId ? { ...p, tabs: renumberDefaultLabels(kept), activeTabId: keepTabId } : p
+    );
+    persist({ ...state, panels, activePanelId: panelId });
   }, [state, persist]);
 
   // Move a tab from its current panel to a different one. PTY in the source
@@ -1098,6 +1135,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     },
     openCommandPalette: () => setCommandPaletteOpen(true),
     openSettings: () => setSettingsOpen(true),
+    toggleTheme,
     switchPanel: (idx) => {
       if (state.panels[idx]) setActivePanel(state.panels[idx].id);
     },
@@ -1184,6 +1222,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             )}
             <div className="moba-tool-group" style={{ borderRight: "none", borderLeft: "1px solid var(--phn-surface-border, #151515)" }}>
               <div className="moba-tool-btns">
+                <button className="moba-tool-btn" onClick={toggleTheme} title="Toggle Dark / Light chrome (Ctrl+\\) — the terminal stays black">
+                  <span className="moba-tool-icon">{headerSkinId === "moba-light" ? "☀️" : "🌙"}</span>
+                  <span className="moba-tool-label">Theme</span>
+                </button>
                 <button className="moba-tool-btn" onClick={() => toast.info("Pluto's Terminal doesn't bundle an X11 server — that's a MobaXterm-specific feature.")} title="X server (not available in Pluto's Terminal)">
                   <span className="moba-tool-icon" style={{ color: "#3fae5a" }}>✖</span>
                   <span className="moba-tool-label">X server</span>
@@ -1322,6 +1364,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onTabActivityChange={handleTabActivityChange}
               onTabCostUpdate={handleTabCostUpdate}
               onRenameTab={renameTab}
+              onDuplicateTab={(tabId) => duplicateTab(panel.id, tabId)}
+              onCloseOthers={(tabId) => closeOtherTabs(panel.id, tabId)}
               onMoveTab={moveTab}
               onSplitPane={splitPane}
               onClosePane={closePane}
