@@ -88,6 +88,21 @@ pub fn pick_directory() -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
+// ── Welcome box file ──────────────────────────────────────────────
+//
+// The MobaXterm-style welcome box is ~2.4 KB of ANSI — too long to send as a
+// single shell command line (it would truncate at the tty canonical limit).
+// We write it to a file in the data dir and the fresh shell just `cat`s it
+// (a short command), so the box prints cleanly before the first prompt.
+#[tauri::command]
+pub fn write_welcome_file(app: AppHandle, content: String) -> Result<String, String> {
+    let dir = get_data_dir(&app);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("welcome.ansi");
+    fs::write(&path, content).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 // ── Quit the whole app (Exit toolbar button) ──────────────────────
 //
 // Fires app.exit(0), which triggers RunEvent::ExitRequested → kill_all()

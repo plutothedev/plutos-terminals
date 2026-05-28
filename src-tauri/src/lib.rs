@@ -120,6 +120,7 @@ pub fn run() {
             commands::save_text_to_file,
             commands::spawn_new_window,
             commands::quit_app,
+            commands::write_welcome_file,
             commands::system_stats,
             commands::list_directory,
             pty::pty_spawn,

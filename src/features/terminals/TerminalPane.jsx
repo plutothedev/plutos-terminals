@@ -676,6 +676,8 @@ export default function TerminalPane({
         // Detects zsh/bash at runtime. Windows shells keep their default.
         const isWindowsUA = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
         if (!connection && !serial && cmdsAtSpawn.length === 0 && !isWindowsUA && alive && ptyId) {
+          // Let the shell render its first prompt before we send the (now short)
+          // welcome line so the colours/box land cleanly.
           await new Promise(r => setTimeout(r, 450));
           // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less
           // + a few quality-of-life aliases. (Kept short so the welcome init fits
@@ -691,9 +693,12 @@ export default function TerminalPane({
           // MobaXterm-style welcome box: a white-bordered rectangle on the pure
           // black terminal, with a cyan title, yellow ► markers, and green ✓
           // checks. Plain text is padded to a fixed inner width BEFORE color is
-          // layered on so the box edges align across every line. Sent as one
-          // single-quoted printf (only \033 / \n are interpreted).
-          const E = "\\033";
+          // layered on so the box edges align across every line. The box is
+          // written to a file (real ESC bytes) and the shell `cat`s it before
+          // the first prompt — clean ordering, and the short `cat` command
+          // avoids the tty canonical line-length limit that truncates a 2.4 KB
+          // inline printf.
+          const E = "\x1b";
           // Per-segment colour: each line is a list of [text, ansiCode|null]
           // pairs. The box edges align because the inner width is measured on
           // the PLAIN text (no emoji in the box — ► ✓ ✗ · are all width 1) and
@@ -728,21 +733,25 @@ export default function TerminalPane({
             box.push(" " + wrap(BORDER, "│") + " " + inner + " " + wrap(BORDER, "│"));
           });
           box.push(" " + wrap(BORDER, "└" + "─".repeat(W + 2) + "┘"));
-          const bannerText = "\\n" + box.join("\\n") + "\\n\\n";
-          const banner = "printf '" + bannerText.replace(/'/g, "'\\''") + "'";
-          // If lolcat is installed, paint a rainbow tagline below the box —
-          // makes the welcome instantly colourful like MobaXterm's banner area.
-          const tagline = "  multi-terminal · SSH · SFTP · serial · RDP · VNC · MultiExec · snippets · ⌘+K palette";
-          const rainbow = `command -v lolcat >/dev/null 2>&1 && printf '%s\\n\\n' '${tagline}' | lolcat || printf '\\033[2m%s\\033[0m\\n\\n' '${tagline}'`;
-          // Always set colours + prompt. Fresh tabs clear + print the welcome
-          // box + rainbow. Restored tabs set the prompt then do a scrollback-
-          // PRESERVING screen clear (ESC[2J ESC[H — not ESC[3J): this wipes the
-          // echoed setup command from view and leaves a clean coloured prompt,
-          // while the replayed history stays in the scrollback buffer (scroll up).
+          const boxRaw = "\n" + box.join("\n") + "\n\n";
           const promptSetup = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi`;
-          const init = restored
-            ? `${promptSetup}; printf '\\033[2J\\033[H'`
-            : `${promptSetup}; clear; ${banner}; ${rainbow}`;
+          // Fresh tabs: write the box to a file, then `${promptSetup}; clear; cat
+          // '<file>'` — a short command whose output (the box) lands before the
+          // first prompt (clean ordering, box sits above the prompt where ZLE
+          // never touches it). Restored tabs: set prompt then a scrollback-
+          // PRESERVING clear (ESC[2J, not ESC[3J) hides the echoed setup and
+          // keeps history scrollable.
+          let init;
+          if (restored) {
+            init = `${promptSetup}; printf '\\033[2J\\033[H'`;
+          } else {
+            let catCmd = "clear";
+            try {
+              const p = await invoke("write_welcome_file", { content: boxRaw });
+              if (p) catCmd = `clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
+            } catch { /* no file → just clear */ }
+            init = `${promptSetup}; ${catCmd}`;
+          }
           if (alive && ptyId) {
             try { await invoke("pty_write", { id: ptyId, data: init + "\r" }); } catch {}
           }
