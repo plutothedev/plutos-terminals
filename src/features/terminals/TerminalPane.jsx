@@ -9,6 +9,7 @@ import { ImageAddon } from "@xterm/addon-image";
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
+import ErrorExplainer from "./ErrorExplainer.jsx";
 import {
   registerPtyWriter,
   unregisterPty,
@@ -203,6 +204,11 @@ export default function TerminalPane({
   // Find-in-terminal (Cmd/Ctrl+F) overlay state.
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // Command blocks (OSC 133): track the block boundaries the shell marks so we
+  // can flag a failed command + feed it to the AI explainer.
+  const currentBlockRef = useRef(null); // { startLine } between A and D
+  const [failedBlock, setFailedBlock] = useState(null);  // banner: most recent failure
+  const [explainBlock, setExplainBlock] = useState(null); // explainer popover target
   const startCommandsRef = useRef(startCommands);
   startCommandsRef.current = startCommands;
   const systemPromptRef = useRef(systemPrompt);
@@ -491,6 +497,33 @@ export default function TerminalPane({
     // renderer (@xterm/addon-webgl) was tried here but renders blank glyphs in
     // Tauri's WKWebView, so we stay on xterm's default DOM renderer.
     try { term.loadAddon(new ImageAddon()); } catch { /* ignore */ }
+    // Command blocks via OSC 133 shell integration. The shell (see promptSetup)
+    // emits ESC]133;A BEL at each prompt and ESC]133;D;<exit> BEL when a command
+    // finishes. We pair them: A opens a block (record the prompt line), the next
+    // D closes the PREVIOUS block with its exit code. A non-zero exit captures
+    // the block's text (prompt+command+output) and surfaces the AI explainer.
+    term.parser.registerOscHandler(133, (data) => {
+      const buf = term.buffer.active;
+      const here = buf.baseY + buf.cursorY;
+      if (data === "A" || data.startsWith("A;")) {
+        currentBlockRef.current = { startLine: here };
+      } else if (data === "D" || data.startsWith("D;")) {
+        const blk = currentBlockRef.current;
+        currentBlockRef.current = null;
+        if (!blk) return true; // first D (after our init) — no block open
+        const exit = data.includes(";") ? parseInt(data.split(";")[1], 10) : 0;
+        if (!Number.isNaN(exit) && exit !== 0) {
+          let text = "";
+          for (let i = blk.startLine; i <= here && i < buf.length; i++) {
+            const line = buf.getLine(i);
+            if (line) text += line.translateToString(true) + "\n";
+          }
+          text = text.replace(/\n{3,}/g, "\n\n").trim();
+          if (text) setFailedBlock({ exitCode: exit, text, key: `${here}:${Date.now()}` });
+        }
+      }
+      return true; // handled (don't pass the OSC through to the screen)
+    });
     termRef.current = term;
     fitRef.current = fit;
     // Only fit when the container is actually on-screen with a real size. A
@@ -798,8 +831,8 @@ export default function TerminalPane({
             { segs: [C("36", "► "), T("Each command status is shown by a symbol   ("), C("1;32", "✓"), T(" ok · "), C("1;31", "✗"), T(" failed)")] },
             { segs: [] },
             { segs: [C("36", "► "), C("1;31", "Tip!")] },
-            { segs: [T("    Run "), C("1;33", "Claude Code"), T(", Codex and other AI agents side by side. Save your")] },
-            { segs: [T("    setup as a "), C("1;33", ".deck.json"), T(" prompt pack and share it with the community.")] },
+            { segs: [T("    Run "), C("1;33", "Claude Code"), T(", Codex and other AI agents side by side — each in its")] },
+            { segs: [T("    own git worktree, on "), C("1;33", "any model"), T(" you pick (Claude · Kimi K2 · OpenRouter…).")] },
             { segs: [T("    Press "), C("1;33", "Ctrl+K"), T(" for the command palette, or the "), C("1;36", "Home"), T(" button to launch.")] },
             { segs: [T("    For more information: "), C("4;36", "https://github.com/plutothedev/plutos-terminals")] },
           ];
@@ -815,26 +848,42 @@ export default function TerminalPane({
           });
           box.push(" " + wrap(BORDER, "└" + "─".repeat(W + 2) + "┘"));
           const boxRaw = "\n" + box.join("\n") + "\n\n";
-          const promptSetup = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi`;
+          // OSC 133 shell integration (command blocks): emit a prompt mark (A)
+          // and a command-done mark (D;<exit>) so the UI can pair them into
+          // blocks and flag failures. zsh via add-zsh-hook precmd; bash by
+          // prepending to PROMPT_COMMAND (both preserve the user's own hooks).
+          // $? is read FIRST so the real exit code survives.
+          const osc133 =
+            `__plt133z(){ printf '\\033]133;D;%s\\007\\033]133;A\\007' "$?"; }; ` +
+            `__plt133b(){ local __e=$?; printf '\\033]133;D;%s\\007\\033]133;A\\007' "$__e"; }; ` +
+            `if [ -n "$ZSH_VERSION" ]; then autoload -Uz add-zsh-hook 2>/dev/null; add-zsh-hook precmd __plt133z 2>/dev/null; ` +
+            `elif [ -n "$BASH_VERSION" ]; then PROMPT_COMMAND="__plt133b\${PROMPT_COMMAND:+; $PROMPT_COMMAND}"; fi`;
+          const promptSetup = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; ${osc133}`;
           // Fresh tabs: write the box to a file, then `${promptSetup}; clear; cat
           // '<file>'` — a short command whose output (the box) lands before the
           // first prompt (clean ordering, box sits above the prompt where ZLE
           // never touches it). Restored tabs: set prompt then a scrollback-
           // PRESERVING clear (ESC[2J, not ESC[3J) hides the echoed setup and
           // keeps history scrollable.
-          let init;
+          // Send the setup (colors + prompt + OSC 133 hooks) and the visual
+          // (clear + welcome box) as TWO separate lines. Combined they'd be
+          // ~930 bytes — close enough to the tty canonical-mode limit
+          // (MAX_CANON ≈ 1024) that the multi-byte prompt emoji could tip it
+          // over and hang the line (the old 2.4 KB-printf bug). The trailing
+          // `clear` wipes the echoed setup line either way.
+          let display;
           if (restored) {
-            init = `${promptSetup}; printf '\\033[2J\\033[H'`;
+            display = `printf '\\033[2J\\033[H'`;
           } else {
-            let catCmd = "clear";
+            display = "clear";
             try {
               const p = await invoke("write_welcome_file", { content: boxRaw });
-              if (p) catCmd = `clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
+              if (p) display = `clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
             } catch { /* no file → just clear */ }
-            init = `${promptSetup}; ${catCmd}`;
           }
           if (alive && ptyId) {
-            try { await invoke("pty_write", { id: ptyId, data: init + "\r" }); } catch {}
+            try { await invoke("pty_write", { id: ptyId, data: promptSetup + "\r" }); } catch {}
+            try { await invoke("pty_write", { id: ptyId, data: display + "\r" }); } catch {}
           }
         }
 
@@ -1003,6 +1052,39 @@ export default function TerminalPane({
           ))}
         </div>
       )}
+      {failedBlock && !explainBlock && (
+        <div
+          style={{
+            position: "absolute", left: 12, bottom: 12, zIndex: 25,
+            display: "flex", alignItems: "center", gap: 8,
+            background: "var(--phn-surface-bg, #242424)",
+            border: "1px solid #ff6b6b", borderRadius: 8, padding: "6px 8px 6px 12px",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.5)", fontFamily: "var(--phn-ui-font)",
+          }}
+        >
+          <span style={{ fontSize: 12, color: "var(--phn-text-fg, #d4d4d4)" }}>
+            <span style={{ color: "#ff6b6b" }}>✗</span> command failed · exit {failedBlock.exitCode}
+          </span>
+          <button
+            onClick={() => { setExplainBlock(failedBlock); setFailedBlock(null); }}
+            style={{
+              background: "var(--phn-link, #4aa8c0)", border: "none", color: "#06223a",
+              borderRadius: 5, padding: "3px 10px", fontSize: 12, fontWeight: 600,
+              cursor: "pointer", fontFamily: "var(--phn-ui-font)",
+            }}
+          >
+            Explain ✨
+          </button>
+          <span
+            onClick={() => setFailedBlock(null)}
+            title="Dismiss"
+            style={{ cursor: "pointer", color: "var(--phn-text-dim, #888)", padding: "2px 5px", fontSize: 12, userSelect: "none" }}
+          >
+            ✕
+          </span>
+        </div>
+      )}
+      <ErrorExplainer block={explainBlock} onClose={() => setExplainBlock(null)} />
       {showHint && (
         <div
           style={{

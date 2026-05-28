@@ -830,3 +830,77 @@ pub fn system_stats() -> SystemStats {
 
     SystemStats { cpu, mem_used, mem_total, disk_used_pct }
 }
+
+// ── AI error explainer ───────────────────────────────────────────────────
+// Calls the user's ACTIVE LLM provider (from the model picker) to explain a
+// failing command block. Done in Rust (reqwest) rather than the renderer so
+// API keys never hit a browser-origin request and we sidestep CORS. `kind`
+// chooses the wire format: Anthropic Messages API vs OpenAI Chat Completions
+// (covers every openai-compatible provider — OpenRouter, DeepSeek, Groq, …).
+#[tauri::command]
+pub async fn llm_complete(
+    kind: String,
+    base_url: String,
+    api_key: String,
+    model: String,
+    system: String,
+    prompt: String,
+) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let trim = |s: &str| s.trim_end_matches('/').to_string();
+    let anthropic = kind == "anthropic" || kind == "anthropic-compat";
+
+    if anthropic {
+        let base = if base_url.is_empty() { "https://api.anthropic.com".to_string() } else { trim(&base_url) };
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 1024,
+            "system": system,
+            "messages": [{ "role": "user", "content": prompt }],
+        });
+        let resp = client
+            .post(format!("{}/v1/messages", base))
+            .header("x-api-key", &api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = resp.status();
+        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        if !status.is_success() {
+            let msg = v.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("");
+            return Err(if msg.is_empty() { status.to_string() } else { msg.to_string() });
+        }
+        let text = v.get("content").and_then(|c| c.as_array()).map(|arr| {
+            arr.iter().filter_map(|p| p.get("text").and_then(|t| t.as_str())).collect::<Vec<_>>().join("")
+        }).unwrap_or_default();
+        Ok(text)
+    } else {
+        let base = if base_url.is_empty() { "https://api.openai.com/v1".to_string() } else { trim(&base_url) };
+        let body = serde_json::json!({
+            "model": model,
+            "messages": [
+                { "role": "system", "content": system },
+                { "role": "user", "content": prompt },
+            ],
+        });
+        let resp = client
+            .post(format!("{}/chat/completions", base))
+            .header("authorization", format!("Bearer {}", api_key))
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = resp.status();
+        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        if !status.is_success() {
+            let msg = v.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("");
+            return Err(if msg.is_empty() { status.to_string() } else { msg.to_string() });
+        }
+        let text = v.pointer("/choices/0/message/content").and_then(|s| s.as_str()).unwrap_or_default().to_string();
+        Ok(text)
+    }
+}

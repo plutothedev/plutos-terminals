@@ -35,6 +35,10 @@ keyring = { version = "3", features = ["apple-native", "windows-native"] }
 serialport = "4"
 # System stats (CPU / memory / disk) for the MobaXterm-style status bar.
 sysinfo = "0.33"
+# HTTP client for the AI error explainer (calls the active LLM provider).
+# rustls-tls (pure-Rust) avoids touching system OpenSSL — ssh2 already vendors
+# its own, and mixing TLS backends invites the arm64 link mismatch we dodge.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # VNC remote-desktop client (sync RFB protocol; fits the worker-thread model).
 vnc = "0.4"
 # RDP remote-desktop client (IronRDP). Blocking I/O wrapper fits the worker-thread

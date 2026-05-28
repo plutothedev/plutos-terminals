@@ -90,6 +90,24 @@ export function findProvider(id) {
   return PROVIDERS.find((p) => p.id === id) || null;
 }
 
+// Resolve the LLM the AI error explainer should call, from user-state. Prefers
+// the active picked model; falls back to the plain Anthropic key (default
+// Claude) from the welcome screen. Returns null if nothing is configured.
+// Shape: { kind, baseUrl, apiKey, model }.
+export function resolveActiveLLM(userSt) {
+  const am = userSt?.activeModel;
+  const keys = userSt?.providerKeys || {};
+  if (am?.providerId && am?.model && typeof keys[am.providerId] === "string" && keys[am.providerId]) {
+    const p = findProvider(am.providerId);
+    if (p) return { kind: p.kind, baseUrl: p.baseUrl || "", apiKey: keys[am.providerId], model: am.model };
+  }
+  if (typeof userSt?.anthropicKey === "string" && userSt.anthropicKey) {
+    // Cheapest catalog Claude for quick explanations.
+    return { kind: "anthropic", baseUrl: "", apiKey: userSt.anthropicKey, model: "claude-haiku-4-5" };
+  }
+  return null;
+}
+
 // Build the env-var overrides for the active provider/model so a freshly
 // spawned shell's CLI agent (claude / codex) routes to it automatically.
 export function envForModel(providerId, model, apiKey) {

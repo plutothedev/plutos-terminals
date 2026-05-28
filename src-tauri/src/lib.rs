@@ -129,6 +129,7 @@ pub fn run() {
             commands::notify,
             commands::system_stats,
             commands::list_directory,
+            commands::llm_complete,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
