@@ -21,6 +21,7 @@ import {
   getTabPassword,
   writeToTab,
   registerTabReader,
+  recordCommand,
 } from "./ptyBridge.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
@@ -533,6 +534,19 @@ export default function TerminalPane({
       }
       return true; // handled (don't pass the OSC through to the screen)
     });
+    // Command history: the shell's preexec hook emits ESC]1337;PlutoCmd=<base64>
+    // with each command it's about to run (1337 is iTerm2's namespace — we only
+    // claim the PlutoCmd payload and pass anything else through).
+    term.parser.registerOscHandler(1337, (data) => {
+      if (!data.startsWith("PlutoCmd=")) return false;
+      if (restoringScrollback) return true; // don't re-record replayed scrollback
+      try {
+        const bin = atob(data.slice("PlutoCmd=".length));
+        const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+        recordCommand(new TextDecoder().decode(bytes));
+      } catch { /* malformed payload — ignore */ }
+      return true;
+    });
     termRef.current = term;
     fitRef.current = fit;
     // Only fit when the container is actually on-screen with a real size. A
@@ -956,6 +970,16 @@ export default function TerminalPane({
             `if [ -n "$ZSH_VERSION" ]; then autoload -Uz add-zsh-hook 2>/dev/null; add-zsh-hook precmd __plt133z 2>/dev/null; ` +
             `elif [ -n "$BASH_VERSION" ]; then PROMPT_COMMAND="__plt133b\${PROMPT_COMMAND:+; $PROMPT_COMMAND}"; fi`;
           const promptSetup = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; ${osc133}`;
+          // Command-history capture: emit ESC]1337;PlutoCmd=<base64> for each
+          // command the shell is about to run. zsh via preexec (clean); bash via
+          // a guarded DEBUG trap (best-effort — dedup on the app side handles
+          // pipeline repeats). Sent as its own line so promptSetup stays under
+          // the tty canonical line-length limit (MAX_CANON).
+          const cmdCapture =
+            `__pltcmdz(){ printf '\\033]1337;PlutoCmd=%s\\007' "$(printf '%s' "$1" | base64 | tr -d '\\n')"; }; ` +
+            `__pltcmdb(){ case "$BASH_COMMAND" in __plt*|"$PROMPT_COMMAND") return;; esac; printf '\\033]1337;PlutoCmd=%s\\007' "$(printf '%s' "$BASH_COMMAND" | base64 2>/dev/null | tr -d '\\n')"; }; ` +
+            `if [ -n "$ZSH_VERSION" ]; then autoload -Uz add-zsh-hook 2>/dev/null; add-zsh-hook preexec __pltcmdz 2>/dev/null; ` +
+            `elif [ -n "$BASH_VERSION" ]; then trap '__pltcmdb' DEBUG; fi`;
           // Fresh tabs: write the box to a file, then `${promptSetup}; clear; cat
           // '<file>'` — a short command whose output (the box) lands before the
           // first prompt (clean ordering, box sits above the prompt where ZLE
@@ -980,6 +1004,7 @@ export default function TerminalPane({
           }
           if (alive && ptyId) {
             try { await invoke("pty_write", { id: ptyId, data: promptSetup + "\r" }); } catch {}
+            try { await invoke("pty_write", { id: ptyId, data: cmdCapture + "\r" }); } catch {}
             try { await invoke("pty_write", { id: ptyId, data: display + "\r" }); } catch {}
           }
         }

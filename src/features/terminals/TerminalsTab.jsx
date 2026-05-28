@@ -20,6 +20,7 @@ import MasterPasswordModal from "./MasterPasswordModal";
 import MobaToolbar from "./MobaToolbar";
 import AskBar from "./AskBar";
 import SessionSummary from "./SessionSummary";
+import HistorySearch from "./HistorySearch";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
@@ -45,7 +46,7 @@ import {
   applyGlobalSkin,
 } from "./headerSkins";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword, getTabPassword, getTabText } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword, getTabPassword, getTabText, getCommandHistory } from "./ptyBridge.js";
 import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
@@ -120,6 +121,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [macrosOpen, setMacrosOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   const [summary, setSummary] = useState(null); // { text } when the summary modal is open
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [masterPwOpen, setMasterPwOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -240,6 +242,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       } else if (key === "i" && !shift) {
         // Ctrl+I → Ask AI command bar
         fns.openAskAi?.();
+        handled = true;
+      } else if (key === "r" && (e.metaKey || shift)) {
+        // Cmd+R (mac) or Ctrl+Shift+R → command-history search. Plain Ctrl+R is
+        // intentionally left to the shell's reverse-i-search.
+        fns.openHistory?.();
         handled = true;
       } else if (key === "," && !shift) {
         // Ctrl+, → settings
@@ -1319,6 +1326,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     },
     openCommandPalette: () => setCommandPaletteOpen(true),
     openAskAi: () => setAskOpen(true),
+    openHistory: () => setHistoryOpen(true),
     openSettings: () => setSettingsOpen(true),
     toggleTheme,
     switchPanel: (idx) => {
@@ -1368,6 +1376,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               { label: "Keystroke macros…", action: () => setMacrosOpen(true) },
               { label: "Ask AI — natural language → command", shortcut: "Ctrl+I", action: () => setAskOpen(true) },
               { label: "Summarize this session (AI)", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
+              { label: "Command history search…", shortcut: "Cmd+R", action: () => setHistoryOpen(true) },
               { label: "Models — pick provider + model…", action: () => setModelsOpen(true) },
               { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
               { divider: true },
@@ -1669,6 +1678,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onClose={() => setSummary(null)}
       />
 
+      <HistorySearch
+        open={historyOpen}
+        history={historyOpen ? getCommandHistory() : []}
+        onClose={() => setHistoryOpen(false)}
+        onInsert={(cmd) => insertSnippet(cmd)}
+        onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
+      />
+
       <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
 
       <MacrosModal
@@ -1709,6 +1726,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
           { id: "ask", icon: "✨", label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command (Ctrl+I)", action: () => setAskOpen(true) },
           { id: "summarize", icon: "📝", label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
+          { id: "history", icon: "🕘", label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs (Cmd+R / Ctrl+Shift+R)", action: () => setHistoryOpen(true) },
           { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
           { id: "snippets", icon: "📋", label: "Snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
           { id: "files", icon: "📁", label: "File browser", hint: "Local files (or remote SFTP for an SSH tab) in the left panel", action: () => selectRibbon(ribbon === "files" ? null : "files") },

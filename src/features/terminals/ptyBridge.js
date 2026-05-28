@@ -60,6 +60,30 @@ export function getTabText(tabId) {
   try { return fn() || ""; } catch { return ""; }
 }
 
+// ── Command history (captured via OSC 1337 from the shell preexec hook) ──────
+// Cross-session, deduped (most-recent-first), capped, and persisted so Ctrl+R
+// search survives restarts.
+const HISTORY_KEY = "plutos-terminals:cmdhistory:v0";
+const HISTORY_CAP = 500;
+let cmdHistory = [];
+try {
+  const raw = localStorage.getItem(HISTORY_KEY);
+  if (raw) cmdHistory = JSON.parse(raw) || [];
+} catch { /* ignore */ }
+
+export function recordCommand(cmd) {
+  const c = String(cmd || "").trim();
+  if (!c || c.length > 400) return; // skip empty / huge pastes
+  cmdHistory = cmdHistory.filter((x) => x !== c); // move-to-front (dedupe)
+  cmdHistory.unshift(c);
+  if (cmdHistory.length > HISTORY_CAP) cmdHistory.length = HISTORY_CAP;
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(cmdHistory)); } catch { /* ignore */ }
+}
+
+export function getCommandHistory() {
+  return cmdHistory.slice();
+}
+
 // ── Dimensions (TerminalPane writes, status bar reads) ──────────────────────
 
 export function setTabDims(tabId, cols, rows) {
