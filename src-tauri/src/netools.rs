@@ -157,6 +157,29 @@ pub fn net_port_scan(host: String, ports: String) -> Result<Vec<u16>, String> {
     Ok(open)
 }
 
+/// Latency to a host's SSH port (or `port`) via a timed TCP connect — bounded
+/// and portable (no ICMP/ping-flag differences). Returns round-trip ms, or None
+/// if it times out / is refused. Used for the session-tree latency readout.
+#[tauri::command]
+pub fn net_latency(host: String, port: Option<u16>) -> Result<Option<u32>, String> {
+    let host = host.trim().to_string();
+    if !valid_host(&host) {
+        return Err("invalid host".into());
+    }
+    let p = port.unwrap_or(22);
+    let addrs = match (host.as_str(), p).to_socket_addrs() {
+        Ok(a) => a,
+        Err(_) => return Ok(None),
+    };
+    for addr in addrs {
+        let start = std::time::Instant::now();
+        if TcpStream::connect_timeout(&addr, Duration::from_millis(1500)).is_ok() {
+            return Ok(Some(start.elapsed().as_millis() as u32));
+        }
+    }
+    Ok(None)
+}
+
 /// Resolve a hostname to its IP address(es). Pure Rust via the system resolver.
 #[tauri::command]
 pub fn net_dns(host: String) -> Result<Vec<String>, String> {

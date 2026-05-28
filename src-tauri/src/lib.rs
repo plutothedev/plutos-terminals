@@ -134,6 +134,7 @@ pub fn run() {
             netools::net_traceroute,
             netools::net_port_scan,
             netools::net_dns,
+            netools::net_latency,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

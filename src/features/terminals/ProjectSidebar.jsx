@@ -117,10 +117,31 @@ export default function ProjectSidebar({
 }) {
   const [hoverId, setHoverId] = useState(null);
   const [query, setQuery] = useState(""); // project name filter
+  const [latency, setLatency] = useState({}); // projectId -> ms | null (SSH hosts)
   // Collapsed folders in the Sessions tree (transient — names, not ids).
   const [collapsedFolders, setCollapsedFolders] = useState(() => new Set());
   // The MobaXterm-style "User sessions" tree root (collapsible).
   const [userSessionsCollapsed, setUserSessionsCollapsed] = useState(false);
+
+  // Per-SSH-host latency (TCP connect to the SSH port). Probed sequentially on
+  // mount + every 30s; shown next to the host in the tree. Failures → null (—).
+  useEffect(() => {
+    let cancelled = false;
+    const ssh = (projects || []).filter((p) => isSsh(p) && p.connection?.host);
+    if (ssh.length === 0) return undefined;
+    const probe = async () => {
+      for (const p of ssh) {
+        if (cancelled) return;
+        try {
+          const ms = await invoke("net_latency", { host: p.connection.host, port: p.connection.port || 22 });
+          if (!cancelled) setLatency((m) => ({ ...m, [p.id]: ms }));
+        } catch { /* ignore unreachable */ }
+      }
+    };
+    probe();
+    const t = setInterval(probe, 30000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [projects]);
   const toggleFolder = (name) =>
     setCollapsedFolders((prev) => {
       const next = new Set(prev);
@@ -531,7 +552,22 @@ export default function ProjectSidebar({
                           {p.connection.host}
                         </span>
                       )
-                    ) : (
+                    ) : null}
+                    {isSsh(p) && p.id in latency && !collapsed && (
+                      <span
+                        style={{
+                          flexShrink: 0,
+                          fontSize: 9,
+                          letterSpacing: 0.2,
+                          color: latency[p.id] == null ? FG_FAINT : latency[p.id] < 80 ? "var(--phn-success, #5FB87A)" : "var(--phn-warning, #E0A93C)",
+                          fontFamily: M,
+                        }}
+                        title={latency[p.id] == null ? "Unreachable on SSH port" : `SSH connect latency: ${latency[p.id]}ms`}
+                      >
+                        {latency[p.id] == null ? "—" : `${latency[p.id]}ms`}
+                      </span>
+                    )}
+                    {!isSsh(p) ? (
                       gitStatus[p.id] && (
                         <span
                           style={{
@@ -552,7 +588,7 @@ export default function ProjectSidebar({
                           )}
                         </span>
                       )
-                    )}
+                    ) : null}
                   </div>
                 )}
                 {!isRenamingThis && !isSsh(p) && (
