@@ -327,6 +327,7 @@
   border-radius: 9px 9px 0 0;
   color: var(--phn-tab-fg, #b6b6b6);
   background: var(--phn-tab-bg, #2b2b2b);
+  font-family: var(--phn-ui-font);
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;

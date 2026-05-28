@@ -342,7 +342,7 @@ export default function TerminalPanel({
           </button>
         )}
         <div style={{ display: "flex", flex: 1, minWidth: 0, overflow: "auto", alignItems: "flex-end" }}>
-          {panel.tabs.map(tab => {
+          {panel.tabs.map((tab, ti) => {
             const active = tab.id === panel.activeTabId;
             const tabState = aggregateTabActivity(tab, tabActivities);
             const isRenamingThis = renamingId === tab.id;
@@ -405,7 +405,7 @@ export default function TerminalPanel({
                     }}
                   />
                 ) : (
-                  <span className="moba-tab-label">{tab.label}</span>
+                  <span className="moba-tab-label">{tab.home ? tab.label : `${ti + 1}. ${tab.label}`}</span>
                 )}
                 {paneCount > 1 && !isRenamingThis && (
                   <span

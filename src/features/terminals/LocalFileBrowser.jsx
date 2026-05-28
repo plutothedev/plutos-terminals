@@ -6,6 +6,7 @@
 // path into the active terminal.
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { IconHome, IconUp, IconRefresh, IconReveal, IconCd } from "./icons.jsx";
 import "./terminals.css";
 
 function fmtSize(n) {
@@ -74,13 +75,13 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
 
       {/* Button toolbar (MobaXterm-style row above the path bar). */}
       <div className="moba-filebar">
-        <button title="Home folder" onClick={() => list(null)}>⌂</button>
-        <button title="Up one level" onClick={() => cwd && list(parentPath(cwd))} disabled={!cwd || cwd === "/"}>↑</button>
-        <button title="Refresh" onClick={() => list(cwd)} disabled={!cwd}>⟳</button>
+        <button title="Home folder" onClick={() => list(null)}><IconHome size={16} /></button>
+        <button title="Up one level" onClick={() => cwd && list(parentPath(cwd))} disabled={!cwd || cwd === "/"}><IconUp size={16} /></button>
+        <button title="Refresh" onClick={() => list(cwd)} disabled={!cwd}><IconRefresh size={16} /></button>
         <span className="sep" />
-        <button title="Open this folder in Finder" onClick={() => cwd && invoke("open_path", { path: cwd }).catch(() => {})} disabled={!cwd}>⧉</button>
+        <button title="Open this folder in Finder" onClick={() => cwd && invoke("open_path", { path: cwd }).catch(() => {})} disabled={!cwd}><IconReveal size={16} /></button>
         {onSendToTerminal && (
-          <button title="cd the active terminal into this folder" onClick={() => cwd && onSendToTerminal(`cd ${shQuote(cwd)}\r`)} disabled={!cwd}>⇢</button>
+          <button title="cd the active terminal into this folder" onClick={() => cwd && onSendToTerminal(`cd ${shQuote(cwd)}\r`)} disabled={!cwd}><IconCd size={16} /></button>
         )}
         <span className="grow" />
       </div>

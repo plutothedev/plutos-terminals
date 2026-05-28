@@ -420,10 +420,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const addTab = useCallback((panelId) => {
     const panels = state.panels.map(p => {
       if (p.id !== panelId) return p;
-      const numbered = p.tabs.filter(t => /^Tab \d+$/.test(t.label || "")).length;
+      // Base name "shell"; the tab strip prepends the position number
+      // (MobaXterm-style "1. shell", "2. shell", …).
       const newTab = {
         id: freshId("tab"),
-        label: `Tab ${numbered + 1}`,
+        label: "shell",
         cwd: null,
         startCommands: [],
         projectId: null,
@@ -462,10 +463,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const convertHomeToShell = useCallback((panelId, tabId) => {
     const panels = state.panels.map(p => {
       if (p.id !== panelId) return p;
-      const numbered = p.tabs.filter(t => /^Tab \d+$/.test(t.label || "")).length;
       return {
         ...p,
-        tabs: p.tabs.map(t => t.id === tabId ? { ...t, home: false, label: `Tab ${numbered + 1}` } : t),
+        tabs: p.tabs.map(t => t.id === tabId ? { ...t, home: false, label: "shell" } : t),
         activeTabId: tabId,
       };
     });

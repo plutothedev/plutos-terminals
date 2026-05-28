@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { fileGlyph } from "./LocalFileBrowser.jsx";
+import { IconHome, IconUp, IconRefresh, IconUpload, IconNewFolder } from "./icons.jsx";
 import "./terminals.css";
 
 function fmtSize(n) {
@@ -147,12 +148,12 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
 
       {/* Button toolbar (MobaXterm-style row above the path bar). */}
       <div className="moba-filebar">
-        <button onClick={goHome} disabled={!sessionId} title="Home folder">⌂</button>
-        <button onClick={() => cwd && list(parentPath(cwd))} disabled={!cwd || cwd === "/"} title="Up one level">↑</button>
-        <button onClick={refresh} disabled={!sessionId || !cwd} title="Refresh">⟳</button>
+        <button onClick={goHome} disabled={!sessionId} title="Home folder"><IconHome size={16} /></button>
+        <button onClick={() => cwd && list(parentPath(cwd))} disabled={!cwd || cwd === "/"} title="Up one level"><IconUp size={16} /></button>
+        <button onClick={refresh} disabled={!sessionId || !cwd} title="Refresh"><IconRefresh size={16} /></button>
         <span className="sep" />
-        <button onClick={onUpload} disabled={!sessionId || !cwd} title="Upload a file into this folder">⬆</button>
-        <button onClick={onMkdir} disabled={!sessionId || !cwd} title="New folder">🗀</button>
+        <button onClick={onUpload} disabled={!sessionId || !cwd} title="Upload a file into this folder"><IconUpload size={16} /></button>
+        <button onClick={onMkdir} disabled={!sessionId || !cwd} title="New folder"><IconNewFolder size={16} /></button>
         <span className="grow" />
       </div>
 

@@ -148,3 +148,65 @@ export const IconFolder = ({ size }) => (
     <path d="M1.6 5.6h12.8v5.6a1 1 0 0 1-1 1H2.6a1 1 0 0 1-1-1z" fill="#f7c948" />
   </S>
 );
+
+/* ── Colorful file-explorer toolbar icons (MobaXterm SFTP toolbar) ───────── */
+export const IconHome = ({ size }) => (
+  <S size={size}>
+    <path d="M8 1.9L1.8 7h1.5v6.1h9.4V7H14.2z" fill="#2f7fd6" />
+    <rect x="6.7" y="9" width="2.6" height="4.1" rx="0.3" fill="#cfe7ff" />
+  </S>
+);
+
+export const IconUp = ({ size }) => (
+  <S size={size}>
+    <path d="M8 2.4l5.2 5.4H10v5.8H6V7.8H2.8z" fill="#3aa657" />
+  </S>
+);
+
+export const IconRefresh = ({ size }) => (
+  <S size={size}>
+    <path d="M3.2 8a4.8 4.8 0 0 1 8.3-3.3" fill="none" stroke="#2f7fd6" strokeWidth="1.7" strokeLinecap="round" />
+    <path d="M12.8 8a4.8 4.8 0 0 1-8.3 3.3" fill="none" stroke="#2f7fd6" strokeWidth="1.7" strokeLinecap="round" />
+    <path d="M11.6 1.8l0.6 3-3-0.4z" fill="#2f7fd6" />
+    <path d="M4.4 14.2l-0.6-3 3 0.4z" fill="#2f7fd6" />
+  </S>
+);
+
+export const IconUpload = ({ size }) => (
+  <S size={size}>
+    <path d="M8 1.8l4 4.2H9.4v4.4H6.6V6H4z" fill="#3aa657" />
+    <rect x="2.4" y="11.6" width="11.2" height="2.2" rx="0.7" fill="#2e8748" />
+  </S>
+);
+
+export const IconDownload = ({ size }) => (
+  <S size={size}>
+    <path d="M6.6 1.8v4.2H4l4 4.2 4-4.2H9.4V1.8z" fill="#3aa657" />
+    <rect x="2.4" y="11.6" width="11.2" height="2.2" rx="0.7" fill="#2e8748" />
+  </S>
+);
+
+export const IconNewFolder = ({ size }) => (
+  <S size={size}>
+    <path d="M1.6 4.1a1 1 0 0 1 1-1h3.1l1.2 1.5H13.4a1 1 0 0 1 1 1v6.3a1 1 0 0 1-1 1H2.6a1 1 0 0 1-1-1z" fill="#e0a82e" />
+    <path d="M1.6 5.6h12.8v5.6a1 1 0 0 1-1 1H2.6a1 1 0 0 1-1-1z" fill="#f7c948" />
+    <circle cx="11.8" cy="9.6" r="2.7" fill="#2e8748" />
+    <path d="M11.8 8.2v2.8M10.4 9.6h2.8" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
+  </S>
+);
+
+export const IconReveal = ({ size }) => (
+  <S size={size}>
+    <rect x="2" y="2.6" width="8.4" height="8.4" rx="1.2" fill="none" stroke="#2f7fd6" strokeWidth="1.5" />
+    <path d="M8.6 2.6h4.8v4.8" fill="none" stroke="#2f7fd6" strokeWidth="1.5" strokeLinecap="round" />
+    <path d="M13 3L7.6 8.4" stroke="#2f7fd6" strokeWidth="1.5" strokeLinecap="round" />
+  </S>
+);
+
+export const IconCd = ({ size }) => (
+  <S size={size}>
+    <rect x="1.4" y="2.6" width="13.2" height="10.8" rx="1.6" fill="#101418" stroke="#4aa8c0" strokeWidth="1" />
+    <path d="M4 6l2.4 2L4 10" fill="none" stroke="#5fd75f" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <rect x="7.4" y="9.4" width="4" height="1.2" rx="0.4" fill="#5fd75f" />
+  </S>
+);
