@@ -8,7 +8,7 @@ import { IconStar, IconTools, IconFolder, IconAgents } from "./icons.jsx";
 const ITEMS = [
   { id: "sessions", label: "Sessions", icon: <IconStar size={16} /> },
   { id: "agents", label: "Agents", icon: <IconAgents size={16} /> },
-  { id: "snippets", label: "Tools", icon: <IconTools size={16} /> },
+  { id: "snippets", label: "Snippets", icon: <IconTools size={16} /> },
   { id: "files", label: "Files", icon: <IconFolder size={16} /> },
 ];
 
