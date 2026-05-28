@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../appMeta.js";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
 import SnippetsDrawer from "./SnippetsDrawer";
@@ -934,8 +935,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // ── Dialog handlers ────────────────────────────────────────────────
 
   const dialogInitial = useMemo(() => {
-    if (!dialog || dialog.mode !== "edit") return null;
-    return projects.find(p => p.id === dialog.projectId) || null;
+    if (!dialog) return null;
+    if (dialog.mode === "edit") return projects.find(p => p.id === dialog.projectId) || null;
+    // "add" — let a caller (e.g. the Servers button) preset the session type.
+    if (dialog.initialType) return { type: dialog.initialType };
+    return null;
   }, [dialog, projects]);
 
   const handleSaveDialog = useCallback((data) => {
@@ -1379,8 +1383,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           {
             label: "Help",
             items: [
-              { label: "GitHub repository", action: () => window.open("https://github.com/plutothedev/plutos-terminals", "_blank") },
-              { label: "Pluto Discord", action: () => window.open("https://discord.gg/3cZQVgKF", "_blank") },
+              { label: "GitHub repository", action: () => openExternal(GITHUB_URL) },
+              { label: "Pluto Discord", action: () => openExternal(DISCORD_URL) },
             ],
           },
         ]}
@@ -1414,8 +1418,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         groups={[
           {
             items: [
-              { id: "session", icon: <IconSession />, label: "Session", title: "New session (local folder or SSH host)", onClick: () => setDialog({ mode: "add" }) },
-              { id: "servers", icon: <IconServers />, label: "Servers", title: "New SSH / server session", onClick: () => setDialog({ mode: "add" }) },
+              { id: "session", icon: <IconSession />, label: "Session", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
+              { id: "servers", icon: <IconServers />, label: "Servers", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
               { id: "tools", icon: <IconTools />, label: "Tools", title: "Tools — saved command snippets, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
               { id: "games", icon: <IconGames />, label: "Games", title: "Games", onClick: playGames },
               { id: "sessions", icon: <IconStar />, label: "Sessions", title: "Saved sessions panel", active: ribbon === "sessions", onClick: () => selectRibbon(ribbon === "sessions" ? null : "sessions") },
@@ -1424,7 +1428,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           },
           {
             items: [
-              { id: "view", icon: <IconView />, label: "View", title: "Appearance & skins", onClick: () => setSettingsOpen(true) },
+              { id: "view", icon: <IconView />, label: "View", title: ribbon ? "Hide the left panel" : "Show the left panel (sessions / tools / files)", active: !!ribbon, onClick: () => selectRibbon(ribbon ? null : "sessions") },
               { id: "split", icon: <IconSplit />, label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
               { id: "multiexec", icon: <IconMultiExec />, label: "MultiExec", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
               { id: "tunneling", icon: <IconTunneling />, label: "Tunneling", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
@@ -1434,7 +1438,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             items: [
               { id: "packages", icon: <IconPackages />, label: "Packages", title: "MCP servers — curated catalog, copy or one-click install", onClick: () => setMcpOpen(true) },
               { id: "settings", icon: <IconSettings />, label: "Settings", title: "Settings: API key + skin + factory reset", onClick: () => setSettingsOpen(true) },
-              { id: "help", icon: <IconHelp />, label: "Help", title: "GitHub repository", onClick: () => window.open("https://github.com/plutothedev/plutos-terminals", "_blank") },
+              { id: "help", icon: <IconHelp />, label: "Help", title: "Open the GitHub repo (docs, issues, releases)", onClick: () => openExternal(GITHUB_URL) },
             ],
           },
         ]}
@@ -1761,7 +1765,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           letterSpacing: 0.2,
         }}
       >
-        <span style={{ opacity: 0.6 }}>v0.1.26</span>
+        <span style={{ opacity: 0.6 }}>v{APP_VERSION}</span>
         {shellName && (
           <span className="moba-stat" title="Shell new tabs spawn">🖥 {shellName}</span>
         )}
@@ -1887,25 +1891,22 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           </>
         )}
         <div style={{ flex: 1 }} />
-        <a
-          href="https://github.com/plutothedev/plutos-terminals"
-          target="_blank"
-          rel="noreferrer"
+        <button
+          onClick={() => openExternal(GITHUB_URL)}
           className="phn-statusbar-link"
+          style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", font: "inherit" }}
           title="Open repo on GitHub"
         >
           github
-        </a>
+        </button>
         <span className="phn-statusbar-divider">·</span>
-        <a
-          href="https://discord.gg/3cZQVgKF"
-          target="_blank"
-          rel="noreferrer"
-          style={{ color: "#FF0080", textDecoration: "none" }}
+        <button
+          onClick={() => openExternal(DISCORD_URL)}
+          style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", color: "#FF0080", font: "inherit" }}
           title="Join the Pluto Discord"
         >
           discord
-        </a>
+        </button>
       </div>
       </div>
     </div>

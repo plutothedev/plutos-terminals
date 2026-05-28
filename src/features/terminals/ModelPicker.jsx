@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { PROVIDERS, findProvider } from "./providers.js";
+import { openExternal } from "../../appMeta.js";
 
 const ACCENT = "var(--phn-link, #4aa8c0)";
 const DIM = "var(--phn-text-dim, #888)";
@@ -70,16 +71,20 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
 
   return (
     <Modal open={open} title="Models — pick a provider + model" onClose={onClose} width={640}>
+      {/* Bounded flex column: pinned banner + footer with ONE scrolling list.
+          Avoids the double-scroll/cutoff from nesting a scroll area inside the
+          already-scrolling .phn-modal. */}
+      <div style={{ display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 150px)" }}>
       {/* Active model banner */}
       <div
         style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          gap: 10, marginBottom: 12, padding: "8px 12px", borderRadius: 6,
+          gap: 10, marginBottom: 12, padding: "8px 12px", borderRadius: 6, flexShrink: 0,
           background: "var(--phn-page-bg, #1c1c1c)",
           border: `1px solid ${active ? ACCENT : "var(--phn-surface-border, #151515)"}`,
         }}
       >
-        <div style={{ fontSize: 12, color: "var(--phn-text-fg, #d4d4d4)" }}>
+        <div style={{ fontSize: 12, color: "var(--phn-text-fg, #d4d4d4)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {active ? (
             <>
               <span style={{ color: DIM }}>Active: </span>
@@ -95,7 +100,7 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
         )}
       </div>
 
-      <div style={{ maxHeight: "58vh", overflow: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 4 }}>
         {PROVIDERS.map((p) => {
           const isOpen = expanded === p.id;
           const hasKey = keys[p.id] && keys[p.id].trim().length > 0;
@@ -145,9 +150,9 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
                       style={input}
                     />
                     {p.keysUrl && (
-                      <a href={p.keysUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: ACCENT, whiteSpace: "nowrap" }}>
+                      <button onClick={() => openExternal(p.keysUrl)} style={{ fontSize: 10, color: ACCENT, whiteSpace: "nowrap", background: "transparent", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>
                         get key ↗
-                      </a>
+                      </button>
                     )}
                   </div>
 
@@ -189,12 +194,13 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
         })}
       </div>
 
-      <p style={{ fontSize: 10.5, color: DIM, marginTop: 10, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 10.5, color: DIM, marginTop: 10, lineHeight: 1.5, flexShrink: 0 }}>
         Each row shows what it routes: <strong>Claude Code</strong> (Anthropic-style) or{" "}
         <strong>Codex / OpenAI tools</strong> (OpenAI-style). Pick a chip or type any model id;
         the <em>Custom</em> row points at any OpenAI-compatible endpoint. Open a new tab after
         picking — env is set at shell spawn. Keys never leave localStorage.
       </p>
+      </div>
     </Modal>
   );
 }

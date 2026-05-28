@@ -7,6 +7,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
+import { openExternal } from "../appMeta.js";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 
@@ -120,14 +121,12 @@ export default function McpInstaller({ open, onClose }) {
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <div style={{ color: FG_ACTIVE, fontSize: 13, fontWeight: 600 }}>{mcp.name}</div>
-              <a
-                href={mcp.docs}
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: FG_DIM, fontSize: 10, textDecoration: "none" }}
+              <button
+                onClick={() => openExternal(mcp.docs)}
+                style={{ color: FG_DIM, fontSize: 10, textDecoration: "none", background: "transparent", border: "none", padding: 0, font: "inherit", cursor: "pointer" }}
               >
                 docs ↗
-              </a>
+              </button>
             </div>
             <div style={{ color: FG, fontSize: 11, lineHeight: 1.6, marginBottom: 10 }}>
               {mcp.description}
@@ -213,9 +212,9 @@ export default function McpInstaller({ open, onClose }) {
 
       <div style={{ color: FG_DIM, fontSize: 10, lineHeight: 1.6, marginTop: 18, paddingTop: 14, borderTop: `1px solid ${BORDER}` }}>
         Looking for an MCP not listed? Browse the full registry at{" "}
-        <a href="https://github.com/modelcontextprotocol/servers" target="_blank" rel="noreferrer" style={{ color: ACCENT, textDecoration: "none" }}>
+        <button onClick={() => openExternal("https://github.com/modelcontextprotocol/servers")} style={{ color: ACCENT, textDecoration: "none", background: "transparent", border: "none", padding: 0, font: "inherit", cursor: "pointer" }}>
           github.com/modelcontextprotocol/servers ↗
-        </a>
+        </button>
         . The standard Claude Code install pattern is{" "}
         <code style={{ background: "var(--phn-surface-bg, #181818)", padding: "1px 4px", borderRadius: 2 }}>claude mcp add &lt;name&gt; -- npx -y &lt;package&gt;</code>.
       </div>

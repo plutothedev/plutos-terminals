@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
+import { openExternal } from "../appMeta.js";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const PLUTO_MAGENTA = "#FF0080";
@@ -265,9 +266,12 @@ function Check({ label, status, installHint }) {
 
 function Link({ href, children }) {
   return (
-    <a href={href} target="_blank" rel="noreferrer" style={{ color: ACCENT, textDecoration: "none" }}>
+    <button
+      onClick={() => openExternal(href)}
+      style={{ color: ACCENT, textDecoration: "none", background: "transparent", border: "none", padding: 0, font: "inherit", cursor: "pointer" }}
+    >
       {children}
-    </a>
+    </button>
   );
 }
 

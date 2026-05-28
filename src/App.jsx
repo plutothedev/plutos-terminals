@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { APP_VERSION, DISCORD_URL, openExternal } from "./appMeta.js";
 import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import LockScreen from "./features/terminals/LockScreen.jsx";
@@ -57,8 +58,7 @@ const WINDOW_ID = (() => {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get("w") || null;
 })();
-const DEFAULT_DISCORD_URL = "https://discord.gg/3cZQVgKF";
-const APP_VERSION = "0.1.26";
+const DEFAULT_DISCORD_URL = DISCORD_URL;
 
 const PAGE_BG = "var(--phn-page-bg, #0a0a0a)";
 const FG = "var(--phn-text-fg, #9D9D9D)";
@@ -280,10 +280,8 @@ function Welcome({ initialKey, discordUrl, onContinue }) {
             ENTER →
           </button>
 
-          <a
-            href={discordUrl}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            onClick={() => openExternal(discordUrl)}
             style={{
               background: "transparent",
               border: `1px solid ${PLUTO_MAGENTA}`,
@@ -298,7 +296,7 @@ function Welcome({ initialKey, discordUrl, onContinue }) {
             }}
           >
             JOIN PLUTO DISCORD
-          </a>
+          </button>
         </div>
 
         <div style={{ color: FG_DIM, fontSize: 10, marginTop: 8 }}>

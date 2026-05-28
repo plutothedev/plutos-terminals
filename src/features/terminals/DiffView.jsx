@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
+import { openExternal } from "../../appMeta.js";
 
 function lineColor(l) {
   if (l.startsWith("+++") || l.startsWith("---")) return "#9aa0a6";
@@ -40,7 +41,7 @@ export default function DiffView({ open, worktree, onClose }) {
     try {
       const url = await invoke("gh_pr_create", { path: worktree.path });
       toast.success("PR created.");
-      if (url && /^https?:\/\//.test(url)) window.open(url, "_blank");
+      if (url && /^https?:\/\//.test(url)) openExternal(url);
     } catch (e) {
       toast.error(`PR failed: ${e}`);
     } finally {

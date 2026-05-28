@@ -6,6 +6,7 @@
 // no-op — the banner just doesn't appear.
 
 import { useEffect, useState } from "react";
+import { openExternal } from "../appMeta.js";
 
 const REPO_OWNER = "plutothedev";
 const REPO_NAME = "plutos-terminals";
@@ -92,10 +93,8 @@ export default function UpdateBanner({ currentVersion }) {
         Pluto's Terminal <strong>{latest.tag}</strong> is out (you're on <code style={{ fontSize: 10 }}>v{currentVersion}</code>).
       </div>
       <div style={{ display: "flex", gap: 8 }}>
-        <a
-          href={latest.url}
-          target="_blank"
-          rel="noreferrer"
+        <button
+          onClick={() => openExternal(latest.url)}
           style={{
             background: PLUTO_MAGENTA,
             color: "#fff",
@@ -106,10 +105,11 @@ export default function UpdateBanner({ currentVersion }) {
             fontWeight: 600,
             textDecoration: "none",
             cursor: "pointer",
+            border: "none",
           }}
         >
           download
-        </a>
+        </button>
         <button
           onClick={onDismiss}
           style={{
