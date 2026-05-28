@@ -1419,7 +1419,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               { id: "tools", icon: <IconTools />, label: "Tools", title: "Tools — saved command snippets, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
               { id: "games", icon: <IconGames />, label: "Games", title: "Games", onClick: playGames },
               { id: "sessions", icon: <IconStar />, label: "Sessions", title: "Saved sessions panel", active: ribbon === "sessions", onClick: () => selectRibbon(ribbon === "sessions" ? null : "sessions") },
-              { id: "models", icon: <IconModels />, label: "Models", title: "Pick your LLM provider + model (Claude, Kimi K2, OpenRouter, …) and enter its API key", onClick: () => setModelsOpen(true) },
+              { id: "models", icon: <IconModels />, label: "Models", title: "Pick your LLM provider + model (Claude, Hermes, Gemini, GLM, Qwen, Kimi, OpenRouter, … or any endpoint) and enter its API key", onClick: () => setModelsOpen(true) },
             ],
           },
           {
@@ -1673,7 +1673,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
-          { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Kimi K2, OpenRouter, OpenAI, DeepSeek, Groq, xAI… + your API key", action: () => setModelsOpen(true) },
+          { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
           { id: "snippets", icon: "📋", label: "Tools / snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
           { id: "files", icon: "📁", label: "File browser", hint: "Local files (or remote SFTP for an SSH tab) in the left panel", action: () => selectRibbon(ribbon === "files" ? null : "files") },
           { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },

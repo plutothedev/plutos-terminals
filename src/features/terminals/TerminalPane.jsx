@@ -617,8 +617,9 @@ export default function TerminalPane({
             // precedence over the legacy plain ANTHROPIC_API_KEY above.
             const am = userPersisted && userPersisted.activeModel;
             const keys = (userPersisted && userPersisted.providerKeys) || {};
+            const baseUrls = (userPersisted && userPersisted.providerBaseUrls) || {};
             if (am && am.providerId && am.model && typeof keys[am.providerId] === "string" && keys[am.providerId].length > 0) {
-              Object.assign(env, envForModel(am.providerId, am.model, keys[am.providerId]));
+              Object.assign(env, envForModel(am.providerId, am.model, keys[am.providerId], baseUrls[am.providerId]));
             }
           }
           // envOverrides (and the legacy anthropicKey for not-yet-migrated

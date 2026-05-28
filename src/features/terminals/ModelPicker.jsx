@@ -14,6 +14,7 @@ const DIM = "var(--phn-text-dim, #888)";
 export default function ModelPicker({ open, onClose, userSt, saveUser }) {
   const toast = useToast();
   const [keys, setKeys] = useState({});
+  const [baseUrls, setBaseUrls] = useState({}); // providerId -> custom endpoint
   const [active, setActive] = useState(null); // { providerId, model }
   const [expanded, setExpanded] = useState(null);
   const [custom, setCustom] = useState({}); // providerId -> typed model id
@@ -22,13 +23,14 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
   useEffect(() => {
     if (!open) return;
     setKeys({ ...(userSt?.providerKeys || {}) });
+    setBaseUrls({ ...(userSt?.providerBaseUrls || {}) });
     setActive(userSt?.activeModel || null);
     setExpanded(userSt?.activeModel?.providerId || PROVIDERS[0].id);
     setCustom({});
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const persist = (nextKeys, nextActive) => {
-    saveUser({ ...userSt, providerKeys: nextKeys, activeModel: nextActive });
+  const persist = (nextKeys, nextActive, nextBaseUrls = baseUrls) => {
+    saveUser({ ...userSt, providerKeys: nextKeys, activeModel: nextActive, providerBaseUrls: nextBaseUrls });
   };
 
   const useModel = (providerId, model) => {
@@ -38,16 +40,20 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
       toast.error("Enter the provider's API key first.");
       return;
     }
+    const p = findProvider(providerId);
+    if (p?.allowBaseUrl && !(baseUrls[providerId] || "").trim()) {
+      toast.error("Enter the endpoint base URL first.");
+      return;
+    }
     const next = { providerId, model: m };
     setActive(next);
-    persist(keys, next);
-    const p = findProvider(providerId);
+    persist(keys, next, baseUrls);
     toast.success(`Active model: ${m} — new shells route to ${p?.label || providerId}.`);
   };
 
   const resetDefault = () => {
     setActive(null);
-    persist(keys, null);
+    persist(keys, null, baseUrls);
     toast.success("Reverted to default (your Anthropic key / Claude).");
   };
 
@@ -55,7 +61,10 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
     const next = { ...keys, [providerId]: value };
     setKeys(next);
   };
-  const commitKeys = () => persist(keys, active); // save keys on blur
+  const setBaseUrl = (providerId, value) => {
+    setBaseUrls({ ...baseUrls, [providerId]: value });
+  };
+  const commitKeys = () => persist(keys, active, baseUrls); // save keys + endpoints on blur
 
   const activeProvider = active ? findProvider(active.providerId) : null;
 
@@ -117,6 +126,15 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
 
               {isOpen && (
                 <div style={{ padding: "4px 12px 12px 30px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {p.allowBaseUrl && (
+                    <input
+                      value={baseUrls[p.id] || ""}
+                      onChange={(e) => setBaseUrl(p.id, e.target.value)}
+                      onBlur={commitKeys}
+                      placeholder="endpoint base URL (e.g. https://host/v1)"
+                      style={{ ...input, fontFamily: "'MesloLGS NF', monospace", fontSize: 11 }}
+                    />
+                  )}
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <input
                       type="password"
@@ -126,9 +144,11 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
                       placeholder={`${p.label} API key`}
                       style={input}
                     />
-                    <a href={p.keysUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: ACCENT, whiteSpace: "nowrap" }}>
-                      get key ↗
-                    </a>
+                    {p.keysUrl && (
+                      <a href={p.keysUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: ACCENT, whiteSpace: "nowrap" }}>
+                        get key ↗
+                      </a>
+                    )}
                   </div>
 
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
@@ -170,9 +190,10 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
       </div>
 
       <p style={{ fontSize: 10.5, color: DIM, marginTop: 10, lineHeight: 1.5 }}>
-        Anthropic-compatible providers (Anthropic, Moonshot/Kimi) route <strong>Claude Code</strong>;
-        OpenAI-compatible providers (OpenRouter, OpenAI, DeepSeek, Groq, xAI, Mistral) route <strong>Codex</strong>
-        and OpenAI-style tools. Open a new tab after picking — env is set at shell spawn.
+        Each row shows what it routes: <strong>Claude Code</strong> (Anthropic-style) or{" "}
+        <strong>Codex / OpenAI tools</strong> (OpenAI-style). Pick a chip or type any model id;
+        the <em>Custom</em> row points at any OpenAI-compatible endpoint. Open a new tab after
+        picking — env is set at shell spawn. Keys never leave localStorage.
       </p>
     </Modal>
   );
