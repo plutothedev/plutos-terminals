@@ -11,6 +11,7 @@ import SerialModal from "./SerialModal";
 import MobaRibbon from "./MobaRibbon";
 import MobaMenuBar from "./MobaMenuBar";
 import AgentDashboard from "./AgentDashboard";
+import DiffView from "./DiffView";
 import MobaToolbar from "./MobaToolbar";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
@@ -109,6 +110,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [mcpOpen, setMcpOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  // Diff-review modal: the worktree { path, branch, repo } to review, or null.
+  const [diffWorktree, setDiffWorktree] = useState(null);
 
   // v4.0 MobaXterm layout: a vertical ribbon toggles which panel is docked on
   // the left — "sessions" (project/session list), "snippets" (tools), or "sftp"
@@ -1342,6 +1345,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 tabActivities={tabActivities}
                 tabCosts={tabCosts}
                 onFocusTab={(panelId, tabId) => switchTab(panelId, tabId)}
+                onReviewDiff={(wt) => setDiffWorktree(wt)}
               />
             )}
             {ribbon === "snippets" && (
@@ -1466,6 +1470,12 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         userSt={userSt}
         saveUser={saveUser}
         onClose={() => setSettingsOpen(false)}
+      />
+
+      <DiffView
+        open={!!diffWorktree}
+        worktree={diffWorktree}
+        onClose={() => setDiffWorktree(null)}
       />
 
       <McpInstaller

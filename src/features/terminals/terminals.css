@@ -623,6 +623,18 @@
 }
 .moba-agent-cost { font-size: 10px; color: #5fd75f; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .moba-agent-status { font-size: 9px; color: var(--phn-text-dim, #888); flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.4px; }
+.moba-agent-diff {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--phn-surface-border, #151515);
+  color: var(--phn-link, #4aa8c0);
+  border-radius: 3px;
+  font-size: 9px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-family: var(--phn-ui-font);
+}
+.moba-agent-diff:hover { background: var(--phn-accent-subtle, rgba(74,168,192,0.16)); }
 .moba-agent-total {
   flex-shrink: 0;
   padding: 6px 10px;

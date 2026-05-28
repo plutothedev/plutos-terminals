@@ -26,7 +26,7 @@ function tabCost(tab, tabCosts) {
 const DOT = { active: "#FBBF24", done: "#34D399", idle: "#5a5a5a" };
 const LABEL = { active: "working", done: "done", idle: "idle" };
 
-export default function AgentDashboard({ panels, activePanelId, tabActivities, tabCosts, onFocusTab }) {
+export default function AgentDashboard({ panels, activePanelId, tabActivities, tabCosts, onFocusTab, onReviewDiff }) {
   const rows = [];
   let total = 0;
   let working = 0;
@@ -68,6 +68,15 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
               <span className="moba-agent-icon">{tab.worktree ? "🌿" : tab.connection ? "🔗" : tab.serial ? "⎓" : tab.rdp ? "🪟" : tab.vnc ? "🖥" : "❯"}</span>
               <span className="moba-agent-name">{tab.worktree ? tab.worktree.branch : tab.label}</span>
               {cost > 0 && <span className="moba-agent-cost">${cost.toFixed(2)}</span>}
+              {tab.worktree && onReviewDiff && (
+                <button
+                  className="moba-agent-diff"
+                  onClick={(e) => { e.stopPropagation(); onReviewDiff(tab.worktree); }}
+                  title={`Review diff + open PR for ${tab.worktree.branch}`}
+                >
+                  diff
+                </button>
+              )}
               <span className="moba-agent-status">{LABEL[status]}</span>
             </div>
           ))

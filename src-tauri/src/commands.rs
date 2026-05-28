@@ -182,6 +182,66 @@ pub fn worktree_remove(repo: String, path: String) -> Result<(), String> {
     Ok(())
 }
 
+// ── Diff review + one-click PR for agent worktrees ────────────────
+//
+// git_diff returns the worktree's changes vs HEAD (uncommitted) plus, if the
+// branch has commits beyond its merge-base with the default branch, those too —
+// so an agent's work is reviewable whether or not it committed. gh_pr_create
+// pushes the branch and opens a PR with gh (requires gh auth + a remote).
+#[tauri::command]
+pub fn git_diff(path: String) -> Result<String, String> {
+    let run = |args: &[&str]| {
+        std::process::Command::new("git").arg("-C").arg(&path).args(args).output()
+    };
+    // Committed work vs the branch point (origin/HEAD or main/master), if resolvable.
+    let mut diff = String::new();
+    for base in ["origin/HEAD", "main", "master"] {
+        if let Ok(mb) = run(&["merge-base", "HEAD", base]) {
+            if mb.status.success() {
+                let base_sha = String::from_utf8_lossy(&mb.stdout).trim().to_string();
+                if let Ok(d) = run(&["diff", "--no-color", &format!("{base_sha}...HEAD")]) {
+                    if d.status.success() { diff.push_str(&String::from_utf8_lossy(&d.stdout)); }
+                }
+                break;
+            }
+        }
+    }
+    // Uncommitted working-tree changes vs HEAD.
+    if let Ok(d) = run(&["diff", "--no-color", "HEAD"]) {
+        if d.status.success() {
+            let s = String::from_utf8_lossy(&d.stdout);
+            if !s.trim().is_empty() {
+                if !diff.is_empty() { diff.push_str("\n"); }
+                diff.push_str(&s);
+            }
+        } else {
+            return Err(String::from_utf8_lossy(&d.stderr).trim().to_string());
+        }
+    }
+    Ok(diff)
+}
+
+#[tauri::command]
+pub fn gh_pr_create(path: String) -> Result<String, String> {
+    let push = std::process::Command::new("git")
+        .current_dir(&path)
+        .args(["push", "-u", "origin", "HEAD"])
+        .output()
+        .map_err(|e| format!("git not found: {e}"))?;
+    if !push.status.success() {
+        return Err(format!("git push failed: {}", String::from_utf8_lossy(&push.stderr).trim()));
+    }
+    let out = std::process::Command::new("gh")
+        .current_dir(&path)
+        .args(["pr", "create", "--fill"])
+        .output()
+        .map_err(|e| format!("gh CLI not found — install it to open PRs: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 // ── Quit the whole app (Exit toolbar button) ──────────────────────
 //
 // Fires app.exit(0), which triggers RunEvent::ExitRequested → kill_all()
