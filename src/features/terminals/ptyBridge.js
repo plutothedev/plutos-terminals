@@ -9,6 +9,7 @@
 // its live dimensions, or fan a write out to every visible terminal at once.
 
 const writers = new Map(); // tabId -> (data: string) => void
+const readers = new Map(); // tabId -> () => string (recent terminal text)
 const dims = new Map(); // tabId -> { cols, rows }
 const visible = new Set(); // tabIds whose pane is currently shown
 const dimsListeners = new Set(); // () => void
@@ -40,9 +41,23 @@ export function registerPtyWriter(tabId, fn) {
 export function unregisterPty(tabId) {
   if (!tabId) return;
   writers.delete(tabId);
+  readers.delete(tabId);
   dims.delete(tabId);
   visible.delete(tabId);
   emitDims();
+}
+
+// ── Terminal text reader (TerminalPane exposes recent buffer; AI features read) ─
+
+export function registerTabReader(tabId, fn) {
+  if (tabId && typeof fn === "function") readers.set(tabId, fn);
+}
+
+// Returns recent terminal text for a tab (for AI summaries), "" if unavailable.
+export function getTabText(tabId) {
+  const fn = readers.get(tabId);
+  if (!fn) return "";
+  try { return fn() || ""; } catch { return ""; }
 }
 
 // ── Dimensions (TerminalPane writes, status bar reads) ──────────────────────

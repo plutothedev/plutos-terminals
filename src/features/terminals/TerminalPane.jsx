@@ -20,6 +20,7 @@ import {
   writeBroadcast,
   getTabPassword,
   writeToTab,
+  registerTabReader,
 } from "./ptyBridge.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
@@ -710,6 +711,20 @@ export default function TerminalPane({
         // bridge. Writer closes over the local ptyId; dims reported below.
         registerPtyWriter(tabId, (data) => {
           if (ptyId) invoke("pty_write", { id: ptyId, data }).catch(() => {});
+        });
+        // Expose recent buffer text (ANSI already resolved by xterm) for AI
+        // features like the session summary. Last ~400 lines, capped at 8 KB.
+        registerTabReader(tabId, () => {
+          try {
+            const buf = term.buffer.active;
+            const total = buf.length;
+            const lines = [];
+            for (let i = Math.max(0, total - 400); i < total; i++) {
+              const ln = buf.getLine(i);
+              if (ln) lines.push(ln.translateToString(true));
+            }
+            return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd().slice(-8000);
+          } catch { return ""; }
         });
         try { setTabDims(tabId, term.cols, term.rows); } catch {}
 
