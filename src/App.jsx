@@ -215,9 +215,9 @@ function Welcome({ initialKey, discordUrl, onContinue }) {
 
         <p style={{ color: FG, fontSize: 13, lineHeight: 1.7, marginBottom: 28 }}>
           Free multi-terminal app for the <strong style={{ color: FG_ACTIVE }}>Pluto community</strong>.
-          Run Claude Code, Codex, and other AI agents side by side. Save and share terminal setups
-          as <code style={{ color: ACCENT }}>.deck.json</code> prompt packs — clone someone else's
-          configuration in one click.
+          Run Claude Code, Codex, and other AI agents side by side — each in its own git worktree,
+          pointed at <strong style={{ color: FG_ACTIVE }}>any model</strong> you like
+          (Claude, Kimi K2, OpenRouter, and more) with your own API key.
         </p>
 
         <div style={{ marginBottom: 24 }}>

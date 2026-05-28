@@ -7,6 +7,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
+import { envForModel } from "./providers.js";
 import {
   registerPtyWriter,
   unregisterPty,
@@ -562,6 +563,14 @@ export default function TerminalPane({
             const userPersisted = JSON.parse(userRaw);
             if (userPersisted && typeof userPersisted.anthropicKey === "string" && userPersisted.anthropicKey.length > 0) {
               env.ANTHROPIC_API_KEY = userPersisted.anthropicKey;
+            }
+            // Multi-LLM routing: if the user picked an active provider/model,
+            // inject its env vars so `claude` / `codex` route there. Takes
+            // precedence over the legacy plain ANTHROPIC_API_KEY above.
+            const am = userPersisted && userPersisted.activeModel;
+            const keys = (userPersisted && userPersisted.providerKeys) || {};
+            if (am && am.providerId && am.model && typeof keys[am.providerId] === "string" && keys[am.providerId].length > 0) {
+              Object.assign(env, envForModel(am.providerId, am.model, keys[am.providerId]));
             }
           }
           // envOverrides (and the legacy anthropicKey for not-yet-migrated

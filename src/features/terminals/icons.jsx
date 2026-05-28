@@ -219,3 +219,20 @@ export const IconCd = ({ size }) => (
     <rect x="7.4" y="9.4" width="4" height="1.2" rx="0.4" fill="#5fd75f" />
   </S>
 );
+
+// AI model chip — violet processor die with pins, signalling the LLM picker.
+export const IconModels = ({ size }) => (
+  <S size={size}>
+    <rect x="3.5" y="3.5" width="9" height="9" rx="1.4" fill="#7c5cff" />
+    <rect x="5.4" y="5.4" width="5.2" height="5.2" rx="0.8" fill="#d9ccff" />
+    <circle cx="8" cy="8" r="1.4" fill="#7c5cff" />
+    {[5.6, 8, 10.4].map((p) => (
+      <g key={p}>
+        <rect x={p - 0.45} y="1.7" width="0.9" height="1.8" rx="0.3" fill="#7c5cff" />
+        <rect x={p - 0.45} y="12.5" width="0.9" height="1.8" rx="0.3" fill="#7c5cff" />
+        <rect x="1.7" y={p - 0.45} width="1.8" height="0.9" rx="0.3" fill="#7c5cff" />
+        <rect x="12.5" y={p - 0.45} width="1.8" height="0.9" rx="0.3" fill="#7c5cff" />
+      </g>
+    ))}
+  </S>
+);

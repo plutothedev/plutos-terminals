@@ -12,11 +12,12 @@ import MobaRibbon from "./MobaRibbon";
 import MobaMenuBar from "./MobaMenuBar";
 import AgentDashboard from "./AgentDashboard";
 import DiffView from "./DiffView";
+import ModelPicker from "./ModelPicker";
 import MobaToolbar from "./MobaToolbar";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
-  IconHelp, IconMoon, IconSun, IconExit,
+  IconHelp, IconMoon, IconSun, IconExit, IconModels,
 } from "./icons.jsx";
 import LocalFileBrowser from "./LocalFileBrowser";
 import VncConnectModal from "./VncConnectModal";
@@ -108,6 +109,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Modal toggles
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   // Diff-review modal: the worktree { path, branch, repo } to review, or null.
@@ -1211,6 +1213,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             label: "Tools",
             items: [
               { label: "Snippets / Tools panel", action: () => selectRibbon("snippets") },
+              { label: "Models — pick provider + model…", action: () => setModelsOpen(true) },
               { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
               { divider: true },
               { label: "MCP servers…", action: () => setMcpOpen(true) },
@@ -1275,6 +1278,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               { id: "tools", icon: <IconTools />, label: "Tools", title: "Tools — saved command snippets, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
               { id: "games", icon: <IconGames />, label: "Games", title: "Games", onClick: playGames },
               { id: "sessions", icon: <IconStar />, label: "Sessions", title: "Saved sessions panel", active: ribbon === "sessions", onClick: () => selectRibbon(ribbon === "sessions" ? null : "sessions") },
+              { id: "models", icon: <IconModels />, label: "Models", title: "Pick your LLM provider + model (Claude, Kimi K2, OpenRouter, …) and enter its API key", onClick: () => setModelsOpen(true) },
             ],
           },
           {
@@ -1478,6 +1482,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onClose={() => setDiffWorktree(null)}
       />
 
+      <ModelPicker
+        open={modelsOpen}
+        userSt={userSt}
+        saveUser={saveUser}
+        onClose={() => setModelsOpen(false)}
+      />
+
       <McpInstaller
         open={mcpOpen}
         onClose={() => setMcpOpen(false)}
@@ -1499,6 +1510,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
+          { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Kimi K2, OpenRouter, OpenAI, DeepSeek, Groq, xAI… + your API key", action: () => setModelsOpen(true) },
           { id: "snippets", icon: "📋", label: "Tools / snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
           { id: "files", icon: "📁", label: "File browser", hint: "Local files (or remote SFTP for an SSH tab) in the left panel", action: () => selectRibbon(ribbon === "files" ? null : "files") },
           { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
