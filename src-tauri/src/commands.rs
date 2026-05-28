@@ -975,3 +975,78 @@ pub fn parse_ssh_config() -> Result<Vec<SshHostEntry>, String> {
     flush(&mut out, cur.take());
     Ok(out)
 }
+
+// ── SSH key manager ──────────────────────────────────────────────────────
+// List / generate SSH keypairs in ~/.ssh (Termius/MobaXterm parity). We treat
+// every `*.pub` as the marker of a keypair and read its public side for easy
+// copy-to-server; generation shells out to ssh-keygen (present on macOS/Linux
+// and Windows OpenSSH). Private key material is never read or returned.
+#[derive(Serialize)]
+pub struct SshKey {
+    pub name: String,
+    pub private_path: String,
+    pub public_key: String,
+    pub key_type: String,
+    pub comment: String,
+}
+
+#[tauri::command]
+pub fn ssh_keys_list() -> Result<Vec<SshKey>, String> {
+    let dir = local_home().join(".ssh");
+    let rd = match fs::read_dir(&dir) {
+        Ok(r) => r,
+        Err(_) => return Ok(vec![]),
+    };
+    let mut keys = Vec::new();
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("pub") { continue; }
+        let pubtext = fs::read_to_string(&path).unwrap_or_default();
+        let priv_path = path.with_extension("");
+        // "ssh-ed25519 AAAA... comment"
+        let mut parts = pubtext.split_whitespace();
+        let key_type = parts.next().unwrap_or("").to_string();
+        let _blob = parts.next();
+        let comment = parts.collect::<Vec<_>>().join(" ");
+        keys.push(SshKey {
+            name: priv_path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string(),
+            private_path: priv_path.to_string_lossy().to_string(),
+            public_key: pubtext.trim().to_string(),
+            key_type,
+            comment,
+        });
+    }
+    keys.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(keys)
+}
+
+#[tauri::command]
+pub fn ssh_key_generate(name: String, key_type: String, comment: String, passphrase: String) -> Result<SshKey, String> {
+    let safe: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.').collect();
+    if safe.is_empty() { return Err("invalid key name".into()); }
+    let dir = local_home().join(".ssh");
+    fs::create_dir_all(&dir).map_err(|e| format!("can't create ~/.ssh: {e}"))?;
+    let path = dir.join(&safe);
+    if path.exists() { return Err(format!("a key named '{safe}' already exists")); }
+    let kt = match key_type.as_str() { "rsa" => "rsa", _ => "ed25519" };
+    let mut cmd = Command::new("ssh-keygen");
+    cmd.arg("-t").arg(kt);
+    if kt == "rsa" { cmd.arg("-b").arg("4096"); }
+    cmd.arg("-f").arg(&path)
+       .arg("-N").arg(&passphrase)
+       .arg("-C").arg(if comment.is_empty() { &safe } else { &comment });
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().map_err(|e| format!("ssh-keygen failed to run: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("ssh-keygen: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    let pubtext = fs::read_to_string(path.with_extension("pub")).unwrap_or_default();
+    Ok(SshKey {
+        name: safe,
+        private_path: path.to_string_lossy().to_string(),
+        public_key: pubtext.trim().to_string(),
+        key_type: format!("ssh-{kt}"),
+        comment,
+    })
+}

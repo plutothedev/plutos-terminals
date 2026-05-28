@@ -13,6 +13,7 @@ import MobaMenuBar from "./MobaMenuBar";
 import AgentDashboard from "./AgentDashboard";
 import DiffView from "./DiffView";
 import ModelPicker from "./ModelPicker";
+import SshKeysModal from "./SshKeysModal";
 import MobaToolbar from "./MobaToolbar";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
@@ -110,6 +111,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
+  const [sshKeysOpen, setSshKeysOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   // Diff-review modal: the worktree { path, branch, repo } to review, or null.
@@ -790,13 +792,22 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         return;
       }
       const tabId = freshId("tab");
+      // Jump host (ProxyJump): if the session names a bastion we also have saved,
+      // attach its connection so TerminalPane tunnels through it. Key/agent
+      // bastions work directly; a password bastion would need its own secret.
+      let jump = null;
+      if (project.proxyJump) {
+        const b = projects.find((p) => p.name === project.proxyJump && p.connection);
+        if (b) jump = { host: b.connection.host, port: b.connection.port || 22, user: b.connection.user, auth: b.connection.auth };
+        else toast.info(`Jump host "${project.proxyJump}" isn't a saved session — connecting directly.`);
+      }
       const tab = {
         id: tabId,
         label: project.name,
         cwd: null,
         startCommands: project.startCommands || [],
         projectId: project.id,
-        connection: project.connection, // { host, port, user, auth } — no secret
+        connection: jump ? { ...project.connection, jump } : project.connection, // { host, port, user, auth } — no secret
       };
       const method = project.connection?.auth?.method || "password";
       if (method === "password") {
@@ -1101,6 +1112,35 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     }
   }, [activeTab, activeTabId, toast]);
 
+  const startSocks = useCallback(async ({ localPort }) => {
+    const conn = activeTab?.connection;
+    if (!conn) return;
+    setTunnelBusy(true);
+    setTunnelError(null);
+    try {
+      const method = conn.auth?.method || "password";
+      let password = null;
+      if (method === "password") {
+        password = getTabPassword(activeTabId);
+        if (!password) { try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ } }
+        if (!password) {
+          setTunnelError("No password for this session — reopen the SSH tab first.");
+          return;
+        }
+      }
+      const id = await invoke("socks_forward_start", {
+        host: conn.host, port: conn.port || 22, user: conn.user,
+        auth: { ...conn.auth, password }, localPort,
+      });
+      setForwards((f) => [...f, { id, localPort, socks: true }]);
+      toast.success(`SOCKS5 proxy on 127.0.0.1:${localPort} → through ${conn.host}`);
+    } catch (e) {
+      setTunnelError(String(e));
+    } finally {
+      setTunnelBusy(false);
+    }
+  }, [activeTab, activeTabId, toast]);
+
   const stopForward = useCallback(async (id) => {
     try { await invoke("port_forward_stop", { id }); } catch { /* ignore */ }
     setForwards((f) => f.filter((x) => x.id !== id));
@@ -1254,6 +1294,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             items: [
               { label: "New session…", action: () => setDialog({ mode: "add" }) },
               { label: "Import from ~/.ssh/config…", action: () => importSshConfig() },
+              { label: "SSH keys…", action: () => setSshKeysOpen(true) },
               { divider: true },
               { label: "Sessions panel", action: () => selectRibbon("sessions") },
               { label: "File browser", action: () => selectRibbon("files") },
@@ -1483,6 +1524,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         busy={tunnelBusy}
         error={tunnelError}
         onStart={startForward}
+        onStartSocks={startSocks}
         onStop={stopForward}
         onClose={() => setTunnelsOpen(false)}
       />
@@ -1543,6 +1585,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onClose={() => setModelsOpen(false)}
       />
 
+      <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
+
       <McpInstaller
         open={mcpOpen}
         onClose={() => setMcpOpen(false)}
@@ -1562,6 +1606,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
           { id: "new-session", icon: "🌐", label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
           { id: "import-ssh", icon: "🔑", label: "Import ~/.ssh/config", hint: "Add every SSH host from your OpenSSH config to the Sessions tree", action: () => importSshConfig() },
+          { id: "ssh-keys", icon: "🗝️", label: "SSH keys", hint: "List / generate SSH keypairs; copy a public key to a server", action: () => setSshKeysOpen(true) },
           { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },

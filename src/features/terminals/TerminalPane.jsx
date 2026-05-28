@@ -432,6 +432,7 @@ export default function TerminalPane({
     let alive = true;
     let ptyId = null;
     let unlistenData = null;
+    let jumpFwdId = null; // jump-host tunnel to tear down on unmount
     let unlistenExit = null;
     const cmdsAtSpawn = Array.isArray(startCommandsRef.current) ? [...startCommandsRef.current] : [];
 
@@ -649,10 +650,28 @@ export default function TerminalPane({
               return;
             }
           }
-          term.writeln(`\x1b[2m[SSH] connecting to ${connection.user}@${connection.host}:${connection.port || 22}…\x1b[0m`);
+          // Jump host: tunnel an ephemeral local port to the target through the
+          // bastion, then connect the real session to 127.0.0.1:<port>.
+          // (libssh2 needs a real socket fd, so a bastion channel can't be the
+          // transport directly — this local-forward hop is the viable path.)
+          let connectHost = connection.host;
+          let connectPort = connection.port || 22;
+          if (connection.jump) {
+            const j = connection.jump;
+            term.writeln(`\x1b[2m[SSH] opening jump host ${j.user}@${j.host}…\x1b[0m`);
+            const jf = await invoke("jump_forward_start", {
+              bastionHost: j.host, bastionPort: j.port || 22, bastionUser: j.user,
+              bastionAuth: j.auth || { method: "agent" },
+              targetHost: connection.host, targetPort: connection.port || 22,
+            });
+            jumpFwdId = jf.id;
+            connectHost = "127.0.0.1";
+            connectPort = jf.local_port;
+          }
+          term.writeln(`\x1b[2m[SSH] connecting to ${connection.user}@${connection.host}:${connection.port || 22}${connection.jump ? ` via ${connection.jump.host}` : ""}…\x1b[0m`);
           id = await invoke("ssh_spawn", {
-            host: connection.host,
-            port: connection.port || 22,
+            host: connectHost,
+            port: connectPort,
             user: connection.user,
             auth: { ...connection.auth, password },
             cols,
@@ -934,6 +953,7 @@ export default function TerminalPane({
       if (unlistenData) unlistenData();
       if (unlistenExit) unlistenExit();
       if (ptyId) invoke("pty_kill", { id: ptyId }).catch(() => {});
+      if (jumpFwdId) invoke("port_forward_stop", { id: jumpFwdId }).catch(() => {});
       try { term.dispose(); } catch {}
       termRef.current = null;
       fitRef.current = null;

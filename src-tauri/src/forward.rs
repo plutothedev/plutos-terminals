@@ -214,6 +214,88 @@ fn worker(
     // Dropping `proxies` + `sess` here closes all channels and the connection.
 }
 
+// ── Dynamic (SOCKS5) forwarding ──────────────────────────────────────────────
+// `ssh -D`: a local SOCKS5 proxy whose CONNECTs are tunnelled through the SSH
+// session. Each accepted socket does a tiny no-auth SOCKS5 handshake (blocking,
+// bounded by a read timeout — the bytes arrive immediately) to learn the target
+// host:port, then opens a direct-tcpip channel and relays via the same pump loop
+// the static forward uses. CONNECT only (BIND/UDP aren't meaningful over SSH).
+
+/// Read the SOCKS5 greeting + CONNECT request, returning the requested target.
+fn socks5_negotiate(tcp: &mut TcpStream) -> Result<(String, u16), String> {
+    tcp.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    let mut head = [0u8; 2];
+    tcp.read_exact(&mut head).map_err(|e| e.to_string())?;
+    if head[0] != 0x05 { return Err("not SOCKS5".into()); }
+    let mut methods = vec![0u8; head[1] as usize];
+    tcp.read_exact(&mut methods).map_err(|e| e.to_string())?;
+    tcp.write_all(&[0x05, 0x00]).map_err(|e| e.to_string())?; // choose no-auth
+
+    let mut req = [0u8; 4];
+    tcp.read_exact(&mut req).map_err(|e| e.to_string())?;
+    if req[0] != 0x05 { return Err("bad SOCKS5 request".into()); }
+    if req[1] != 0x01 {
+        let _ = tcp.write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); // cmd not supported
+        return Err("only CONNECT is supported".into());
+    }
+    let host = match req[3] {
+        0x01 => { let mut a = [0u8; 4]; tcp.read_exact(&mut a).map_err(|e| e.to_string())?; format!("{}.{}.{}.{}", a[0], a[1], a[2], a[3]) }
+        0x03 => { let mut l = [0u8; 1]; tcp.read_exact(&mut l).map_err(|e| e.to_string())?; let mut d = vec![0u8; l[0] as usize]; tcp.read_exact(&mut d).map_err(|e| e.to_string())?; String::from_utf8_lossy(&d).into_owned() }
+        0x04 => { let mut a = [0u8; 16]; tcp.read_exact(&mut a).map_err(|e| e.to_string())?; a.chunks(2).map(|c| format!("{:x}", u16::from_be_bytes([c[0], c[1]]))).collect::<Vec<_>>().join(":") }
+        _ => { let _ = tcp.write_all(&[0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); return Err("bad address type".into()); }
+    };
+    let mut p = [0u8; 2];
+    tcp.read_exact(&mut p).map_err(|e| e.to_string())?;
+    Ok((host, u16::from_be_bytes(p)))
+}
+
+fn socks_worker(sess: ssh2::Session, listener: TcpListener, stop_rx: mpsc::Receiver<()>) {
+    sess.set_blocking(false);
+    let _ = listener.set_nonblocking(true);
+    let mut proxies: Vec<Proxy> = Vec::new();
+    let mut buf = [0u8; BUF];
+
+    loop {
+        match stop_rx.try_recv() {
+            Ok(()) | Err(mpsc::TryRecvError::Disconnected) => break,
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+        loop {
+            match listener.accept() {
+                Ok((mut tcp, _addr)) => {
+                    let _ = tcp.set_nonblocking(false); // tiny, immediate handshake
+                    match socks5_negotiate(&mut tcp) {
+                        Ok((h, p)) => match open_direct(&sess, &h, p) {
+                            Ok(ch) => {
+                                let _ = tcp.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); // success
+                                let _ = tcp.set_nonblocking(true);
+                                proxies.push(Proxy { tcp, ch, to_ch: VecDeque::new(), to_tcp: VecDeque::new(), tcp_eof: false, ch_eof: false });
+                            }
+                            Err(_) => { let _ = tcp.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); } // refused
+                        },
+                        Err(_) => { /* malformed/timed-out client — drop it */ }
+                    }
+                }
+                Err(ref e) if would_block(e) => break,
+                Err(_) => break,
+            }
+        }
+
+        let mut any = false;
+        let mut i = 0;
+        while i < proxies.len() {
+            any |= pump(&mut proxies[i], &mut buf);
+            if finished(&proxies[i]) {
+                let _ = proxies[i].ch.close();
+                proxies.swap_remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        if !any { thread::sleep(Duration::from_millis(2)); }
+    }
+}
+
 // ── Commands ────────────────────────────────────────────────────────────────
 
 /// Start a local port forward: listen on 127.0.0.1:local_port and tunnel each
@@ -245,6 +327,66 @@ pub fn port_forward_start(
         .map_err(|_| "forward registry poisoned".to_string())?
         .insert(id.clone(), ForwardHandle { _stop: stop_tx });
     Ok(id)
+}
+
+/// Start a dynamic SOCKS5 proxy on 127.0.0.1:local_port, tunnelled through a
+/// dedicated SSH connection (`ssh -D`). Point a browser/app at it as a SOCKS5
+/// proxy and its traffic exits via the SSH host.
+#[tauri::command]
+pub fn socks_forward_start(
+    state: State<'_, ForwardRegistry>,
+    host: String,
+    port: u16,
+    user: String,
+    auth: SshAuth,
+    local_port: u16,
+) -> Result<String, String> {
+    let listener = TcpListener::bind(("127.0.0.1", local_port))
+        .map_err(|e| format!("can't bind 127.0.0.1:{local_port}: {e}"))?;
+    let sess = connect_session(&host, port, &user, &auth)?;
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    thread::spawn(move || socks_worker(sess, listener, stop_rx));
+    let id = new_id();
+    state.forwards.lock().map_err(|_| "forward registry poisoned".to_string())?
+        .insert(id.clone(), ForwardHandle { _stop: stop_tx });
+    Ok(id)
+}
+
+/// One end of a jump-host tunnel: the local port a target session should connect
+/// to, plus the forward id to stop when done.
+#[derive(serde::Serialize)]
+pub struct JumpForward {
+    pub id: String,
+    pub local_port: u16,
+}
+
+/// Set up a jump-host (bastion / ProxyJump) tunnel: open a connection to the
+/// bastion and forward an ephemeral local port to target_host:target_port
+/// through it. The caller then opens the real SSH session to 127.0.0.1:local_port
+/// (passing the target's own host key for verification). This is the only viable
+/// ProxyJump path with libssh2 — its Session needs a real socket fd, so a raw
+/// ssh2::Channel can't be used directly as the inner transport.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub fn jump_forward_start(
+    state: State<'_, ForwardRegistry>,
+    bastion_host: String,
+    bastion_port: u16,
+    bastion_user: String,
+    bastion_auth: SshAuth,
+    target_host: String,
+    target_port: u16,
+) -> Result<JumpForward, String> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|e| format!("can't bind a local port: {e}"))?;
+    let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let sess = connect_session(&bastion_host, bastion_port, &bastion_user, &bastion_auth)?;
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    thread::spawn(move || worker(sess, listener, target_host, target_port, stop_rx));
+    let id = new_id();
+    state.forwards.lock().map_err(|_| "forward registry poisoned".to_string())?
+        .insert(id.clone(), ForwardHandle { _stop: stop_tx });
+    Ok(JumpForward { id, local_port })
 }
 
 /// Stop a forward: dropping its handle closes the stop channel, so the worker

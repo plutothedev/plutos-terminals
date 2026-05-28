@@ -20,12 +20,20 @@ const inputStyle = {
 };
 const labelStyle = { fontSize: 10, letterSpacing: 0.5, color: "var(--phn-text-dim, #888)", marginBottom: 4, display: "block", textTransform: "uppercase" };
 
-export default function TunnelsModal({ open, host, user, forwards = [], busy, error, onStart, onStop, onClose }) {
+export default function TunnelsModal({ open, host, user, forwards = [], busy, error, onStart, onStartSocks, onStop, onClose }) {
   const [localPort, setLocalPort] = useState("");
   const [remoteHost, setRemoteHost] = useState("localhost");
   const [remotePort, setRemotePort] = useState("");
+  const [socksPort, setSocksPort] = useState("");
 
   if (!open) return null;
+
+  const canSocks = /^\d+$/.test(socksPort) && !busy;
+  const submitSocks = () => {
+    if (!canSocks) return;
+    onStartSocks?.({ localPort: parseInt(socksPort, 10) });
+    setSocksPort("");
+  };
 
   const canStart =
     /^\d+$/.test(localPort) && /^\d+$/.test(remotePort) && remoteHost.trim().length > 0 && !busy;
@@ -96,6 +104,36 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
           <div style={{ fontSize: 11, color: "#f87171" }}>{error}</div>
         )}
 
+        <div style={{ borderTop: "1px solid var(--phn-surface-border, #2b2b2b)", paddingTop: 12, display: "flex", gap: 10, alignItems: "flex-end" }}>
+          <div style={{ width: 92 }}>
+            <label style={labelStyle}>SOCKS port</label>
+            <input
+              style={inputStyle}
+              value={socksPort}
+              onChange={(e) => setSocksPort(e.target.value.replace(/[^\d]/g, ""))}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitSocks(); } }}
+              placeholder="1080"
+              inputMode="numeric"
+            />
+          </div>
+          <div style={{ flex: 1, fontSize: 11, color: "var(--phn-text-dim, #888)", paddingBottom: 7, lineHeight: 1.4 }}>
+            Dynamic <code>ssh -D</code> proxy — point a browser/app at SOCKS5 <code>127.0.0.1:{socksPort || "1080"}</code> to route through this host.
+          </div>
+          <button
+            onClick={submitSocks}
+            disabled={!canSocks}
+            style={{
+              background: "var(--phn-accent-subtle, rgba(94,106,210,0.15))",
+              border: "1px solid var(--phn-link, #5e6ad2)",
+              color: "var(--phn-link, #828fff)",
+              borderRadius: 6, padding: "7px 14px", fontSize: 12,
+              cursor: canSocks ? "pointer" : "not-allowed", opacity: canSocks ? 1 : 0.5, whiteSpace: "nowrap",
+            }}
+          >
+            {busy ? "…" : "Start SOCKS"}
+          </button>
+        </div>
+
         <div>
           <label style={labelStyle}>Active forwards</label>
           {forwards.length === 0 ? (
@@ -116,7 +154,7 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
                   }}
                 >
                   <span style={{ flex: 1, fontFamily: "var(--phn-mono-font, monospace)", fontSize: 12, color: "var(--phn-text-active, #e6e6e6)" }}>
-                    <span style={{ color: "var(--phn-success, #10b981)" }}>●</span> 127.0.0.1:{f.localPort} → {f.remoteHost}:{f.remotePort}
+                    <span style={{ color: "var(--phn-success, #10b981)" }}>●</span> 127.0.0.1:{f.localPort} → {f.socks ? "SOCKS5 (dynamic)" : `${f.remoteHost}:${f.remotePort}`}
                   </span>
                   <button
                     onClick={() => onStop?.(f.id)}

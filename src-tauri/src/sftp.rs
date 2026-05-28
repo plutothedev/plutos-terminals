@@ -44,7 +44,13 @@ enum SftpReq {
     Mkdir { path: String, reply: Reply<()> },
     Remove { path: String, is_dir: bool, reply: Reply<()> },
     Rename { from: String, to: String, reply: Reply<()> },
+    // Read/write a remote file as text — backs the in-app Monaco remote editor.
+    ReadText { remote: String, reply: Reply<String> },
+    WriteText { remote: String, content: String, reply: Reply<()> },
 }
+
+// Cap remote-edit reads so a giant/binary file can't blow up the editor.
+const MAX_EDIT_BYTES: u64 = 8 * 1024 * 1024;
 
 pub struct SftpHandle {
     req: mpsc::Sender<SftpReq>,
@@ -91,6 +97,26 @@ fn do_download(sftp: &ssh2::Sftp, remote: &str, local: &str) -> Result<u64, Stri
         total += n as u64;
     }
     Ok(total)
+}
+
+fn do_read_text(sftp: &ssh2::Sftp, remote: &str) -> Result<String, String> {
+    let p = Path::new(remote);
+    if let Ok(stat) = sftp.stat(p) {
+        if stat.size.unwrap_or(0) > MAX_EDIT_BYTES {
+            return Err("file is larger than 8 MB — open it with a remote editor instead".into());
+        }
+    }
+    let mut rf = sftp.open(p).map_err(|e| format!("open remote: {e}"))?;
+    let mut bytes = Vec::new();
+    rf.read_to_end(&mut bytes).map_err(|e| format!("read remote: {e}"))?;
+    if bytes.contains(&0) { return Err("file looks binary (contains NUL bytes)".into()); }
+    String::from_utf8(bytes).map_err(|_| "file is not valid UTF-8 text".to_string())
+}
+
+fn do_write_text(sftp: &ssh2::Sftp, remote: &str, content: &str) -> Result<(), String> {
+    let mut rf = sftp.create(Path::new(remote)).map_err(|e| format!("create remote: {e}"))?;
+    rf.write_all(content.as_bytes()).map_err(|e| format!("write remote: {e}"))?;
+    Ok(())
 }
 
 fn do_upload(sftp: &ssh2::Sftp, local: &str, remote: &str) -> Result<u64, String> {
@@ -159,6 +185,12 @@ fn worker(sess: ssh2::Session, rx: mpsc::Receiver<SftpReq>) {
                     sftp.rename(Path::new(&from), Path::new(&to), None)
                         .map_err(|e| e.to_string()),
                 );
+            }
+            SftpReq::ReadText { remote, reply } => {
+                let _ = reply.send(do_read_text(&sftp, &remote));
+            }
+            SftpReq::WriteText { remote, content, reply } => {
+                let _ = reply.send(do_write_text(&sftp, &remote, &content));
             }
         }
     }
@@ -303,6 +335,18 @@ pub fn sftp_rename(
     to: String,
 ) -> Result<(), String> {
     dispatch(&state, &id, |reply| SftpReq::Rename { from, to, reply })
+}
+
+/// Read a remote text file into a string (for the in-app Monaco editor).
+#[tauri::command]
+pub fn sftp_read_file(state: State<'_, SftpRegistry>, id: String, path: String) -> Result<String, String> {
+    dispatch(&state, &id, |reply| SftpReq::ReadText { remote: path, reply })
+}
+
+/// Write a string back to a remote file (save from the in-app editor).
+#[tauri::command]
+pub fn sftp_write_file(state: State<'_, SftpRegistry>, id: String, path: String, content: String) -> Result<(), String> {
+    dispatch(&state, &id, |reply| SftpReq::WriteText { remote: path, content, reply })
 }
 
 /// Tear down an SFTP session: dropping the handle closes the request channel,
