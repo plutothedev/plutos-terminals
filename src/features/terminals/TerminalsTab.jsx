@@ -10,6 +10,7 @@ import TunnelsModal from "./TunnelsModal";
 import SerialModal from "./SerialModal";
 import MobaRibbon from "./MobaRibbon";
 import MobaMenuBar from "./MobaMenuBar";
+import AgentDashboard from "./AgentDashboard";
 import MobaToolbar from "./MobaToolbar";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
@@ -1332,6 +1333,15 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                     .then(() => toast.info(`Forgot saved password for ${project.name}.`))
                     .catch((e) => toast.error(`Couldn't clear keychain: ${e}`));
                 }}
+              />
+            )}
+            {ribbon === "agents" && (
+              <AgentDashboard
+                panels={state.panels}
+                activePanelId={state.activePanelId}
+                tabActivities={tabActivities}
+                tabCosts={tabCosts}
+                onFocusTab={(panelId, tabId) => switchTab(panelId, tabId)}
               />
             )}
             {ribbon === "snippets" && (

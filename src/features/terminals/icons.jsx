@@ -149,6 +149,15 @@ export const IconFolder = ({ size }) => (
   </S>
 );
 
+export const IconAgents = ({ size }) => (
+  <S size={size}>
+    <rect x="1.6" y="1.6" width="5.6" height="5.6" rx="1.2" fill="#f5b400" />
+    <rect x="8.8" y="1.6" width="5.6" height="5.6" rx="1.2" fill="#3aa657" />
+    <rect x="1.6" y="8.8" width="5.6" height="5.6" rx="1.2" fill="#2f7fd6" />
+    <rect x="8.8" y="8.8" width="5.6" height="5.6" rx="1.2" fill="#d8453b" />
+  </S>
+);
+
 /* ── Colorful file-explorer toolbar icons (MobaXterm SFTP toolbar) ───────── */
 export const IconHome = ({ size }) => (
   <S size={size}>
