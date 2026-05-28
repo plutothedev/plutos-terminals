@@ -700,6 +700,59 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     persist({ ...state, projects: nextProjects });
   }, [state, persist, projects]);
 
+  // Import ~/.ssh/config into the Sessions tree (Termius/MobaXterm parity).
+  // Each non-wildcard Host becomes an SSH session under an "SSH config" folder;
+  // IdentityFile → key auth, otherwise ssh-agent. Existing host+user+port pairs
+  // are skipped so re-importing is idempotent. ProxyJump is kept for Tier 3b.
+  const importSshConfig = useCallback(async () => {
+    let entries;
+    try {
+      entries = await invoke("parse_ssh_config");
+    } catch (e) {
+      toast.error(`Couldn't read ~/.ssh/config: ${e}`);
+      return;
+    }
+    if (!Array.isArray(entries) || entries.length === 0) {
+      toast.info("No hosts found in ~/.ssh/config.");
+      return;
+    }
+    const seen = new Set(
+      projects
+        .filter((p) => p.connection)
+        .map((p) => `${p.connection.host}|${p.connection.user || ""}|${p.connection.port || 22}`)
+    );
+    const fresh = [];
+    for (const e of entries) {
+      const port = e.port || 22;
+      const user = e.user || "";
+      const key = `${e.host_name}|${user}|${port}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      fresh.push({
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        color: null,
+        type: "ssh",
+        name: e.alias,
+        folder: "SSH config",
+        startCommands: [],
+        proxyJump: e.proxy_jump || null,
+        connection: {
+          host: e.host_name,
+          port,
+          user,
+          auth: { method: e.identity_file ? "key" : "agent", keyPath: e.identity_file || null },
+        },
+      });
+    }
+    if (fresh.length === 0) {
+      toast.info(`~/.ssh/config: all ${entries.length} host${entries.length === 1 ? "" : "s"} already imported.`);
+      return;
+    }
+    persist({ ...state, projects: [...projects, ...fresh] });
+    selectRibbon("sessions");
+    toast.success(`Imported ${fresh.length} session${fresh.length === 1 ? "" : "s"} from ~/.ssh/config.`);
+  }, [state, persist, projects, toast, selectRibbon]);
+
   // Assign (or clear, with folder === null) a session's folder grouping in the
   // Sessions tree. Empty/null folder = ungrouped (rendered at the root).
   const setProjectFolder = useCallback((projectId, folder) => {
@@ -1200,6 +1253,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             label: "Sessions",
             items: [
               { label: "New session…", action: () => setDialog({ mode: "add" }) },
+              { label: "Import from ~/.ssh/config…", action: () => importSshConfig() },
               { divider: true },
               { label: "Sessions panel", action: () => selectRibbon("sessions") },
               { label: "File browser", action: () => selectRibbon("files") },
@@ -1507,6 +1561,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         commands={[
           { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
           { id: "new-session", icon: "🌐", label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
+          { id: "import-ssh", icon: "🔑", label: "Import ~/.ssh/config", hint: "Add every SSH host from your OpenSSH config to the Sessions tree", action: () => importSshConfig() },
           { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },

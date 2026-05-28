@@ -130,6 +130,7 @@ pub fn run() {
             commands::system_stats,
             commands::list_directory,
             commands::llm_complete,
+            commands::parse_ssh_config,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

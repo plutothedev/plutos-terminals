@@ -904,3 +904,74 @@ pub async fn llm_complete(
         Ok(text)
     }
 }
+
+// ── Import ~/.ssh/config ─────────────────────────────────────────────────
+// Parse the user's OpenSSH client config into connectable host entries for the
+// Sessions tree. Handles `Host` blocks (HostName/User/Port/IdentityFile/
+// ProxyJump), skips wildcard patterns (Host * / ?) and stops applying at a
+// `Match` block. Tilde in IdentityFile is expanded. Missing file → empty list.
+#[derive(Serialize)]
+pub struct SshHostEntry {
+    pub alias: String,
+    pub host_name: String,
+    pub user: Option<String>,
+    pub port: Option<u16>,
+    pub identity_file: Option<String>,
+    pub proxy_jump: Option<String>,
+}
+
+fn ssh_split_kv(line: &str) -> (String, String) {
+    // OpenSSH allows "Key Value" or "Key=Value"; value may be quoted.
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'=' { i += 1; }
+    let key = line[..i].to_string();
+    let rest = line[i..].trim_start_matches(|c: char| c.is_whitespace() || c == '=').trim();
+    let val = rest.trim_matches('"').to_string();
+    (key, val)
+}
+
+#[tauri::command]
+pub fn parse_ssh_config() -> Result<Vec<SshHostEntry>, String> {
+    let path = local_home().join(".ssh").join("config");
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Ok(vec![]),
+    };
+    let expand = |v: &str| -> String {
+        if let Some(rest) = v.strip_prefix("~/") {
+            local_home().join(rest).to_string_lossy().to_string()
+        } else { v.to_string() }
+    };
+    let mut out: Vec<SshHostEntry> = Vec::new();
+    let mut cur: Option<SshHostEntry> = None;
+    let flush = |out: &mut Vec<SshHostEntry>, c: Option<SshHostEntry>| {
+        if let Some(e) = c {
+            if !e.host_name.is_empty() { out.push(e); }
+        }
+    };
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        let (key, val) = ssh_split_kv(line);
+        match key.to_ascii_lowercase().as_str() {
+            "host" => {
+                flush(&mut out, cur.take());
+                let alias = val.split_whitespace().find(|a| !a.contains('*') && !a.contains('?'));
+                cur = alias.map(|a| SshHostEntry {
+                    alias: a.to_string(), host_name: a.to_string(),
+                    user: None, port: None, identity_file: None, proxy_jump: None,
+                });
+            }
+            "match" => { flush(&mut out, cur.take()); }
+            "hostname" => { if let Some(c) = cur.as_mut() { c.host_name = val; } }
+            "user" => { if let Some(c) = cur.as_mut() { c.user = Some(val); } }
+            "port" => { if let Some(c) = cur.as_mut() { c.port = val.parse().ok(); } }
+            "identityfile" => { if let Some(c) = cur.as_mut() { if c.identity_file.is_none() { c.identity_file = Some(expand(&val)); } } }
+            "proxyjump" => { if let Some(c) = cur.as_mut() { c.proxy_jump = Some(val); } }
+            _ => {}
+        }
+    }
+    flush(&mut out, cur.take());
+    Ok(out)
+}
