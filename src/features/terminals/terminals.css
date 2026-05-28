@@ -238,6 +238,81 @@
 }
 .moba-stat .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+/* ── MobaXterm grouped icon toolbar (big icon-over-label buttons) ────── */
+.moba-toolbar {
+  display: flex;
+  align-items: stretch;
+  background: var(--phn-surface-bg, #2d2d2d);
+  border-bottom: 1px solid var(--phn-surface-border, #1a1a1a);
+  padding: 3px 6px;
+  flex-shrink: 0;
+  font-family: var(--phn-ui-font);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.moba-toolbar-brand {
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  color: var(--phn-text-active, #fff);
+  padding: 0 12px 0 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.moba-tool-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 7px;
+  border-right: 1px solid var(--phn-surface-border, #1a1a1a);
+  flex-shrink: 0;
+}
+.moba-tool-group:last-of-type { border-right: none; }
+.moba-tool-btns { display: flex; align-items: stretch; gap: 2px; flex: 1; }
+.moba-tool-caption {
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--phn-text-dim, #888);
+  margin-top: 1px;
+  white-space: nowrap;
+}
+.moba-tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 44px;
+  padding: 4px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--phn-text-fg, #c8c8c8);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.moba-tool-btn:hover:not(:disabled) {
+  background: var(--phn-hover-bg, rgba(255, 255, 255, 0.06));
+  border-color: var(--phn-surface-border, #1a1a1a);
+  color: var(--phn-text-active, #fff);
+}
+.moba-tool-btn:disabled { opacity: 0.35; cursor: default; }
+.moba-tool-btn.active {
+  color: var(--phn-link, #4f9fd6);
+  background: var(--phn-accent-subtle, rgba(79, 159, 214, 0.16));
+  border-color: var(--phn-link, #4f9fd6);
+}
+.moba-tool-icon { font-size: 17px; line-height: 1; }
+.moba-tool-label { font-size: 9px; letter-spacing: 0.2px; line-height: 1; }
+.moba-toolbar-spacer { flex: 1; min-width: 8px; }
+.moba-toolbar .phn-cost { align-self: center; flex-shrink: 0; padding: 0 8px; }
+
 /* ── Toolbar group divider (dense MobaXterm-style toolbar) ───────────── */
 .phn-toolbar-divider {
   width: 1px;

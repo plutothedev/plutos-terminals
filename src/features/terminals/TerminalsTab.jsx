@@ -10,6 +10,7 @@ import TunnelsModal from "./TunnelsModal";
 import SerialModal from "./SerialModal";
 import MobaRibbon from "./MobaRibbon";
 import MobaMenuBar from "./MobaMenuBar";
+import MobaToolbar from "./MobaToolbar";
 import LocalFileBrowser from "./LocalFileBrowser";
 import VncConnectModal from "./VncConnectModal";
 import RdpConnectModal from "./RdpConnectModal";
@@ -1058,88 +1059,67 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           },
         ]}
       />
-      {/* Header — visual treatment driven by user-selected skin (headerSkins.js).
-          Layout-only inline styles here; colors/borders/effects come from CSS. */}
-      <div className="phn-header" style={{ gap: 5 }}>
-        <span className="phn-title" style={{ marginRight: 2 }}>⬢ Pluto</span>
-        <span className="phn-toolbar-divider" />
-
-        {/* Primary actions (MobaXterm-style icon toolbar) */}
-        <button className="phn-btn" onClick={() => setDialog({ mode: "add" })} title="New session (local folder or SSH host)">🌐 session</button>
-        <button className="phn-btn" onClick={() => addTab(state.activePanelId)} title="New tab (Ctrl+Shift+T)">＋ tab</button>
-        <button className="phn-btn" onClick={addPanel} disabled={!canAddPanel} title={canAddPanel ? "Add panel" : `Max ${MAX_PANELS} panels`}>▦ pane</button>
-        <button className="phn-btn" onClick={() => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row")} title="Split pane right">⬌</button>
-        <button className="phn-btn" onClick={() => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col")} title="Split pane down">⬍</button>
-        <span className="phn-toolbar-divider" />
-
-        <button
-          className={ribbon === "snippets" ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => selectRibbon(ribbon === "snippets" ? null : "snippets")}
-          title="Tools — saved command snippets, click to insert into the active terminal"
-        >
-          📋 snippets
-        </button>
-        <button
-          className={ribbon === "files" ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => selectRibbon(ribbon === "files" ? null : "files")}
-          title={activeTab?.connection ? "Remote files (SFTP) for the active SSH session" : "Local file browser"}
-        >
-          📁 files
-        </button>
-        <button
-          className={tunnelsOpen ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels())}
-          disabled={!tunnelsOpen && !activeTab?.connection}
-          title={activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports"}
-        >
-          ⇄ tunnels{forwards.length > 0 ? ` (${forwards.length})` : ""}
-        </button>
-        <button
-          className={serialOpen ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => setSerialOpen((v) => !v)}
-          title="Open a serial console (USB/UART device)"
-        >
-          ⎓ serial
-        </button>
-        <button
-          className={vncOpen ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => setVncOpen(true)}
-          title="Connect to a VNC remote desktop"
-        >
-          🖥 VNC
-        </button>
-        <button
-          className={rdpOpen ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={() => setRdpOpen(true)}
-          title="Connect to an RDP remote desktop (Windows / xrdp)"
-        >
-          🪟 RDP
-        </button>
-        <button
-          className={broadcast ? "phn-btn phn-btn-on" : "phn-btn"}
-          onClick={toggleBroadcast}
-          title="Broadcast (MultiExec) — type once, send to every visible terminal at once"
-        >
-          📡 broadcast
-        </button>
-
-        <div style={{ flex: 1 }} />
-
-        {(totalCost.cost > 0 || totalCost.tokens > 0) && (
-          <>
+      {/* MobaXterm grouped icon toolbar — captioned button groups, themed via
+          the active skin's --phn-* vars (see MobaToolbar.jsx + terminals.css). */}
+      <MobaToolbar
+        brand="⬢ Pluto"
+        right={
+          (totalCost.cost > 0 || totalCost.tokens > 0) ? (
             <span className="phn-cost" title="Live aggregate from Claude /cost output across all sessions">
               ${totalCost.cost.toFixed(2)}
               {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
             </span>
-            <span className="phn-toolbar-divider" />
-          </>
-        )}
-
-        <button className="phn-btn" onClick={() => setCommandPaletteOpen(true)} title="Command palette (Ctrl+K)">⌘ palette</button>
-        <button className="phn-btn" onClick={() => setMcpOpen(true)} title="Curated MCP servers — copy or one-click install">🔌 MCPs</button>
-        <button className="phn-btn" onClick={() => setSetupOpen(true)} title="Setup check: Node.js + Claude CLI + API key + live API test">🚀 setup</button>
-        <button className="phn-btn phn-muted" onClick={() => setSettingsOpen(true)} title="Settings: API key + skin + factory reset">⚙️</button>
-      </div>
+          ) : null
+        }
+        groups={[
+          {
+            caption: "Session",
+            items: [
+              { id: "session", icon: "🌐", label: "Session", title: "New session (local folder or SSH host)", onClick: () => setDialog({ mode: "add" }) },
+              { id: "tab", icon: "＋", label: "Tab", title: "New tab (Ctrl+Shift+T)", onClick: () => addTab(state.activePanelId) },
+            ],
+          },
+          {
+            caption: "Layout",
+            items: [
+              { id: "pane", icon: "▦", label: "Pane", title: canAddPanel ? "Add panel" : `Max ${MAX_PANELS} panels`, disabled: !canAddPanel, onClick: addPanel },
+              { id: "split-right", icon: "⬌", label: "Right", title: "Split pane right", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+              { id: "split-down", icon: "⬍", label: "Down", title: "Split pane down", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+            ],
+          },
+          {
+            caption: "Tools",
+            items: [
+              { id: "snippets", icon: "📋", label: "Tools", title: "Saved command snippets — click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+              { id: "files", icon: "📁", label: "Files", title: activeTab?.connection ? "Remote files (SFTP) for the active SSH session" : "Local file browser", active: ribbon === "files", onClick: () => selectRibbon(ribbon === "files" ? null : "files") },
+              { id: "palette", icon: "⌘", label: "Palette", title: "Command palette (Ctrl+K)", onClick: () => setCommandPaletteOpen(true) },
+            ],
+          },
+          {
+            caption: "Remote",
+            items: [
+              { id: "tunnels", icon: "⇄", label: forwards.length > 0 ? `Tunnels·${forwards.length}` : "Tunnels", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+              { id: "serial", icon: "⎓", label: "Serial", title: "Open a serial console (USB/UART device)", active: serialOpen, onClick: () => setSerialOpen((v) => !v) },
+              { id: "vnc", icon: "🖥", label: "VNC", title: "Connect to a VNC remote desktop", active: vncOpen, onClick: () => setVncOpen(true) },
+              { id: "rdp", icon: "🪟", label: "RDP", title: "Connect to an RDP remote desktop (Windows / xrdp)", active: rdpOpen, onClick: () => setRdpOpen(true) },
+            ],
+          },
+          {
+            caption: "MultiExec",
+            items: [
+              { id: "broadcast", icon: "📡", label: "Broadcast", title: "Broadcast (MultiExec) — type once, send to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
+            ],
+          },
+          {
+            caption: "Setup",
+            items: [
+              { id: "mcps", icon: "🔌", label: "MCPs", title: "Curated MCP servers — copy or one-click install", onClick: () => setMcpOpen(true) },
+              { id: "setup", icon: "🚀", label: "Setup", title: "Setup check: Node.js + Claude CLI + API key + live API test", onClick: () => setSetupOpen(true) },
+              { id: "settings", icon: "⚙️", label: "Settings", title: "Settings: API key + skin + factory reset", onClick: () => setSettingsOpen(true) },
+            ],
+          },
+        ]}
+      />
 
       {/* Body: MobaXterm vertical ribbon + docked left panel + terminal grid.
           The ribbon toggles which panel is docked (Sessions / Tools / Sftp). */}
