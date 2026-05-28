@@ -226,23 +226,47 @@ fn socks5_negotiate(tcp: &mut TcpStream) -> Result<(String, u16), String> {
     tcp.set_read_timeout(Some(Duration::from_secs(10))).ok();
     let mut head = [0u8; 2];
     tcp.read_exact(&mut head).map_err(|e| e.to_string())?;
-    if head[0] != 0x05 { return Err("not SOCKS5".into()); }
+    if head[0] != 0x05 {
+        return Err("not SOCKS5".into());
+    }
     let mut methods = vec![0u8; head[1] as usize];
     tcp.read_exact(&mut methods).map_err(|e| e.to_string())?;
     tcp.write_all(&[0x05, 0x00]).map_err(|e| e.to_string())?; // choose no-auth
 
     let mut req = [0u8; 4];
     tcp.read_exact(&mut req).map_err(|e| e.to_string())?;
-    if req[0] != 0x05 { return Err("bad SOCKS5 request".into()); }
+    if req[0] != 0x05 {
+        return Err("bad SOCKS5 request".into());
+    }
     if req[1] != 0x01 {
         let _ = tcp.write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); // cmd not supported
         return Err("only CONNECT is supported".into());
     }
     let host = match req[3] {
-        0x01 => { let mut a = [0u8; 4]; tcp.read_exact(&mut a).map_err(|e| e.to_string())?; format!("{}.{}.{}.{}", a[0], a[1], a[2], a[3]) }
-        0x03 => { let mut l = [0u8; 1]; tcp.read_exact(&mut l).map_err(|e| e.to_string())?; let mut d = vec![0u8; l[0] as usize]; tcp.read_exact(&mut d).map_err(|e| e.to_string())?; String::from_utf8_lossy(&d).into_owned() }
-        0x04 => { let mut a = [0u8; 16]; tcp.read_exact(&mut a).map_err(|e| e.to_string())?; a.chunks(2).map(|c| format!("{:x}", u16::from_be_bytes([c[0], c[1]]))).collect::<Vec<_>>().join(":") }
-        _ => { let _ = tcp.write_all(&[0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); return Err("bad address type".into()); }
+        0x01 => {
+            let mut a = [0u8; 4];
+            tcp.read_exact(&mut a).map_err(|e| e.to_string())?;
+            format!("{}.{}.{}.{}", a[0], a[1], a[2], a[3])
+        }
+        0x03 => {
+            let mut l = [0u8; 1];
+            tcp.read_exact(&mut l).map_err(|e| e.to_string())?;
+            let mut d = vec![0u8; l[0] as usize];
+            tcp.read_exact(&mut d).map_err(|e| e.to_string())?;
+            String::from_utf8_lossy(&d).into_owned()
+        }
+        0x04 => {
+            let mut a = [0u8; 16];
+            tcp.read_exact(&mut a).map_err(|e| e.to_string())?;
+            a.chunks(2)
+                .map(|c| format!("{:x}", u16::from_be_bytes([c[0], c[1]])))
+                .collect::<Vec<_>>()
+                .join(":")
+        }
+        _ => {
+            let _ = tcp.write_all(&[0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+            return Err("bad address type".into());
+        }
     };
     let mut p = [0u8; 2];
     tcp.read_exact(&mut p).map_err(|e| e.to_string())?;
@@ -289,9 +313,18 @@ fn socks_worker(sess: ssh2::Session, listener: TcpListener, stop_rx: mpsc::Recei
                 Ok(ch) => {
                     let _ = tcp.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); // success
                     let _ = tcp.set_nonblocking(true);
-                    proxies.push(Proxy { tcp, ch, to_ch: VecDeque::new(), to_tcp: VecDeque::new(), tcp_eof: false, ch_eof: false });
+                    proxies.push(Proxy {
+                        tcp,
+                        ch,
+                        to_ch: VecDeque::new(),
+                        to_tcp: VecDeque::new(),
+                        tcp_eof: false,
+                        ch_eof: false,
+                    });
                 }
-                Err(_) => { let _ = tcp.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); } // refused
+                Err(_) => {
+                    let _ = tcp.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+                } // refused
             }
         }
 
@@ -306,7 +339,9 @@ fn socks_worker(sess: ssh2::Session, listener: TcpListener, stop_rx: mpsc::Recei
                 i += 1;
             }
         }
-        if !any { thread::sleep(Duration::from_millis(2)); }
+        if !any {
+            thread::sleep(Duration::from_millis(2));
+        }
     }
 }
 
@@ -361,7 +396,10 @@ pub fn socks_forward_start(
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || socks_worker(sess, listener, stop_rx));
     let id = new_id();
-    state.forwards.lock().map_err(|_| "forward registry poisoned".to_string())?
+    state
+        .forwards
+        .lock()
+        .map_err(|_| "forward registry poisoned".to_string())?
         .insert(id.clone(), ForwardHandle { _stop: stop_tx });
     Ok(id)
 }
@@ -391,14 +429,23 @@ pub fn jump_forward_start(
     target_host: String,
     target_port: u16,
 ) -> Result<JumpForward, String> {
-    let listener = TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|e| format!("can't bind a local port: {e}"))?;
+    let listener =
+        TcpListener::bind(("127.0.0.1", 0)).map_err(|e| format!("can't bind a local port: {e}"))?;
     let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let sess = connect_session(&bastion_host, bastion_port, &bastion_user, &bastion_auth, None)?;
+    let sess = connect_session(
+        &bastion_host,
+        bastion_port,
+        &bastion_user,
+        &bastion_auth,
+        None,
+    )?;
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || worker(sess, listener, target_host, target_port, stop_rx));
     let id = new_id();
-    state.forwards.lock().map_err(|_| "forward registry poisoned".to_string())?
+    state
+        .forwards
+        .lock()
+        .map_err(|_| "forward registry poisoned".to_string())?
         .insert(id.clone(), ForwardHandle { _stop: stop_tx });
     Ok(JumpForward { id, local_port })
 }

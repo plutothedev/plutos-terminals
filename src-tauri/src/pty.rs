@@ -134,7 +134,10 @@ impl ScrollbackWriter {
             let _ = fs::create_dir_all(parent);
         }
         let bytes_on_disk = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        Self { path, bytes_on_disk }
+        Self {
+            path,
+            bytes_on_disk,
+        }
     }
 
     /// Append a chunk. Best-effort: on I/O failure we silently swallow rather
@@ -162,7 +165,9 @@ impl ScrollbackWriter {
     /// aligned to the first newline after the cut so ANSI escape sequences
     /// don't straddle the boundary. Atomic via write-tmp + rename.
     fn truncate_tail(&mut self) {
-        let Ok(data) = fs::read(&self.path) else { return; };
+        let Ok(data) = fs::read(&self.path) else {
+            return;
+        };
         if data.len() <= SCROLLBACK_FILE_KEEP_BYTES {
             self.bytes_on_disk = data.len() as u64;
             return;
@@ -400,7 +405,9 @@ pub fn pty_write(
         .map_err(|_| "registry mutex poisoned".to_string())?;
     match sessions.get_mut(&id).ok_or("session not found")? {
         Session::Local(s) => {
-            s.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+            s.writer
+                .write_all(data.as_bytes())
+                .map_err(|e| e.to_string())?;
         }
         Session::Ssh(h) => {
             h.writes
@@ -408,7 +415,9 @@ pub fn pty_write(
                 .map_err(|_| "ssh session closed".to_string())?;
         }
         Session::Serial(h) => {
-            h.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+            h.writer
+                .write_all(data.as_bytes())
+                .map_err(|e| e.to_string())?;
             let _ = h.writer.flush();
         }
     }
@@ -603,7 +612,8 @@ pub fn connect_session(
         .map_err(|e| format!("connect to {host}:{port} failed: {e}"))?;
     let mut sess = ssh2::Session::new().map_err(|e| e.to_string())?;
     sess.set_tcp_stream(tcp);
-    sess.handshake().map_err(|e| format!("ssh handshake failed: {e}"))?;
+    sess.handshake()
+        .map_err(|e| format!("ssh handshake failed: {e}"))?;
 
     // Host-key verification — never skipped; refuses on a changed key.
     let (vh, vp) = verify_as.unwrap_or((host, port));
@@ -617,12 +627,19 @@ pub fn connect_session(
         }
         "key" => {
             let key = auth.key_path.as_deref().ok_or("no key path provided")?;
-            sess.userauth_pubkey_file(user, None, std::path::Path::new(key), auth.passphrase.as_deref())
-                .map_err(|e| format!("key auth failed: {e}"))?;
+            sess.userauth_pubkey_file(
+                user,
+                None,
+                std::path::Path::new(key),
+                auth.passphrase.as_deref(),
+            )
+            .map_err(|e| format!("key auth failed: {e}"))?;
         }
         "agent" => {
             let mut agent = sess.agent().map_err(|e| e.to_string())?;
-            agent.connect().map_err(|e| format!("ssh-agent connect failed: {e}"))?;
+            agent
+                .connect()
+                .map_err(|e| format!("ssh-agent connect failed: {e}"))?;
             agent.list_identities().map_err(|e| e.to_string())?;
             let ids = agent.identities().map_err(|e| e.to_string())?;
             let mut ok = false;
@@ -664,7 +681,9 @@ pub fn ssh_spawn(
 ) -> Result<String, String> {
     // For jump-host connections (host = 127.0.0.1:<tunnel port>), verify/pin the
     // host key under the real target identity instead of the throwaway port.
-    let verify_as = host_key_alias.as_deref().map(|h| (h, host_key_port.unwrap_or(port)));
+    let verify_as = host_key_alias
+        .as_deref()
+        .map(|h| (h, host_key_port.unwrap_or(port)));
     let sess = connect_session(&host, port, &user, &auth, verify_as)?;
 
     // Interactive shell on a PTY channel.
@@ -847,8 +866,12 @@ pub fn kill_all(registry: &SessionRegistry) {
             // its reader thread to close the channel + connection. Serial: flip
             // `alive` so its reader thread exits.
             match session {
-                Session::Local(mut s) => { let _ = s.child.kill(); }
-                Session::Serial(h) => { h.alive.store(false, Ordering::Relaxed); }
+                Session::Local(mut s) => {
+                    let _ = s.child.kill();
+                }
+                Session::Serial(h) => {
+                    h.alive.store(false, Ordering::Relaxed);
+                }
                 Session::Ssh(_) => {}
             }
         }

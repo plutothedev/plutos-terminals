@@ -37,16 +37,48 @@ type Reply<T> = mpsc::Sender<Result<T, String>>;
 
 /// Requests handled by an SFTP session's worker thread.
 enum SftpReq {
-    Realpath { path: String, reply: Reply<String> },
-    List { path: String, reply: Reply<Vec<SftpEntry>> },
-    Download { remote: String, local: String, reply: Reply<u64> },
-    Upload { local: String, remote: String, reply: Reply<u64> },
-    Mkdir { path: String, reply: Reply<()> },
-    Remove { path: String, is_dir: bool, reply: Reply<()> },
-    Rename { from: String, to: String, reply: Reply<()> },
+    Realpath {
+        path: String,
+        reply: Reply<String>,
+    },
+    List {
+        path: String,
+        reply: Reply<Vec<SftpEntry>>,
+    },
+    Download {
+        remote: String,
+        local: String,
+        reply: Reply<u64>,
+    },
+    Upload {
+        local: String,
+        remote: String,
+        reply: Reply<u64>,
+    },
+    Mkdir {
+        path: String,
+        reply: Reply<()>,
+    },
+    Remove {
+        path: String,
+        is_dir: bool,
+        reply: Reply<()>,
+    },
+    Rename {
+        from: String,
+        to: String,
+        reply: Reply<()>,
+    },
     // Read/write a remote file as text — backs the in-app Monaco remote editor.
-    ReadText { remote: String, reply: Reply<String> },
-    WriteText { remote: String, content: String, reply: Reply<()> },
+    ReadText {
+        remote: String,
+        reply: Reply<String>,
+    },
+    WriteText {
+        remote: String,
+        content: String,
+        reply: Reply<()>,
+    },
 }
 
 // Cap remote-edit reads so a giant/binary file can't blow up the editor.
@@ -84,7 +116,9 @@ fn to_entry(path: &Path, stat: &ssh2::FileStat) -> SftpEntry {
 }
 
 fn do_download(sftp: &ssh2::Sftp, remote: &str, local: &str) -> Result<u64, String> {
-    let mut rf = sftp.open(Path::new(remote)).map_err(|e| format!("open remote: {e}"))?;
+    let mut rf = sftp
+        .open(Path::new(remote))
+        .map_err(|e| format!("open remote: {e}"))?;
     let mut lf = fs::File::create(local).map_err(|e| format!("create local: {e}"))?;
     let mut buf = [0u8; XFER_BUF];
     let mut total = 0u64;
@@ -93,7 +127,8 @@ fn do_download(sftp: &ssh2::Sftp, remote: &str, local: &str) -> Result<u64, Stri
         if n == 0 {
             break;
         }
-        lf.write_all(&buf[..n]).map_err(|e| format!("write local: {e}"))?;
+        lf.write_all(&buf[..n])
+            .map_err(|e| format!("write local: {e}"))?;
         total += n as u64;
     }
     Ok(total)
@@ -108,20 +143,28 @@ fn do_read_text(sftp: &ssh2::Sftp, remote: &str) -> Result<String, String> {
     }
     let mut rf = sftp.open(p).map_err(|e| format!("open remote: {e}"))?;
     let mut bytes = Vec::new();
-    rf.read_to_end(&mut bytes).map_err(|e| format!("read remote: {e}"))?;
-    if bytes.contains(&0) { return Err("file looks binary (contains NUL bytes)".into()); }
+    rf.read_to_end(&mut bytes)
+        .map_err(|e| format!("read remote: {e}"))?;
+    if bytes.contains(&0) {
+        return Err("file looks binary (contains NUL bytes)".into());
+    }
     String::from_utf8(bytes).map_err(|_| "file is not valid UTF-8 text".to_string())
 }
 
 fn do_write_text(sftp: &ssh2::Sftp, remote: &str, content: &str) -> Result<(), String> {
-    let mut rf = sftp.create(Path::new(remote)).map_err(|e| format!("create remote: {e}"))?;
-    rf.write_all(content.as_bytes()).map_err(|e| format!("write remote: {e}"))?;
+    let mut rf = sftp
+        .create(Path::new(remote))
+        .map_err(|e| format!("create remote: {e}"))?;
+    rf.write_all(content.as_bytes())
+        .map_err(|e| format!("write remote: {e}"))?;
     Ok(())
 }
 
 fn do_upload(sftp: &ssh2::Sftp, local: &str, remote: &str) -> Result<u64, String> {
     let mut lf = fs::File::open(local).map_err(|e| format!("open local: {e}"))?;
-    let mut rf = sftp.create(Path::new(remote)).map_err(|e| format!("create remote: {e}"))?;
+    let mut rf = sftp
+        .create(Path::new(remote))
+        .map_err(|e| format!("create remote: {e}"))?;
     let mut buf = [0u8; XFER_BUF];
     let mut total = 0u64;
     loop {
@@ -129,7 +172,8 @@ fn do_upload(sftp: &ssh2::Sftp, local: &str, remote: &str) -> Result<u64, String
         if n == 0 {
             break;
         }
-        rf.write_all(&buf[..n]).map_err(|e| format!("write remote: {e}"))?;
+        rf.write_all(&buf[..n])
+            .map_err(|e| format!("write remote: {e}"))?;
         total += n as u64;
     }
     Ok(total)
@@ -166,18 +210,37 @@ fn worker(sess: ssh2::Session, rx: mpsc::Receiver<SftpReq>) {
                 });
                 let _ = reply.send(r.map_err(|e| e.to_string()));
             }
-            SftpReq::Download { remote, local, reply } => {
+            SftpReq::Download {
+                remote,
+                local,
+                reply,
+            } => {
                 let _ = reply.send(do_download(&sftp, &remote, &local));
             }
-            SftpReq::Upload { local, remote, reply } => {
+            SftpReq::Upload {
+                local,
+                remote,
+                reply,
+            } => {
                 let _ = reply.send(do_upload(&sftp, &local, &remote));
             }
             SftpReq::Mkdir { path, reply } => {
-                let _ = reply.send(sftp.mkdir(Path::new(&path), 0o755).map_err(|e| e.to_string()));
+                let _ = reply.send(
+                    sftp.mkdir(Path::new(&path), 0o755)
+                        .map_err(|e| e.to_string()),
+                );
             }
-            SftpReq::Remove { path, is_dir, reply } => {
+            SftpReq::Remove {
+                path,
+                is_dir,
+                reply,
+            } => {
                 let p = Path::new(&path);
-                let r = if is_dir { sftp.rmdir(p) } else { sftp.unlink(p) };
+                let r = if is_dir {
+                    sftp.rmdir(p)
+                } else {
+                    sftp.unlink(p)
+                };
                 let _ = reply.send(r.map_err(|e| e.to_string()));
             }
             SftpReq::Rename { from, to, reply } => {
@@ -189,7 +252,11 @@ fn worker(sess: ssh2::Session, rx: mpsc::Receiver<SftpReq>) {
             SftpReq::ReadText { remote, reply } => {
                 let _ = reply.send(do_read_text(&sftp, &remote));
             }
-            SftpReq::WriteText { remote, content, reply } => {
+            SftpReq::WriteText {
+                remote,
+                content,
+                reply,
+            } => {
                 let _ = reply.send(do_write_text(&sftp, &remote, &content));
             }
         }
@@ -215,7 +282,8 @@ fn dispatch<T>(
             .send(make(tx))
             .map_err(|_| "sftp session closed".to_string())?;
     }
-    rx.recv().map_err(|_| "sftp worker did not reply".to_string())?
+    rx.recv()
+        .map_err(|_| "sftp worker did not reply".to_string())?
 }
 
 // ── Commands ────────────────────────────────────────────────────────────────
@@ -245,7 +313,10 @@ pub fn sftp_connect(
 /// Absolute path of the login home directory (resolve ".").
 #[tauri::command]
 pub fn sftp_home(state: State<'_, SftpRegistry>, id: String) -> Result<String, String> {
-    dispatch(&state, &id, |reply| SftpReq::Realpath { path: ".".into(), reply })
+    dispatch(&state, &id, |reply| SftpReq::Realpath {
+        path: ".".into(),
+        reply,
+    })
 }
 
 #[tauri::command]
@@ -324,7 +395,11 @@ pub fn sftp_remove(
     path: String,
     is_dir: bool,
 ) -> Result<(), String> {
-    dispatch(&state, &id, |reply| SftpReq::Remove { path, is_dir, reply })
+    dispatch(&state, &id, |reply| SftpReq::Remove {
+        path,
+        is_dir,
+        reply,
+    })
 }
 
 #[tauri::command]
@@ -339,14 +414,30 @@ pub fn sftp_rename(
 
 /// Read a remote text file into a string (for the in-app Monaco editor).
 #[tauri::command]
-pub fn sftp_read_file(state: State<'_, SftpRegistry>, id: String, path: String) -> Result<String, String> {
-    dispatch(&state, &id, |reply| SftpReq::ReadText { remote: path, reply })
+pub fn sftp_read_file(
+    state: State<'_, SftpRegistry>,
+    id: String,
+    path: String,
+) -> Result<String, String> {
+    dispatch(&state, &id, |reply| SftpReq::ReadText {
+        remote: path,
+        reply,
+    })
 }
 
 /// Write a string back to a remote file (save from the in-app editor).
 #[tauri::command]
-pub fn sftp_write_file(state: State<'_, SftpRegistry>, id: String, path: String, content: String) -> Result<(), String> {
-    dispatch(&state, &id, |reply| SftpReq::WriteText { remote: path, content, reply })
+pub fn sftp_write_file(
+    state: State<'_, SftpRegistry>,
+    id: String,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    dispatch(&state, &id, |reply| SftpReq::WriteText {
+        remote: path,
+        content,
+        reply,
+    })
 }
 
 /// Tear down an SFTP session: dropping the handle closes the request channel,

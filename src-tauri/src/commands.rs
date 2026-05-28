@@ -119,7 +119,9 @@ pub fn open_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let spawned = std::process::Command::new("open").arg(&p).spawn();
     #[cfg(target_os = "windows")]
-    let spawned = std::process::Command::new("cmd").args(["/C", "start", "", &p]).spawn();
+    let spawned = std::process::Command::new("cmd")
+        .args(["/C", "start", "", &p])
+        .spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
     let spawned = std::process::Command::new("xdg-open").arg(&p).spawn();
     spawned.map(|_| ()).map_err(|e| e.to_string())
@@ -134,7 +136,13 @@ pub fn open_path(path: String) -> Result<(), String> {
 // `git status` and the tracked .gitignore is left untouched.
 fn sanitize_branch(b: &str) -> String {
     b.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '/' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '/' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -151,14 +159,17 @@ pub fn worktree_add(repo: String, branch: String) -> Result<String, String> {
     let exclude = repo_path.join(".git").join("info").join("exclude");
     if let Ok(mut content) = fs::read_to_string(&exclude) {
         if !content.contains(".worktrees/") {
-            if !content.ends_with('\n') { content.push('\n'); }
+            if !content.ends_with('\n') {
+                content.push('\n');
+            }
             content.push_str(".worktrees/\n");
             let _ = fs::write(&exclude, content);
         }
     }
 
     let out = std::process::Command::new("git")
-        .arg("-C").arg(&repo_path)
+        .arg("-C")
+        .arg(&repo_path)
         .args(["worktree", "add", "-b", &safe])
         .arg(&wt)
         .output()
@@ -172,7 +183,8 @@ pub fn worktree_add(repo: String, branch: String) -> Result<String, String> {
 #[tauri::command]
 pub fn worktree_remove(repo: String, path: String) -> Result<(), String> {
     let out = std::process::Command::new("git")
-        .arg("-C").arg(&repo)
+        .arg("-C")
+        .arg(&repo)
         .args(["worktree", "remove", "--force", &path])
         .output()
         .map_err(|e| format!("git not found: {e}"))?;
@@ -191,7 +203,11 @@ pub fn worktree_remove(repo: String, path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn git_diff(path: String) -> Result<String, String> {
     let run = |args: &[&str]| {
-        std::process::Command::new("git").arg("-C").arg(&path).args(args).output()
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&path)
+            .args(args)
+            .output()
     };
     // Committed work vs the branch point (origin/HEAD or main/master), if resolvable.
     let mut diff = String::new();
@@ -200,7 +216,9 @@ pub fn git_diff(path: String) -> Result<String, String> {
             if mb.status.success() {
                 let base_sha = String::from_utf8_lossy(&mb.stdout).trim().to_string();
                 if let Ok(d) = run(&["diff", "--no-color", &format!("{base_sha}...HEAD")]) {
-                    if d.status.success() { diff.push_str(&String::from_utf8_lossy(&d.stdout)); }
+                    if d.status.success() {
+                        diff.push_str(&String::from_utf8_lossy(&d.stdout));
+                    }
                 }
                 break;
             }
@@ -211,7 +229,9 @@ pub fn git_diff(path: String) -> Result<String, String> {
         if d.status.success() {
             let s = String::from_utf8_lossy(&d.stdout);
             if !s.trim().is_empty() {
-                if !diff.is_empty() { diff.push_str("\n"); }
+                if !diff.is_empty() {
+                    diff.push_str("\n");
+                }
                 diff.push_str(&s);
             }
         } else {
@@ -229,7 +249,10 @@ pub fn gh_pr_create(path: String) -> Result<String, String> {
         .output()
         .map_err(|e| format!("git not found: {e}"))?;
     if !push.status.success() {
-        return Err(format!("git push failed: {}", String::from_utf8_lossy(&push.stderr).trim()));
+        return Err(format!(
+            "git push failed: {}",
+            String::from_utf8_lossy(&push.stderr).trim()
+        ));
     }
     let out = std::process::Command::new("gh")
         .current_dir(&path)
@@ -254,11 +277,15 @@ pub fn notify(title: String, body: String) -> Result<(), String> {
         let t = title.replace('"', "'");
         let b = body.replace('"', "'");
         let script = format!("display notification \"{b}\" with title \"{t}\"");
-        let _ = std::process::Command::new("osascript").args(["-e", &script]).spawn();
+        let _ = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .spawn();
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let _ = std::process::Command::new("notify-send").args([&title, &body]).spawn();
+        let _ = std::process::Command::new("notify-send")
+            .args([&title, &body])
+            .spawn();
     }
     #[cfg(target_os = "windows")]
     {
@@ -407,10 +434,7 @@ pub fn check_command_version(name: String) -> Option<String> {
         // Reject obviously-malformed inputs — only bare command names allowed.
         return None;
     }
-    let output = silent_command(&name)
-        .arg("--version")
-        .output()
-        .ok()?;
+    let output = silent_command(&name).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -420,7 +444,11 @@ pub fn check_command_version(name: String) -> Option<String> {
         String::from_utf8_lossy(&output.stderr).into_owned()
     };
     let first_line = combined.lines().next().unwrap_or("").trim().to_string();
-    if first_line.is_empty() { None } else { Some(first_line) }
+    if first_line.is_empty() {
+        None
+    } else {
+        Some(first_line)
+    }
 }
 
 // ── Git branch + dirty status for a project's cwd ─────────────────
@@ -447,7 +475,9 @@ pub fn git_branch_status(cwd: String) -> Option<GitBranchStatus> {
     if !branch_out.status.success() {
         return None;
     }
-    let branch = String::from_utf8_lossy(&branch_out.stdout).trim().to_string();
+    let branch = String::from_utf8_lossy(&branch_out.stdout)
+        .trim()
+        .to_string();
     if branch.is_empty() {
         return None;
     }
@@ -457,7 +487,9 @@ pub fn git_branch_status(cwd: String) -> Option<GitBranchStatus> {
         .current_dir(&cwd)
         .output()
         .ok()?;
-    let dirty = !String::from_utf8_lossy(&status_out.stdout).trim().is_empty();
+    let dirty = !String::from_utf8_lossy(&status_out.stdout)
+        .trim()
+        .is_empty();
     Some(GitBranchStatus { branch, dirty })
 }
 
@@ -487,7 +519,13 @@ pub fn read_npm_scripts(cwd: String) -> Vec<String> {
 
 pub fn safe_filename(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -555,7 +593,8 @@ pub fn transcript_append(
         .append(true)
         .open(&path)
         .map_err(|e| e.to_string())?;
-    file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -574,12 +613,13 @@ pub fn recent_files(cwd: String) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    let push = |f: String, files: &mut Vec<String>, seen: &mut std::collections::HashSet<String>| {
-        if !seen.contains(&f) {
-            seen.insert(f.clone());
-            files.push(f);
-        }
-    };
+    let push =
+        |f: String, files: &mut Vec<String>, seen: &mut std::collections::HashSet<String>| {
+            if !seen.contains(&f) {
+                seen.insert(f.clone());
+                files.push(f);
+            }
+        };
 
     // 1. git status --porcelain (currently modified files)
     if let Ok(out) = silent_command("git")
@@ -603,7 +643,14 @@ pub fn recent_files(cwd: String) -> Vec<String> {
 
     // 2. git log --name-only (recently committed)
     if let Ok(out) = silent_command("git")
-        .args(["log", "--all", "--pretty=format:", "--name-only", "-n", "30"])
+        .args([
+            "log",
+            "--all",
+            "--pretty=format:",
+            "--name-only",
+            "-n",
+            "30",
+        ])
         .current_dir(&cwd)
         .output()
     {
@@ -620,11 +667,18 @@ pub fn recent_files(cwd: String) -> Vec<String> {
     // 3. Filter junk + verify file exists + cap at 5
     let bad_dirs = ["node_modules", "__pycache__", "target", "dist", ".git/"];
     let bad_ext = [
-        ".lock", ".log", ".min.js", ".min.css", ".ico", ".png", ".jpg", ".jpeg",
-        ".gif", ".svg", ".woff", ".woff2", ".ttf", ".eot", ".map", ".pyc", ".pkl",
-        ".db", ".sqlite", ".exe", ".dll", ".so", ".dylib", ".o", ".obj",
+        ".lock", ".log", ".min.js", ".min.css", ".ico", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+        ".woff", ".woff2", ".ttf", ".eot", ".map", ".pyc", ".pkl", ".db", ".sqlite", ".exe",
+        ".dll", ".so", ".dylib", ".o", ".obj",
     ];
-    let bad_files = [".DS_Store", ".gitignore", ".gitattributes", "package-lock.json", "yarn.lock", "bun.lockb"];
+    let bad_files = [
+        ".DS_Store",
+        ".gitignore",
+        ".gitattributes",
+        "package-lock.json",
+        "yarn.lock",
+        "bun.lockb",
+    ];
 
     let filtered: Vec<String> = files
         .into_iter()
@@ -659,10 +713,9 @@ fn mtime_sorted_files(
     use std::time::SystemTime;
 
     let source_ext = [
-        ".js", ".jsx", ".ts", ".tsx", ".py", ".rs", ".go", ".java", ".rb",
-        ".php", ".html", ".css", ".scss", ".vue", ".svelte", ".cs", ".cpp",
-        ".c", ".h", ".hpp", ".swift", ".kt", ".dart", ".sh", ".md", ".json",
-        ".yaml", ".yml", ".toml", ".sql", ".lua", ".ex", ".exs", ".clj",
+        ".js", ".jsx", ".ts", ".tsx", ".py", ".rs", ".go", ".java", ".rb", ".php", ".html", ".css",
+        ".scss", ".vue", ".svelte", ".cs", ".cpp", ".c", ".h", ".hpp", ".swift", ".kt", ".dart",
+        ".sh", ".md", ".json", ".yaml", ".yml", ".toml", ".sql", ".lua", ".ex", ".exs", ".clj",
     ];
 
     let mut entries: Vec<(String, SystemTime)> = Vec::new();
@@ -806,7 +859,11 @@ pub fn system_stats() -> SystemStats {
         Ok(mut sys) => {
             sys.refresh_cpu_usage();
             sys.refresh_memory();
-            (sys.global_cpu_usage(), sys.used_memory(), sys.total_memory())
+            (
+                sys.global_cpu_usage(),
+                sys.used_memory(),
+                sys.total_memory(),
+            )
         }
         Err(_) => (0.0, 0, 0),
     };
@@ -814,7 +871,11 @@ pub fn system_stats() -> SystemStats {
     // Disk: prefer the root mount ("/"), else fall back to the first disk.
     let disks = sysinfo::Disks::new_with_refreshed_list();
     let pct = |total: u64, avail: u64| -> f32 {
-        if total == 0 { 0.0 } else { (total.saturating_sub(avail) as f64 / total as f64 * 100.0) as f32 }
+        if total == 0 {
+            0.0
+        } else {
+            (total.saturating_sub(avail) as f64 / total as f64 * 100.0) as f32
+        }
     };
     let mut disk_used_pct = disks
         .list()
@@ -828,7 +889,12 @@ pub fn system_stats() -> SystemStats {
         }
     }
 
-    SystemStats { cpu, mem_used, mem_total, disk_used_pct }
+    SystemStats {
+        cpu,
+        mem_used,
+        mem_total,
+        disk_used_pct,
+    }
 }
 
 // ── AI error explainer ───────────────────────────────────────────────────
@@ -854,7 +920,11 @@ pub async fn llm_complete(
     let anthropic = kind == "anthropic" || kind == "anthropic-compat";
 
     if anthropic {
-        let base = if base_url.is_empty() { "https://api.anthropic.com".to_string() } else { trim(&base_url) };
+        let base = if base_url.is_empty() {
+            "https://api.anthropic.com".to_string()
+        } else {
+            trim(&base_url)
+        };
         let body = serde_json::json!({
             "model": model,
             "max_tokens": 1024,
@@ -878,15 +948,33 @@ pub async fn llm_complete(
         let status = resp.status();
         let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
-            let msg = v.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("");
-            return Err(if msg.is_empty() { status.to_string() } else { msg.to_string() });
+            let msg = v
+                .pointer("/error/message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("");
+            return Err(if msg.is_empty() {
+                status.to_string()
+            } else {
+                msg.to_string()
+            });
         }
-        let text = v.get("content").and_then(|c| c.as_array()).map(|arr| {
-            arr.iter().filter_map(|p| p.get("text").and_then(|t| t.as_str())).collect::<Vec<_>>().join("")
-        }).unwrap_or_default();
+        let text = v
+            .get("content")
+            .and_then(|c| c.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default();
         Ok(text)
     } else {
-        let base = if base_url.is_empty() { "https://api.openai.com/v1".to_string() } else { trim(&base_url) };
+        let base = if base_url.is_empty() {
+            "https://api.openai.com/v1".to_string()
+        } else {
+            trim(&base_url)
+        };
         let body = serde_json::json!({
             "model": model,
             "messages": [
@@ -905,10 +993,21 @@ pub async fn llm_complete(
         let status = resp.status();
         let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
-            let msg = v.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("");
-            return Err(if msg.is_empty() { status.to_string() } else { msg.to_string() });
+            let msg = v
+                .pointer("/error/message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("");
+            return Err(if msg.is_empty() {
+                status.to_string()
+            } else {
+                msg.to_string()
+            });
         }
-        let text = v.pointer("/choices/0/message/content").and_then(|s| s.as_str()).unwrap_or_default().to_string();
+        let text = v
+            .pointer("/choices/0/message/content")
+            .and_then(|s| s.as_str())
+            .unwrap_or_default()
+            .to_string();
         Ok(text)
     }
 }
@@ -932,9 +1031,13 @@ fn ssh_split_kv(line: &str) -> (String, String) {
     // OpenSSH allows "Key Value" or "Key=Value"; value may be quoted.
     let bytes = line.as_bytes();
     let mut i = 0;
-    while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'=' { i += 1; }
+    while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'=' {
+        i += 1;
+    }
     let key = line[..i].to_string();
-    let rest = line[i..].trim_start_matches(|c: char| c.is_whitespace() || c == '=').trim();
+    let rest = line[i..]
+        .trim_start_matches(|c: char| c.is_whitespace() || c == '=')
+        .trim();
     let val = rest.trim_matches('"').to_string();
     (key, val)
 }
@@ -963,7 +1066,8 @@ fn ssh_include_files(pattern: &str) -> Vec<PathBuf> {
     } else {
         return vec![base];
     };
-    let mut files: Vec<PathBuf> = fs::read_dir(dir).ok()
+    let mut files: Vec<PathBuf> = fs::read_dir(dir)
+        .ok()
         .into_iter()
         .flatten()
         .flatten()
@@ -977,11 +1081,18 @@ fn ssh_include_files(pattern: &str) -> Vec<PathBuf> {
 // Read an ssh_config and inline any `Include` directives, returning trimmed,
 // comment-free lines ready to parse. Depth-guarded against include cycles.
 fn flatten_ssh_config(path: &std::path::Path, depth: u8, out: &mut Vec<String>) {
-    if depth > 16 { return; }
-    let content = match fs::read_to_string(path) { Ok(c) => c, Err(_) => return };
+    if depth > 16 {
+        return;
+    }
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
     for raw in content.lines() {
         let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         let (key, val) = ssh_split_kv(line);
         if key.eq_ignore_ascii_case("include") {
             for pat in val.split_whitespace() {
@@ -1000,17 +1111,23 @@ pub fn parse_ssh_config() -> Result<Vec<SshHostEntry>, String> {
     let path = local_home().join(".ssh").join("config");
     let mut lines: Vec<String> = Vec::new();
     flatten_ssh_config(&path, 0, &mut lines);
-    if lines.is_empty() { return Ok(vec![]); }
+    if lines.is_empty() {
+        return Ok(vec![]);
+    }
     let expand = |v: &str| -> String {
         if let Some(rest) = v.strip_prefix("~/") {
             local_home().join(rest).to_string_lossy().to_string()
-        } else { v.to_string() }
+        } else {
+            v.to_string()
+        }
     };
     let mut out: Vec<SshHostEntry> = Vec::new();
     let mut cur: Option<SshHostEntry> = None;
     let flush = |out: &mut Vec<SshHostEntry>, c: Option<SshHostEntry>| {
         if let Some(e) = c {
-            if !e.host_name.is_empty() { out.push(e); }
+            if !e.host_name.is_empty() {
+                out.push(e);
+            }
         }
     };
     for line in &lines {
@@ -1018,18 +1135,48 @@ pub fn parse_ssh_config() -> Result<Vec<SshHostEntry>, String> {
         match key.to_ascii_lowercase().as_str() {
             "host" => {
                 flush(&mut out, cur.take());
-                let alias = val.split_whitespace().find(|a| !a.contains('*') && !a.contains('?'));
+                let alias = val
+                    .split_whitespace()
+                    .find(|a| !a.contains('*') && !a.contains('?'));
                 cur = alias.map(|a| SshHostEntry {
-                    alias: a.to_string(), host_name: a.to_string(),
-                    user: None, port: None, identity_file: None, proxy_jump: None,
+                    alias: a.to_string(),
+                    host_name: a.to_string(),
+                    user: None,
+                    port: None,
+                    identity_file: None,
+                    proxy_jump: None,
                 });
             }
-            "match" => { flush(&mut out, cur.take()); }
-            "hostname" => { if let Some(c) = cur.as_mut() { c.host_name = val; } }
-            "user" => { if let Some(c) = cur.as_mut() { c.user = Some(val); } }
-            "port" => { if let Some(c) = cur.as_mut() { c.port = val.parse().ok(); } }
-            "identityfile" => { if let Some(c) = cur.as_mut() { if c.identity_file.is_none() { c.identity_file = Some(expand(&val)); } } }
-            "proxyjump" => { if let Some(c) = cur.as_mut() { c.proxy_jump = Some(val); } }
+            "match" => {
+                flush(&mut out, cur.take());
+            }
+            "hostname" => {
+                if let Some(c) = cur.as_mut() {
+                    c.host_name = val;
+                }
+            }
+            "user" => {
+                if let Some(c) = cur.as_mut() {
+                    c.user = Some(val);
+                }
+            }
+            "port" => {
+                if let Some(c) = cur.as_mut() {
+                    c.port = val.parse().ok();
+                }
+            }
+            "identityfile" => {
+                if let Some(c) = cur.as_mut() {
+                    if c.identity_file.is_none() {
+                        c.identity_file = Some(expand(&val));
+                    }
+                }
+            }
+            "proxyjump" => {
+                if let Some(c) = cur.as_mut() {
+                    c.proxy_jump = Some(val);
+                }
+            }
             _ => {}
         }
     }
@@ -1061,7 +1208,9 @@ pub fn ssh_keys_list() -> Result<Vec<SshKey>, String> {
     let mut keys = Vec::new();
     for entry in rd.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("pub") { continue; }
+        if path.extension().and_then(|e| e.to_str()) != Some("pub") {
+            continue;
+        }
         let pubtext = fs::read_to_string(&path).unwrap_or_default();
         let priv_path = path.with_extension("");
         // "ssh-ed25519 AAAA... comment"
@@ -1070,7 +1219,11 @@ pub fn ssh_keys_list() -> Result<Vec<SshKey>, String> {
         let _blob = parts.next();
         let comment = parts.collect::<Vec<_>>().join(" ");
         keys.push(SshKey {
-            name: priv_path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string(),
+            name: priv_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string(),
             private_path: priv_path.to_string_lossy().to_string(),
             public_key: pubtext.trim().to_string(),
             key_type,
@@ -1082,25 +1235,50 @@ pub fn ssh_keys_list() -> Result<Vec<SshKey>, String> {
 }
 
 #[tauri::command]
-pub fn ssh_key_generate(name: String, key_type: String, comment: String, passphrase: String) -> Result<SshKey, String> {
-    let safe: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.').collect();
-    if safe.is_empty() { return Err("invalid key name".into()); }
+pub fn ssh_key_generate(
+    name: String,
+    key_type: String,
+    comment: String,
+    passphrase: String,
+) -> Result<SshKey, String> {
+    let safe: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    if safe.is_empty() {
+        return Err("invalid key name".into());
+    }
     let dir = local_home().join(".ssh");
     fs::create_dir_all(&dir).map_err(|e| format!("can't create ~/.ssh: {e}"))?;
     let path = dir.join(&safe);
-    if path.exists() { return Err(format!("a key named '{safe}' already exists")); }
-    let kt = match key_type.as_str() { "rsa" => "rsa", _ => "ed25519" };
+    if path.exists() {
+        return Err(format!("a key named '{safe}' already exists"));
+    }
+    let kt = match key_type.as_str() {
+        "rsa" => "rsa",
+        _ => "ed25519",
+    };
     let mut cmd = Command::new("ssh-keygen");
     cmd.arg("-t").arg(kt);
-    if kt == "rsa" { cmd.arg("-b").arg("4096"); }
-    cmd.arg("-f").arg(&path)
-       .arg("-N").arg(&passphrase)
-       .arg("-C").arg(if comment.is_empty() { &safe } else { &comment });
+    if kt == "rsa" {
+        cmd.arg("-b").arg("4096");
+    }
+    cmd.arg("-f")
+        .arg(&path)
+        .arg("-N")
+        .arg(&passphrase)
+        .arg("-C")
+        .arg(if comment.is_empty() { &safe } else { &comment });
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    let out = cmd.output().map_err(|e| format!("ssh-keygen failed to run: {e}"))?;
+    let out = cmd
+        .output()
+        .map_err(|e| format!("ssh-keygen failed to run: {e}"))?;
     if !out.status.success() {
-        return Err(format!("ssh-keygen: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "ssh-keygen: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     let pubtext = fs::read_to_string(path.with_extension("pub")).unwrap_or_default();
     Ok(SshKey {

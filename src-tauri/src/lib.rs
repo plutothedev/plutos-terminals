@@ -39,14 +39,10 @@ pub fn run() {
             }
 
             // System tray + hide-on-close.
-            let show_i = MenuItem::with_id(app, "show", "Show Pluto's Terminal", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(
-                app,
-                "quit",
-                "Quit (kill all sessions)",
-                true,
-                None::<&str>,
-            )?;
+            let show_i =
+                MenuItem::with_id(app, "show", "Show Pluto's Terminal", true, None::<&str>)?;
+            let quit_i =
+                MenuItem::with_id(app, "quit", "Quit (kill all sessions)", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
             TrayIconBuilder::new()

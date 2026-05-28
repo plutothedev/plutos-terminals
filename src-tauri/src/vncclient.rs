@@ -67,8 +67,16 @@ fn b64(data: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(A[((n >> 18) & 63) as usize] as char);
         out.push(A[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { A[((n >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { A[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            A[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            A[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -102,9 +110,21 @@ fn to_rgba(pixels: &[u8], fmt: &vnc::PixelFormat) -> Vec<u8> {
                 v |= (b as u32) << (8 * i);
             }
         }
-        let r = if rmax > 0 { ((v >> rs) & rmax) * 255 / rmax } else { 0 };
-        let g = if gmax > 0 { ((v >> gs) & gmax) * 255 / gmax } else { 0 };
-        let b = if bmax > 0 { ((v >> bs) & bmax) * 255 / bmax } else { 0 };
+        let r = if rmax > 0 {
+            ((v >> rs) & rmax) * 255 / rmax
+        } else {
+            0
+        };
+        let g = if gmax > 0 {
+            ((v >> gs) & gmax) * 255 / gmax
+        } else {
+            0
+        };
+        let b = if bmax > 0 {
+            ((v >> bs) & bmax) * 255 / bmax
+        } else {
+            0
+        };
         out.push(r as u8);
         out.push(g as u8);
         out.push(b as u8);
@@ -145,8 +165,20 @@ pub fn vnc_connect(
     .map_err(|e| format!("vnc handshake failed: {e}"))?;
 
     let (w, h) = client.size();
-    let _ = client.set_encodings(&[vnc::Encoding::Raw, vnc::Encoding::CopyRect, vnc::Encoding::DesktopSize]);
-    let _ = client.request_update(vnc::Rect { left: 0, top: 0, width: w, height: h }, false);
+    let _ = client.set_encodings(&[
+        vnc::Encoding::Raw,
+        vnc::Encoding::CopyRect,
+        vnc::Encoding::DesktopSize,
+    ]);
+    let _ = client.request_update(
+        vnc::Rect {
+            left: 0,
+            top: 0,
+            width: w,
+            height: h,
+        },
+        false,
+    );
 
     let id = new_id();
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<VncCtrl>();
@@ -204,11 +236,25 @@ fn vnc_worker(
                     let rgba = to_rgba(pixels, &format);
                     let _ = app.emit(
                         &format!("vnc-frame://{}", id),
-                        VncFrame { x: rect.left, y: rect.top, w: rect.width, h: rect.height, data: b64(&rgba) },
+                        VncFrame {
+                            x: rect.left,
+                            y: rect.top,
+                            w: rect.width,
+                            h: rect.height,
+                            data: b64(&rgba),
+                        },
                     );
                 }
                 vnc::client::Event::EndOfFrame => {
-                    let _ = client.request_update(vnc::Rect { left: 0, top: 0, width: w, height: h }, true);
+                    let _ = client.request_update(
+                        vnc::Rect {
+                            left: 0,
+                            top: 0,
+                            width: w,
+                            height: h,
+                        },
+                        true,
+                    );
                 }
                 vnc::client::Event::Disconnected(_) => {
                     let _ = app.emit(&format!("vnc-exit://{}", id), ());
@@ -224,8 +270,17 @@ fn vnc_worker(
 }
 
 #[tauri::command]
-pub fn vnc_pointer(state: State<'_, VncRegistry>, id: String, x: u16, y: u16, buttons: u8) -> Result<(), String> {
-    let sessions = state.sessions.lock().map_err(|_| "vnc registry poisoned".to_string())?;
+pub fn vnc_pointer(
+    state: State<'_, VncRegistry>,
+    id: String,
+    x: u16,
+    y: u16,
+    buttons: u8,
+) -> Result<(), String> {
+    let sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "vnc registry poisoned".to_string())?;
     if let Some(h) = sessions.get(&id) {
         let _ = h.ctrl.send(VncCtrl::Pointer { x, y, buttons });
     }
@@ -233,8 +288,16 @@ pub fn vnc_pointer(state: State<'_, VncRegistry>, id: String, x: u16, y: u16, bu
 }
 
 #[tauri::command]
-pub fn vnc_key(state: State<'_, VncRegistry>, id: String, keysym: u32, down: bool) -> Result<(), String> {
-    let sessions = state.sessions.lock().map_err(|_| "vnc registry poisoned".to_string())?;
+pub fn vnc_key(
+    state: State<'_, VncRegistry>,
+    id: String,
+    keysym: u32,
+    down: bool,
+) -> Result<(), String> {
+    let sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "vnc registry poisoned".to_string())?;
     if let Some(h) = sessions.get(&id) {
         let _ = h.ctrl.send(VncCtrl::Key { down, keysym });
     }
@@ -244,6 +307,10 @@ pub fn vnc_key(state: State<'_, VncRegistry>, id: String, keysym: u32, down: boo
 #[tauri::command]
 pub fn vnc_disconnect(state: State<'_, VncRegistry>, id: String) -> Result<(), String> {
     // Dropping the handle closes the ctrl channel → worker exits.
-    state.sessions.lock().map_err(|_| "vnc registry poisoned".to_string())?.remove(&id);
+    state
+        .sessions
+        .lock()
+        .map_err(|_| "vnc registry poisoned".to_string())?
+        .remove(&id);
     Ok(())
 }

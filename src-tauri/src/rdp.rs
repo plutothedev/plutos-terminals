@@ -45,7 +45,10 @@ struct RdpFrame {
 }
 
 fn new_id() -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     format!("rdp_{:x}", nanos)
 }
 
@@ -59,17 +62,34 @@ fn b64(data: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(A[((n >> 18) & 63) as usize] as char);
         out.push(A[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { A[((n >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { A[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            A[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            A[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
 
 /// Default IronRDP client config for a username/password connection.
-fn make_config(username: String, password: String, domain: Option<String>, w: u16, h: u16) -> Config {
+fn make_config(
+    username: String,
+    password: String,
+    domain: Option<String>,
+    w: u16,
+    h: u16,
+) -> Config {
     use ironrdp::connector::Credentials as C;
     Config {
-        desktop_size: DesktopSize { width: w, height: h },
+        desktop_size: DesktopSize {
+            width: w,
+            height: h,
+        },
         desktop_scale_factor: 0,
         enable_tls: true,
         enable_credssp: true,
@@ -101,7 +121,8 @@ fn make_config(username: String, password: String, domain: Option<String>, w: u1
 /// Extract the server's DER SubjectPublicKeyInfo from its TLS certificate.
 fn server_public_key(cert_der: &[u8]) -> Result<Vec<u8>, String> {
     use x509_cert::der::{Decode, Encode};
-    let cert = x509_cert::Certificate::from_der(cert_der).map_err(|e| format!("parse cert: {e}"))?;
+    let cert =
+        x509_cert::Certificate::from_der(cert_der).map_err(|e| format!("parse cert: {e}"))?;
     cert.tbs_certificate
         .subject_public_key_info
         .to_der()
@@ -133,14 +154,16 @@ pub fn rdp_connect(
     let port = if port == 0 { 3389 } else { port };
     let (req_w, req_h) = (1280u16, 800u16);
 
-    let tcp = TcpStream::connect((host.as_str(), port)).map_err(|e| format!("connect {host}:{port}: {e}"))?;
+    let tcp = TcpStream::connect((host.as_str(), port))
+        .map_err(|e| format!("connect {host}:{port}: {e}"))?;
     let client_addr: SocketAddr = tcp.local_addr().map_err(|e| e.to_string())?;
 
     let config = make_config(username, password, domain, req_w, req_h);
     let mut connector = ClientConnector::new(config, client_addr);
 
     let mut framed = Framed::new(tcp);
-    let should_upgrade = connect_begin(&mut framed, &mut connector).map_err(|e| format!("connect_begin: {e}"))?;
+    let should_upgrade =
+        connect_begin(&mut framed, &mut connector).map_err(|e| format!("connect_begin: {e}"))?;
     let (initial_stream, _leftover) = framed.into_inner();
 
     // TLS upgrade (RDP servers are usually self-signed → accept).
@@ -176,7 +199,10 @@ pub fn rdp_connect(
 
     let id = new_id();
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<RdpCtrl>();
-    let (w, h) = (connection_result.desktop_size.width, connection_result.desktop_size.height);
+    let (w, h) = (
+        connection_result.desktop_size.width,
+        connection_result.desktop_size.height,
+    );
     state
         .sessions
         .lock()
@@ -185,12 +211,19 @@ pub fn rdp_connect(
 
     let id_t = id.clone();
     let app_t = app.clone();
-    std::thread::spawn(move || rdp_worker(tls_framed, connection_result, ctrl_rx, app_t, id_t, w, h));
+    std::thread::spawn(move || {
+        rdp_worker(tls_framed, connection_result, ctrl_rx, app_t, id_t, w, h)
+    });
 
     Ok((id, w, h))
 }
 
-fn emit_rect(app: &AppHandle, id: &str, image: &DecodedImage, rect: &ironrdp::pdu::geometry::InclusiveRectangle) {
+fn emit_rect(
+    app: &AppHandle,
+    id: &str,
+    image: &DecodedImage,
+    rect: &ironrdp::pdu::geometry::InclusiveRectangle,
+) {
     let img_w = image.width() as usize;
     let left = rect.left as usize;
     let top = rect.top as usize;
@@ -208,7 +241,13 @@ fn emit_rect(app: &AppHandle, id: &str, image: &DecodedImage, rect: &ironrdp::pd
     }
     let _ = app.emit(
         &format!("rdp-frame://{}", id),
-        RdpFrame { x: rect.left, y: rect.top, w: rw as u16, h: rh as u16, data: b64(&out) },
+        RdpFrame {
+            x: rect.left,
+            y: rect.top,
+            w: rw as u16,
+            h: rh as u16,
+            data: b64(&out),
+        },
     );
 }
 
@@ -222,7 +261,11 @@ fn rdp_worker<S: Read + Write>(
     h: u16,
 ) {
     use ironrdp::session::ActiveStageOutput;
-    let mut image = DecodedImage::new(ironrdp::graphics::image_processing::PixelFormat::RgbA32, w, h);
+    let mut image = DecodedImage::new(
+        ironrdp::graphics::image_processing::PixelFormat::RgbA32,
+        w,
+        h,
+    );
     let mut active = ActiveStage::new(connection_result);
     let mut input_db = ironrdp::input::Database::new();
 
@@ -280,9 +323,19 @@ fn rdp_worker<S: Read + Write>(
 }
 
 #[tauri::command]
-pub fn rdp_pointer(state: State<'_, RdpRegistry>, id: String, x: u16, y: u16, button: Option<u8>, down: bool) -> Result<(), String> {
-    use ironrdp::input::{MouseButton, Operation, MousePosition};
-    let sessions = state.sessions.lock().map_err(|_| "rdp registry poisoned".to_string())?;
+pub fn rdp_pointer(
+    state: State<'_, RdpRegistry>,
+    id: String,
+    x: u16,
+    y: u16,
+    button: Option<u8>,
+    down: bool,
+) -> Result<(), String> {
+    use ironrdp::input::{MouseButton, MousePosition, Operation};
+    let sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "rdp registry poisoned".to_string())?;
     if let Some(h) = sessions.get(&id) {
         if let Some(b) = button {
             let mb = match b {
@@ -291,22 +344,40 @@ pub fn rdp_pointer(state: State<'_, RdpRegistry>, id: String, x: u16, y: u16, bu
                 2 => MouseButton::Right,
                 _ => MouseButton::Left,
             };
-            let op = if down { Operation::MouseButtonPressed(mb) } else { Operation::MouseButtonReleased(mb) };
+            let op = if down {
+                Operation::MouseButtonPressed(mb)
+            } else {
+                Operation::MouseButtonReleased(mb)
+            };
             let _ = h.ctrl.send(RdpCtrl::Op(op));
         } else {
-            let _ = h.ctrl.send(RdpCtrl::Op(Operation::MouseMove(MousePosition { x, y })));
+            let _ = h
+                .ctrl
+                .send(RdpCtrl::Op(Operation::MouseMove(MousePosition { x, y })));
         }
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn rdp_key(state: State<'_, RdpRegistry>, id: String, scancode: u16, down: bool) -> Result<(), String> {
+pub fn rdp_key(
+    state: State<'_, RdpRegistry>,
+    id: String,
+    scancode: u16,
+    down: bool,
+) -> Result<(), String> {
     use ironrdp::input::{Operation, Scancode};
-    let sessions = state.sessions.lock().map_err(|_| "rdp registry poisoned".to_string())?;
+    let sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "rdp registry poisoned".to_string())?;
     if let Some(h) = sessions.get(&id) {
         let sc = Scancode::from(scancode);
-        let op = if down { Operation::KeyPressed(sc) } else { Operation::KeyReleased(sc) };
+        let op = if down {
+            Operation::KeyPressed(sc)
+        } else {
+            Operation::KeyReleased(sc)
+        };
         let _ = h.ctrl.send(RdpCtrl::Op(op));
     }
     Ok(())
@@ -314,6 +385,10 @@ pub fn rdp_key(state: State<'_, RdpRegistry>, id: String, scancode: u16, down: b
 
 #[tauri::command]
 pub fn rdp_disconnect(state: State<'_, RdpRegistry>, id: String) -> Result<(), String> {
-    state.sessions.lock().map_err(|_| "rdp registry poisoned".to_string())?.remove(&id);
+    state
+        .sessions
+        .lock()
+        .map_err(|_| "rdp registry poisoned".to_string())?
+        .remove(&id);
     Ok(())
 }
