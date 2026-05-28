@@ -570,6 +570,17 @@
   flex-direction: column;
   overflow: hidden;
 }
+/* The dock's panel area below the Quick-connect bar — fills the rest of the
+   dock so the session tree / file browser / snippets get the full height. */
+.moba-dock-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.moba-dock-body > * { flex: 1; min-height: 0; }
+
 /* Drawers (snippets / sftp) rendered inline in the dock instead of sliding in. */
 .moba-dock-panel {
   display: flex;

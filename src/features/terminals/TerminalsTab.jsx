@@ -1262,26 +1262,26 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         ]}
       />
 
-      {/* MobaXterm "Quick connect" bar — type user@host (or host:port) + Enter
-          to open an SSH session in the active panel. */}
-      <div className="moba-quickconnect">
-        <span className="moba-qc-icon">🌐</span>
-        <input
-          className="moba-qc-input"
-          placeholder="Quick connect…   user@host   ·   host:port"
-          spellCheck={false}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { quickConnect(e.currentTarget.value); e.currentTarget.value = ""; }
-          }}
-        />
-      </div>
-
       {/* Body: MobaXterm vertical ribbon + docked left panel + terminal grid.
-          The ribbon toggles which panel is docked (Sessions / Tools / Sftp). */}
+          The ribbon toggles which panel is docked (Sessions / Tools / Sftp).
+          MobaXterm layout: Quick-connect sits NARROW at the top of the left dock
+          (not a full-width bar), beside the per-panel tab strip on the right. */}
       <div className="moba-body" style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0, position: "relative", overflow: "hidden" }}>
         <MobaRibbon active={ribbon} onSelect={selectRibbon} />
         {ribbon && (
           <div className="moba-dock">
+            <div className="moba-quickconnect">
+              <span className="moba-qc-icon">🌐</span>
+              <input
+                className="moba-qc-input"
+                placeholder="Quick connect…  user@host"
+                spellCheck={false}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { quickConnect(e.currentTarget.value); e.currentTarget.value = ""; }
+                }}
+              />
+            </div>
+            <div className="moba-dock-body">
             {ribbon === "sessions" && (
               <ProjectSidebar
                 docked
@@ -1325,6 +1325,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 <LocalFileBrowser onSendToTerminal={sendToActiveTerminal} />
               )
             )}
+            </div>
           </div>
         )}
 
