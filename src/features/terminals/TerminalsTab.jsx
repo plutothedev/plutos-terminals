@@ -18,10 +18,11 @@ import SshKeysModal from "./SshKeysModal";
 import MacrosModal from "./MacrosModal";
 import MasterPasswordModal from "./MasterPasswordModal";
 import MobaToolbar from "./MobaToolbar";
+import AskBar from "./AskBar";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
-  IconHelp, IconMoon, IconSun, IconExit, IconModels,
+  IconHelp, IconMoon, IconSun, IconExit, IconModels, IconAsk,
 } from "./icons.jsx";
 import LocalFileBrowser from "./LocalFileBrowser";
 import VncConnectModal from "./VncConnectModal";
@@ -116,6 +117,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [modelsOpen, setModelsOpen] = useState(false);
   const [sshKeysOpen, setSshKeysOpen] = useState(false);
   const [macrosOpen, setMacrosOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   const [masterPwOpen, setMasterPwOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -232,6 +234,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       } else if (key === "k" && !shift) {
         // Ctrl+K → command palette
         fns.openCommandPalette?.();
+        handled = true;
+      } else if (key === "i" && !shift) {
+        // Ctrl+I → Ask AI command bar
+        fns.openAskAi?.();
         handled = true;
       } else if (key === "," && !shift) {
         // Ctrl+, → settings
@@ -1310,6 +1316,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       }
     },
     openCommandPalette: () => setCommandPaletteOpen(true),
+    openAskAi: () => setAskOpen(true),
     openSettings: () => setSettingsOpen(true),
     toggleTheme,
     switchPanel: (idx) => {
@@ -1357,6 +1364,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             items: [
               { label: "Snippets panel", action: () => selectRibbon("snippets") },
               { label: "Keystroke macros…", action: () => setMacrosOpen(true) },
+              { label: "Ask AI — natural language → command", shortcut: "Ctrl+I", action: () => setAskOpen(true) },
               { label: "Models — pick provider + model…", action: () => setModelsOpen(true) },
               { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
               { divider: true },
@@ -1435,6 +1443,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           {
             caption: "Tools",
             items: [
+              { id: "ask", icon: <IconAsk />, label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
               { id: "tools", icon: <IconTools />, label: "Snippets", title: "Snippets — saved commands, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
               { id: "models", icon: <IconModels />, label: "Models", title: "Pick your LLM provider + model (Claude, Hermes, Gemini, GLM, Qwen, Kimi, OpenRouter, … or any endpoint) and enter its API key", onClick: () => setModelsOpen(true) },
               { id: "multiexec", icon: <IconMultiExec />, label: "MultiExec", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
@@ -1642,6 +1651,15 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onClose={() => setModelsOpen(false)}
       />
 
+      <AskBar
+        open={askOpen}
+        shellName={shellName}
+        cwd={activeTab?.path}
+        onClose={() => setAskOpen(false)}
+        onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
+        onInsert={(cmd) => insertSnippet(cmd)}
+      />
+
       <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
 
       <MacrosModal
@@ -1680,6 +1698,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
+          { id: "ask", icon: "✨", label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command (Ctrl+I)", action: () => setAskOpen(true) },
           { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
           { id: "snippets", icon: "📋", label: "Snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
           { id: "files", icon: "📁", label: "File browser", hint: "Local files (or remote SFTP for an SSH tab) in the left panel", action: () => selectRibbon(ribbon === "files" ? null : "files") },

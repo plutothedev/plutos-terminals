@@ -35,6 +35,13 @@ export const IconTools = ({ size }) => (
   </S>
 );
 
+export const IconAsk = ({ size }) => (
+  <S size={size}>
+    <path d="M7 1.4 L8.3 5.6 L12.5 6.9 L8.3 8.2 L7 12.4 L5.7 8.2 L1.5 6.9 L5.7 5.6 Z" fill="#ffd24a" />
+    <path d="M12 9 L12.7 11 L14.7 11.7 L12.7 12.4 L12 14.4 L11.3 12.4 L9.3 11.7 L11.3 11 Z" fill="#4aa8c0" />
+  </S>
+);
+
 export const IconGames = ({ size }) => (
   <S size={size}>
     <rect x="1.3" y="5" width="13.4" height="6.4" rx="3.2" fill="#7e57c2" />
