@@ -260,17 +260,18 @@ export default function TerminalPanel({
   };
   const cancelRename = () => setRenamingId(null);
 
-  // Border + glow precedence: focused panel wears the rainbow (CSS class
-  // overrides border + bg via !important). Activity colors only show on
-  // unfocused panels — that's the whole point of the dots.
-  let borderColor = BORDER_DIM;
-  let boxShadow = "none";
-  if (panelState === "active" && !isActive) {
+  // Flat panel framing (mockup 12): a thin neutral border, no glow, no
+  // rainbow. The focused panel only gets a blue edge when the grid is split
+  // (canClosePanel ⇒ >1 panel), so a single terminal stays clean. Activity is
+  // conveyed by the tab dots, not a glowing terminal frame.
+  let borderColor = "var(--phn-surface-border, #34383F)";
+  const boxShadow = "none";
+  if (isActive && canClosePanel) {
+    borderColor = "var(--phn-link, #4D8FE0)";
+  } else if (!isActive && panelState === "active") {
     borderColor = GLOW_ACTIVE;
-    boxShadow = GLOW_ACTIVE_SHADOW;
-  } else if (panelState === "done" && !isActive) {
+  } else if (!isActive && panelState === "done") {
     borderColor = GLOW_DONE;
-    boxShadow = GLOW_DONE_SHADOW;
   }
 
   const activePaneId = activeTab?.activePaneId || activeTab?.id;
@@ -299,15 +300,14 @@ export default function TerminalPanel({
   return (
     <div
       data-panel-id={panel.id}
-      className={isActive ? "tg-panel-rainbow" : undefined}
       onMouseDown={onActivate}
       style={{
         display: "flex",
         flexDirection: "column",
         background: PANEL_BG,
-        border: `2px solid ${borderColor}`,
+        border: `1px solid ${borderColor}`,
         boxShadow,
-        borderRadius: 4,
+        borderRadius: 3,
         overflow: "hidden",
         minWidth: 0,
         minHeight: 0,
@@ -320,35 +320,26 @@ export default function TerminalPanel({
       <div
         style={{
           display: "flex",
-          alignItems: "flex-end",
-          background: `var(--phn-tabstrip-bg, ${PANEL_BG})`,
-          borderBottom: "1px solid var(--phn-surface-border, rgba(255,255,255,0.14))",
-          minHeight: 34,
-          paddingTop: 5,
-          paddingLeft: 4,
+          alignItems: "stretch",
+          background: "var(--phn-surface, #24272D)",
+          borderBottom: "1px solid var(--phn-surface-border, #34383F)",
+          height: 30,
           fontSize: 12,
           flexShrink: 0,
           overflow: "hidden",
         }}
       >
-        {/* Home button — MobaXterm's dedicated house button left of the tabs.
-            Focuses the panel's launch-screen tab (or opens one). */}
-        {onHome && (
-          <button
-            className="moba-home-btn"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); onHome(); }}
-            title="Home — session launch screen"
-          >
-            🏠
-          </button>
-        )}
-        <div style={{ display: "flex", flex: 1, minWidth: 0, overflow: "auto", alignItems: "flex-end" }}>
+        <div style={{ display: "flex", flex: 1, minWidth: 0, overflow: "auto", alignItems: "stretch" }}>
           {panel.tabs.map((tab, ti) => {
             const active = tab.id === panel.activeTabId;
             const tabState = aggregateTabActivity(tab, tabActivities);
             const isRenamingThis = renamingId === tab.id;
             const paneCount = leafIds(getLayout(tab)).length;
+            const dotBg = tab.color
+              ? tab.color
+              : tabState === "active" ? DOT_ACTIVE
+              : tabState === "done" ? DOT_DONE
+              : "var(--phn-text-faint, #586068)";
             return (
               <div
                 key={tab.id}
@@ -362,25 +353,20 @@ export default function TerminalPanel({
                 style={{ cursor: isRenamingThis ? "text" : "pointer" }}
                 title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click to rename)`}
               >
-                {tab.color && (
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: tab.color, flexShrink: 0, boxShadow: `0 0 5px ${tab.color}` }} title="Tab color" />
-                )}
-                <span style={{ flexShrink: 0, fontSize: 11, opacity: 0.9 }} title={tab.home ? "Session launch screen" : tab.worktree ? `Agent worktree (${tab.worktree.branch})` : tab.rdp ? "RDP desktop" : tab.vnc ? "VNC desktop" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}>
-                  {tab.home ? "🏠" : tab.worktree ? "🌿" : tab.rdp ? "🪟" : tab.vnc ? "🖥" : tab.connection ? "🔗" : tab.serial ? "⎓" : "❯"}
-                </span>
                 <span
                   className={tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
+                  title={tab.home ? "Session launch screen" : tab.worktree ? `Agent worktree (${tab.worktree.branch})` : tab.rdp ? "RDP desktop" : tab.vnc ? "VNC desktop" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}
                   style={{
                     display: "inline-block",
-                    width: 10,
-                    height: 10,
+                    width: 6,
+                    height: 6,
                     borderRadius: "50%",
-                    background: dotColor(tabState),
+                    background: dotBg,
                     flexShrink: 0,
                     boxShadow: tabState === "active"
-                      ? `0 0 8px ${DOT_ACTIVE}`
+                      ? `0 0 6px ${DOT_ACTIVE}`
                       : tabState === "done"
-                        ? `0 0 10px ${DOT_DONE}`
+                        ? `0 0 7px ${DOT_DONE}`
                         : "none",
                     transition: "background 0.2s, box-shadow 0.2s",
                   }}
@@ -410,32 +396,19 @@ export default function TerminalPanel({
                     }}
                   />
                 ) : (
-                  <span className="moba-tab-label">{tab.home ? tab.label : `${ti + 1}. ${tab.label}`}</span>
+                  <span className="moba-tab-label">{tab.label}</span>
                 )}
                 {paneCount > 1 && !isRenamingThis && (
-                  <span
-                    title={`${paneCount} panes`}
-                    style={{ color: "#777", fontSize: 9, flexShrink: 0 }}
-                  >
+                  <span title={`${paneCount} panes`} style={{ color: "var(--phn-text-faint, #586068)", fontSize: 9, flexShrink: 0 }}>
                     ⊞{paneCount}
                   </span>
                 )}
                 {panel.tabs.length > 1 && !isRenamingThis && (
                   <span
+                    className="moba-tab-x"
                     onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
-                    style={{
-                      color: "#666",
-                      cursor: "pointer",
-                      padding: "0 2px",
-                      fontSize: 12,
-                      lineHeight: 1,
-                      // Hover-only close (Termius style). Fades rather than
-                      // unmounts so the tab width doesn't jitter on hover.
-                      opacity: hoverTabId === tab.id ? 1 : 0,
-                      transition: "opacity 0.15s ease",
-                    }}
                     onMouseEnter={(e) => { e.currentTarget.style.color = "#f44"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = "#666"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = ""; }}
                   >
                     ×
                   </span>
@@ -446,16 +419,18 @@ export default function TerminalPanel({
           <div
             onClick={(e) => { e.stopPropagation(); onAddTab(); }}
             style={{
-              padding: "4px 10px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "0 12px",
               cursor: "pointer",
-              color: "#bababa",
-              fontSize: 14,
+              color: "var(--phn-text-faint, #586068)",
+              fontSize: 15,
               lineHeight: 1,
               userSelect: "none",
-              alignSelf: "center",
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "#ffffff"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "#bababa"; }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-text-bright, #F2F4F7)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--phn-text-faint, #586068)"; }}
             title="New tab in this panel"
           >
             +
