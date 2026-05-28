@@ -359,6 +359,7 @@
   background: var(--phn-tab-bg-active, #4d4d4d);
   color: var(--phn-tab-fg-active, #ffffff);
   z-index: 3;
+  box-shadow: inset 0 2px 0 var(--phn-link, #4D8FE0);
 }
 .moba-tab:not(.active):hover { background: var(--phn-tab-bg-hover, #3a3a3a); color: #e0e0e0; }
 

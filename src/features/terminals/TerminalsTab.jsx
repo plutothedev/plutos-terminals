@@ -2012,7 +2012,15 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           </>
         )}
         <span className="phn-statusbar-divider">·</span>
-        <span>terminal bg: {pureBlackTerminal ? "pure black" : "skin"}</span>
+        <span title="Encoding">UTF-8</span>
+        {(userSt?.activeModel?.model || claudeAvailable) && (
+          <>
+            <span className="phn-statusbar-divider">·</span>
+            <span className="phn-statusbar-active" title="Active model (Models picker)">
+              ✦ {userSt?.activeModel?.model || "claude"}
+            </span>
+          </>
+        )}
         {recordingTabIds.length > 0 && (
           <>
             <span className="phn-statusbar-divider">·</span>
@@ -2076,6 +2084,25 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         >
           discord
         </button>
+      </div>
+
+      {/* F-key quick-action bar (MobaXterm-style) */}
+      <div className="phn-fnbar">
+        {[
+          { k: "F1", l: "Help", fn: () => openExternal(GITHUB_URL) },
+          { k: "F2", l: "Tab", fn: () => addTab(state.activePanelId) },
+          { k: "F3", l: "Split", fn: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+          { k: "F4", l: "SFTP", fn: () => selectRibbon("files") },
+          { k: "⌘K", l: "Palette", fn: () => setCommandPaletteOpen(true) },
+          { k: "⌘I", l: "Ask AI", fn: () => setAskOpen(true) },
+          { k: "⌘R", l: "History", fn: () => setHistoryOpen(true) },
+          { k: "⌘M", l: "Models", fn: () => setModelsOpen(true) },
+          { k: "F9", l: "Macro", fn: () => setMacrosOpen(true) },
+        ].map((b) => (
+          <button key={b.k} className="phn-fn" onClick={b.fn} title={`${b.k} — ${b.l}`}>
+            <b>{b.k}</b> {b.l}
+          </button>
+        ))}
       </div>
       </div>
     </div>

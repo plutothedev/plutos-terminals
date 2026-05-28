@@ -380,6 +380,33 @@ const CSS = `
   transition: opacity 100ms ease;
 }
 .phn-statusbar-link:hover { opacity: 0.7; }
+/* F-key quick-action bar (workstation look) */
+.phn-fnbar {
+  display: flex;
+  flex-shrink: 0;
+  height: 26px;
+  background: var(--phn-page-bg, #16181C);
+  border-top: 1px solid var(--phn-surface-border, #34383F);
+}
+.phn-fn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-right: 1px solid var(--phn-surface-border, #34383F);
+  background: transparent;
+  color: var(--phn-text-dim, #8A909A);
+  font-family: var(--phn-mono-font);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.phn-fn:last-child { border-right: none; }
+.phn-fn:hover { background: var(--phn-surface-bg, #24272D); color: var(--phn-text-active, #F2F4F7); }
+.phn-fn b { color: var(--phn-text-faint, #586068); font-weight: 700; font-size: 9.5px; }
+.phn-fn:hover b { color: var(--phn-link, #4D8FE0); }
 .phn-sidebar {
   background: var(--phn-surface-alt-bg, #0d0d0d);
   border-right: 1px solid var(--phn-surface-border, #2B2B2B);
@@ -1100,33 +1127,34 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
 }
 
 [data-phn-skin="moba"] {
-  /* Refined Dark — the MobaXterm DNA elevated to a deep, cool, Linear/Warp-grade
-     palette: layered near-blacks (page < alt < surface < elevated), hairline
-     dividers, high-contrast text hierarchy, one confident azure accent. */
-  --phn-page-bg: #0B0C0E;        /* behind panels; terminal itself is pure black */
-  --phn-surface-bg: #15171B;     /* menu / toolbar / status — lifted from page */
-  --phn-surface-alt-bg: #101216; /* sidebar / docked file browser */
-  --phn-elevated-bg: #1A1D22;    /* modals / popovers — lifted above surface */
-  --phn-surface-border: #24262C; /* hairline dividers between surfaces */
-  --phn-text-fg: #C9CDD4;        /* body — strong, refined (not pure white) */
+  /* Industrial Navy — the locked workstation look (design-mockups/12). Lifted
+     graphite/navy chrome (page < sidebar < bars < raised) over a pure-black
+     terminal, hairline dividers, one clean blue accent. Colour otherwise lives
+     in the terminal + the colourful toolbox icons. */
+  --phn-page-bg: #16181C;        /* behind panels; terminal itself is pure black */
+  --phn-surface-bg: #24272D;     /* menu / toolbar / status — the lifted bars */
+  --phn-surface-alt-bg: #1E2125; /* sidebar / docked tree + SFTP */
+  --phn-elevated-bg: #2C3037;    /* modals / popovers / raised */
+  --phn-surface-border: #34383F; /* hairline dividers between surfaces */
+  --phn-text-fg: #D3D7DD;        /* body */
   --phn-text-active: #F2F4F7;    /* headings / emphasis */
-  --phn-text-dim: #868D98;       /* secondary / captions */
-  --phn-text-faint: #5A606B;     /* placeholder / disabled */
-  --phn-link: #4DA3FF;           /* refined azure accent */
-  --phn-accent-hover: #6BB4FF;
-  --phn-accent-subtle: rgba(77,163,255,0.14);
-  --phn-accent-fg: #07121F;      /* text on the accent fill */
-  --phn-success: #3FB950;
-  --phn-warning: #D29922;
-  --phn-danger: #F06D70;
-  --phn-focus-ring: rgba(77,163,255,0.45);
-  --phn-hover-bg: rgba(255,255,255,0.045);
+  --phn-text-dim: #8A909A;       /* secondary / captions */
+  --phn-text-faint: #586068;     /* placeholder / disabled */
+  --phn-link: #4D8FE0;           /* clean blue accent */
+  --phn-accent-hover: #67A2EA;
+  --phn-accent-subtle: rgba(77,143,224,0.18);
+  --phn-accent-fg: #08182A;      /* text on the accent fill */
+  --phn-success: #5FB87A;
+  --phn-warning: #E0A93C;
+  --phn-danger: #E0655E;
+  --phn-focus-ring: rgba(77,143,224,0.50);
+  --phn-hover-bg: rgba(255,255,255,0.05);
   --phn-tabstrip-bg: #000000;    /* strip behind the tabs (matches the terminal) */
   /* Chrome-style tab slab colours (see .moba-tab) */
-  --phn-tab-bg: #15171B;
-  --phn-tab-bg-hover: #1C1F25;
-  --phn-tab-bg-active: #24272E;
-  --phn-tab-fg: #9AA0AA;
+  --phn-tab-bg: #1E2125;
+  --phn-tab-bg-hover: #2A2E34;
+  --phn-tab-bg-active: #16181C;  /* active tab meets the page/terminal */
+  --phn-tab-fg: #8A909A;
   --phn-tab-fg-active: #F2F4F7;
 }
 
