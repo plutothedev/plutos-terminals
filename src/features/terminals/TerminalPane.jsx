@@ -734,12 +734,14 @@ export default function TerminalPane({
           // makes the welcome instantly colourful like MobaXterm's banner area.
           const tagline = "  multi-terminal · SSH · SFTP · serial · RDP · VNC · MultiExec · snippets · ⌘+K palette";
           const rainbow = `command -v lolcat >/dev/null 2>&1 && printf '%s\\n\\n' '${tagline}' | lolcat || printf '\\033[2m%s\\033[0m\\n\\n' '${tagline}'`;
-          // Always set colours + prompt. Fresh tabs also clear + print the
-          // banner + rainbow; restored tabs skip those so their replayed
-          // scrollback stays visible (just the new coloured prompt follows it).
+          // Always set colours + prompt. Fresh tabs clear + print the welcome
+          // box + rainbow. Restored tabs set the prompt then do a scrollback-
+          // PRESERVING screen clear (ESC[2J ESC[H — not ESC[3J): this wipes the
+          // echoed setup command from view and leaves a clean coloured prompt,
+          // while the replayed history stays in the scrollback buffer (scroll up).
           const promptSetup = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi`;
           const init = restored
-            ? promptSetup
+            ? `${promptSetup}; printf '\\033[2J\\033[H'`
             : `${promptSetup}; clear; ${banner}; ${rainbow}`;
           if (alive && ptyId) {
             try { await invoke("pty_write", { id: ptyId, data: init + "\r" }); } catch {}
