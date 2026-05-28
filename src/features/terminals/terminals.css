@@ -114,12 +114,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px 6px 8px;
+  padding: 4px 10px 3px 8px;
   cursor: pointer;
   user-select: none;
-  color: var(--phn-text-dim, #888);
-  font-size: 11px;
-  letter-spacing: 0.2px;
+  color: var(--phn-text-faint, #586068);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
 .phn-folder-header:hover { background: rgba(255, 255, 255, 0.04); color: var(--phn-text-active, #fff); }
 /* "User sessions" tree root — slightly brighter/bolder than category folders. */

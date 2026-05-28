@@ -450,12 +450,14 @@ export default function ProjectSidebar({
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 8,
-                  padding: collapsed ? "8px 0" : "7px 12px",
+                  gap: 7,
+                  padding: collapsed ? "6px 0" : "3px 10px",
+                  minHeight: collapsed ? undefined : 23,
                   justifyContent: collapsed ? "center" : "flex-start",
                   cursor: isRenamingThis ? "text" : "pointer",
                   background: isHover ? "rgba(255,255,255,0.04)" : "transparent",
                   userSelect: "none",
+                  fontSize: 12.5,
                 }}
               >
                 <span
