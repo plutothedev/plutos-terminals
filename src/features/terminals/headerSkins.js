@@ -306,6 +306,55 @@ const CSS = `
 :root {
   --phn-ui-font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --phn-mono-font: 'JetBrains Mono', Menlo, Monaco, monospace;
+
+  /* ── Design tokens (skin-independent) — one intentional system across the
+     whole app, so spacing/rhythm/elevation/type are consistent everywhere
+     instead of each component improvising its own values. 4px base grid. ── */
+  --phn-sp-1: 4px;
+  --phn-sp-2: 8px;
+  --phn-sp-3: 12px;
+  --phn-sp-4: 16px;
+  --phn-sp-5: 20px;
+  --phn-sp-6: 24px;
+  --phn-sp-8: 32px;
+
+  --phn-r-sm: 4px;
+  --phn-r-md: 6px;
+  --phn-r-lg: 8px;
+  --phn-r-xl: 12px;
+  --phn-r-pill: 999px;
+
+  /* Type scale — dense but with clear hierarchy. Tight line-height for UI. */
+  --phn-fs-2xs: 10px;
+  --phn-fs-xs: 11px;
+  --phn-fs-sm: 12px;
+  --phn-fs-base: 13px;
+  --phn-fs-md: 14px;
+  --phn-fs-lg: 16px;
+  --phn-fs-xl: 20px;
+  --phn-lh-tight: 1.35;
+  --phn-lh: 1.55;
+
+  /* Elevation — layered shadows (real depth, not a flat drop). Tuned for dark. */
+  --phn-shadow-1: 0 1px 2px rgba(0,0,0,0.45);
+  --phn-shadow-2: 0 4px 12px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.35);
+  --phn-shadow-3: 0 18px 50px rgba(0,0,0,0.58), 0 4px 14px rgba(0,0,0,0.42);
+  --phn-ring: 0 0 0 2px var(--phn-focus-ring, rgba(77,163,255,0.45));
+
+  --phn-dur: 0.15s;
+  --phn-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Sensible fallbacks for the extended semantic colors so non-refined skins
+     still render the new primitives correctly (each skin can override). */
+  --phn-elevated-bg: var(--phn-surface-bg, #181818);
+  --phn-text-faint: var(--phn-text-dim, #555);
+  --phn-accent-hover: var(--phn-link, #4DAAFC);
+  --phn-accent-fg: #06121f;
+  --phn-success: #3FB950;
+  --phn-warning: #D29922;
+  --phn-danger: #F06D70;
+  --phn-focus-ring: rgba(77,163,255,0.45);
+  --phn-hover-bg: rgba(255,255,255,0.05);
 }
 
 /* ── App-wide skinnable surfaces (read CSS vars set per skin below). ── */
@@ -355,29 +404,30 @@ const CSS = `
   -webkit-backdrop-filter: blur(2px);
 }
 .phn-modal {
-  background: var(--phn-surface-bg, #181818);
+  background: var(--phn-elevated-bg, #1A1D22);
   border: 1px solid var(--phn-surface-border, #2B2B2B);
-  border-radius: 8px;
+  border-radius: var(--phn-r-lg, 8px);
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   box-sizing: border-box;
-  font-family: 'JetBrains Mono', Menlo, Monaco, monospace;
-  color: var(--phn-text-fg, #CCCCCC);
-  font-size: 12px;
+  font-family: var(--phn-ui-font);
+  color: var(--phn-text-fg, #C9CDD4);
+  font-size: var(--phn-fs-sm, 12px);
   padding: 0;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  box-shadow: var(--phn-shadow-3);
 }
 .phn-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
+  padding: var(--phn-sp-3, 12px) var(--phn-sp-5, 20px);
   border-bottom: 1px solid var(--phn-surface-border, #2B2B2B);
 }
 .phn-modal-title {
-  font-size: 14px;
-  color: var(--phn-text-active, #E6E6E6);
-  letter-spacing: 0.5px;
+  font-size: var(--phn-fs-md, 14px);
+  font-weight: 600;
+  color: var(--phn-text-active, #F2F4F7);
+  letter-spacing: -0.01em;
 }
 .phn-modal-close {
   background: transparent;
@@ -389,7 +439,7 @@ const CSS = `
   line-height: 1;
 }
 .phn-modal-close:hover { color: var(--phn-text-active, #E6E6E6); }
-.phn-modal-body { padding: 20px; }
+.phn-modal-body { padding: var(--phn-sp-5, 20px); }
 .phn-modal-body input,
 .phn-modal-body select,
 .phn-modal-body textarea {
@@ -400,6 +450,65 @@ const CSS = `
 .phn-modal-body code {
   background: var(--phn-page-bg, #0a0a0a);
   color: var(--phn-link, #4DAAFC);
+}
+
+/* ───────────────────────── Design-system primitives ─────────────────────────
+   Shared Button / Input / Field / Chip / Kbd, driven by the design tokens. One
+   source of truth so every dialog reads as the same intentional system (real
+   :hover / :focus-visible states, not JS hover juggling). See components/ui.jsx. */
+.phn-ui-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--phn-sp-2, 8px);
+  font-family: var(--phn-ui-font); font-size: var(--phn-fs-sm, 12px); font-weight: 550;
+  line-height: 1; white-space: nowrap; cursor: pointer; user-select: none;
+  padding: 0 var(--phn-sp-3, 12px); height: 30px; border-radius: var(--phn-r-md, 6px);
+  border: 1px solid transparent; background: transparent; color: var(--phn-text-fg, #C9CDD4);
+  transition: background var(--phn-dur,.15s) var(--phn-ease), border-color var(--phn-dur,.15s) var(--phn-ease), color var(--phn-dur,.15s) var(--phn-ease), box-shadow var(--phn-dur,.15s) var(--phn-ease);
+}
+.phn-ui-btn:focus-visible { outline: none; box-shadow: var(--phn-ring); }
+.phn-ui-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.phn-ui-btn--sm { height: 26px; font-size: var(--phn-fs-xs, 11px); padding: 0 var(--phn-sp-2, 8px); }
+.phn-ui-btn--primary { background: var(--phn-link, #4DA3FF); color: var(--phn-accent-fg, #07121f); border-color: var(--phn-link, #4DA3FF); font-weight: 600; }
+.phn-ui-btn--primary:hover:not(:disabled) { background: var(--phn-accent-hover, #6BB4FF); border-color: var(--phn-accent-hover, #6BB4FF); }
+.phn-ui-btn--ghost { border-color: var(--phn-surface-border, #24262C); }
+.phn-ui-btn--ghost:hover:not(:disabled) { background: var(--phn-hover-bg, rgba(255,255,255,0.045)); border-color: var(--phn-text-dim, #868D98); }
+.phn-ui-btn--subtle { color: var(--phn-text-dim, #868D98); }
+.phn-ui-btn--subtle:hover:not(:disabled) { background: var(--phn-hover-bg, rgba(255,255,255,0.045)); color: var(--phn-text-active, #F2F4F7); }
+.phn-ui-btn--danger { color: var(--phn-danger, #F06D70); border-color: color-mix(in srgb, var(--phn-danger, #F06D70) 45%, transparent); }
+.phn-ui-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--phn-danger, #F06D70) 14%, transparent); border-color: var(--phn-danger, #F06D70); }
+
+.phn-ui-input {
+  width: 100%; box-sizing: border-box; height: 32px; padding: 0 var(--phn-sp-3, 12px);
+  background: var(--phn-page-bg, #0B0C0E); color: var(--phn-text-active, #F2F4F7);
+  border: 1px solid var(--phn-surface-border, #24262C); border-radius: var(--phn-r-md, 6px);
+  font-family: var(--phn-ui-font); font-size: var(--phn-fs-sm, 12px); outline: none;
+  transition: border-color var(--phn-dur,.15s) var(--phn-ease), box-shadow var(--phn-dur,.15s) var(--phn-ease);
+}
+.phn-ui-input::placeholder { color: var(--phn-text-faint, #5A606B); }
+.phn-ui-input:focus { border-color: var(--phn-link, #4DA3FF); box-shadow: var(--phn-ring); }
+.phn-ui-input--mono { font-family: var(--phn-mono-font); font-size: var(--phn-fs-xs, 11px); }
+textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp-3, 12px); line-height: var(--phn-lh, 1.55); resize: vertical; }
+
+.phn-ui-field { display: flex; flex-direction: column; gap: var(--phn-sp-2, 8px); margin-bottom: var(--phn-sp-4, 16px); }
+.phn-ui-label { font-size: var(--phn-fs-2xs, 10px); letter-spacing: 0.06em; text-transform: uppercase; color: var(--phn-text-dim, #868D98); font-weight: 600; }
+.phn-ui-hint { font-size: var(--phn-fs-xs, 11px); line-height: var(--phn-lh, 1.55); color: var(--phn-text-dim, #868D98); }
+
+.phn-ui-chip {
+  display: inline-flex; align-items: center; gap: var(--phn-sp-1, 4px);
+  padding: 3px var(--phn-sp-2, 8px); border-radius: var(--phn-r-sm, 4px); cursor: pointer;
+  font-family: var(--phn-mono-font); font-size: var(--phn-fs-xs, 11px); line-height: 1.4;
+  background: var(--phn-page-bg, #0B0C0E); color: var(--phn-text-fg, #C9CDD4);
+  border: 1px solid var(--phn-surface-border, #24262C);
+  transition: background var(--phn-dur,.15s) var(--phn-ease), border-color var(--phn-dur,.15s) var(--phn-ease), color var(--phn-dur,.15s) var(--phn-ease);
+}
+.phn-ui-chip:hover { border-color: var(--phn-text-dim, #868D98); }
+.phn-ui-chip--active { background: var(--phn-link, #4DA3FF); color: var(--phn-accent-fg, #07121f); border-color: var(--phn-link, #4DA3FF); }
+.phn-ui-chip:focus-visible { outline: none; box-shadow: var(--phn-ring); }
+
+.phn-ui-kbd {
+  display: inline-block; padding: 1px 5px; border-radius: var(--phn-r-sm, 4px);
+  background: var(--phn-surface-bg, #15171B); border: 1px solid var(--phn-surface-border, #24262C);
+  border-bottom-width: 2px; color: var(--phn-text-dim, #868D98);
+  font-family: var(--phn-mono-font); font-size: var(--phn-fs-2xs, 10px); line-height: 1.5;
 }
 .phn-toast {
   /* base styling lives inline; this class is just a hook for future skin overrides */
@@ -991,23 +1100,34 @@ const CSS = `
 }
 
 [data-phn-skin="moba"] {
-  --phn-page-bg: #1c1c1c;        /* behind panels; terminal itself is pure black */
-  --phn-surface-bg: #383838;     /* menu / toolbar / status — v12.4 dark grey */
-  --phn-surface-alt-bg: #2a2a2a; /* sidebar / docked file browser */
-  --phn-surface-border: #151515; /* dark dividers between surfaces */
-  --phn-text-fg: #d4d4d4;
-  --phn-text-active: #ffffff;
-  --phn-text-dim: #8a8a8a;
-  --phn-link: #4aa8c0;           /* MobaXterm v12.4 teal accent */
-  --phn-accent-subtle: rgba(74,168,192,0.16);
-  --phn-hover-bg: rgba(255,255,255,0.08);
+  /* Refined Dark — the MobaXterm DNA elevated to a deep, cool, Linear/Warp-grade
+     palette: layered near-blacks (page < alt < surface < elevated), hairline
+     dividers, high-contrast text hierarchy, one confident azure accent. */
+  --phn-page-bg: #0B0C0E;        /* behind panels; terminal itself is pure black */
+  --phn-surface-bg: #15171B;     /* menu / toolbar / status — lifted from page */
+  --phn-surface-alt-bg: #101216; /* sidebar / docked file browser */
+  --phn-elevated-bg: #1A1D22;    /* modals / popovers — lifted above surface */
+  --phn-surface-border: #24262C; /* hairline dividers between surfaces */
+  --phn-text-fg: #C9CDD4;        /* body — strong, refined (not pure white) */
+  --phn-text-active: #F2F4F7;    /* headings / emphasis */
+  --phn-text-dim: #868D98;       /* secondary / captions */
+  --phn-text-faint: #5A606B;     /* placeholder / disabled */
+  --phn-link: #4DA3FF;           /* refined azure accent */
+  --phn-accent-hover: #6BB4FF;
+  --phn-accent-subtle: rgba(77,163,255,0.14);
+  --phn-accent-fg: #07121F;      /* text on the accent fill */
+  --phn-success: #3FB950;
+  --phn-warning: #D29922;
+  --phn-danger: #F06D70;
+  --phn-focus-ring: rgba(77,163,255,0.45);
+  --phn-hover-bg: rgba(255,255,255,0.045);
   --phn-tabstrip-bg: #000000;    /* strip behind the tabs (matches the terminal) */
   /* Chrome-style tab slab colours (see .moba-tab) */
-  --phn-tab-bg: #2b2b2b;
-  --phn-tab-bg-hover: #3a3a3a;
-  --phn-tab-bg-active: #4d4d4d;
-  --phn-tab-fg: #b6b6b6;
-  --phn-tab-fg-active: #ffffff;
+  --phn-tab-bg: #15171B;
+  --phn-tab-bg-hover: #1C1F25;
+  --phn-tab-bg-active: #24272E;
+  --phn-tab-fg: #9AA0AA;
+  --phn-tab-fg-active: #F2F4F7;
 }
 
 /* Light CHROME — the toggle's other state. Everything but the terminal turns
@@ -1177,14 +1297,17 @@ const CSS = `
 }
 `;
 
-let injected = false;
 export function injectHeaderSkinsCss() {
-  if (injected || typeof document === "undefined") return;
-  const styleEl = document.createElement("style");
-  styleEl.id = "phn-header-skins";
-  styleEl.textContent = CSS;
-  document.head.appendChild(styleEl);
-  injected = true;
+  if (typeof document === "undefined") return;
+  // Reuse the existing tag if present so a hot-reload / re-call refreshes the
+  // CSS in place rather than leaving a stale copy (or appending duplicates).
+  let styleEl = document.getElementById("phn-header-skins");
+  if (!styleEl) {
+    styleEl = document.createElement("style");
+    styleEl.id = "phn-header-skins";
+    document.head.appendChild(styleEl);
+  }
+  if (styleEl.textContent !== CSS) styleEl.textContent = CSS;
 }
 
 // Apply the active skin globally on <html> so portaled / sibling elements
