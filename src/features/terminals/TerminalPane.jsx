@@ -609,15 +609,20 @@ export default function TerminalPane({
           try { userRaw = localStorage.getItem("plutos-terminals:user:v0"); } catch (_) { /* ignore */ }
           if (userRaw) {
             const userPersisted = JSON.parse(userRaw);
-            if (userPersisted && typeof userPersisted.anthropicKey === "string" && userPersisted.anthropicKey.length > 0) {
-              env.ANTHROPIC_API_KEY = userPersisted.anthropicKey;
-            }
-            // Multi-LLM routing: if the user picked an active provider/model,
-            // inject its env vars so `claude` / `codex` route there. Takes
-            // precedence over the legacy plain ANTHROPIC_API_KEY above.
-            const am = userPersisted && userPersisted.activeModel;
             const keys = (userPersisted && userPersisted.providerKeys) || {};
             const baseUrls = (userPersisted && userPersisted.providerBaseUrls) || {};
+            // Default Claude key now lives in the Models section as
+            // providerKeys.anthropic (legacy userPersisted.anthropicKey is the
+            // pre-consolidation fallback for not-yet-migrated state).
+            const defaultAnthropic =
+              (typeof keys.anthropic === "string" && keys.anthropic.length > 0)
+                ? keys.anthropic
+                : (typeof userPersisted?.anthropicKey === "string" ? userPersisted.anthropicKey : "");
+            if (defaultAnthropic) env.ANTHROPIC_API_KEY = defaultAnthropic;
+            // Multi-LLM routing: if the user picked an active provider/model,
+            // inject its env vars so `claude` / `codex` route there. Takes
+            // precedence over the default ANTHROPIC_API_KEY above.
+            const am = userPersisted && userPersisted.activeModel;
             if (am && am.providerId && am.model && typeof keys[am.providerId] === "string" && keys[am.providerId].length > 0) {
               Object.assign(env, envForModel(am.providerId, am.model, keys[am.providerId], baseUrls[am.providerId]));
             }
@@ -847,37 +852,80 @@ export default function TerminalPane({
           // inline printf.
           const E = "\x1b";
           // Per-segment colour: each line is a list of [text, ansiCode|null]
-          // pairs. The box edges align because the inner width is measured on
-          // the PLAIN text (no emoji in the box — ► ✓ ✗ · are all width 1) and
-          // colour is layered on after. White border, MobaXterm-style colours.
-          const BORDER = "1;37";       // white
+          // pairs (+ optional center / hang). The box edges align because the
+          // inner width is measured on the PLAIN text (✓ ✗ · ► are all width 1)
+          // and colour is layered on after. CRUCIALLY the box is sized to the
+          // pane's actual column count and content is word-wrapped, so a narrow
+          // split pane never wraps a line past the border. MobaXterm-style.
+          const BORDER = "1;36";       // cyan box (MobaXterm header vibe)
+          const TITLE_BG = "1;30;46";  // black-on-cyan title bar
           const wrap = (code, s) => (code ? `${E}[${code}m${s}${E}[0m` : s);
           const C = (c, t) => [t, c];  // coloured segment
           const T = (t) => [t, null];  // plain segment
           const lines = [
-            { center: true, segs: [C("1;36", "• Pluto's Terminal — free multi-terminal for the Pluto community •")] },
+            { center: true, segs: [C(TITLE_BG, "  ✦ Pluto's Terminal ✦  ")] },
+            { center: true, segs: [C("36", "free multi-terminal for the Pluto community")] },
             { segs: [] },
-            { segs: [C("36", "► "), T("Saved sessions live in the "), C("1;33", "Sessions"), T(" panel — SSH · local · serial · RDP/VNC")] },
-            { segs: [C("36", "► "), T("Scrollback is "), C("1;32", "persistent"), T(": every tab is saved and replayed on restart")] },
-            { segs: [C("36", "► "), C("1;35", "MultiExec"), T(" broadcasts your typing to every visible terminal at once")] },
-            { segs: [C("36", "► "), T("Tools, snippets and a file browser are one click away in the toolbar")] },
-            { segs: [C("36", "► "), T("Each command status is shown by a symbol   ("), C("1;32", "✓"), T(" ok · "), C("1;31", "✗"), T(" failed)")] },
+            { hang: 2, segs: [C("1;36", "► "), T("Saved sessions live in the "), C("1;33", "Sessions"), T(" panel — SSH · local · serial · RDP/VNC")] },
+            { hang: 2, segs: [C("1;36", "► "), T("Scrollback is "), C("1;32", "persistent"), T(" — every tab is saved and replayed on restart")] },
+            { hang: 2, segs: [C("1;36", "► "), C("1;35", "MultiExec"), T(" broadcasts your typing to every visible terminal at once")] },
+            { hang: 2, segs: [C("1;36", "► "), C("1;36", "Models"), T(": route to any LLM — Claude · GPT · Gemini · GLM · Kimi · 16 providers")] },
+            { hang: 2, segs: [C("1;36", "► "), T("Split panes, drag tabs and pin sessions to shape your workspace")] },
+            { hang: 2, segs: [C("1;36", "► "), T("Tools, snippets and a file browser are one click away in the toolbar")] },
+            { hang: 2, segs: [C("1;36", "► "), T("Command status shows as a symbol   ("), C("1;32", "✓"), T(" ok · "), C("1;31", "✗"), T(" failed)")] },
             { segs: [] },
-            { segs: [C("36", "► "), C("1;31", "Tip!")] },
-            { segs: [T("    Run "), C("1;33", "Claude Code"), T(", Codex and other AI agents side by side — each in its")] },
-            { segs: [T("    own git worktree, on "), C("1;33", "any model"), T(" you pick (Claude · Kimi K2 · OpenRouter…).")] },
-            { segs: [T("    Press "), C("1;33", "Ctrl+K"), T(" for the command palette, or the "), C("1;36", "Home"), T(" button to launch.")] },
-            { segs: [T("    For more information: "), C("4;36", "https://github.com/plutothedev/plutos-terminals")] },
+            { hang: 2, segs: [C("1;36", "► "), C("1;31", "Tip!")] },
+            { hang: 6, segs: [T("   Run "), C("1;33", "Claude Code"), T(", Codex and other AI agents side by side — each in")] },
+            { hang: 6, segs: [T("   its own git worktree, on "), C("1;33", "any model"), T(" you pick.")] },
+            { hang: 6, segs: [T("   Press "), C("1;33", "Ctrl+K"), T(" for the command palette, or "), C("1;36", "Home"), T(" to launch.")] },
+            { segs: [] },
+            { hang: 3, segs: [C("1;32", "➜ "), T("Docs: "), C("4;36", "https://github.com/plutothedev/plutos-terminals")] },
+            { hang: 3, segs: [C("1;35", "➜ "), T("Community: "), C("4;35", "https://discord.gg/3cZQVgKF")] },
           ];
           const plainLen = (segs) => segs.reduce((n, [t]) => n + t.length, 0);
-          const W = Math.max(...lines.map((l) => plainLen(l.segs)));
+          // Fit to the pane: -6 leaves the border (space+│+space ... space+│) and
+          // a 1-col right margin so terminals with a magic margin don't wrap.
+          const maxInner = Math.max(...lines.map((l) => plainLen(l.segs)));
+          const W = Math.max(24, Math.min(maxInner, (term.cols || 80) - 6));
+          // Word-wrap coloured segments to width, hang-indenting continuations
+          // and hard-splitting any token longer than a row (e.g. a URL).
+          const wrapLine = (segs, width, hang = 0) => {
+            const rows = [];
+            let cur = [], curLen = 0;
+            const startRow = (withHang) => { cur = []; curLen = 0; if (withHang && hang) { cur.push([" ".repeat(hang), null]); curLen = hang; } };
+            startRow(false);
+            for (const [t, c] of segs) {
+              for (const tok of t.split(/(\s+)/)) {
+                if (tok === "") continue;
+                if (/^\s+$/.test(tok)) {
+                  if (curLen > 0 && curLen + tok.length <= width) { cur.push([tok, c]); curLen += tok.length; }
+                  continue;
+                }
+                let w = tok;
+                while (w.length > width - curLen) {
+                  if (curLen > (hang || 0)) { rows.push(cur); startRow(true); continue; }
+                  const avail = Math.max(1, width - curLen);
+                  cur.push([w.slice(0, avail), c]); curLen += avail; w = w.slice(avail);
+                  rows.push(cur); startRow(true);
+                }
+                if (w.length) { cur.push([w, c]); curLen += w.length; }
+              }
+            }
+            rows.push(cur);
+            return rows;
+          };
           const box = [" " + wrap(BORDER, "┌" + "─".repeat(W + 2) + "┐")];
-          lines.forEach((l) => {
-            const len = plainLen(l.segs);
-            const left = l.center ? Math.floor((W - len) / 2) : 0;
-            const right = W - len - left;
-            const inner = " ".repeat(left) + l.segs.map(([t, c]) => wrap(c, t)).join("") + " ".repeat(right);
+          const pushRow = (rowSegs, center) => {
+            const len = rowSegs.reduce((n, [t]) => n + t.length, 0);
+            const left = center ? Math.max(0, Math.floor((W - len) / 2)) : 0;
+            const right = Math.max(0, W - len - left);
+            const inner = " ".repeat(left) + rowSegs.map(([t, c]) => wrap(c, t)).join("") + " ".repeat(right);
             box.push(" " + wrap(BORDER, "│") + " " + inner + " " + wrap(BORDER, "│"));
+          };
+          lines.forEach((l) => {
+            if (!l.segs.length) { pushRow([[" ", null]], false); return; }
+            const rows = wrapLine(l.segs, W, l.hang || 0);
+            rows.forEach((rowSegs, idx) => pushRow(rowSegs, l.center && idx === 0));
           });
           box.push(" " + wrap(BORDER, "└" + "─".repeat(W + 2) + "┘"));
           const boxRaw = "\n" + box.join("\n") + "\n\n";
