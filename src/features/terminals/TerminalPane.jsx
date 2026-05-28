@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
+import { ImageAddon } from "@xterm/addon-image";
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
@@ -485,6 +486,11 @@ export default function TerminalPane({
       },
     });
     term.open(container);
+    // Inline images: Sixel + iTerm2 inline-image protocol (image previews,
+    // `imgcat`-style output, charts from CLIs that emit them). NOTE: the WebGL
+    // renderer (@xterm/addon-webgl) was tried here but renders blank glyphs in
+    // Tauri's WKWebView, so we stay on xterm's default DOM renderer.
+    try { term.loadAddon(new ImageAddon()); } catch { /* ignore */ }
     termRef.current = term;
     fitRef.current = fit;
     // Only fit when the container is actually on-screen with a real size. A
