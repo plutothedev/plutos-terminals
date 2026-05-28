@@ -8,6 +8,7 @@
 mod commands;
 mod forward;
 mod pty;
+mod rdp;
 mod sftp;
 mod vault;
 mod vncclient;
@@ -23,6 +24,7 @@ pub fn run() {
         .manage(sftp::SftpRegistry::default())
         .manage(forward::ForwardRegistry::default())
         .manage(vncclient::VncRegistry::default())
+        .manage(rdp::RdpRegistry::default())
         .setup(|app| {
             // Ensure the data directory exists for store + scrollback.
             let data_dir = commands::get_data_dir(app.handle());
@@ -145,6 +147,10 @@ pub fn run() {
             vncclient::vnc_pointer,
             vncclient::vnc_key,
             vncclient::vnc_disconnect,
+            rdp::rdp_connect,
+            rdp::rdp_pointer,
+            rdp::rdp_key,
+            rdp::rdp_disconnect,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pluto's Terminals")

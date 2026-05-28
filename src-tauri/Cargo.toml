@@ -37,3 +37,12 @@ serialport = "4"
 sysinfo = "0.33"
 # VNC remote-desktop client (sync RFB protocol; fits the worker-thread model).
 vnc = "0.4"
+# RDP remote-desktop client (IronRDP). Blocking I/O wrapper fits the worker-thread
+# model; native-tls (macOS Security framework) keeps the binary self-contained.
+ironrdp = { version = "0.14", features = ["connector", "session", "graphics", "input", "svc"] }
+ironrdp-blocking = "0.8"
+native-tls = "0.2"
+# Extract the server's SubjectPublicKeyInfo (SPKI) from its TLS cert for CredSSP.
+x509-cert = { version = "0.2", features = ["pem"] }
+# CredSSP NetworkClient trait (matches the version IronRDP uses).
+sspi = "0.18"

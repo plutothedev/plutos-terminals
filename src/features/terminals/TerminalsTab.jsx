@@ -12,6 +12,7 @@ import MobaRibbon from "./MobaRibbon";
 import MobaMenuBar from "./MobaMenuBar";
 import LocalFileBrowser from "./LocalFileBrowser";
 import VncConnectModal from "./VncConnectModal";
+import RdpConnectModal from "./RdpConnectModal";
 import OnboardingOverlay from "./OnboardingOverlay";
 import SettingsModal from "../../components/SettingsModal.jsx";
 import McpInstaller from "../../components/McpInstaller.jsx";
@@ -913,6 +914,22 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     setVncOpen(false);
   }, [state.activePanelId, spawnSessionTab]);
 
+  // ── RDP remote desktop ───────────────────────────────────────────────────
+  const [rdpOpen, setRdpOpen] = useState(false);
+  const connectRdp = useCallback(({ host, port, username, domain, password }) => {
+    const tabId = freshId("tab");
+    if (password) setTabPassword(tabId, password); // transient, never persisted
+    spawnSessionTab(state.activePanelId, {
+      id: tabId,
+      label: `RDP: ${host}`,
+      cwd: null,
+      startCommands: [],
+      projectId: null,
+      rdp: { host, port, username, domain },
+    });
+    setRdpOpen(false);
+  }, [state.activePanelId, spawnSessionTab]);
+
   const startRecordingActive = useCallback(() => {
     if (!activeTabId) return;
     if (recording.isRecording(activeTabId)) {
@@ -1004,6 +1021,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               { label: "Port forwarding…", disabled: !activeTab?.connection, action: () => openTunnels() },
               { label: "Serial console…", action: () => setSerialOpen(true) },
               { label: "VNC remote desktop…", action: () => setVncOpen(true) },
+              { label: "RDP remote desktop…", action: () => setRdpOpen(true) },
             ],
           },
           {
@@ -1089,6 +1107,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           title="Connect to a VNC remote desktop"
         >
           🖥 VNC
+        </button>
+        <button
+          className={rdpOpen ? "phn-btn phn-btn-on" : "phn-btn"}
+          onClick={() => setRdpOpen(true)}
+          title="Connect to an RDP remote desktop (Windows / xrdp)"
+        >
+          🪟 RDP
         </button>
         <button
           className={broadcast ? "phn-btn phn-btn-on" : "phn-btn"}
@@ -1231,6 +1256,12 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onClose={() => setVncOpen(false)}
       />
 
+      <RdpConnectModal
+        open={rdpOpen}
+        onConnect={connectRdp}
+        onClose={() => setRdpOpen(false)}
+      />
+
       <ProjectDialog
         open={!!dialog}
         initial={dialogInitial}
@@ -1281,6 +1312,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
           { id: "serial", icon: "⎓", label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
           { id: "vnc", icon: "🖥", label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
+          { id: "rdp", icon: "🪟", label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
           { id: "toggle-sidebar", icon: "◧", label: ribbon ? "Collapse left panel" : "Show sessions panel", hint: "Show or hide the docked left panel", action: () => selectRibbon(ribbon ? null : "sessions") },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },

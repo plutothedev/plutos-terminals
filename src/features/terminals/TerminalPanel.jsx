@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import TerminalPane from "./TerminalPane";
 import VncView from "./VncView";
+import RdpView from "./RdpView";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
 import "./terminals.css";
 
@@ -353,8 +354,8 @@ export default function TerminalPanel({
                 }}
                 title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click to rename)`}
               >
-                <span style={{ flexShrink: 0, fontSize: 11, opacity: 0.9 }} title={tab.vnc ? "VNC desktop" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}>
-                  {tab.vnc ? "🖥" : tab.connection ? "🔗" : tab.serial ? "⎓" : "❯"}
+                <span style={{ flexShrink: 0, fontSize: 11, opacity: 0.9 }} title={tab.rdp ? "RDP desktop" : tab.vnc ? "VNC desktop" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}>
+                  {tab.rdp ? "🪟" : tab.vnc ? "🖥" : tab.connection ? "🔗" : tab.serial ? "⎓" : "❯"}
                 </span>
                 <span
                   className={tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
@@ -494,6 +495,8 @@ export default function TerminalPanel({
             >
               {tab.vnc ? (
                 <VncView host={tab.vnc.host} port={tab.vnc.port} tabId={tab.id} visible={tabVisible} />
+              ) : tab.rdp ? (
+                <RdpView host={tab.rdp.host} port={tab.rdp.port} username={tab.rdp.username} domain={tab.rdp.domain} tabId={tab.id} visible={tabVisible} />
               ) : (
               <>
               {panes.map(({ node, rect }) => {
