@@ -88,6 +88,15 @@ pub fn pick_directory() -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
+// ── Quit the whole app (Exit toolbar button) ──────────────────────
+//
+// Fires app.exit(0), which triggers RunEvent::ExitRequested → kill_all()
+// so no PTY children orphan. This is the same path as the tray "Quit".
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 // ── Spawn a new app window (v0.1.19 multi-window) ──────────────────
 //
 // Each new window gets its own URL fragment (?w=<id>) so the React app

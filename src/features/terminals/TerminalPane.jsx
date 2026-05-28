@@ -410,7 +410,9 @@ export default function TerminalPane({
     const term = new Terminal({
       theme: xtermThemeRef.current,
       fontSize: 13,
-      fontFamily: "'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace",
+      // MesloLGS NF first so the MobaXterm-style prompt's powerline arrows ()
+      // render; falls back to JetBrains Mono / Menlo if the bundled font fails.
+      fontFamily: "'MesloLGS NF', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace",
       cursorBlink: true,
       cursorStyle: "bar",
       // v0.1.32: bumped from 5000 to 10000 lines so restored scrollback from
@@ -427,6 +429,21 @@ export default function TerminalPane({
     try { fit.fit(); } catch {}
     termRef.current = term;
     fitRef.current = fit;
+
+    // Once the bundled powerline font is ready, RE-ASSIGN fontFamily so xterm
+    // rebuilds its glyph atlas with MesloLGS NF (a plain refresh() keeps the
+    // fallback atlas, so the  powerline glyphs wouldn't render otherwise),
+    // then re-fit for the corrected glyph widths.
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(() => {
+        if (!alive) return;
+        try {
+          term.options.fontFamily = "'MesloLGS NF', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace";
+          fit.fit();
+          term.refresh(0, term.rows - 1);
+        } catch {}
+      }).catch(() => {});
+    }
 
     // Replay saved scrollback if we have one for this tab id.
     const replayScrollback = async () => {
@@ -664,12 +681,13 @@ export default function TerminalPane({
           // codes, and a few quality-of-life aliases. zsh-syntax-highlighting is
           // sourced if it's on the system (gives real "rainbow as you type").
           const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export GREP_OPTIONS=; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah'; alias la='ls -laGh'; for __zsh in /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ~/.zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh; do [ -f \"$__zsh\" ] && source \"$__zsh\" 2>/dev/null && break; done; unset __zsh;";
-          // MobaXterm v12.4 segmented prompt: green 📅 date · cyan 🕐 time ·
-          // yellow 📁 path, each on its own coloured background block with a
-          // black foreground. (Powerline arrow separators need a patched font,
-          // so we use a thin space between blocks instead.)
-          const zshPrompt = "PROMPT='%K{2}%F{0} 📅 %D{%d/%m/%Y} %k%f %K{6}%F{0} 🕐 %* %k%f %K{3}%F{0} 📁 %~ %k%f '";
-          const bashPrompt = "PS1='\\[\\e[42;30m\\] 📅 \\D{%d/%m/%Y} \\[\\e[0m\\] \\[\\e[46;30m\\] 🕐 \\t \\[\\e[0m\\] \\[\\e[43;30m\\] 📁 \\w \\[\\e[0m\\] '";
+          // MobaXterm v12.4 segmented prompt: green 📅 date  cyan 🕐 time
+          // yellow 📁 path, joined by powerline  arrows (rendered via the
+          // bundled MesloLGS NF font). Each  carries fg = the colour it comes
+          // from, bg = the colour it goes to, so the segments blend like
+          // MobaXterm's prompt.
+          const zshPrompt = "PROMPT='%K{2}%F{0} 📅 %D{%d/%m/%Y} %K{6}%F{2}%F{0} 🕐 %* %K{3}%F{6}%F{0} 📁 %~ %k%F{3}%f '";
+          const bashPrompt = "PS1='\\[\\e[42;30m\\] 📅 \\D{%d/%m/%Y} \\[\\e[32;46m\\]\\[\\e[30;46m\\] 🕐 \\t \\[\\e[36;43m\\]\\[\\e[30;43m\\] 📁 \\w \\[\\e[0;33m\\]\\[\\e[0m\\] '";
           // MobaXterm-style welcome box: a white-bordered rectangle on the pure
           // black terminal, with a cyan title, yellow ► markers, and green ✓
           // checks. Plain text is padded to a fixed inner width BEFORE color is

@@ -1,3 +1,14 @@
+/* MesloLGS NF — a powerline/nerd-patched terminal font, bundled so the
+   MobaXterm-style prompt can use powerline arrow separators (). Falls back
+   to JetBrains Mono / Menlo if it ever fails to load. */
+@font-face {
+  font-family: 'MesloLGS NF';
+  src: url('/fonts/MesloLGS-NF-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
