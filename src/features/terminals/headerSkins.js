@@ -164,10 +164,29 @@ export const HEADER_SKINS = [
       brightCyan: "#67e8f9", brightWhite: "#f7f8f8",
     },
   },
+  // ── The only two themes (v5): a Dark and a Light CHROME. Both keep the
+  //    terminal pure black — the toggle only repaints the app chrome.
   {
     id: "moba",
-    label: "MobaXterm — Professional",
-    description: "MobaXterm's default look: light Windows-grey chrome with colourful icons, white tabs on a dark strip, pure-black terminal with a white-bordered welcome box. Matches the MobaXterm reference exactly.",
+    label: "Dark",
+    description: "Dark charcoal chrome, pure-black terminal.",
+    xterm: {
+      background: "#000000",
+      foreground: "#d0d0d0",
+      cursor: "#d8dee9",
+      selectionBackground: "rgba(94,129,172,0.45)",
+      black: "#2e3436", red: "#ff5f5f", green: "#5fd75f", yellow: "#e5e510",
+      blue: "#5f87ff", magenta: "#d75fd7", cyan: "#5fd7d7", white: "#d0d0d0",
+      brightBlack: "#6a6a6a", brightRed: "#ff8787", brightGreen: "#87ff87",
+      brightYellow: "#ffff5f", brightBlue: "#87afff", brightMagenta: "#ff87ff",
+      brightCyan: "#87ffff", brightWhite: "#ffffff",
+    },
+  },
+  {
+    id: "moba-light",
+    label: "Light",
+    description: "Light Windows-grey chrome, pure-black terminal (same as Dark).",
+    // Same terminal palette as Dark — the toggle only changes the chrome.
     xterm: {
       background: "#000000",
       foreground: "#d0d0d0",
@@ -818,6 +837,35 @@ const CSS = `
 [data-phn-skin="moba"] .phn-muted { color: #888888 !important; }
 [data-phn-skin="moba"] option { background: #383838; color: #d4d4d4; }
 
+/* ── moba-light — light Windows chrome (the Light toggle state) ───────── */
+[data-phn-skin="moba-light"] .phn-header {
+  background: #ececec;
+  border-bottom: 1px solid #bdbdbd;
+}
+[data-phn-skin="moba-light"] .phn-title {
+  color: #000000;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-size: 12px;
+}
+[data-phn-skin="moba-light"] .phn-meta { color: #555555; }
+[data-phn-skin="moba-light"] .phn-cost { color: #1f8a3a; }
+[data-phn-skin="moba-light"] .phn-btn,
+[data-phn-skin="moba-light"] .phn-select {
+  background: #ffffff;
+  border: 1px solid #bdbdbd;
+  color: #2a2a2a;
+  border-radius: 3px;
+}
+[data-phn-skin="moba-light"] .phn-btn:hover:not(:disabled),
+[data-phn-skin="moba-light"] .phn-select:hover {
+  background: #e6f0fa;
+  border-color: #1170cc;
+  color: #000000;
+}
+[data-phn-skin="moba-light"] .phn-muted { color: #777777 !important; }
+[data-phn-skin="moba-light"] option { background: #ffffff; color: #2a2a2a; }
+
 /* ────────── Per-skin CSS variables — drive .phn-page / .phn-statusbar /
    .phn-sidebar / .phn-sidebar-header without per-skin specific rules. ─── */
 
@@ -953,12 +1001,35 @@ const CSS = `
   --phn-link: #4aa8c0;           /* MobaXterm v12.4 teal accent */
   --phn-accent-subtle: rgba(74,168,192,0.16);
   --phn-hover-bg: rgba(255,255,255,0.08);
+  --phn-tabstrip-bg: #000000;    /* strip behind the tabs (matches the terminal) */
   /* Chrome-style tab slab colours (see .moba-tab) */
   --phn-tab-bg: #2b2b2b;
   --phn-tab-bg-hover: #3a3a3a;
   --phn-tab-bg-active: #4d4d4d;
   --phn-tab-fg: #b6b6b6;
   --phn-tab-fg-active: #ffffff;
+}
+
+/* Light CHROME — the toggle's other state. Everything but the terminal turns
+   light Windows-grey; the terminal stays pure black (same xterm palette). */
+[data-phn-skin="moba-light"] {
+  --phn-page-bg: #d9d9d9;        /* behind panels */
+  --phn-surface-bg: #ececec;     /* menu / toolbar / status — light grey */
+  --phn-surface-alt-bg: #ffffff; /* sidebar / docked file browser — white */
+  --phn-surface-border: #bdbdbd;
+  --phn-text-fg: #2a2a2a;
+  --phn-text-active: #000000;
+  --phn-text-dim: #6e6e6e;
+  --phn-link: #1170cc;           /* Windows-blue accent */
+  --phn-accent-subtle: rgba(17,112,204,0.13);
+  --phn-hover-bg: rgba(0,0,0,0.07);
+  --phn-tabstrip-bg: #c4c4c4;    /* light strip behind the tabs */
+  /* Chrome-style tabs on the light strip: white active, grey inactive */
+  --phn-tab-bg: #d6d6d6;
+  --phn-tab-bg-hover: #e6e6e6;
+  --phn-tab-bg-active: #ffffff;
+  --phn-tab-fg: #555555;
+  --phn-tab-fg-active: #000000;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

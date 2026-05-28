@@ -4,12 +4,7 @@ import { useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
 import { useConfirm } from "./ConfirmModal.jsx";
-import {
-  HEADER_SKINS,
-  HEADER_LAYOUTS,
-  getSkinId,
-  getLayoutId,
-} from "../features/terminals/headerSkins.js";
+import { getSkinId } from "../features/terminals/headerSkins.js";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const PLUTO_MAGENTA = "#FF0080";
@@ -19,8 +14,6 @@ export default function SettingsModal({ open, st, save, userSt = {}, saveUser = 
   // shouldn't re-prompt). Other settings remain per-window.
   const [anthropicKey, setAnthropicKey] = useState(userSt.anthropicKey || "");
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
-  const [headerLayout, setHeaderLayout] = useState(getLayoutId(st.headerLayout));
-  const [pureBlackTerminal, setPureBlackTerminal] = useState(!!st.pureBlackTerminal);
   const [showKey, setShowKey] = useState(false);
   const toast = useToast();
   const confirm = useConfirm();
@@ -31,40 +24,18 @@ export default function SettingsModal({ open, st, save, userSt = {}, saveUser = 
       return;
     }
     saveUser({ ...userSt, anthropicKey });
-    save({
-      ...st,
-      headerSkin: getSkinId(headerSkin),
-      headerLayout: getLayoutId(headerLayout),
-      pureBlackTerminal,
-    });
+    save({ ...st, headerSkin: getSkinId(headerSkin) });
     toast.success("Settings saved.");
     onClose();
   };
 
-  // Live skin preview — applies as soon as user picks (no need to save first).
-  const handleSkinChange = (id) => {
+  // Live theme preview — applies as soon as you pick (no save needed).
+  const setTheme = (id) => {
     const next = getSkinId(id);
     setHeaderSkin(next);
     save({ ...st, headerSkin: next });
   };
-
-  const handlePureBlackToggle = (next) => {
-    setPureBlackTerminal(next);
-    save({ ...st, pureBlackTerminal: next });
-  };
-
-  // Live layout-density preview.
-  const handleLayoutChange = (id) => {
-    const next = getLayoutId(id);
-    setHeaderLayout(next);
-    save({ ...st, headerLayout: next });
-  };
-
-  const activeSkinDescription =
-    HEADER_SKINS.find((s) => s.id === headerSkin)?.description || "";
-
-  const activeLayoutDescription =
-    HEADER_LAYOUTS.find((s) => s.id === headerLayout)?.description || "";
+  const isLight = headerSkin === "moba-light";
 
   const handleClearKey = async () => {
     const ok = await confirm(
@@ -117,47 +88,16 @@ export default function SettingsModal({ open, st, save, userSt = {}, saveUser = 
         <Hint>Auto-injected as ANTHROPIC_API_KEY into every new shell. Stored in plain JSON in app local data dir.</Hint>
       </Field>
 
-      <Field label="APP SKIN (LIVE PREVIEW)">
-        <select
-          value={headerSkin}
-          onChange={(e) => handleSkinChange(e.target.value)}
-          style={inputStyle}
-        >
-          {HEADER_SKINS.map((s) => (
-            <option key={s.id} value={s.id} style={{ background: "var(--phn-page-bg, #0a0a0a)", color: FG_ACTIVE }}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-        <Hint>{activeSkinDescription} The skin themes the entire app — header, sidebar, status bar, and terminal background. Changes apply instantly.</Hint>
-      </Field>
-
-      <Field label="HEADER DENSITY (LIVE PREVIEW)">
-        <select
-          value={headerLayout}
-          onChange={(e) => handleLayoutChange(e.target.value)}
-          style={inputStyle}
-        >
-          {HEADER_LAYOUTS.map((s) => (
-            <option key={s.id} value={s.id} style={{ background: "var(--phn-page-bg, #0a0a0a)", color: FG_ACTIVE }}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-        <Hint>{activeLayoutDescription}</Hint>
-      </Field>
-
-      <Field label="TERMINAL BACKGROUND">
-        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={pureBlackTerminal}
-            onChange={(e) => handlePureBlackToggle(e.target.checked)}
-            style={{ accentColor: ACCENT, cursor: "pointer" }}
-          />
-          <span style={{ color: FG_ACTIVE, fontSize: 11 }}>Use pure black terminal background</span>
-        </label>
-        <Hint>By default the terminal background matches the app skin (e.g. amber, daylight, sunset). Check this to force a classic black terminal regardless of skin.</Hint>
+      <Field label="APPEARANCE (LIVE PREVIEW)">
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setTheme("moba")} style={isLight ? toggleBtnStyle : toggleBtnActiveStyle}>
+            🌙  Dark
+          </button>
+          <button onClick={() => setTheme("moba-light")} style={isLight ? toggleBtnActiveStyle : toggleBtnStyle}>
+            ☀️  Light
+          </button>
+        </div>
+        <Hint>Switches the whole app chrome between dark and light. The terminal itself stays black either way.</Hint>
       </Field>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24 }}>
@@ -211,6 +151,26 @@ const chipBtnStyle = {
   fontSize: 11,
   cursor: "pointer",
   whiteSpace: "nowrap",
+};
+
+const toggleBtnStyle = {
+  flex: 1,
+  background: "var(--phn-page-bg, #0a0a0a)",
+  border: `1px solid ${BORDER}`,
+  color: FG,
+  padding: "9px 12px",
+  borderRadius: 4,
+  fontFamily: M,
+  fontSize: 12,
+  cursor: "pointer",
+};
+
+const toggleBtnActiveStyle = {
+  ...toggleBtnStyle,
+  background: "var(--phn-accent-subtle, rgba(74,168,192,0.16))",
+  border: `1px solid ${ACCENT}`,
+  color: FG_ACTIVE,
+  fontWeight: 600,
 };
 
 const primaryBtnStyle = {

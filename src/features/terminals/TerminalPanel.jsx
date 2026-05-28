@@ -315,8 +315,8 @@ export default function TerminalPanel({
         style={{
           display: "flex",
           alignItems: "flex-end",
-          background: PANEL_BG,
-          borderBottom: "1px solid rgba(255,255,255,0.14)",
+          background: `var(--phn-tabstrip-bg, ${PANEL_BG})`,
+          borderBottom: "1px solid var(--phn-surface-border, rgba(255,255,255,0.14))",
           minHeight: 34,
           paddingTop: 5,
           paddingLeft: 4,
