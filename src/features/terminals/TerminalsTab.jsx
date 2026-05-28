@@ -786,7 +786,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     persist({ ...state, projects: [...projects, ...fresh] });
     selectRibbon("sessions");
     toast.success(`Imported ${fresh.length} session${fresh.length === 1 ? "" : "s"} from ~/.ssh/config.`);
-  }, [state, persist, projects, toast, selectRibbon]);
+    // NOTE: selectRibbon is a useCallback declared LATER in this component, so it
+    // must NOT appear in this deps array — evaluating the array at render time
+    // would touch it in its temporal dead zone (ReferenceError → blank app). The
+    // body closes over it safely (only called post-render). Same for any other
+    // callback defined above selectRibbon.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, persist, projects, toast]);
 
   // Assign (or clear, with folder === null) a session's folder grouping in the
   // Sessions tree. Empty/null folder = ungrouped (rendered at the root).

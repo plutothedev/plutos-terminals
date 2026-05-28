@@ -1132,7 +1132,7 @@ export default function TerminalPane({
           <div>type commands like any terminal</div>
           <div>drag tabs between panels &nbsp;·&nbsp; double-click to rename</div>
           <div>right-click projects for git, npm scripts, recent files</div>
-          <div>📦 load a .deck.json prompt pack from the header</div>
+          <div>🧠 pick any model (Claude · Kimi K2 · OpenRouter…) in the Models picker</div>
           <div style={{ fontSize: 10, opacity: 0.55, marginTop: 10 }}>fades in 12s · or just start typing</div>
         </div>
       )}
