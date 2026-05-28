@@ -9,6 +9,7 @@ import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { fileGlyph } from "./LocalFileBrowser.jsx";
 import { IconHome, IconUp, IconRefresh, IconUpload, IconNewFolder } from "./icons.jsx";
+import RemoteEditor from "./RemoteEditor.jsx";
 import "./terminals.css";
 
 function fmtSize(n) {
@@ -36,6 +37,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState(null);
+  const [editTarget, setEditTarget] = useState(null); // remote file open in the editor
 
   const list = useCallback(async (path) => {
     if (!sessionId) return;
@@ -181,28 +183,39 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
             <div
               key={e.path}
               className="phn-sftp-row"
-              onDoubleClick={() => e.is_dir && list(e.path)}
+              onDoubleClick={() => (e.is_dir ? list(e.path) : setEditTarget(e))}
             >
               <span className="glyph">{fileGlyph(e)}</span>
               <span
                 className={e.is_dir ? "name dir" : "name"}
                 onClick={() => e.is_dir && list(e.path)}
-                title={e.name}
+                title={e.is_dir ? e.name : `${e.name} — double-click to edit`}
               >
                 {e.name}
               </span>
               <span className="size">{e.is_dir ? "" : fmtSize(e.size)}</span>
               <span className="phn-sftp-actions">
                 {!e.is_dir && (
+                  <button onClick={(ev) => { ev.stopPropagation(); setEditTarget(e); }} title="Edit in app">✎</button>
+                )}
+                {!e.is_dir && (
                   <button onClick={(ev) => { ev.stopPropagation(); onDownload(e); }} title="Download">⬇</button>
                 )}
-                <button onClick={(ev) => { ev.stopPropagation(); onRename(e); }} title="Rename">✎</button>
+                <button onClick={(ev) => { ev.stopPropagation(); onRename(e); }} title="Rename">↳</button>
                 <button onClick={(ev) => { ev.stopPropagation(); onDelete(e); }} title="Delete">🗑</button>
               </span>
             </div>
           ))
         )}
       </div>
+
+      <RemoteEditor
+        open={!!editTarget}
+        sessionId={sessionId}
+        path={editTarget?.path}
+        name={editTarget?.name}
+        onClose={() => setEditTarget(null)}
+      />
     </div>
   );
 }
