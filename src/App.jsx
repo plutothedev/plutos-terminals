@@ -60,14 +60,6 @@ const WINDOW_ID = (() => {
 })();
 const DEFAULT_DISCORD_URL = DISCORD_URL;
 
-const PAGE_BG = "var(--phn-page-bg, #0a0a0a)";
-const FG = "var(--phn-text-fg, #9D9D9D)";
-const FG_ACTIVE = "var(--phn-text-active, #E6E6E6)";
-const FG_DIM = "var(--phn-text-dim, #555555)";
-const ACCENT = "var(--phn-link, #4DAAFC)";
-const PLUTO_MAGENTA = "#FF0080";
-const M = "'JetBrains Mono', Menlo, Monaco, monospace";
-
 export default function App() {
   return (
     <ToastProvider>
@@ -207,86 +199,96 @@ function AppInner() {
   );
 }
 
+const WELCOME_FEATURES = [
+  { k: "Ask AI", d: "Describe it in plain English → a reviewable shell command." },
+  { k: "16 providers", d: "Claude · GPT · Gemini · GLM · Kimi · Qwen · any endpoint." },
+  { k: "Workspaces", d: "Save & restore whole panel / tab / split layouts." },
+];
+
 function Welcome({ discordUrl, onContinue }) {
   return (
     <div
       style={{
         height: "100vh",
-        background: PAGE_BG,
-        color: FG_ACTIVE,
-        fontFamily: M,
+        // Atmospheric depth: a soft azure glow from above over the deep page,
+        // plus a faint hairline grid — texture instead of a flat black field.
+        background:
+          "radial-gradient(1100px 520px at 50% -8%, rgba(77,163,255,0.10), transparent 62%)," +
+          "linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px) 0 0 / 100% 40px," +
+          "var(--phn-page-bg, #0B0C0E)",
+        color: "var(--phn-text-active, #F2F4F7)",
+        fontFamily: "var(--phn-ui-font)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 24,
+        padding: "var(--phn-sp-6)",
       }}
     >
-      <div style={{ maxWidth: 560, width: "100%" }}>
-        <div style={{ fontSize: 28, color: FG_ACTIVE, letterSpacing: 1.5, marginBottom: 6 }}>
-          PLUTO'S TERMINAL
+      <div style={{ maxWidth: 600, width: "100%" }}>
+        {/* Wordmark */}
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--phn-sp-2)", marginBottom: "var(--phn-sp-2)" }}>
+          <span style={{ color: "var(--phn-link)", fontSize: 26, lineHeight: 1 }}>⬢</span>
+          <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--phn-text-active)" }}>
+            Pluto's Terminal
+          </span>
         </div>
-        <div style={{ color: ACCENT, fontSize: 12, letterSpacing: 0.5, marginBottom: 28 }}>
-          Run AI agents in parallel. Save your setup. Share it.
+        <div style={{ color: "var(--phn-text-dim)", fontSize: "var(--phn-fs-base)", marginBottom: "var(--phn-sp-6)" }}>
+          The AI-native multi-terminal — run agents in parallel, route any model, ship faster.
         </div>
 
-        <p style={{ color: FG, fontSize: 13, lineHeight: 1.7, marginBottom: 28 }}>
-          Free multi-terminal app for the <strong style={{ color: FG_ACTIVE }}>Pluto community</strong>.
-          Run Claude Code, Codex, and other AI agents side by side — each in its own git worktree,
-          pointed at <strong style={{ color: FG_ACTIVE }}>any model</strong> you like
-          (Claude, Kimi K2, OpenRouter, and more) with your own API key.
+        <p style={{ color: "var(--phn-text-fg)", fontSize: "var(--phn-fs-base)", lineHeight: "var(--phn-lh)", marginBottom: "var(--phn-sp-5)" }}>
+          A free, open-source terminal for the <strong style={{ color: "var(--phn-text-active)" }}>Pluto community</strong>.
+          Run Claude Code, Codex and other agents side by side — each in its own git worktree, pointed at
+          {" "}<strong style={{ color: "var(--phn-text-active)" }}>any model you like</strong>.
         </p>
 
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ color: FG_DIM, fontSize: 11, marginTop: 6, lineHeight: 1.7 }}>
-            Pick your AI provider + model and drop in your API key from the
-            <strong style={{ color: FG_ACTIVE }}> Models</strong> button in the header (or Ctrl+K → “Models”) —
-            Claude, Hermes, Gemini, GLM, Qwen, Kimi, OpenRouter, or any endpoint. Keys are stored locally
-            and auto-injected into every new shell.
-          </div>
-          <div style={{ color: PLUTO_MAGENTA, fontSize: 10, marginTop: 10, lineHeight: 1.6 }}>
-            ⚠️ First time? You'll also need <strong>Node.js</strong> + the <strong>Claude Code CLI</strong> installed for <code style={{ background: "#0a0a0a", padding: "0 4px", borderRadius: 2 }}>claude</code> to work in any tab.
-            Click <strong>🚀 setup</strong> in the header for a guided install checklist.
-          </div>
+        {/* Feature highlights */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--phn-sp-2)", marginBottom: "var(--phn-sp-6)" }}>
+          {WELCOME_FEATURES.map((f) => (
+            <div
+              key={f.k}
+              style={{
+                padding: "var(--phn-sp-3)", borderRadius: "var(--phn-r-md)",
+                background: "var(--phn-surface-bg)", border: "1px solid var(--phn-surface-border)",
+              }}
+            >
+              <div style={{ color: "var(--phn-link)", fontSize: "var(--phn-fs-sm)", fontWeight: 600, marginBottom: "var(--phn-sp-1)" }}>{f.k}</div>
+              <div style={{ color: "var(--phn-text-dim)", fontSize: "var(--phn-fs-xs)", lineHeight: "var(--phn-lh-tight)" }}>{f.d}</div>
+            </div>
+          ))}
         </div>
 
-        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 24 }}>
+        <div style={{ display: "flex", gap: "var(--phn-sp-3)", alignItems: "center", marginBottom: "var(--phn-sp-5)" }}>
           <button
             onClick={() => onContinue()}
             style={{
-              background: "transparent",
-              border: `1px solid ${ACCENT}`,
-              color: ACCENT,
-              padding: "10px 28px",
-              borderRadius: 4,
-              fontFamily: M,
-              fontSize: 13,
-              letterSpacing: 0.5,
-              cursor: "pointer",
+              background: "var(--phn-link)", border: "1px solid var(--phn-link)", color: "var(--phn-accent-fg)",
+              padding: "11px 30px", borderRadius: "var(--phn-r-md)", fontFamily: "var(--phn-ui-font)",
+              fontSize: "var(--phn-fs-md)", fontWeight: 600, cursor: "pointer",
             }}
           >
-            ENTER →
+            Enter →
           </button>
-
           <button
             onClick={() => openExternal(discordUrl)}
             style={{
-              background: "transparent",
-              border: `1px solid ${PLUTO_MAGENTA}`,
-              color: PLUTO_MAGENTA,
-              padding: "10px 18px",
-              borderRadius: 4,
-              fontFamily: M,
-              fontSize: 12,
-              letterSpacing: 0.5,
-              cursor: "pointer",
-              textDecoration: "none",
+              background: "transparent", border: "1px solid var(--phn-surface-border)", color: "var(--phn-text-fg)",
+              padding: "11px 20px", borderRadius: "var(--phn-r-md)", fontFamily: "var(--phn-ui-font)",
+              fontSize: "var(--phn-fs-sm)", cursor: "pointer",
             }}
           >
-            JOIN PLUTO DISCORD
+            Join the Pluto Discord
           </button>
         </div>
 
-        <div style={{ color: FG_DIM, fontSize: 10, marginTop: 8 }}>
+        <div style={{ color: "var(--phn-text-dim)", fontSize: "var(--phn-fs-xs)", lineHeight: "var(--phn-lh)", marginBottom: "var(--phn-sp-5)" }}>
+          First time? You'll also need <strong style={{ color: "var(--phn-text-fg)" }}>Node.js</strong> + the{" "}
+          <strong style={{ color: "var(--phn-text-fg)" }}>Claude Code CLI</strong> for{" "}
+          <code style={{ background: "var(--phn-surface-bg)", padding: "1px 5px", borderRadius: "var(--phn-r-sm)", fontFamily: "var(--phn-mono-font)", fontSize: "var(--phn-fs-2xs)" }}>claude</code>{" "}
+          to run in a tab — the header's <strong style={{ color: "var(--phn-text-fg)" }}>🚀 setup</strong> has a guided checklist.
+        </div>
+
+        <div style={{ color: "var(--phn-text-faint)", fontSize: "var(--phn-fs-2xs)", fontFamily: "var(--phn-mono-font)" }}>
           v{APP_VERSION} · github.com/plutothedev/plutos-terminals · MIT
         </div>
       </div>

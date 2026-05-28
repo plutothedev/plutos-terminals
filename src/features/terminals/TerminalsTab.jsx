@@ -1963,8 +1963,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             margin: 0,
             cursor: "pointer",
             color:
-              claudeAvailable === true ? "#34D399"
-              : claudeAvailable === false ? "#FF0080"
+              claudeAvailable === true ? "var(--phn-success)"
+              : claudeAvailable === false ? "var(--phn-danger)"
               : "inherit",
             fontSize: 11,
           }}
@@ -1989,7 +1989,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 padding: 0,
                 margin: 0,
                 cursor: "pointer",
-                color: "#FBBF24",
+                color: "var(--phn-warning)",
                 fontSize: 11,
                 fontWeight: 600,
               }}
@@ -2036,7 +2036,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 padding: 0,
                 margin: 0,
                 cursor: "pointer",
-                color: "#FF0080",
+                color: "var(--phn-danger)",
                 fontSize: 11,
                 fontWeight: 600,
               }}
@@ -2053,7 +2053,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         {(totalCost.cost > 0 || totalCost.tokens > 0) && (
           <>
             <span className="phn-statusbar-divider">·</span>
-            <span style={{ color: "#34D399" }} title="Aggregate live spend across all sessions">
+            <span style={{ color: "var(--phn-success)" }} title="Aggregate live spend across all sessions">
               ${totalCost.cost.toFixed(2)}
               {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tokens`}
             </span>
