@@ -131,6 +131,7 @@ export default function TerminalPanel({
   onTabActivityChange,
   onTabCostUpdate,
   onRenameTab,
+  onSetTabColor,
   onDuplicateTab,
   onDetachTab,
   onCloseOthers,
@@ -361,6 +362,9 @@ export default function TerminalPanel({
                 style={{ cursor: isRenamingThis ? "text" : "pointer" }}
                 title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click to rename)`}
               >
+                {tab.color && (
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: tab.color, flexShrink: 0, boxShadow: `0 0 5px ${tab.color}` }} title="Tab color" />
+                )}
                 <span style={{ flexShrink: 0, fontSize: 11, opacity: 0.9 }} title={tab.home ? "Session launch screen" : tab.worktree ? `Agent worktree (${tab.worktree.branch})` : tab.rdp ? "RDP desktop" : tab.vnc ? "VNC desktop" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}>
                   {tab.home ? "🏠" : tab.worktree ? "🌿" : tab.rdp ? "🪟" : tab.vnc ? "🖥" : tab.connection ? "🔗" : tab.serial ? "⎓" : "❯"}
                 </span>
@@ -652,6 +656,29 @@ export default function TerminalPanel({
               }}
             >
               {item("Rename", () => startRename(tab))}
+              {onSetTabColor && (
+                <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "6px 10px" }}>
+                  {[null, "#ef4444", "#f59e0b", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#a855f7"].map((c) => (
+                    <span
+                      key={c || "none"}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); close(); onSetTabColor(tab.id, c); }}
+                      title={c ? "Color this tab" : "Clear color"}
+                      style={{
+                        width: 14, height: 14, borderRadius: "50%", cursor: "pointer", flexShrink: 0,
+                        background: c || "transparent",
+                        border: c
+                          ? (tab.color === c ? "2px solid #fff" : "1px solid rgba(255,255,255,0.25)")
+                          : "1px solid #777",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 9, color: "#999", lineHeight: 1,
+                      }}
+                    >
+                      {c ? "" : "✕"}
+                    </span>
+                  ))}
+                </div>
+              )}
               {item("Duplicate", () => onDuplicateTab?.(tab.id))}
               {onDetachTab && !tab.home && item("Detach to new window", () => onDetachTab(tab.id))}
               {onSplitPane && item("Split right", () => onSplitPane(tab.id, tab.activePaneId || tab.id, "row"))}

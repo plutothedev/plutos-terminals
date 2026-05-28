@@ -568,6 +568,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     persist({ ...state, panels });
   }, [state, persist]);
 
+  const setTabColor = useCallback((tabId, color) => {
+    const panels = state.panels.map(p => ({
+      ...p,
+      tabs: p.tabs.map(t => t.id === tabId ? { ...t, color: color || undefined } : t),
+    }));
+    persist({ ...state, panels });
+  }, [state, persist]);
+
   // Tab context-menu actions (right-click a tab). Duplicate spawns a fresh tab
   // with the same config (cwd / connection / serial / start commands) — a new
   // PTY, single pane (the split layout isn't cloned). Close-others keeps only
@@ -1641,6 +1649,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onTabActivityChange={handleTabActivityChange}
               onTabCostUpdate={handleTabCostUpdate}
               onRenameTab={renameTab}
+              onSetTabColor={setTabColor}
               onDuplicateTab={(tabId) => duplicateTab(panel.id, tabId)}
               onDetachTab={(tabId) => detachTab(panel.id, tabId)}
               onCloseOthers={(tabId) => closeOtherTabs(panel.id, tabId)}
