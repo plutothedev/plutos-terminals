@@ -695,33 +695,40 @@ export default function TerminalPane({
           // layered on so the box edges align across every line. Sent as one
           // single-quoted printf (only \033 / \n are interpreted).
           const E = "\\033";
-          const wht = (s) => `${E}[1;37m${s}${E}[0m`;
-          const bannerLines = [
-            "• Pluto's Terminals •",
-            "(multi-terminal · SSH · SFTP · serial · RDP · VNC)",
-            "",
-            "► Scrollback persistence : ✓",
-            "► Tools / snippets       : ✓",
-            "► MultiExec broadcast    : ✓",
-            "► Command palette        : Ctrl+K",
-            "► Skin                   : MobaXterm Professional",
+          // Per-segment colour: each line is a list of [text, ansiCode|null]
+          // pairs. The box edges align because the inner width is measured on
+          // the PLAIN text (no emoji in the box — ► ✓ ✗ · are all width 1) and
+          // colour is layered on after. White border, MobaXterm-style colours.
+          const BORDER = "1;37";       // white
+          const wrap = (code, s) => (code ? `${E}[${code}m${s}${E}[0m` : s);
+          const C = (c, t) => [t, c];  // coloured segment
+          const T = (t) => [t, null];  // plain segment
+          const lines = [
+            { center: true, segs: [C("1;36", "• Pluto's Terminals — free multi-terminal for the Pluto community •")] },
+            { segs: [] },
+            { segs: [C("36", "► "), T("Saved sessions live in the "), C("1;33", "Sessions"), T(" panel — SSH · local · serial · RDP/VNC")] },
+            { segs: [C("36", "► "), T("Scrollback is "), C("1;32", "persistent"), T(": every tab is saved and replayed on restart")] },
+            { segs: [C("36", "► "), C("1;35", "MultiExec"), T(" broadcasts your typing to every visible terminal at once")] },
+            { segs: [C("36", "► "), T("Tools, snippets and a file browser are one click away in the toolbar")] },
+            { segs: [C("36", "► "), T("Each command status is shown by a symbol   ("), C("1;32", "✓"), T(" ok · "), C("1;31", "✗"), T(" failed)")] },
+            { segs: [] },
+            { segs: [C("36", "► "), C("1;31", "Tip!")] },
+            { segs: [T("    Run "), C("1;33", "Claude Code"), T(", Codex and other AI agents side by side. Save your")] },
+            { segs: [T("    setup as a "), C("1;33", ".deck.json"), T(" prompt pack and share it with the community.")] },
+            { segs: [T("    Press "), C("1;33", "Ctrl+K"), T(" for the command palette, or the "), C("1;36", "Home"), T(" button to launch.")] },
+            { segs: [T("    For more information: "), C("4;36", "https://github.com/plutothedev/plutos-terminals")] },
           ];
-          const W = Math.max(...bannerLines.map((l) => l.length));
-          const center = (t) => {
-            const p = Math.max(0, Math.floor((W - t.length) / 2));
-            return " ".repeat(p) + t + " ".repeat(W - p - t.length);
-          };
-          const box = [" " + wht("┌" + "─".repeat(W + 2) + "┐")];
-          bannerLines.forEach((t, i) => {
-            let c = i < 2 ? center(t) : t + " ".repeat(W - t.length);
-            if (i < 2) c = `${E}[1;36m${c}${E}[0m`;             // cyan title
-            else {
-              c = c.replace("►", `${E}[1;33m►${E}[0m`);          // yellow marker
-              c = c.replace("✓", `${E}[1;32m✓${E}[0m`);          // green check
-            }
-            box.push(" " + wht("│") + " " + c + " " + wht("│"));
+          const plainLen = (segs) => segs.reduce((n, [t]) => n + t.length, 0);
+          const W = Math.max(...lines.map((l) => plainLen(l.segs)));
+          const box = [" " + wrap(BORDER, "┌" + "─".repeat(W + 2) + "┐")];
+          lines.forEach((l) => {
+            const len = plainLen(l.segs);
+            const left = l.center ? Math.floor((W - len) / 2) : 0;
+            const right = W - len - left;
+            const inner = " ".repeat(left) + l.segs.map(([t, c]) => wrap(c, t)).join("") + " ".repeat(right);
+            box.push(" " + wrap(BORDER, "│") + " " + inner + " " + wrap(BORDER, "│"));
           });
-          box.push(" " + wht("└" + "─".repeat(W + 2) + "┘"));
+          box.push(" " + wrap(BORDER, "└" + "─".repeat(W + 2) + "┘"));
           const bannerText = "\\n" + box.join("\\n") + "\\n\\n";
           const banner = "printf '" + bannerText.replace(/'/g, "'\\''") + "'";
           // If lolcat is installed, paint a rainbow tagline below the box —
