@@ -19,6 +19,17 @@ function fmtSize(n) {
   return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
+function fmtMtime(sec) {
+  if (!sec) return "";
+  const d = Date.now() / 1000 - sec;
+  if (d < 60) return "now";
+  if (d < 3600) return `${Math.floor(d / 60)}m`;
+  if (d < 86400) return `${Math.floor(d / 3600)}h`;
+  if (d < 86400 * 30) return `${Math.floor(d / 86400)}d`;
+  if (d < 86400 * 365) return `${Math.floor(d / 86400 / 30)}mo`;
+  return `${Math.floor(d / 86400 / 365)}y`;
+}
+
 function parentPath(p) {
   const trimmed = p.replace(/\/+$/, "");
   const i = trimmed.lastIndexOf("/");
@@ -159,9 +170,26 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
         <span className="grow" />
       </div>
 
-      {sessionId && (
-        <div className="phn-sftp-pathbar">
-          <span className="path" title={cwd || ""}>{cwd || "…"}</span>
+      {sessionId && cwd && (
+        <div className="phn-sftp-pathbar phn-sftp-crumb" title={cwd}>
+          <span className="seg" onClick={() => list("/")}>/</span>
+          {cwd.split("/").filter(Boolean).map((seg, i, arr) => {
+            const path = "/" + arr.slice(0, i + 1).join("/");
+            return (
+              <span key={path} className="crumb-part">
+                <span className="sl">›</span>
+                <span className="seg" onClick={() => list(path)}>{seg}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {sessionId && !connecting && !error && !listError && (
+        <div className="phn-sftp-cols">
+          <span className="name">Name</span>
+          <span className="size">Size</span>
+          <span className="mod">Mod</span>
         </div>
       )}
 
@@ -193,7 +221,8 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
               >
                 {e.name}
               </span>
-              <span className="size">{e.is_dir ? "" : fmtSize(e.size)}</span>
+              <span className="size">{e.is_dir ? "—" : fmtSize(e.size)}</span>
+              <span className="mod">{fmtMtime(e.mtime)}</span>
               <span className="phn-sftp-actions">
                 {!e.is_dir && (
                   <button onClick={(ev) => { ev.stopPropagation(); setEditTarget(e); }} title="Edit in app">✎</button>

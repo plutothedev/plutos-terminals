@@ -755,7 +755,34 @@
   color: var(--phn-text-dim, #888);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
+  width: 52px;
+  text-align: right;
 }
+.phn-sftp-row .mod {
+  font-size: 10px;
+  color: var(--phn-text-faint, #586068);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  width: 38px;
+  text-align: right;
+}
+/* clickable breadcrumb path */
+.phn-sftp-crumb { flex-wrap: wrap; gap: 3px; }
+.phn-sftp-crumb .seg { cursor: pointer; color: var(--phn-text-dim, #8A909A); }
+.phn-sftp-crumb .seg:hover { color: var(--phn-link, #4D8FE0); }
+.phn-sftp-crumb .crumb-part:last-child .seg { color: var(--phn-text-active, #F2F4F7); }
+.phn-sftp-crumb .sl { color: var(--phn-text-faint, #586068); margin: 0 1px; }
+/* column header */
+.phn-sftp-cols {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 9px; flex-shrink: 0;
+  border-bottom: 1px solid var(--phn-surface-border, #34383F);
+  font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--phn-text-faint, #586068);
+}
+.phn-sftp-cols .name { flex: 1; padding-left: 25px; }
+.phn-sftp-cols .size { width: 52px; text-align: right; }
+.phn-sftp-cols .mod { width: 38px; text-align: right; }
 .phn-sftp-actions {
   display: flex;
   gap: 2px;
