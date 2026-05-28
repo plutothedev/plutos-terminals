@@ -19,7 +19,7 @@ export const PROVIDERS = [
     kind: "anthropic",
     runsWith: "Claude Code",
     keysUrl: "https://console.anthropic.com/settings/keys",
-    models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+    models: ["claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
   },
   {
     id: "nous",
