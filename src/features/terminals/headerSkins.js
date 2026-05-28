@@ -407,6 +407,44 @@ const CSS = `
 .phn-fn:hover { background: var(--phn-surface-bg, #24272D); color: var(--phn-text-active, #F2F4F7); }
 .phn-fn b { color: var(--phn-text-faint, #586068); font-weight: 700; font-size: 9.5px; }
 .phn-fn:hover b { color: var(--phn-link, #4D8FE0); }
+/* Right dock (SFTP / files) + styled splitter — workstation layout */
+.moba-splitter {
+  width: 5px; flex-shrink: 0; cursor: col-resize;
+  background: var(--phn-surface-alt-bg, #1E2125);
+  border-left: 1px solid var(--phn-surface-border, #34383F);
+  border-right: 1px solid var(--phn-surface-border, #34383F);
+  display: flex; align-items: center; justify-content: center;
+}
+.moba-grip { display: flex; flex-direction: column; gap: 3px; }
+.moba-grip i { width: 2px; height: 2px; background: var(--phn-text-faint, #586068); }
+.moba-rightdock {
+  width: 320px; flex-shrink: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--phn-surface-bg, #24272D);
+  border-left: 1px solid var(--phn-surface-border, #34383F);
+}
+.moba-rd-tabs {
+  display: flex; align-items: stretch; height: 32px;
+  background: var(--phn-surface-alt-bg, #1E2125);
+  border-bottom: 1px solid var(--phn-surface-border, #34383F);
+}
+.moba-rd-tab {
+  display: flex; align-items: center; gap: 6px; padding: 0 12px;
+  color: var(--phn-text-dim, #8A909A); font-size: 11px; cursor: pointer;
+  border-right: 1px solid var(--phn-surface-border, #34383F);
+  border-top: 2px solid transparent;
+}
+.moba-rd-tab.active {
+  color: var(--phn-text-active, #F2F4F7);
+  background: var(--phn-surface-bg, #24272D);
+  border-top-color: var(--phn-link, #4D8FE0);
+}
+.moba-rd-close {
+  margin-left: auto; background: transparent; border: none; cursor: pointer;
+  color: var(--phn-text-dim, #8A909A); font-size: 16px; padding: 0 11px;
+}
+.moba-rd-close:hover { color: var(--phn-text-active, #F2F4F7); }
+.moba-rd-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .phn-sidebar {
   background: var(--phn-surface-alt-bg, #0d0d0d);
   border-right: 1px solid var(--phn-surface-border, #2B2B2B);

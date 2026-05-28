@@ -27,7 +27,7 @@ import NetToolsModal from "./NetToolsModal";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
-  IconHelp, IconMoon, IconSun, IconExit, IconModels, IconAsk,
+  IconHelp, IconMoon, IconSun, IconExit, IconModels, IconAsk, IconFolder,
 } from "./icons.jsx";
 import LocalFileBrowser from "./LocalFileBrowser";
 import VncConnectModal from "./VncConnectModal";
@@ -166,6 +166,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // the left — "sessions" (project/session list), "snippets" (tools), or "sftp"
   // (remote files). null = dock collapsed. Defaults to the sessions list.
   const [ribbon, setRibbon] = useState("sessions");
+  const [filesDock, setFilesDock] = useState(false); // right-docked SFTP / file browser
 
   // Persisted user snippets. Seeded from the built-in starter set on first use
   // so the drawer is never empty; edits/additions/deletes persist in app state.
@@ -1142,18 +1143,25 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     });
   }, []);
 
-  // Ribbon selection: switch the docked panel. The "files" panel shows the
-  // local filesystem by default; for an SSH tab it connects remote SFTP.
-  // Leaving "files" disconnects any SFTP session so we don't leak it. Clicking
-  // the active tab again (id === null) collapses the dock.
-  const selectRibbon = useCallback((id) => {
-    setRibbon(id);
-    if (id === "files") {
-      if (activeTab?.connection) openSftp(); // remote SFTP for SSH tabs
-    } else if (sftp) {
-      closeSftp();
-    }
+  // Files / SFTP now live in a RIGHT dock (shown alongside the left session
+  // tree, workstation-style). Toggling it open connects remote SFTP for an SSH
+  // tab; closing it disconnects so we don't leak the session.
+  const toggleFilesDock = useCallback(() => {
+    setFilesDock((open) => {
+      const next = !open;
+      if (next) { if (activeTab?.connection) openSftp(); }
+      else if (sftp) { closeSftp(); }
+      return next;
+    });
   }, [activeTab, openSftp, sftp, closeSftp]);
+
+  // Ribbon selection: switch the LEFT docked panel (sessions / agents /
+  // snippets). "files" routes to the right dock instead. Clicking the active
+  // ribbon item again (id === null) collapses the left dock.
+  const selectRibbon = useCallback((id) => {
+    if (id === "files") { toggleFilesDock(); return; }
+    setRibbon(id);
+  }, [toggleFilesDock]);
 
   // MobaXterm-style quick connect: parse "[user@]host[:port]" and open an SSH
   // session in the active panel (password auth → prompt, like a saved session).
@@ -1624,19 +1632,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 onSnippetsChange={setSnippets}
               />
             )}
-            {ribbon === "files" && (
-              activeTab?.connection ? (
-                <SftpBrowser
-                  docked
-                  connecting={sftp?.connecting}
-                  error={sftp?.error}
-                  sessionId={sftp?.id}
-                  onClose={() => selectRibbon("sessions")}
-                />
-              ) : (
-                <LocalFileBrowser onSendToTerminal={sendToActiveTerminal} />
-              )
-            )}
             </div>
           </div>
         )}
@@ -1685,6 +1680,34 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             />
           ))}
         </div>
+
+        {/* Right dock — SFTP / files, shown alongside the left session tree
+            (workstation layout). Styled splitter grip on its left edge. */}
+        {filesDock && (
+          <>
+            <div className="moba-splitter" title="Resize"><span className="moba-grip"><i></i><i></i><i></i></span></div>
+            <div className="moba-rightdock">
+              <div className="moba-rd-tabs">
+                <span className="moba-rd-tab active"><IconFolder size={13} /> SFTP</span>
+                <span className="moba-rd-tab"><IconAsk size={13} /> Assistant</span>
+                <button className="moba-rd-close" onClick={toggleFilesDock} title="Close (F4)">×</button>
+              </div>
+              <div className="moba-rd-body">
+                {activeTab?.connection ? (
+                  <SftpBrowser
+                    docked
+                    connecting={sftp?.connecting}
+                    error={sftp?.error}
+                    sessionId={sftp?.id}
+                    onClose={toggleFilesDock}
+                  />
+                ) : (
+                  <LocalFileBrowser onSendToTerminal={sendToActiveTerminal} />
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <TunnelsModal
@@ -1846,7 +1869,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "workspaces", icon: "🗂", label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
           { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
           { id: "snippets", icon: "📋", label: "Snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-          { id: "files", icon: "📁", label: "File browser", hint: "Local files (or remote SFTP for an SSH tab) in the left panel", action: () => selectRibbon(ribbon === "files" ? null : "files") },
+          { id: "files", icon: "📁", label: "File browser (SFTP) — toggle right dock", hint: "Local files, or remote SFTP for an SSH tab, in the right dock (F4)", action: () => toggleFilesDock() },
           { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
           { id: "serial", icon: "⎓", label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
           { id: "vnc", icon: "🖥", label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
