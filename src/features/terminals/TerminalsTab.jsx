@@ -639,6 +639,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     persist({ ...state, projects: nextProjects });
   }, [state, persist, projects]);
 
+  // Assign (or clear, with folder === null) a session's folder grouping in the
+  // Sessions tree. Empty/null folder = ungrouped (rendered at the root).
+  const setProjectFolder = useCallback((projectId, folder) => {
+    const nextProjects = projects.map(p => p.id === projectId ? { ...p, folder: folder || null } : p);
+    persist({ ...state, projects: nextProjects });
+  }, [state, persist, projects]);
+
   // Add a new tab to `panelId` running `projectId`'s shell with its cwd and
   // start commands. Used by both click (target = active panel) and drop
   // (target = panel under cursor). When `overrideCommands` is provided, it
@@ -1184,6 +1191,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 onClickProject={(id) => openProjectInPanel(state.activePanelId, id)}
                 onDropProject={(id, panelId) => openProjectInPanel(panelId, id)}
                 onRunScript={runProjectScript}
+                onSetFolder={setProjectFolder}
                 onForgetPassword={(project) => {
                   if (!project?.connection) return;
                   invoke("secret_delete", { account: sshAccount(project.connection) })
@@ -1290,6 +1298,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <ProjectDialog
         open={!!dialog}
         initial={dialogInitial}
+        existingFolders={[...new Set(projects.map((p) => p.folder).filter(Boolean))]}
         onClose={() => setDialog(null)}
         onSave={handleSaveDialog}
       />

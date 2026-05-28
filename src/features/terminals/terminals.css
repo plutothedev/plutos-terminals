@@ -109,6 +109,45 @@
   user-select: none;
 }
 
+/* ── Sessions tree: collapsible folder header ─────────────────────────── */
+.phn-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 8px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--phn-text-dim, #888);
+  font-size: 11px;
+  letter-spacing: 0.2px;
+}
+.phn-folder-header:hover { background: rgba(255, 255, 255, 0.04); color: var(--phn-text-active, #fff); }
+.phn-folder-chevron { font-size: 9px; width: 10px; flex-shrink: 0; color: var(--phn-text-dim, #888); }
+.phn-folder-icon { font-size: 12px; flex-shrink: 0; }
+.phn-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--phn-text-fg, #c8c8c8);
+}
+.phn-folder-count {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--phn-text-dim, #888);
+  background: var(--phn-page-bg, rgba(0, 0, 0, 0.25));
+  border-radius: 8px;
+  padding: 1px 6px;
+  font-variant-numeric: tabular-nums;
+}
+/* Indent the rows that belong to a folder so the tree reads hierarchically. */
+.phn-folder-body {
+  margin-left: 13px;
+  border-left: 1px solid var(--phn-surface-border, #2b2b2b);
+}
+
 /* ── Sidebar: active project row gets a left accent rail ──────────────── */
 .phn-sidebar-item-active {
   background: var(--phn-surface-bg, rgba(255, 255, 255, 0.05)) !important;

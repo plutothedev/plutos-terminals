@@ -85,9 +85,19 @@ export default function ProjectSidebar({
   onDropProject,
   onRunScript,
   onForgetPassword,
+  onSetFolder,
 }) {
   const [hoverId, setHoverId] = useState(null);
   const [query, setQuery] = useState(""); // project name filter
+  // Collapsed folders in the Sessions tree (transient — names, not ids).
+  const [collapsedFolders, setCollapsedFolders] = useState(() => new Set());
+  const toggleFolder = (name) =>
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
   const [ctxMenu, setCtxMenu] = useState(null); // {x, y, projectId}
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
@@ -353,8 +363,8 @@ export default function ProjectSidebar({
           )
         ) : visibleProjects.length === 0 ? (
           <div className="phn-snippets-empty">No sessions match "{query}".</div>
-        ) : (
-          visibleProjects.map(p => {
+        ) : (() => {
+          const renderRow = (p) => {
             const isHover = hoverId === p.id;
             const isRenamingThis = renamingId === p.id;
             const isExpanded = expandedId === p.id;
@@ -556,13 +566,53 @@ export default function ProjectSidebar({
               )}
               </div>
             );
-          })
-        )}
+          };
+
+          // Group sessions into collapsible folders; ungrouped sessions render
+          // at the root. Collapsed-rail mode skips folders (just shows dots).
+          if (collapsed) return visibleProjects.map(renderRow);
+          const order = [];
+          const byFolder = new Map();
+          const root = [];
+          for (const p of visibleProjects) {
+            if (p.folder) {
+              if (!byFolder.has(p.folder)) { byFolder.set(p.folder, []); order.push(p.folder); }
+              byFolder.get(p.folder).push(p);
+            } else {
+              root.push(p);
+            }
+          }
+          return (
+            <>
+              {root.map(renderRow)}
+              {order.map((name) => {
+                const isCol = collapsedFolders.has(name);
+                const rows = byFolder.get(name);
+                return (
+                  <div key={`folder:${name}`}>
+                    <div
+                      className="phn-folder-header"
+                      onClick={() => toggleFolder(name)}
+                      title={isCol ? `Expand "${name}"` : `Collapse "${name}"`}
+                    >
+                      <span className="phn-folder-chevron">{isCol ? "▸" : "▾"}</span>
+                      <span className="phn-folder-icon">📂</span>
+                      <span className="phn-folder-name">{name}</span>
+                      <span className="phn-folder-count">{rows.length}</span>
+                    </div>
+                    {!isCol && <div className="phn-folder-body">{rows.map(renderRow)}</div>}
+                  </div>
+                );
+              })}
+            </>
+          );
+        })()}
       </div>
 
       {ctxMenu && (() => {
         const project = projects.find(p => p.id === ctxMenu.projectId);
         if (!project) return null;
+        const allFolders = [...new Set(projects.map((p) => p.folder).filter(Boolean))];
         return (
           <>
             <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onClick={closeCtx} onContextMenu={(e) => { e.preventDefault(); closeCtx(); }} />
@@ -624,6 +674,35 @@ export default function ProjectSidebar({
                   }}
                 >×</span>
               </div>
+
+              {(allFolders.length > 0 || project.folder) && (
+                <>
+                  <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />
+                  <div style={{ padding: "6px 4px 4px", color: FG_DIM, fontSize: 9, letterSpacing: 0.6 }}>FOLDER</div>
+                  {allFolders.map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => { onSetFolder?.(project.id, f); closeCtx(); }}
+                      style={ctxBtnStyle()}
+                      title={`Move "${project.name}" into the "${f}" folder`}
+                    >
+                      {project.folder === f ? "✓ " : "📂 "}{f}
+                    </button>
+                  ))}
+                  {project.folder && (
+                    <button
+                      onClick={() => { onSetFolder?.(project.id, null); closeCtx(); }}
+                      style={ctxBtnStyle()}
+                      title="Move this session out of its folder"
+                    >
+                      ⤺ Remove from folder
+                    </button>
+                  )}
+                  <div style={{ color: FG_FAINT, fontSize: 9, padding: "3px 8px 2px", lineHeight: 1.4 }}>
+                    New folders: set a folder name in “Edit session…”.
+                  </div>
+                </>
+              )}
 
               {npmScripts[project.id] && npmScripts[project.id].length > 0 && (
                 <>

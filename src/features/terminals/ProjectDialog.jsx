@@ -50,10 +50,11 @@ function sessionType(initial) {
 
 // One session = a saved connection. Local sessions spawn a shell at `path`;
 // SSH sessions (preview — backend lands in a later phase) connect to a host.
-export default function ProjectDialog({ open, initial, onSave, onClose }) {
+export default function ProjectDialog({ open, initial, existingFolders = [], onSave, onClose }) {
   const [type, setType] = useState("local");
   const [name, setName] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
+  const [folder, setFolder] = useState("");
   const [startCommandsText, setStartCommandsText] = useState("");
 
   // Local
@@ -74,6 +75,7 @@ export default function ProjectDialog({ open, initial, onSave, onClose }) {
     setType(t);
     setName(initial?.name || "");
     setNameTouched(!!initial?.name);
+    setFolder(initial?.folder || "");
     setStartCommandsText((initial?.startCommands || []).join("\n"));
 
     setPath(initial?.path || "");
@@ -133,10 +135,12 @@ export default function ProjectDialog({ open, initial, onSave, onClose }) {
 
   const save = () => {
     if (!canSave) return;
+    const folderVal = folder.trim() || null;
     if (type === "local") {
       onSave({
         type: "local",
         name: name.trim(),
+        folder: folderVal,
         path: path.trim(),
         startCommands: startCommands(),
         autoApprove,
@@ -146,6 +150,7 @@ export default function ProjectDialog({ open, initial, onSave, onClose }) {
       onSave({
         type: "ssh",
         name: name.trim(),
+        folder: folderVal,
         startCommands: startCommands(),
         connection: {
           host: host.trim(),
@@ -357,6 +362,26 @@ export default function ProjectDialog({ open, initial, onSave, onClose }) {
             spellCheck={false}
             style={inputStyle}
           />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>Folder (optional)</label>
+          <input
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            placeholder="e.g. Production · Local · Clients"
+            spellCheck={false}
+            list="phn-folder-suggestions"
+            style={inputStyle}
+          />
+          <datalist id="phn-folder-suggestions">
+            {existingFolders.map((f) => (
+              <option key={f} value={f} />
+            ))}
+          </datalist>
+          <div style={{ color: FG_DIM, fontSize: 10, marginTop: 4 }}>
+            Groups this session under a collapsible folder in the Sessions tree. Leave blank for ungrouped.
+          </div>
         </div>
 
         <div style={{ marginBottom: 16 }}>
