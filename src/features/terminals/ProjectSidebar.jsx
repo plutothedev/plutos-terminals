@@ -696,24 +696,12 @@ export default function ProjectSidebar({
             );
           });
           // MobaXterm "User sessions" tree root — categories + loose sessions nest under it.
+          // Flush groups (Production / Agents / Local), no "User sessions" root —
+          // matches the mockup's tree.
           return (
             <>
-              <div
-                className="phn-folder-header phn-tree-root"
-                onClick={() => setUserSessionsCollapsed((v) => !v)}
-                title="User sessions"
-              >
-                <span className="phn-folder-chevron">{userSessionsCollapsed ? "▸" : "▾"}</span>
-                <span className="phn-folder-icon">👤</span>
-                <span className="phn-folder-name">User sessions</span>
-                <span className="phn-folder-count">{visibleProjects.length}</span>
-              </div>
-              {!userSessionsCollapsed && (
-                <div className="phn-folder-body">
-                  {folders}
-                  {root.map(renderRow)}
-                </div>
-              )}
+              {folders}
+              {root.map(renderRow)}
             </>
           );
         })()}

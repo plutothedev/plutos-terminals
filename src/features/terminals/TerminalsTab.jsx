@@ -28,6 +28,7 @@ import {
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
   IconHelp, IconMoon, IconSun, IconExit, IconModels, IconAsk, IconFolder,
 } from "./icons.jsx";
+import { SLocal, SSsh, SSerial, SSplit, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch } from "./toolbarIcons.jsx";
 import LocalFileBrowser from "./LocalFileBrowser";
 import VncConnectModal from "./VncConnectModal";
 import RdpConnectModal from "./RdpConnectModal";
@@ -1435,6 +1436,15 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* MobaXterm menu bar — classic dropdown menus wired to existing actions. */}
       <MobaMenuBar
+        brand={<><span className="moba-brand-dot" />Pluto</>}
+        right={
+          <>
+            {activeDims && <span className="moba-mb-dim">{activeDims.cols}×{activeDims.rows}</span>}
+            <span className="moba-mb-model"><span className="moba-mb-modeldot" />{userSt?.activeModel?.model || "claude"}</span>
+            <button className="moba-mb-icon" onClick={toggleTheme} title="Toggle dark / light chrome (Ctrl+\\)">{headerSkinId === "moba-light" ? <IconSun size={14} /> : <IconMoon size={14} />}</button>
+            <button className="moba-mb-icon" onClick={exitApp} title="Quit (closes all sessions)"><IconExit size={14} /></button>
+          </>
+        }
         menus={[
           {
             label: "Terminal",
@@ -1511,70 +1521,48 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       {/* MobaXterm grouped icon toolbar — captioned button groups, themed via
           the active skin's --phn-* vars (see MobaToolbar.jsx + terminals.css). */}
       <MobaToolbar
-        brand="⬢ Pluto"
         right={
           <>
-            <div className="moba-qc-inline" title="Quick connect — user@host (Enter)">
-              <span style={{ flexShrink: 0 }}>🌐</span>
-              <input
-                placeholder="quick connect — user@host"
-                spellCheck={false}
-                onKeyDown={(e) => { if (e.key === "Enter") { quickConnect(e.currentTarget.value); e.currentTarget.value = ""; } }}
-              />
-            </div>
             {(totalCost.cost > 0 || totalCost.tokens > 0) && (
               <span className="phn-cost" title="Live aggregate from Claude /cost output across all sessions">
                 ${totalCost.cost.toFixed(2)}
                 {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
               </span>
             )}
-            <div className="moba-tool-group" style={{ borderRight: "none", borderLeft: "1px solid var(--phn-surface-border, #151515)" }}>
-              <div className="moba-tool-btns">
-                <button className="moba-tool-btn" onClick={toggleTheme} title="Toggle Dark / Light chrome (Ctrl+\\) — the terminal stays black">
-                  <span className="moba-tool-icon">{headerSkinId === "moba-light" ? <IconSun /> : <IconMoon />}</span>
-                  <span className="moba-tool-label">Theme</span>
-                </button>
-                <button className="moba-tool-btn" onClick={exitApp} title="Quit Pluto's Terminal (closes all sessions)">
-                  <span className="moba-tool-icon"><IconExit /></span>
-                  <span className="moba-tool-label">Exit</span>
-                </button>
-              </div>
+            <div className="moba-qc-inline" title="Quick connect — user@host (Enter)">
+              <SSearch size={13} />
+              <input
+                placeholder="quick connect — user@host"
+                spellCheck={false}
+                onKeyDown={(e) => { if (e.key === "Enter") { quickConnect(e.currentTarget.value); e.currentTarget.value = ""; } }}
+              />
             </div>
           </>
         }
         groups={[
           {
-            caption: "Session",
+            caption: "Connect",
             items: [
-              { id: "session", icon: <IconSession />, label: "Session", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
-              { id: "servers", icon: <IconServers />, label: "Servers", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
-              { id: "sessions", icon: <IconStar />, label: "Sessions", title: "Saved sessions panel", active: ribbon === "sessions", onClick: () => selectRibbon(ribbon === "sessions" ? null : "sessions") },
-              { id: "tunneling", icon: <IconTunneling />, label: "Tunneling", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+              { id: "local", icon: <SLocal />, label: "Local", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
+              { id: "ssh", icon: <SSsh />, label: "SSH", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
+              { id: "serial", icon: <SSerial />, label: "Serial", title: "Serial console session", onClick: () => setSerialOpen(true) },
             ],
           },
           {
-            caption: "View",
+            caption: "Workspace",
             items: [
-              { id: "view", icon: <IconView />, label: "View", title: ribbon ? "Hide the left panel" : "Show the left panel (sessions / tools / files)", active: !!ribbon, onClick: () => selectRibbon(ribbon ? null : "sessions") },
-              { id: "split", icon: <IconSplit />, label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+              { id: "split", icon: <SSplit />, label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+              { id: "multiexec", icon: <SMultiX />, label: "MultiX", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
+              { id: "tunnel", icon: <STunnel />, label: "Tunnel", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
             ],
           },
           {
-            caption: "Tools",
+            caption: "AI · Tools",
             items: [
-              { id: "ask", icon: <IconAsk />, label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
-              { id: "tools", icon: <IconTools />, label: "Snippets", title: "Snippets — saved commands, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-              { id: "models", icon: <IconModels />, label: "Models", title: "Pick your LLM provider + model (Claude, Hermes, Gemini, GLM, Qwen, Kimi, OpenRouter, … or any endpoint) and enter its API key", onClick: () => setModelsOpen(true) },
-              { id: "multiexec", icon: <IconMultiExec />, label: "MultiExec", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
-              { id: "packages", icon: <IconPackages />, label: "Packages", title: "MCP servers — curated catalog, copy or one-click install", onClick: () => setMcpOpen(true) },
-            ],
-          },
-          {
-            caption: "App",
-            items: [
-              { id: "games", icon: <IconGames />, label: "Games", title: "Games", onClick: playGames },
-              { id: "settings", icon: <IconSettings />, label: "Settings", title: "Settings — appearance + factory reset (API keys live in Models)", onClick: () => setSettingsOpen(true) },
-              { id: "help", icon: <IconHelp />, label: "Help", title: "Open the GitHub repo (docs, issues, releases)", onClick: () => openExternal(GITHUB_URL) },
+              { id: "ask", icon: <SAsk />, label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
+              { id: "models", icon: <SModels />, label: "Models", title: "Pick your LLM provider + model and enter its API key", onClick: () => setModelsOpen(true) },
+              { id: "snips", icon: <SSnips />, label: "Snips", title: "Snippets — saved commands, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+              { id: "agents", icon: <SAgents />, label: "Agents", title: "Agent mission control", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
             ],
           },
         ]}

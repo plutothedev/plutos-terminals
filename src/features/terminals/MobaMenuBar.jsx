@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./terminals.css";
 
-export default function MobaMenuBar({ menus }) {
+export default function MobaMenuBar({ menus, brand, right }) {
   const [open, setOpen] = useState(null); // open menu index, or null
   const ref = useRef(null);
 
@@ -26,6 +26,7 @@ export default function MobaMenuBar({ menus }) {
 
   return (
     <div className="moba-menubar" ref={ref}>
+      {brand && <div className="moba-menubar-brand">{brand}</div>}
       {menus.map((menu, i) => (
         <div key={menu.label} className="moba-menu">
           <button
@@ -56,6 +57,7 @@ export default function MobaMenuBar({ menus }) {
           )}
         </div>
       ))}
+      {right && <div className="moba-menubar-right">{right}</div>}
     </div>
   );
 }

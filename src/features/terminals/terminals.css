@@ -495,6 +495,22 @@
   -webkit-app-region: drag; /* the menu bar doubles as a window drag strip */
 }
 .moba-menu { position: relative; -webkit-app-region: no-drag; }
+/* menu-bar brand (left) + right cluster (dims · model · theme · exit) */
+.moba-menubar-brand {
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 14px 0 12px; font-weight: 700; letter-spacing: -.01em;
+  color: var(--phn-text-active, #F2F4F7); -webkit-app-region: no-drag;
+}
+.moba-brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--phn-link, #4D8FE0); }
+.moba-menubar-right {
+  margin-left: auto; display: flex; align-items: center; gap: 12px;
+  padding: 0 12px; color: var(--phn-text-dim, #8A909A); font-size: 11px; -webkit-app-region: no-drag;
+}
+.moba-mb-dim { font-family: var(--phn-mono-font); font-size: 10.5px; }
+.moba-mb-model { display: flex; align-items: center; gap: 6px; color: var(--phn-text-fg, #D3D7DD); }
+.moba-mb-modeldot { width: 6px; height: 6px; border-radius: 50%; background: var(--phn-success, #5FB87A); }
+.moba-mb-icon { background: transparent; border: none; cursor: pointer; color: var(--phn-text-dim, #8A909A); display: flex; align-items: center; padding: 4px; border-radius: 4px; }
+.moba-mb-icon:hover { color: var(--phn-text-active, #F2F4F7); background: var(--phn-hover-bg, rgba(255,255,255,0.05)); }
 .moba-menu-btn {
   background: transparent;
   border: none;
