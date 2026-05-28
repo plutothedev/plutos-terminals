@@ -3,11 +3,12 @@
 // docked left panel (Sessions / Tools / Sftp). Clicking the active tab collapses
 // the dock. Labels read vertically like MobaXterm's Sessions/Tools/Macros/Sftp.
 import "./terminals.css";
+import { IconStar, IconTools, IconFolder } from "./icons.jsx";
 
 const ITEMS = [
-  { id: "sessions", label: "Sessions", icon: "🖥" },
-  { id: "snippets", label: "Tools", icon: "🛠" },
-  { id: "files", label: "Files", icon: "📁" },
+  { id: "sessions", label: "Sessions", icon: <IconStar size={16} /> },
+  { id: "snippets", label: "Tools", icon: <IconTools size={16} /> },
+  { id: "files", label: "Files", icon: <IconFolder size={16} /> },
 ];
 
 export default function MobaRibbon({ active, onSelect }) {

@@ -11,6 +11,11 @@ import SerialModal from "./SerialModal";
 import MobaRibbon from "./MobaRibbon";
 import MobaMenuBar from "./MobaMenuBar";
 import MobaToolbar from "./MobaToolbar";
+import {
+  IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
+  IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
+  IconHelp, IconMoon, IconSun, IconExit,
+} from "./icons.jsx";
 import LocalFileBrowser from "./LocalFileBrowser";
 import VncConnectModal from "./VncConnectModal";
 import RdpConnectModal from "./RdpConnectModal";
@@ -1223,11 +1228,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             <div className="moba-tool-group" style={{ borderRight: "none", borderLeft: "1px solid var(--phn-surface-border, #151515)" }}>
               <div className="moba-tool-btns">
                 <button className="moba-tool-btn" onClick={toggleTheme} title="Toggle Dark / Light chrome (Ctrl+\\) — the terminal stays black">
-                  <span className="moba-tool-icon">{headerSkinId === "moba-light" ? "☀️" : "🌙"}</span>
+                  <span className="moba-tool-icon">{headerSkinId === "moba-light" ? <IconSun /> : <IconMoon />}</span>
                   <span className="moba-tool-label">Theme</span>
                 </button>
                 <button className="moba-tool-btn" onClick={exitApp} title="Quit Pluto's Terminal (closes all sessions)">
-                  <span className="moba-tool-icon" style={{ color: "#e0524a" }}>⏻</span>
+                  <span className="moba-tool-icon"><IconExit /></span>
                   <span className="moba-tool-label">Exit</span>
                 </button>
               </div>
@@ -1237,26 +1242,26 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         groups={[
           {
             items: [
-              { id: "session", icon: "🌐", label: "Session", title: "New session (local folder or SSH host)", onClick: () => setDialog({ mode: "add" }) },
-              { id: "servers", icon: "🖥️", label: "Servers", title: "New SSH / server session", onClick: () => setDialog({ mode: "add" }) },
-              { id: "tools", icon: "🛠️", label: "Tools", title: "Tools — saved command snippets, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-              { id: "games", icon: "🎮", label: "Games", title: "Games", onClick: playGames },
-              { id: "sessions", icon: "⭐", label: "Sessions", title: "Saved sessions panel", active: ribbon === "sessions", onClick: () => selectRibbon(ribbon === "sessions" ? null : "sessions") },
+              { id: "session", icon: <IconSession />, label: "Session", title: "New session (local folder or SSH host)", onClick: () => setDialog({ mode: "add" }) },
+              { id: "servers", icon: <IconServers />, label: "Servers", title: "New SSH / server session", onClick: () => setDialog({ mode: "add" }) },
+              { id: "tools", icon: <IconTools />, label: "Tools", title: "Tools — saved command snippets, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+              { id: "games", icon: <IconGames />, label: "Games", title: "Games", onClick: playGames },
+              { id: "sessions", icon: <IconStar />, label: "Sessions", title: "Saved sessions panel", active: ribbon === "sessions", onClick: () => selectRibbon(ribbon === "sessions" ? null : "sessions") },
             ],
           },
           {
             items: [
-              { id: "view", icon: "👁️", label: "View", title: "Appearance & skins", onClick: () => setSettingsOpen(true) },
-              { id: "split", icon: "⬍", label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-              { id: "multiexec", icon: "📡", label: "MultiExec", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
-              { id: "tunneling", icon: "🔀", label: "Tunneling", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+              { id: "view", icon: <IconView />, label: "View", title: "Appearance & skins", onClick: () => setSettingsOpen(true) },
+              { id: "split", icon: <IconSplit />, label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+              { id: "multiexec", icon: <IconMultiExec />, label: "MultiExec", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
+              { id: "tunneling", icon: <IconTunneling />, label: "Tunneling", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
             ],
           },
           {
             items: [
-              { id: "packages", icon: "📦", label: "Packages", title: "MCP servers — curated catalog, copy or one-click install", onClick: () => setMcpOpen(true) },
-              { id: "settings", icon: "⚙️", label: "Settings", title: "Settings: API key + skin + factory reset", onClick: () => setSettingsOpen(true) },
-              { id: "help", icon: "❓", label: "Help", title: "GitHub repository", onClick: () => window.open("https://github.com/plutothedev/plutos-terminals", "_blank") },
+              { id: "packages", icon: <IconPackages />, label: "Packages", title: "MCP servers — curated catalog, copy or one-click install", onClick: () => setMcpOpen(true) },
+              { id: "settings", icon: <IconSettings />, label: "Settings", title: "Settings: API key + skin + factory reset", onClick: () => setSettingsOpen(true) },
+              { id: "help", icon: <IconHelp />, label: "Help", title: "GitHub repository", onClick: () => window.open("https://github.com/plutothedev/plutos-terminals", "_blank") },
             ],
           },
         ]}
