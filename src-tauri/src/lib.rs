@@ -39,7 +39,7 @@ pub fn run() {
             }
 
             // System tray + hide-on-close.
-            let show_i = MenuItem::with_id(app, "show", "Show Pluto's Terminals", true, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "show", "Show Pluto's Terminal", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(
                 app,
                 "quit",
@@ -51,7 +51,7 @@ pub fn run() {
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Pluto's Terminals — running. Sessions are preserved while in tray.")
+                .tooltip("Pluto's Terminal — running. Sessions are preserved while in tray.")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {

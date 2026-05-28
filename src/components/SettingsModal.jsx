@@ -79,7 +79,7 @@ export default function SettingsModal({ open, st, save, userSt = {}, saveUser = 
 
   const handleFactoryReset = async () => {
     const ok = await confirm(
-      "Factory reset wipes ALL Pluto's Terminals state from this machine: panel layout, projects, scrollback, API key, theme, welcome flag, and onboarding flag (across every window). The app reloads to the welcome screen. Continue?",
+      "Factory reset wipes ALL Pluto's Terminal state from this machine: panel layout, projects, scrollback, API key, theme, welcome flag, and onboarding flag (across every window). The app reloads to the welcome screen. Continue?",
       { title: "Factory reset?", confirmLabel: "reset everything", destructive: true }
     );
     if (!ok) return;

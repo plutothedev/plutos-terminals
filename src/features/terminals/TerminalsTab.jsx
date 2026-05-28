@@ -908,7 +908,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // backend command; falls back to hiding the window if it isn't available.
   const exitApp = useCallback(async () => {
     const ok = await confirm({
-      title: "Quit Pluto's Terminals?",
+      title: "Quit Pluto's Terminal?",
       message: "This closes every terminal session in this window and exits the app.",
       confirmText: "Quit",
       danger: true,
@@ -1184,11 +1184,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             )}
             <div className="moba-tool-group" style={{ borderRight: "none", borderLeft: "1px solid var(--phn-surface-border, #151515)" }}>
               <div className="moba-tool-btns">
-                <button className="moba-tool-btn" onClick={() => toast.info("Pluto's Terminals doesn't bundle an X11 server — that's a MobaXterm-specific feature.")} title="X server (not available in Pluto's Terminals)">
+                <button className="moba-tool-btn" onClick={() => toast.info("Pluto's Terminal doesn't bundle an X11 server — that's a MobaXterm-specific feature.")} title="X server (not available in Pluto's Terminal)">
                   <span className="moba-tool-icon" style={{ color: "#3fae5a" }}>✖</span>
                   <span className="moba-tool-label">X server</span>
                 </button>
-                <button className="moba-tool-btn" onClick={exitApp} title="Quit Pluto's Terminals (closes all sessions)">
+                <button className="moba-tool-btn" onClick={exitApp} title="Quit Pluto's Terminal (closes all sessions)">
                   <span className="moba-tool-icon" style={{ color: "#e0524a" }}>⏻</span>
                   <span className="moba-tool-label">Exit</span>
                 </button>

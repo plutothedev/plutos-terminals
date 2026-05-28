@@ -426,7 +426,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
               <span style={{ flex: 1 }}>
                 <div style={{ color: FG, fontSize: 12, marginBottom: 2 }}>Auto-approve permission prompts</div>
                 <div style={{ color: FG_DIM, fontSize: 10, lineHeight: 1.4 }}>
-                  When this session's tab is in the background and Claude pauses for a tool-use confirmation, Pluto's Terminals sends &quot;1&quot; (Yes) automatically.
+                  When this session's tab is in the background and Claude pauses for a tool-use confirmation, Pluto's Terminal sends &quot;1&quot; (Yes) automatically.
                   Throttled to once every 3s. Disable if you want to review every action.
                 </div>
               </span>

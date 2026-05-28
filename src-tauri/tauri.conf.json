@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Pluto's Terminals",
+  "productName": "Pluto's Terminal",
   "version": "0.1.32",
   "identifier": "com.plutothedev.terminals",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Pluto's Terminals",
+        "title": "Pluto's Terminal",
         "width": 1440,
         "height": 900,
         "minWidth": 900,

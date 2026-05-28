@@ -119,7 +119,7 @@ export default function SetupChecker({ open, st, userSt = {}, onClose, onOpenSet
   return (
     <Modal open={open} title="Setup Check" onClose={onClose} width={620}>
       <p style={{ color: FG, fontSize: 12, lineHeight: 1.7, marginBottom: 18 }}>
-        Pluto's Terminals is a terminal app — it expects a few things on your machine.
+        Pluto's Terminal is a terminal app — it expects a few things on your machine.
         Run through this once and you're set. Re-open anytime via the <strong style={{ color: ACCENT }}>🚀 setup</strong> button in the header.
       </p>
 
@@ -129,7 +129,7 @@ export default function SetupChecker({ open, st, userSt = {}, onClose, onOpenSet
         installHint={(
           <>
             Not found. Install from <Link href="https://nodejs.org/">nodejs.org</Link> (LTS).
-            Then close + reopen Pluto's Terminals so the new PATH is picked up, and re-run this check.
+            Then close + reopen Pluto's Terminal so the new PATH is picked up, and re-run this check.
           </>
         )}
       />
@@ -170,7 +170,7 @@ export default function SetupChecker({ open, st, userSt = {}, onClose, onOpenSet
           <>
             <div style={{ marginBottom: 8 }}>
               Not saved. Get a key at <Link href="https://console.anthropic.com/">console.anthropic.com</Link> → "API Keys" → create new.
-              Then paste it into Pluto's Terminals via <strong style={{ color: ACCENT }}>⚙️ settings</strong>.
+              Then paste it into Pluto's Terminal via <strong style={{ color: ACCENT }}>⚙️ settings</strong>.
             </div>
             <button onClick={() => { onClose(); if (onOpenSettings) onOpenSettings(); }} style={chipBtnStyle}>
               open settings

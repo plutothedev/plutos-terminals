@@ -207,7 +207,7 @@ function Welcome({ initialKey, discordUrl, onContinue }) {
     >
       <div style={{ maxWidth: 560, width: "100%" }}>
         <div style={{ fontSize: 28, color: FG_ACTIVE, letterSpacing: 1.5, marginBottom: 6 }}>
-          PLUTO'S TERMINALS
+          PLUTO'S TERMINAL
         </div>
         <div style={{ color: ACCENT, fontSize: 12, letterSpacing: 0.5, marginBottom: 28 }}>
           Run AI agents in parallel. Save your setup. Share it.

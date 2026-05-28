@@ -89,7 +89,7 @@ export default function UpdateBanner({ currentVersion }) {
         UPDATE AVAILABLE
       </div>
       <div style={{ marginBottom: 10 }}>
-        Pluto's Terminals <strong>{latest.tag}</strong> is out (you're on <code style={{ fontSize: 10 }}>v{currentVersion}</code>).
+        Pluto's Terminal <strong>{latest.tag}</strong> is out (you're on <code style={{ fontSize: 10 }}>v{currentVersion}</code>).
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <a

@@ -677,11 +677,10 @@ export default function TerminalPane({
         const isWindowsUA = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
         if (!connection && !serial && cmdsAtSpawn.length === 0 && !isWindowsUA && alive && ptyId) {
           await new Promise(r => setTimeout(r, 450));
-          // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less.
-          // MobaXterm parity: ls/grep stay coloured everywhere, less keeps colour
-          // codes, and a few quality-of-life aliases. zsh-syntax-highlighting is
-          // sourced if it's on the system (gives real "rainbow as you type").
-          const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export GREP_OPTIONS=; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah'; alias la='ls -laGh'; for __zsh in /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ~/.zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh; do [ -f \"$__zsh\" ] && source \"$__zsh\" 2>/dev/null && break; done; unset __zsh;";
+          // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less
+          // + a few quality-of-life aliases. (Kept short so the welcome init fits
+          // comfortably in one shell line alongside the big welcome box.)
+          const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah'; alias la='ls -laGh';";
           // MobaXterm v12.4 segmented prompt: green 📅 date  cyan 🕐 time
           // yellow 📁 path, joined by powerline  arrows (rendered via the
           // bundled MesloLGS NF font). Each  carries fg = the colour it comes
@@ -704,7 +703,7 @@ export default function TerminalPane({
           const C = (c, t) => [t, c];  // coloured segment
           const T = (t) => [t, null];  // plain segment
           const lines = [
-            { center: true, segs: [C("1;36", "• Pluto's Terminals — free multi-terminal for the Pluto community •")] },
+            { center: true, segs: [C("1;36", "• Pluto's Terminal — free multi-terminal for the Pluto community •")] },
             { segs: [] },
             { segs: [C("36", "► "), T("Saved sessions live in the "), C("1;33", "Sessions"), T(" panel — SSH · local · serial · RDP/VNC")] },
             { segs: [C("36", "► "), T("Scrollback is "), C("1;32", "persistent"), T(": every tab is saved and replayed on restart")] },
