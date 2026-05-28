@@ -20,7 +20,16 @@ function readUserSt() {
   catch { return {}; }
 }
 
-export default function ErrorExplainer({ block, onClose }) {
+// Pull the first fenced command block out of the model's answer so we can offer
+// a one-click "run fix". Falls back to null when there's no fenced block.
+function extractFix(answer) {
+  const m = String(answer || "").match(/```(?:[a-zA-Z]*)?\n([\s\S]*?)```/);
+  if (!m) return null;
+  const cmd = m[1].replace(/^\$\s+/gm, "").trim();
+  return cmd || null;
+}
+
+export default function ErrorExplainer({ block, onClose, onRun }) {
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +62,8 @@ export default function ErrorExplainer({ block, onClose }) {
 
   if (!block) return null;
 
+  const fixCmd = extractFix(answer);
+
   return (
     <div
       style={{
@@ -70,6 +81,15 @@ export default function ErrorExplainer({ block, onClose }) {
         </span>
         {modelLabel && <span style={{ fontSize: 10, color: "var(--phn-text-dim, #888)" }}>via {modelLabel}</span>}
         <span style={{ flex: 1 }} />
+        {fixCmd && onRun && (
+          <button
+            onClick={() => { onRun(fixCmd); onClose(); }}
+            title={`Run the suggested fix: ${fixCmd}`}
+            style={{ ...btn, background: "var(--phn-link, #4aa8c0)", color: "#06223a", border: "1px solid var(--phn-link, #4aa8c0)", fontWeight: 600 }}
+          >
+            run fix ▶
+          </button>
+        )}
         {answer && (
           <button onClick={() => navigator.clipboard?.writeText(answer)} title="Copy" style={btn}>copy</button>
         )}

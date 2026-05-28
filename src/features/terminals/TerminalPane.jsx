@@ -19,6 +19,7 @@ import {
   isBroadcast,
   writeBroadcast,
   getTabPassword,
+  writeToTab,
 } from "./ptyBridge.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
@@ -1166,7 +1167,11 @@ export default function TerminalPane({
           </span>
         </div>
       )}
-      <ErrorExplainer block={explainBlock} onClose={() => setExplainBlock(null)} />
+      <ErrorExplainer
+        block={explainBlock}
+        onClose={() => setExplainBlock(null)}
+        onRun={(cmd) => writeToTab(tabId, cmd.replace(/\n+$/, "") + "\r")}
+      />
       {showHint && (
         <div
           style={{
