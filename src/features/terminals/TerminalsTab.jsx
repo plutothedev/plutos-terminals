@@ -1610,6 +1610,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 tabCosts={tabCosts}
                 onFocusTab={(panelId, tabId) => switchTab(panelId, tabId)}
                 onReviewDiff={(wt) => setDiffWorktree(wt)}
+                onSummarize={(tabId) => setSummary({ text: getTabText(tabId) })}
               />
             )}
             {ribbon === "snippets" && (
