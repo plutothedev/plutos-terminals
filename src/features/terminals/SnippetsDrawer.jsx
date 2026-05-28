@@ -23,6 +23,19 @@ function freshSnippetId() {
   return `snip_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
+// Parameterized snippets: {{name}} placeholders prompt for a value on insert.
+const VAR_RE = /\{\{\s*([\w.-]+)\s*\}\}/g;
+function extractVars(command) {
+  const out = [];
+  let m;
+  VAR_RE.lastIndex = 0;
+  while ((m = VAR_RE.exec(command || ""))) if (!out.includes(m[1])) out.push(m[1]);
+  return out;
+}
+function fillVars(command, vals) {
+  return String(command || "").replace(VAR_RE, (_, name) => (vals[name] ? vals[name] : `{{${name}}}`));
+}
+
 export default function SnippetsDrawer({
   open,
   onClose,
@@ -38,6 +51,24 @@ export default function SnippetsDrawer({
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [newCommand, setNewCommand] = useState("");
+  const [fillSnippet, setFillSnippet] = useState(null); // snippet with {{vars}} awaiting values
+  const [vals, setVals] = useState({});
+
+  // Click → insert. If the command has {{vars}}, open the fill form first.
+  const handlePick = (s) => {
+    const vars = extractVars(s.command);
+    if (vars.length) {
+      setFillSnippet(s);
+      setVals(Object.fromEntries(vars.map((v) => [v, ""])));
+    } else {
+      onInsert?.(s.command);
+    }
+  };
+  const doFill = () => {
+    if (!fillSnippet) return;
+    onInsert?.(fillVars(fillSnippet.command, vals));
+    setFillSnippet(null);
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -155,6 +186,36 @@ export default function SnippetsDrawer({
         </div>
       )}
 
+      {fillSnippet && (
+        <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: 6, borderBottom: "1px solid var(--phn-surface-border, #2b2b2b)" }}>
+          <div style={{ fontSize: 11, color: "var(--phn-text-dim, #888)" }}>
+            Fill in <strong style={{ color: "var(--phn-text-fg, #d4d4d4)" }}>{fillSnippet.name}</strong>
+          </div>
+          {extractVars(fillSnippet.command).map((v, i) => (
+            <input
+              key={v}
+              className="phn-sidebar-search"
+              autoFocus={i === 0}
+              value={vals[v] || ""}
+              onChange={(e) => setVals({ ...vals, [v]: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); doFill(); }
+                if (e.key === "Escape") { e.stopPropagation(); setFillSnippet(null); }
+              }}
+              placeholder={v}
+              spellCheck={false}
+            />
+          ))}
+          <div style={{ fontFamily: "'JetBrains Mono', Menlo, Monaco, monospace", fontSize: 10.5, color: "var(--phn-text-dim, #888)", wordBreak: "break-all" }}>
+            {fillVars(fillSnippet.command, vals)}
+          </div>
+          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+            <button className="phn-snippets-close" onClick={() => setFillSnippet(null)} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4 }}>cancel</button>
+            <button className="phn-snippets-close" onClick={doFill} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4 }}>insert</button>
+          </div>
+        </div>
+      )}
+
       <div className="phn-snippets-list">
         {filtered.length === 0 ? (
           <div className="phn-snippets-empty">
@@ -167,7 +228,7 @@ export default function SnippetsDrawer({
             <div
               key={s.id}
               className="phn-snippet-item"
-              onClick={() => onInsert?.(s.command)}
+              onClick={() => handlePick(s)}
               title={`Insert into active terminal: ${s.command}`}
               style={{ position: "relative" }}
             >
