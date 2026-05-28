@@ -14,6 +14,8 @@ import AgentDashboard from "./AgentDashboard";
 import DiffView from "./DiffView";
 import ModelPicker from "./ModelPicker";
 import SshKeysModal from "./SshKeysModal";
+import MacrosModal from "./MacrosModal";
+import MasterPasswordModal from "./MasterPasswordModal";
 import MobaToolbar from "./MobaToolbar";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
@@ -112,6 +114,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [mcpOpen, setMcpOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [sshKeysOpen, setSshKeysOpen] = useState(false);
+  const [macrosOpen, setMacrosOpen] = useState(false);
+  const [masterPwOpen, setMasterPwOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   // Diff-review modal: the worktree { path, branch, repo } to review, or null.
@@ -530,6 +534,35 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     );
     persist({ ...state, panels, activePanelId: panelId });
   }, [state, persist]);
+
+  // Detach a tab into its own window: write a one-panel state under the new
+  // window's per-window key (App reads `…:state:v0:<w>`), close the tab here,
+  // then open the window. The session re-spawns from its saved config (cwd /
+  // connection / start commands) — a fresh process, not a live hand-off, since
+  // the running PTY id isn't persisted.
+  const detachTab = useCallback(async (panelId, tabId) => {
+    const panel = state.panels.find(p => p.id === panelId);
+    const src = panel?.tabs.find(t => t.id === tabId);
+    if (!src) return;
+    if (src.home) { toast.info("Open a session in this tab first, then detach it."); return; }
+    const winId = `${Date.now().toString(36)}`.slice(-6);
+    const newPanelId = freshId("panel");
+    const tabCopy = { ...src, layout: undefined, activePaneId: undefined };
+    const newState = {
+      panels: [{ id: newPanelId, tabs: [tabCopy], activeTabId: tabCopy.id }],
+      activePanelId: newPanelId,
+      gridMode: "auto",
+      projects: state.projects,
+    };
+    try { localStorage.setItem(`plutos-terminals:state:v0:${winId}`, JSON.stringify(newState)); } catch { /* ignore */ }
+    closeTab(panelId, tabId);
+    try {
+      await invoke("spawn_new_window", { windowId: winId });
+      toast.success(`Detached "${src.label}" to a new window.`);
+    } catch (e) {
+      toast.error(`Detach failed: ${e}`);
+    }
+  }, [state, closeTab, toast]);
 
   const closeOtherTabs = useCallback((panelId, keepTabId) => {
     const panel = state.panels.find(p => p.id === panelId);
@@ -1308,6 +1341,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             label: "Tools",
             items: [
               { label: "Snippets / Tools panel", action: () => selectRibbon("snippets") },
+              { label: "Keystroke macros…", action: () => setMacrosOpen(true) },
               { label: "Models — pick provider + model…", action: () => setModelsOpen(true) },
               { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
               { divider: true },
@@ -1328,6 +1362,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             label: "Settings",
             items: [
               { label: "Settings…", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },
+              { label: "Master password…", action: () => setMasterPwOpen(true) },
             ],
           },
           {
@@ -1505,6 +1540,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onTabCostUpdate={handleTabCostUpdate}
               onRenameTab={renameTab}
               onDuplicateTab={(tabId) => duplicateTab(panel.id, tabId)}
+              onDetachTab={(tabId) => detachTab(panel.id, tabId)}
               onCloseOthers={(tabId) => closeOtherTabs(panel.id, tabId)}
               onMoveTab={moveTab}
               onSplitPane={splitPane}
@@ -1587,6 +1623,20 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
       <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
 
+      <MacrosModal
+        open={macrosOpen}
+        canReplay={!!activeTabId}
+        onReplay={(data) => activeTabId && writeToTab(activeTabId, data)}
+        onClose={() => setMacrosOpen(false)}
+      />
+
+      <MasterPasswordModal
+        open={masterPwOpen}
+        userSt={userSt}
+        saveUser={saveUser}
+        onClose={() => setMasterPwOpen(false)}
+      />
+
       <McpInstaller
         open={mcpOpen}
         onClose={() => setMcpOpen(false)}
@@ -1607,6 +1657,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "new-session", icon: "🌐", label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
           { id: "import-ssh", icon: "🔑", label: "Import ~/.ssh/config", hint: "Add every SSH host from your OpenSSH config to the Sessions tree", action: () => importSshConfig() },
           { id: "ssh-keys", icon: "🗝️", label: "SSH keys", hint: "List / generate SSH keypairs; copy a public key to a server", action: () => setSshKeysOpen(true) },
+          { id: "macros", icon: "⏺", label: "Keystroke macros", hint: "Record what you type and replay it into the active terminal", action: () => setMacrosOpen(true) },
+          { id: "master-pw", icon: "🔒", label: "Master password", hint: "Lock the app behind a password on launch", action: () => setMasterPwOpen(true) },
           { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },

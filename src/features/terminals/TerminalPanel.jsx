@@ -132,6 +132,7 @@ export default function TerminalPanel({
   onTabCostUpdate,
   onRenameTab,
   onDuplicateTab,
+  onDetachTab,
   onCloseOthers,
   onMoveTab,
   onSplitPane,
@@ -652,6 +653,7 @@ export default function TerminalPanel({
             >
               {item("Rename", () => startRename(tab))}
               {item("Duplicate", () => onDuplicateTab?.(tab.id))}
+              {onDetachTab && !tab.home && item("Detach to new window", () => onDetachTab(tab.id))}
               {onSplitPane && item("Split right", () => onSplitPane(tab.id, tab.activePaneId || tab.id, "row"))}
               <div style={{ height: 1, background: BORDER_DIM, margin: "4px 0" }} />
               {item("Close others", () => onCloseOthers?.(tab.id), { disabled: !multi })}

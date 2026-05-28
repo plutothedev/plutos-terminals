@@ -10,6 +10,7 @@ import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
+import { recordInput } from "./macros.js";
 import {
   registerPtyWriter,
   unregisterPty,
@@ -731,6 +732,7 @@ export default function TerminalPane({
         term.onData((data) => {
           if (!alive || !ptyId) return;
           userHasTypedRef.current = true;
+          recordInput(data); // macro recording (no-op unless armed)
           // Any user input dismisses the welcome hint.
           dismissHintRef.current?.();
           // Clear the auto-approve match buffer when the user types — they

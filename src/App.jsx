@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
+import LockScreen from "./features/terminals/LockScreen.jsx";
+import { isUnlockedThisSession } from "./features/terminals/masterPassword.js";
 import { ToastProvider } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
 import {
@@ -108,6 +110,7 @@ function AppInner() {
     }
     return us;
   });
+  const [unlocked, setUnlocked] = useState(isUnlockedThisSession);
 
   const save = useCallback((next) => {
     setSt(next);
@@ -161,6 +164,12 @@ function AppInner() {
   useEffect(() => { applyGlobalLayout(layoutId); }, [layoutId]);
 
   const welcomeDone = userSt.welcomeDone === true;
+
+  // Optional master-password lock — gate the UI once per launch when set.
+  const lockHash = typeof userSt.masterPasswordHash === "string" ? userSt.masterPasswordHash : "";
+  if (welcomeDone && lockHash && !unlocked) {
+    return <LockScreen expectedHash={lockHash} onUnlock={() => setUnlocked(true)} />;
+  }
 
   if (!welcomeDone) {
     return (
