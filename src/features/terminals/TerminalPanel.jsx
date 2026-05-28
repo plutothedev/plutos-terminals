@@ -342,12 +342,12 @@ export default function TerminalPanel({
                   marginTop: 3,
                   marginRight: 2,
                   cursor: isRenamingThis ? "text" : "pointer",
-                  // MobaXterm dark tabs: the active tab is a flat, slightly
-                  // lighter charcoal slab with a thin cyan top edge; inactive
-                  // tabs sit flush with the strip (dim text, faint right divider).
-                  background: active ? "rgba(255,255,255,0.08)" : "transparent",
+                  // MobaXterm dark tabs: flat slabs with no bright accent line.
+                  // Active = a slightly lighter slab + white text; inactive =
+                  // flush with the strip, dim text, faint right divider.
+                  background: active ? "rgba(255,255,255,0.10)" : "transparent",
                   color: active ? TAB_FG_ACTIVE : TAB_FG,
-                  borderTop: `2px solid ${active ? ACCENT : "transparent"}`,
+                  borderTop: "1px solid transparent",
                   borderRight: active ? "1px solid transparent" : `1px solid ${BORDER_DIM}`,
                   borderRadius: "4px 4px 0 0",
                   whiteSpace: "nowrap",

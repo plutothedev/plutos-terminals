@@ -660,9 +660,15 @@ export default function TerminalPane({
         if (!connection && !serial && !restored && cmdsAtSpawn.length === 0 && !isWindowsUA && alive && ptyId) {
           await new Promise(r => setTimeout(r, 450));
           // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less.
-          const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah';";
-          const zshPrompt = "PROMPT='%K{2}%F{0} %D{%m-%d} %K{4}%F{15} %* %K{3}%F{0} %~ %k%f '";
-          const bashPrompt = "PS1='\\[\\e[42;30m\\] \\D{%m-%d} \\[\\e[44;97m\\] \\t \\[\\e[43;30m\\] \\w \\[\\e[0m\\] '";
+          // MobaXterm parity: ls/grep stay coloured everywhere, less keeps colour
+          // codes, and a few quality-of-life aliases. zsh-syntax-highlighting is
+          // sourced if it's on the system (gives real "rainbow as you type").
+          const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export GREP_OPTIONS=; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah'; alias la='ls -laGh'; for __zsh in /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ~/.zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh; do [ -f \"$__zsh\" ] && source \"$__zsh\" 2>/dev/null && break; done; unset __zsh;";
+          // MobaXterm-style segmented prompt with 📅 🕐 📁 icons over coloured
+          // backgrounds — matches the reference screenshot exactly. zsh's %K/%F
+          // know about their own escapes so width tracking stays correct.
+          const zshPrompt = "PROMPT='%K{2}%F{0} 📅 %D{%m-%d} %k%f%K{4}%F{15} 🕐 %* %k%f%K{3}%F{0} 📁 %~ %k%f '";
+          const bashPrompt = "PS1='\\[\\e[42;30m\\] 📅 \\D{%m-%d} \\[\\e[44;97m\\] 🕐 \\t \\[\\e[43;30m\\] 📁 \\w \\[\\e[0m\\] '";
           // MobaXterm-style welcome box: a rounded panel with a cyan title and
           // ➤ feature lines with green check marks. Plain text is padded to a
           // fixed inner width BEFORE color is layered on so the box edges align;
@@ -697,7 +703,11 @@ export default function TerminalPane({
           box.push(" " + dim("╰" + "─".repeat(W + 2) + "╯"));
           const bannerText = "\\n" + box.join("\\n") + "\\n\\n";
           const banner = "printf '" + bannerText.replace(/'/g, "'\\''") + "'";
-          const init = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; clear; ${banner}`;
+          // If lolcat is installed, paint a rainbow tagline below the box —
+          // makes the welcome instantly colourful like MobaXterm's banner area.
+          const tagline = "  multi-terminal · SSH · SFTP · serial · RDP · VNC · MultiExec · snippets · ⌘+K palette";
+          const rainbow = `command -v lolcat >/dev/null 2>&1 && printf '%s\\n\\n' '${tagline}' | lolcat || printf '\\033[2m%s\\033[0m\\n\\n' '${tagline}'`;
+          const init = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; clear; ${banner}; ${rainbow}`;
           if (alive && ptyId) {
             try { await invoke("pty_write", { id: ptyId, data: init + "\r" }); } catch {}
           }

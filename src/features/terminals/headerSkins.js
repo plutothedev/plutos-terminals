@@ -943,16 +943,16 @@ const CSS = `
 }
 
 [data-phn-skin="moba"] {
-  --phn-page-bg: #1e1e1e;        /* behind panels; terminal itself is pure black */
-  --phn-surface-bg: #2d2d2d;     /* menu / toolbar / status / tab-strip — charcoal */
-  --phn-surface-alt-bg: #1e1e1e; /* sidebar / docked file browser — darker */
-  --phn-surface-border: #161616; /* dark dividers between surfaces */
+  --phn-page-bg: #0d0d0d;        /* behind panels; the terminal itself is pure black */
+  --phn-surface-bg: #1a1a1a;     /* menu / toolbar / status / tab-strip — near black */
+  --phn-surface-alt-bg: #0f0f0f; /* sidebar / docked file browser — darker still */
+  --phn-surface-border: #050505; /* near-black dividers between surfaces */
   --phn-text-fg: #cfcfcf;
   --phn-text-active: #ffffff;
-  --phn-text-dim: #868686;
-  --phn-link: #5fd7d7;           /* MobaXterm cyan accent (active tab / selection) */
-  --phn-accent-subtle: rgba(95,215,215,0.15);
-  --phn-hover-bg: rgba(255,255,255,0.06);
+  --phn-text-dim: #7a7a7a;
+  --phn-link: #5fd7d7;           /* MobaXterm cyan accent — used sparingly */
+  --phn-accent-subtle: rgba(95,215,215,0.13);
+  --phn-hover-bg: rgba(255,255,255,0.05);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
