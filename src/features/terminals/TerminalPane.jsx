@@ -434,6 +434,7 @@ export default function TerminalPane({
     let ptyId = null;
     let unlistenData = null;
     let jumpFwdId = null; // jump-host tunnel to tear down on unmount
+    let restoringScrollback = false; // suppress OSC 133 while replaying old output
     let unlistenExit = null;
     const cmdsAtSpawn = Array.isArray(startCommandsRef.current) ? [...startCommandsRef.current] : [];
 
@@ -505,6 +506,10 @@ export default function TerminalPane({
     // D closes the PREVIOUS block with its exit code. A non-zero exit captures
     // the block's text (prompt+command+output) and surfaces the AI explainer.
     term.parser.registerOscHandler(133, (data) => {
+      // Ignore marks replayed from restored scrollback — those are last
+      // session's command boundaries, not live ones (would pop a phantom
+      // "command failed" banner / blocks on tab restore).
+      if (restoringScrollback) return true;
       const buf = term.buffer.active;
       const here = buf.baseY + buf.cursorY;
       if (data === "A" || data.startsWith("A;")) {
@@ -560,7 +565,9 @@ export default function TerminalPane({
       try {
         const saved = await invoke("scrollback_load", { tabId: id });
         if (saved && alive) {
-          term.write(saved);
+          // Suppress OSC 133 while the old bytes replay; clear once parsed.
+          restoringScrollback = true;
+          term.write(saved, () => { restoringScrollback = false; });
           if (!saved.endsWith("\n")) term.writeln("");
           term.writeln("\x1b[90m─── scrollback restored ───\x1b[0m");
           // Returning tab — not a fresh terminal, hide the hint immediately.

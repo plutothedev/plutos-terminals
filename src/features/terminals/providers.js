@@ -15,7 +15,7 @@ export const PROVIDERS = [
     kind: "anthropic",
     runsWith: "Claude Code",
     keysUrl: "https://console.anthropic.com/settings/keys",
-    models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
   },
   {
     id: "moonshot",
@@ -102,8 +102,8 @@ export function resolveActiveLLM(userSt) {
     if (p) return { kind: p.kind, baseUrl: p.baseUrl || "", apiKey: keys[am.providerId], model: am.model };
   }
   if (typeof userSt?.anthropicKey === "string" && userSt.anthropicKey) {
-    // Cheapest catalog Claude for quick explanations.
-    return { kind: "anthropic", baseUrl: "", apiKey: userSt.anthropicKey, model: "claude-haiku-4-5" };
+    // Cheap, fast Claude for quick explanations (exact dated id so it resolves).
+    return { kind: "anthropic", baseUrl: "", apiKey: userSt.anthropicKey, model: "claude-haiku-4-5-20251001" };
   }
   return null;
 }

@@ -846,7 +846,10 @@ pub async fn llm_complete(
     system: String,
     prompt: String,
 ) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
     let trim = |s: &str| s.trim_end_matches('/').to_string();
     let anthropic = kind == "anthropic" || kind == "anthropic-compat";
 
@@ -858,9 +861,14 @@ pub async fn llm_complete(
             "system": system,
             "messages": [{ "role": "user", "content": prompt }],
         });
+        // Anthropic native authenticates with x-api-key; Anthropic-compatible
+        // gateways (e.g. Moonshot /anthropic) expect Authorization: Bearer — the
+        // same token Claude Code sends as ANTHROPIC_AUTH_TOKEN. Send both so
+        // whichever the endpoint honours works.
         let resp = client
             .post(format!("{}/v1/messages", base))
             .header("x-api-key", &api_key)
+            .header("authorization", format!("Bearer {}", api_key))
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .json(&body)

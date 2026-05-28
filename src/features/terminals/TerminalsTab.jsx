@@ -554,14 +554,19 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       gridMode: "auto",
       projects: state.projects,
     };
-    try { localStorage.setItem(`plutos-terminals:state:v0:${winId}`, JSON.stringify(newState)); } catch { /* ignore */ }
-    closeTab(panelId, tabId);
+    const stateKey = `plutos-terminals:state:v0:${winId}`;
+    try { localStorage.setItem(stateKey, JSON.stringify(newState)); } catch { /* ignore */ }
+    // Open the window FIRST; only drop the tab here once it succeeds, so a spawn
+    // failure never loses the session.
     try {
       await invoke("spawn_new_window", { windowId: winId });
-      toast.success(`Detached "${src.label}" to a new window.`);
     } catch (e) {
+      try { localStorage.removeItem(stateKey); } catch { /* ignore */ }
       toast.error(`Detach failed: ${e}`);
+      return;
     }
+    closeTab(panelId, tabId);
+    toast.success(`Detached "${src.label}" to a new window.`);
   }, [state, closeTab, toast]);
 
   const closeOtherTabs = useCallback((panelId, keepTabId) => {
