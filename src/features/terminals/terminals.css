@@ -281,8 +281,8 @@
 .moba-quickconnect {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 4px 7px;
   background: var(--phn-surface-bg, #383838);
   border-bottom: 1px solid var(--phn-surface-border, #151515);
   flex-shrink: 0;
@@ -385,7 +385,7 @@
   align-items: stretch;
   background: var(--phn-surface-bg, #2d2d2d);
   border-bottom: 1px solid var(--phn-surface-border, #1a1a1a);
-  padding: 3px 6px;
+  padding: 2px 5px;
   flex-shrink: 0;
   font-family: var(--phn-ui-font);
   overflow-x: auto;
@@ -407,7 +407,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 0 7px;
+  padding: 0 5px;
   border-right: 1px solid var(--phn-surface-border, #1a1a1a);
   flex-shrink: 0;
 }
@@ -426,9 +426,9 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  min-width: 44px;
-  padding: 4px 6px;
+  gap: 2px;
+  min-width: 40px;
+  padding: 3px 6px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -472,7 +472,7 @@
   border-bottom: 1px solid var(--phn-surface-border, #1c1d20);
   flex-shrink: 0;
   font-family: var(--phn-ui-font);
-  font-size: 12px;
+  font-size: 11px;
   -webkit-app-region: drag; /* the menu bar doubles as a window drag strip */
 }
 .moba-menu { position: relative; -webkit-app-region: no-drag; }
@@ -481,9 +481,9 @@
   border: none;
   color: var(--phn-text-fg, #cfd6dd);
   cursor: pointer;
-  padding: 5px 11px;
+  padding: 4px 9px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 11px;
 }
 .moba-menu-btn:hover, .moba-menu-btn.active {
   background: var(--phn-hover-bg, rgba(255, 255, 255, 0.07));
@@ -664,9 +664,9 @@
 .phn-sftp-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  border-radius: 4px;
+  gap: 7px;
+  padding: 3px 9px;
+  border-radius: 3px;
   cursor: default;
   user-select: none;
 }
