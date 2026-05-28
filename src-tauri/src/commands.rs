@@ -939,13 +939,68 @@ fn ssh_split_kv(line: &str) -> (String, String) {
     (key, val)
 }
 
+// Resolve an `Include` pattern to concrete files. Absolute or ~-anchored paths
+// are used as-is; relative patterns are relative to ~/.ssh (OpenSSH semantics).
+// A `*` glob (e.g. config.d/*) or a directory expands to every regular file in
+// that directory — covering the common drop-in-config layout without a glob dep.
+fn ssh_include_files(pattern: &str) -> Vec<PathBuf> {
+    let base: PathBuf = if let Some(rest) = pattern.strip_prefix("~/") {
+        local_home().join(rest)
+    } else if pattern.starts_with('/') {
+        PathBuf::from(pattern)
+    } else {
+        local_home().join(".ssh").join(pattern)
+    };
+    let s = base.to_string_lossy().to_string();
+    let dir = if let Some(star) = s.find('*') {
+        // The glob's directory is everything up to the last '/' BEFORE the '*'
+        // (e.g. "…/config.d/*" → "…/config.d"). Path::parent() would climb one
+        // level too far past the trailing slash and rescan the parent dir.
+        let prefix = &s[..star];
+        PathBuf::from(prefix.rsplit_once('/').map(|(d, _)| d).unwrap_or("."))
+    } else if base.is_dir() {
+        base.clone()
+    } else {
+        return vec![base];
+    };
+    let mut files: Vec<PathBuf> = fs::read_dir(dir).ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .collect();
+    files.sort();
+    files
+}
+
+// Read an ssh_config and inline any `Include` directives, returning trimmed,
+// comment-free lines ready to parse. Depth-guarded against include cycles.
+fn flatten_ssh_config(path: &std::path::Path, depth: u8, out: &mut Vec<String>) {
+    if depth > 16 { return; }
+    let content = match fs::read_to_string(path) { Ok(c) => c, Err(_) => return };
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        let (key, val) = ssh_split_kv(line);
+        if key.eq_ignore_ascii_case("include") {
+            for pat in val.split_whitespace() {
+                for f in ssh_include_files(pat) {
+                    flatten_ssh_config(&f, depth + 1, out);
+                }
+            }
+        } else {
+            out.push(line.to_string());
+        }
+    }
+}
+
 #[tauri::command]
 pub fn parse_ssh_config() -> Result<Vec<SshHostEntry>, String> {
     let path = local_home().join(".ssh").join("config");
-    let content = match fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(_) => return Ok(vec![]),
-    };
+    let mut lines: Vec<String> = Vec::new();
+    flatten_ssh_config(&path, 0, &mut lines);
+    if lines.is_empty() { return Ok(vec![]); }
     let expand = |v: &str| -> String {
         if let Some(rest) = v.strip_prefix("~/") {
             local_home().join(rest).to_string_lossy().to_string()
@@ -958,9 +1013,7 @@ pub fn parse_ssh_config() -> Result<Vec<SshHostEntry>, String> {
             if !e.host_name.is_empty() { out.push(e); }
         }
     };
-    for raw in content.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+    for line in &lines {
         let (key, val) = ssh_split_kv(line);
         match key.to_ascii_lowercase().as_str() {
             "host" => {

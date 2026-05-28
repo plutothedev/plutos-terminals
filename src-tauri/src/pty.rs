@@ -585,11 +585,18 @@ fn verify_host_key(sess: &ssh2::Session, host: &str, port: u16) -> Result<String
 /// Open a TCP connection, complete the SSH handshake, verify the host key, and
 /// authenticate — returning a ready session (blocking mode). Shared by the
 /// interactive shell (`ssh_spawn`) and SFTP (`sftp::sftp_connect`).
+///
+/// `verify_as` overrides the name/port the host key is checked + pinned under.
+/// Normal connections pass `None` (verify under the connect host:port). The
+/// jump-host path connects to 127.0.0.1:<ephemeral> but passes the real target
+/// `(host, port)` so the target's key pins under its true identity in
+/// known_hosts (not a throwaway localhost port that never matches again).
 pub fn connect_session(
     host: &str,
     port: u16,
     user: &str,
     auth: &SshAuth,
+    verify_as: Option<(&str, u16)>,
 ) -> Result<ssh2::Session, String> {
     let port = if port == 0 { 22 } else { port };
     let tcp = TcpStream::connect((host, port))
@@ -599,7 +606,8 @@ pub fn connect_session(
     sess.handshake().map_err(|e| format!("ssh handshake failed: {e}"))?;
 
     // Host-key verification — never skipped; refuses on a changed key.
-    verify_host_key(&sess, host, port)?;
+    let (vh, vp) = verify_as.unwrap_or((host, port));
+    verify_host_key(&sess, vh, vp)?;
 
     match auth.method.as_str() {
         "password" => {
@@ -651,8 +659,13 @@ pub fn ssh_spawn(
     cols: u16,
     rows: u16,
     tab_id: Option<String>,
+    host_key_alias: Option<String>,
+    host_key_port: Option<u16>,
 ) -> Result<String, String> {
-    let sess = connect_session(&host, port, &user, &auth)?;
+    // For jump-host connections (host = 127.0.0.1:<tunnel port>), verify/pin the
+    // host key under the real target identity instead of the throwaway port.
+    let verify_as = host_key_alias.as_deref().map(|h| (h, host_key_port.unwrap_or(port)));
+    let sess = connect_session(&host, port, &user, &auth, verify_as)?;
 
     // Interactive shell on a PTY channel.
     let mut channel = sess.channel_session().map_err(|e| e.to_string())?;

@@ -255,29 +255,43 @@ fn socks_worker(sess: ssh2::Session, listener: TcpListener, stop_rx: mpsc::Recei
     let mut proxies: Vec<Proxy> = Vec::new();
     let mut buf = [0u8; BUF];
 
+    // Each client's SOCKS5 negotiation (a blocking read, bounded by a 10s
+    // timeout) runs on its OWN short-lived thread so one slow/idle client can't
+    // stall the worker (and every other proxied connection). The thread hands
+    // back the negotiated (socket, target) and the worker — sole owner of the
+    // !Sync session — opens the channel and writes the final CONNECT reply.
+    let (hs_tx, hs_rx) = mpsc::channel::<(TcpStream, String, u16)>();
+
     loop {
         match stop_rx.try_recv() {
             Ok(()) | Err(mpsc::TryRecvError::Disconnected) => break,
             Err(mpsc::TryRecvError::Empty) => {}
         }
+        // Accept new clients; negotiate each off-thread.
         loop {
             match listener.accept() {
                 Ok((mut tcp, _addr)) => {
-                    let _ = tcp.set_nonblocking(false); // tiny, immediate handshake
-                    match socks5_negotiate(&mut tcp) {
-                        Ok((h, p)) => match open_direct(&sess, &h, p) {
-                            Ok(ch) => {
-                                let _ = tcp.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); // success
-                                let _ = tcp.set_nonblocking(true);
-                                proxies.push(Proxy { tcp, ch, to_ch: VecDeque::new(), to_tcp: VecDeque::new(), tcp_eof: false, ch_eof: false });
-                            }
-                            Err(_) => { let _ = tcp.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); } // refused
-                        },
-                        Err(_) => { /* malformed/timed-out client — drop it */ }
-                    }
+                    let _ = tcp.set_nonblocking(false);
+                    let tx = hs_tx.clone();
+                    thread::spawn(move || {
+                        if let Ok((h, p)) = socks5_negotiate(&mut tcp) {
+                            let _ = tx.send((tcp, h, p));
+                        } // else: malformed/timed-out — drop the socket
+                    });
                 }
                 Err(ref e) if would_block(e) => break,
                 Err(_) => break,
+            }
+        }
+        // Bridge any freshly-negotiated connections (session work stays here).
+        while let Ok((mut tcp, h, p)) = hs_rx.try_recv() {
+            match open_direct(&sess, &h, p) {
+                Ok(ch) => {
+                    let _ = tcp.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); // success
+                    let _ = tcp.set_nonblocking(true);
+                    proxies.push(Proxy { tcp, ch, to_ch: VecDeque::new(), to_tcp: VecDeque::new(), tcp_eof: false, ch_eof: false });
+                }
+                Err(_) => { let _ = tcp.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); } // refused
             }
         }
 
@@ -315,7 +329,7 @@ pub fn port_forward_start(
     // Bind first so a port clash fails fast (before authenticating).
     let listener = TcpListener::bind(("127.0.0.1", local_port))
         .map_err(|e| format!("can't bind 127.0.0.1:{local_port}: {e}"))?;
-    let sess = connect_session(&host, port, &user, &auth)?;
+    let sess = connect_session(&host, port, &user, &auth, None)?;
 
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || worker(sess, listener, remote_host, remote_port, stop_rx));
@@ -343,7 +357,7 @@ pub fn socks_forward_start(
 ) -> Result<String, String> {
     let listener = TcpListener::bind(("127.0.0.1", local_port))
         .map_err(|e| format!("can't bind 127.0.0.1:{local_port}: {e}"))?;
-    let sess = connect_session(&host, port, &user, &auth)?;
+    let sess = connect_session(&host, port, &user, &auth, None)?;
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || socks_worker(sess, listener, stop_rx));
     let id = new_id();
@@ -380,7 +394,7 @@ pub fn jump_forward_start(
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|e| format!("can't bind a local port: {e}"))?;
     let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let sess = connect_session(&bastion_host, bastion_port, &bastion_user, &bastion_auth)?;
+    let sess = connect_session(&bastion_host, bastion_port, &bastion_user, &bastion_auth, None)?;
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || worker(sess, listener, target_host, target_port, stop_rx));
     let id = new_id();

@@ -230,7 +230,7 @@ pub fn sftp_connect(
     user: String,
     auth: SshAuth,
 ) -> Result<String, String> {
-    let sess = connect_session(&host, port, &user, &auth)?;
+    let sess = connect_session(&host, port, &user, &auth, None)?;
     let (tx, rx) = mpsc::channel::<SftpReq>();
     thread::spawn(move || worker(sess, rx));
     let id = new_sftp_id();

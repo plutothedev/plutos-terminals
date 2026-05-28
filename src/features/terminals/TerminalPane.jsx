@@ -685,6 +685,10 @@ export default function TerminalPane({
             cols,
             rows,
             tabId,
+            // Jump host: pin the target's key under its real identity, not the
+            // ephemeral 127.0.0.1 tunnel port.
+            hostKeyAlias: connection.jump ? connection.host : null,
+            hostKeyPort: connection.jump ? (connection.port || 22) : null,
           });
         } else {
           id = await invoke("pty_spawn", { cwd: cwd || null, cols, rows, extraEnv, tabId });
