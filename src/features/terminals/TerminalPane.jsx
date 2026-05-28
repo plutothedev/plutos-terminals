@@ -469,9 +469,17 @@ export default function TerminalPane({
       },
     });
     term.open(container);
-    try { fit.fit(); } catch {}
     termRef.current = term;
     fitRef.current = fit;
+    // Only fit when the container is actually on-screen with a real size. A
+    // hidden tab is display:none (0×0); fitting then clamps the PTY to a tiny
+    // width and makes zsh redraw a WRAPPED prompt in the background — the
+    // "wonky prompt on tab switch" bug. Skipping 0-size keeps hidden tabs intact.
+    const safeFit = () => {
+      if (!alive || !container.clientWidth || !container.clientHeight) return;
+      try { fit.fit(); } catch {}
+    };
+    safeFit();
 
     // Once the bundled powerline font is ready, RE-ASSIGN fontFamily so xterm
     // rebuilds its glyph atlas with MesloLGS NF (a plain refresh() keeps the
@@ -482,7 +490,7 @@ export default function TerminalPane({
         if (!alive) return;
         try {
           term.options.fontFamily = "'MesloLGS NF', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace";
-          fit.fit();
+          safeFit();
           term.refresh(0, term.rows - 1);
         } catch {}
       }).catch(() => {});
@@ -821,10 +829,7 @@ export default function TerminalPane({
       }
     })();
 
-    const ro = new ResizeObserver(() => {
-      if (!alive) return;
-      try { fit.fit(); } catch {}
-    });
+    const ro = new ResizeObserver(safeFit);
     ro.observe(container);
 
     return () => {
@@ -869,7 +874,10 @@ export default function TerminalPane({
     bytesSinceSeenRef.current = 0;
     setActivity("idle");
     const t = setTimeout(() => {
-      try { fitRef.current?.fit(); } catch {}
+      const el = containerRef.current;
+      if (el && el.clientWidth && el.clientHeight) {
+        try { fitRef.current?.fit(); } catch {}
+      }
       // Only the active pane of a (possibly split) tab steals focus on show.
       if (activeRef.current) {
         try { termRef.current?.focus(); } catch {}
