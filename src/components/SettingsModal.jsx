@@ -9,21 +9,14 @@ import { getSkinId } from "../features/terminals/headerSkins.js";
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const PLUTO_MAGENTA = "#FF0080";
 
-export default function SettingsModal({ open, st, save, userSt = {}, saveUser = () => {}, onClose }) {
-  // anthropicKey lives in shared user-state since v0.1.21 (multi-window
-  // shouldn't re-prompt). Other settings remain per-window.
-  const [anthropicKey, setAnthropicKey] = useState(userSt.anthropicKey || "");
+export default function SettingsModal({ open, st, save, onClose }) {
+  // API keys + models now live entirely in the Models section (the single place
+  // for anything LLM/key-related). Settings is appearance + factory reset.
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
-  const [showKey, setShowKey] = useState(false);
   const toast = useToast();
   const confirm = useConfirm();
 
   const handleSave = () => {
-    if (anthropicKey && !anthropicKey.startsWith("sk-ant-") && !anthropicKey.startsWith("sk-")) {
-      toast.error("API key doesn't look right — should start with 'sk-ant-'. Double-check.");
-      return;
-    }
-    saveUser({ ...userSt, anthropicKey });
     save({ ...st, headerSkin: getSkinId(headerSkin) });
     toast.success("Settings saved.");
     onClose();
@@ -36,17 +29,6 @@ export default function SettingsModal({ open, st, save, userSt = {}, saveUser = 
     save({ ...st, headerSkin: next });
   };
   const isLight = headerSkin === "moba-light";
-
-  const handleClearKey = async () => {
-    const ok = await confirm(
-      "Clear your Anthropic API key from local storage? Spawned shells won't auto-receive it after this.",
-      { title: "Clear API key?", confirmLabel: "clear", destructive: true }
-    );
-    if (!ok) return;
-    setAnthropicKey("");
-    saveUser({ ...userSt, anthropicKey: "" });
-    toast.info("API key cleared.");
-  };
 
   const handleFactoryReset = async () => {
     const ok = await confirm(
@@ -69,23 +51,11 @@ export default function SettingsModal({ open, st, save, userSt = {}, saveUser = 
 
   return (
     <Modal open={open} title="Settings" onClose={onClose} width={560}>
-      <Field label="ANTHROPIC API KEY">
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            type={showKey ? "text" : "password"}
-            value={anthropicKey}
-            onChange={(e) => setAnthropicKey(e.target.value)}
-            placeholder="sk-ant-..."
-            style={inputStyle}
-          />
-          <button onClick={() => setShowKey(s => !s)} style={chipBtnStyle} title={showKey ? "Hide" : "Show"}>
-            {showKey ? "hide" : "show"}
-          </button>
-          <button onClick={handleClearKey} style={chipBtnStyle} title="Clear key from storage">
-            clear
-          </button>
-        </div>
-        <Hint>Auto-injected as ANTHROPIC_API_KEY into every new shell. Stored in plain JSON in app local data dir.</Hint>
+      <Field label="AI MODELS & API KEYS">
+        <Hint>
+          All provider API keys (Anthropic, OpenAI, and the rest) and model selection now live in the
+          <strong> Models</strong> section — open it from the toolbar's <strong>Models</strong> button or the command palette (Ctrl+K → “Models”).
+        </Hint>
       </Field>
 
       <Field label="APPEARANCE (LIVE PREVIEW)">

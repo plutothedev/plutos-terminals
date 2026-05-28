@@ -20,28 +20,19 @@ const YELLOW = "#FBBF24";
 
 const CLAUDE_INSTALL_CMD = "npm install -g @anthropic-ai/claude-code";
 
-export default function SetupChecker({ open, st, userSt = {}, onClose, onOpenSettings }) {
+export default function SetupChecker({ open, onClose }) {
   const toast = useToast();
-  // Each check: pending | found | missing
+  // Each check: pending | found | missing. Keys/models live in the Models
+  // section now — this checker only verifies the CLI toolchain is installed.
   const [nodeStatus, setNodeStatus] = useState({ state: "pending", value: null });
   const [npmStatus, setNpmStatus] = useState({ state: "pending", value: null });
   const [claudeStatus, setClaudeStatus] = useState({ state: "pending", value: null });
-  const [keyStatus, setKeyStatus] = useState({ state: "pending", value: null });
-  const [apiTest, setApiTest] = useState({ state: "idle", message: "" });
   const [copied, setCopied] = useState(false);
-
-  // v0.1.21: anthropicKey moved from per-window st to shared userSt.
-  // Fall back to st.anthropicKey for users still on legacy state.
-  const apiKey = (userSt && typeof userSt.anthropicKey === "string" && userSt.anthropicKey.length > 0)
-    ? userSt.anthropicKey
-    : ((st && typeof st.anthropicKey === "string") ? st.anthropicKey : "");
-  const hasKey = apiKey.length > 0;
 
   const runChecks = useCallback(async () => {
     setNodeStatus({ state: "pending", value: null });
     setNpmStatus({ state: "pending", value: null });
     setClaudeStatus({ state: "pending", value: null });
-    setKeyStatus({ state: hasKey ? "found" : "missing", value: hasKey ? "saved in app" : null });
 
     const checks = [
       ["node", setNodeStatus],
@@ -60,7 +51,7 @@ export default function SetupChecker({ open, st, userSt = {}, onClose, onOpenSet
         setter({ state: "missing", value: null });
       }
     }
-  }, [hasKey]);
+  }, []);
 
   useEffect(() => {
     if (open) runChecks();
@@ -76,46 +67,9 @@ export default function SetupChecker({ open, st, userSt = {}, onClose, onOpenSet
     });
   };
 
-  const onTestApi = async () => {
-    if (!hasKey) {
-      setApiTest({ state: "fail", message: "No API key saved — click 'open settings' below to add one." });
-      return;
-    }
-    setApiTest({ state: "pending", message: "Calling Anthropic API…" });
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 1,
-          messages: [{ role: "user", content: "hi" }],
-        }),
-      });
-      if (res.ok) {
-        setApiTest({ state: "ok", message: "Live API call succeeded — your key works." });
-        return;
-      }
-      let detail = `HTTP ${res.status}`;
-      try {
-        const data = await res.json();
-        if (data && data.error && data.error.message) detail = data.error.message;
-      } catch (_) { /* ignore */ }
-      setApiTest({ state: "fail", message: detail });
-    } catch (e) {
-      setApiTest({ state: "fail", message: String((e && e.message) || e) });
-    }
-  };
-
   const allGood = nodeStatus.state === "found"
     && npmStatus.state === "found"
-    && claudeStatus.state === "found"
-    && hasKey;
+    && claudeStatus.state === "found";
 
   return (
     <Modal open={open} title="Setup Check" onClose={onClose} width={620}>
@@ -164,58 +118,8 @@ export default function SetupChecker({ open, st, userSt = {}, onClose, onOpenSet
         )}
       />
 
-      <Check
-        label="Anthropic API key (saved in app)"
-        status={keyStatus}
-        installHint={(
-          <>
-            <div style={{ marginBottom: 8 }}>
-              Not saved. Get a key at <Link href="https://console.anthropic.com/">console.anthropic.com</Link> → "API Keys" → create new.
-              Then paste it into Pluto's Terminal via <strong style={{ color: ACCENT }}>⚙️ settings</strong>.
-            </div>
-            <button onClick={() => { onClose(); if (onOpenSettings) onOpenSettings(); }} style={chipBtnStyle}>
-              open settings
-            </button>
-          </>
-        )}
-      />
-
-      <div style={{ marginTop: 22, padding: "14px 16px", background: "var(--phn-page-bg, #0a0a0a)", border: `1px solid ${BORDER}`, borderRadius: 6 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={{ color: FG_ACTIVE, fontSize: 12, fontWeight: 600 }}>Live API test</div>
-          <button onClick={onTestApi} style={primaryBtnStyle} disabled={apiTest.state === "pending"}>
-            {apiTest.state === "pending" ? "testing…" : "test connection"}
-          </button>
-        </div>
-        <div style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.6 }}>
-          Calls the Anthropic Messages API with your saved key + a 1-token throwaway request to verify the key works.
-          Doesn't need Node.js or Claude CLI — direct browser-to-API.
-        </div>
-        {apiTest.state !== "idle" && (
-          <div
-            style={{
-              marginTop: 10,
-              padding: "8px 12px",
-              borderRadius: 4,
-              fontSize: 11,
-              background:
-                apiTest.state === "ok" ? "rgba(52, 211, 153, 0.12)"
-                : apiTest.state === "fail" ? "rgba(255, 0, 128, 0.12)"
-                : "rgba(251, 191, 36, 0.12)",
-              color:
-                apiTest.state === "ok" ? GREEN
-                : apiTest.state === "fail" ? PLUTO_MAGENTA
-                : YELLOW,
-              border: `1px solid ${
-                apiTest.state === "ok" ? GREEN
-                : apiTest.state === "fail" ? PLUTO_MAGENTA
-                : YELLOW
-              }`,
-            }}
-          >
-            {apiTest.state === "pending" ? "⏳" : apiTest.state === "ok" ? "✓" : "✗"} {apiTest.message}
-          </div>
-        )}
+      <div style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.6, marginTop: 4, marginBottom: 4 }}>
+        API keys & model selection live in the <strong style={{ color: ACCENT }}>Models</strong> section, not here.
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22 }}>

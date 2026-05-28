@@ -1618,8 +1618,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         open={settingsOpen}
         st={st}
         save={save}
-        userSt={userSt}
-        saveUser={saveUser}
         onClose={() => setSettingsOpen(false)}
       />
 
@@ -1659,10 +1657,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
       <SetupChecker
         open={setupOpen}
-        st={st}
-        userSt={userSt}
         onClose={() => setSetupOpen(false)}
-        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <CommandPalette
@@ -1786,7 +1781,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         )}
         <span className="phn-statusbar-divider">·</span>
         <button
-          onClick={() => setSetupOpen(true)}
+          onClick={() => (claudeAvailable === false ? setSetupOpen(true) : setModelsOpen(true))}
           style={{
             background: "transparent",
             border: "none",
@@ -1800,8 +1795,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             fontSize: 11,
           }}
           title={
-            claudeAvailable === true ? "Claude Code CLI is on PATH"
-            : claudeAvailable === false ? "Claude Code CLI not found — click for setup"
+            claudeAvailable === true ? "Claude Code CLI is on PATH — click to pick a model / API key"
+            : claudeAvailable === false ? "Claude Code CLI not found — click for the install checklist"
             : "Checking…"
           }
         >

@@ -192,9 +192,12 @@ export function resolveActiveLLM(userSt) {
       return { kind: p.kind, baseUrl, apiKey: keys[am.providerId], model: am.model };
     }
   }
-  if (typeof userSt?.anthropicKey === "string" && userSt.anthropicKey) {
+  // Default Claude key: the Models section's Anthropic key, falling back to the
+  // legacy standalone key for not-yet-migrated state.
+  const defaultAnthropic = keys.anthropic || userSt?.anthropicKey;
+  if (typeof defaultAnthropic === "string" && defaultAnthropic) {
     // Cheap, fast Claude for quick explanations (exact dated id so it resolves).
-    return { kind: "anthropic", baseUrl: "", apiKey: userSt.anthropicKey, model: "claude-haiku-4-5-20251001" };
+    return { kind: "anthropic", baseUrl: "", apiKey: defaultAnthropic, model: "claude-haiku-4-5-20251001" };
   }
   return null;
 }

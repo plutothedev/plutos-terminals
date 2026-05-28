@@ -126,6 +126,20 @@ function AppInner() {
     writeUserState(next);
   }, []);
 
+  // One-time migration: the legacy standalone Anthropic key now lives in the
+  // Models section as providerKeys.anthropic (single source of truth for keys).
+  // Copy it over so existing users see their key in the Models picker and the
+  // default-Claude injection keeps working.
+  useEffect(() => {
+    if (userSt.anthropicKey && !(userSt.providerKeys && userSt.providerKeys.anthropic)) {
+      saveUser({
+        ...userSt,
+        providerKeys: { ...(userSt.providerKeys || {}), anthropic: userSt.anthropicKey },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Cross-window sync: if another window updates user state, pick it up here.
   // localStorage `storage` events fire in OTHER tabs/windows of the same
   // origin (not the originating one). Useful when window 1 dismisses the
@@ -175,14 +189,9 @@ function AppInner() {
     return (
       <>
         <Welcome
-          initialKey={typeof userSt.anthropicKey === "string" ? userSt.anthropicKey : ""}
           discordUrl={DEFAULT_DISCORD_URL}
-          onContinue={(apiKey) => {
-            saveUser({
-              ...userSt,
-              welcomeDone: true,
-              anthropicKey: apiKey || userSt.anthropicKey || "",
-            });
+          onContinue={() => {
+            saveUser({ ...userSt, welcomeDone: true });
           }}
         />
         <UpdateBanner currentVersion={APP_VERSION} />
@@ -198,9 +207,7 @@ function AppInner() {
   );
 }
 
-function Welcome({ initialKey, discordUrl, onContinue }) {
-  const [apiKey, setApiKey] = useState(initialKey || "");
-
+function Welcome({ discordUrl, onContinue }) {
   return (
     <div
       style={{
@@ -230,41 +237,21 @@ function Welcome({ initialKey, discordUrl, onContinue }) {
         </p>
 
         <div style={{ marginBottom: 24 }}>
-          <label style={{ color: FG_DIM, fontSize: 11, letterSpacing: 0.5, display: "block", marginBottom: 8 }}>
-            ANTHROPIC API KEY (saved locally, auto-injected into every new shell)
-          </label>
-          <input
-            type="password"
-            placeholder="sk-ant-..."
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") onContinue(apiKey); }}
-            style={{
-              width: "100%",
-              background: "#181818",
-              border: `1px solid #2B2B2B`,
-              color: FG_ACTIVE,
-              padding: "10px 12px",
-              borderRadius: 4,
-              fontFamily: M,
-              fontSize: 12,
-              outline: "none",
-              boxSizing: "border-box",
-            }}
-          />
-          <div style={{ color: FG_DIM, fontSize: 10, marginTop: 6, lineHeight: 1.6 }}>
-            Stored in this app's local data dir (plain JSON). Skip if you'd rather paste per-shell.
-            You can edit, clear, or factory-reset later via the ⚙️ settings button in the header.
+          <div style={{ color: FG_DIM, fontSize: 11, marginTop: 6, lineHeight: 1.7 }}>
+            Pick your AI provider + model and drop in your API key from the
+            <strong style={{ color: FG_ACTIVE }}> Models</strong> button in the header (or Ctrl+K → “Models”) —
+            Claude, Hermes, Gemini, GLM, Qwen, Kimi, OpenRouter, or any endpoint. Keys are stored locally
+            and auto-injected into every new shell.
           </div>
           <div style={{ color: PLUTO_MAGENTA, fontSize: 10, marginTop: 10, lineHeight: 1.6 }}>
             ⚠️ First time? You'll also need <strong>Node.js</strong> + the <strong>Claude Code CLI</strong> installed for <code style={{ background: "#0a0a0a", padding: "0 4px", borderRadius: 2 }}>claude</code> to work in any tab.
-            Click <strong>🚀 setup</strong> in the header after enter for a guided checklist + live API test.
+            Click <strong>🚀 setup</strong> in the header for a guided install checklist.
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 24 }}>
           <button
-            onClick={() => onContinue(apiKey)}
+            onClick={() => onContinue()}
             style={{
               background: "transparent",
               border: `1px solid ${ACCENT}`,
