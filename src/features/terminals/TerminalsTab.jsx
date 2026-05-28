@@ -1226,10 +1226,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                   <span className="moba-tool-icon">{headerSkinId === "moba-light" ? "☀️" : "🌙"}</span>
                   <span className="moba-tool-label">Theme</span>
                 </button>
-                <button className="moba-tool-btn" onClick={() => toast.info("Pluto's Terminal doesn't bundle an X11 server — that's a MobaXterm-specific feature.")} title="X server (not available in Pluto's Terminal)">
-                  <span className="moba-tool-icon" style={{ color: "#3fae5a" }}>✖</span>
-                  <span className="moba-tool-label">X server</span>
-                </button>
                 <button className="moba-tool-btn" onClick={exitApp} title="Quit Pluto's Terminal (closes all sessions)">
                   <span className="moba-tool-icon" style={{ color: "#e0524a" }}>⏻</span>
                   <span className="moba-tool-label">Exit</span>

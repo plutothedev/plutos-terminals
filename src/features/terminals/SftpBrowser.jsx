@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
+import { fileGlyph } from "./LocalFileBrowser.jsx";
 import "./terminals.css";
 
 function fmtSize(n) {
@@ -66,6 +67,11 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
   }, [open, docked, sessionId, list]);
 
   const refresh = useCallback(() => { if (cwd) list(cwd); }, [cwd, list]);
+  const goHome = useCallback(async () => {
+    if (!sessionId) return;
+    try { const home = await invoke("sftp_home", { id: sessionId }); await list(home || "/"); }
+    catch (e) { setListError(String(e)); }
+  }, [sessionId, list]);
 
   const onDownload = async (entry) => {
     try {
@@ -134,24 +140,24 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
     >
       <div className="phn-snippets-header">
         <span>📁 Remote files</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <button className="phn-snippets-close" onClick={onMkdir} disabled={!sessionId || !cwd} title="New folder">＋</button>
-          <button className="phn-snippets-close" onClick={onUpload} disabled={!sessionId || !cwd} title="Upload a file into this folder">⬆</button>
-          <button className="phn-snippets-close" onClick={refresh} disabled={!sessionId || !cwd} title="Refresh">⟳</button>
+        {!docked && (
           <button className="phn-snippets-close" onClick={onClose} title="Close (Esc)">✕</button>
-        </div>
+        )}
+      </div>
+
+      {/* Button toolbar (MobaXterm-style row above the path bar). */}
+      <div className="moba-filebar">
+        <button onClick={goHome} disabled={!sessionId} title="Home folder">⌂</button>
+        <button onClick={() => cwd && list(parentPath(cwd))} disabled={!cwd || cwd === "/"} title="Up one level">↑</button>
+        <button onClick={refresh} disabled={!sessionId || !cwd} title="Refresh">⟳</button>
+        <span className="sep" />
+        <button onClick={onUpload} disabled={!sessionId || !cwd} title="Upload a file into this folder">⬆</button>
+        <button onClick={onMkdir} disabled={!sessionId || !cwd} title="New folder">🗀</button>
+        <span className="grow" />
       </div>
 
       {sessionId && (
         <div className="phn-sftp-pathbar">
-          <button
-            className="phn-sftp-up"
-            onClick={() => cwd && list(parentPath(cwd))}
-            disabled={!cwd || cwd === "/"}
-            title="Up one level"
-          >
-            ↑
-          </button>
           <span className="path" title={cwd || ""}>{cwd || "…"}</span>
         </div>
       )}
@@ -176,7 +182,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
               className="phn-sftp-row"
               onDoubleClick={() => e.is_dir && list(e.path)}
             >
-              <span style={{ flexShrink: 0 }}>{e.is_dir ? "📁" : "📄"}</span>
+              <span className="glyph">{fileGlyph(e)}</span>
               <span
                 className={e.is_dir ? "name dir" : "name"}
                 onClick={() => e.is_dir && list(e.path)}

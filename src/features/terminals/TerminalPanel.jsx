@@ -405,7 +405,7 @@ export default function TerminalPanel({
                     }}
                   />
                 ) : (
-                  <span>{tab.label}</span>
+                  <span className="moba-tab-label">{tab.label}</span>
                 )}
                 {paneCount > 1 && !isRenamingThis && (
                   <span

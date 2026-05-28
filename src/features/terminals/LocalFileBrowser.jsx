@@ -26,6 +26,24 @@ function shQuote(p) {
   return `'${p.replace(/'/g, "'\\''")}'`;
 }
 
+// MobaXterm-style file iconography: yellow folders + type-specific file glyphs.
+export function fileGlyph(e) {
+  if (e.is_dir) return "📁";
+  const ext = (e.name.split(".").pop() || "").toLowerCase();
+  if (/^(png|jpe?g|gif|svg|webp|bmp|ico|tiff?)$/.test(ext)) return "🖼";
+  if (/^(zip|tar|gz|tgz|bz2|xz|7z|rar)$/.test(ext)) return "🗜";
+  if (/^(js|ts|jsx|tsx|mjs|cjs)$/.test(ext)) return "📜";
+  if (/^(json|ya?ml|toml|ini|conf|cfg|env)$/.test(ext)) return "⚙️";
+  if (/^(md|markdown|txt|rst|log)$/.test(ext)) return "📝";
+  if (/^py$/.test(ext)) return "🐍";
+  if (/^rs$/.test(ext)) return "🦀";
+  if (/^(sh|bash|zsh|fish)$/.test(ext)) return "⌨️";
+  if (/^pdf$/.test(ext)) return "📕";
+  if (/^(mp3|wav|flac|ogg|m4a)$/.test(ext)) return "🎵";
+  if (/^(mp4|mov|mkv|avi|webm)$/.test(ext)) return "🎬";
+  return "📄";
+}
+
 export default function LocalFileBrowser({ onSendToTerminal }) {
   const [cwd, setCwd] = useState(null);
   const [entries, setEntries] = useState([]);
@@ -52,18 +70,23 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
     <div className="moba-dock-panel">
       <div className="phn-snippets-header">
         <span>📁 Files</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <button className="phn-snippets-close" title="Home" onClick={() => list(null)}>⌂</button>
-          <button className="phn-snippets-close" title="Refresh" onClick={() => list(cwd)} disabled={!cwd}>⟳</button>
-        </div>
+      </div>
+
+      {/* Button toolbar (MobaXterm-style row above the path bar). */}
+      <div className="moba-filebar">
+        <button title="Home folder" onClick={() => list(null)}>⌂</button>
+        <button title="Up one level" onClick={() => cwd && list(parentPath(cwd))} disabled={!cwd || cwd === "/"}>↑</button>
+        <button title="Refresh" onClick={() => list(cwd)} disabled={!cwd}>⟳</button>
+        <span className="sep" />
+        <button title="Open this folder in Finder" onClick={() => cwd && invoke("open_path", { path: cwd }).catch(() => {})} disabled={!cwd}>⧉</button>
+        {onSendToTerminal && (
+          <button title="cd the active terminal into this folder" onClick={() => cwd && onSendToTerminal(`cd ${shQuote(cwd)}\r`)} disabled={!cwd}>⇢</button>
+        )}
+        <span className="grow" />
       </div>
 
       <div className="phn-sftp-pathbar">
-        <button className="phn-sftp-up" onClick={() => cwd && list(parentPath(cwd))} disabled={!cwd || cwd === "/"} title="Up one level">↑</button>
         <span className="path" title={cwd || ""}>{cwd || "…"}</span>
-        {onSendToTerminal && cwd && (
-          <button className="phn-sftp-up" title="cd the active terminal into this folder" onClick={() => onSendToTerminal(`cd ${shQuote(cwd)}\r`)}>cd⇢</button>
-        )}
       </div>
 
       <div className="phn-snippets-list">
@@ -80,7 +103,7 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
               className="phn-sftp-row"
               onDoubleClick={() => e.is_dir && list(e.path)}
             >
-              <span style={{ flexShrink: 0 }}>{e.is_dir ? "📁" : "📄"}</span>
+              <span className="glyph">{fileGlyph(e)}</span>
               <span
                 className={e.is_dir ? "name dir" : "name"}
                 onClick={() => (e.is_dir ? list(e.path) : onSendToTerminal?.(`${shQuote(e.path)} `))}

@@ -314,8 +314,10 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 27px;
+  gap: 7px;
+  height: 30px;
+  min-width: 168px;     /* wider, MobaXterm-style tabs (not stubby) */
+  max-width: 280px;
   box-sizing: border-box;
   padding: 0 14px;
   margin: 0 9px;
@@ -328,6 +330,8 @@
   user-select: none;
   transition: background 0.12s ease, color 0.12s ease;
 }
+/* The tab label grows to fill the wider tab, pushing the × to the right edge. */
+.moba-tab > .moba-tab-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .moba-tab::before,
 .moba-tab::after {
   content: "";
@@ -574,6 +578,44 @@
   overflow: hidden;
   background: var(--phn-surface-alt-bg, #25272b);
 }
+
+/* ── File-explorer button toolbar (MobaXterm-style row above the path bar) ── */
+.moba-filebar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 6px;
+  background: var(--phn-surface-bg, #2d2d2d);
+  border-bottom: 1px solid var(--phn-surface-border, #151515);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.moba-filebar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 27px;
+  height: 24px;
+  padding: 0 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--phn-text-fg, #cfcfcf);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.moba-filebar button:hover:not(:disabled) {
+  background: var(--phn-hover-bg, rgba(255, 255, 255, 0.08));
+  border-color: var(--phn-surface-border, #151515);
+  color: var(--phn-text-active, #fff);
+}
+.moba-filebar button:disabled { opacity: 0.3; cursor: default; }
+.moba-filebar .sep { width: 1px; height: 16px; background: var(--phn-surface-border, #151515); margin: 0 4px; }
+.moba-filebar .grow { flex: 1; }
+/* Bigger, clearer folder/file glyphs in the list (MobaXterm folder look). */
+.phn-sftp-row .glyph { flex-shrink: 0; font-size: 14px; line-height: 1; width: 18px; text-align: center; }
 
 /* ── SFTP file browser ────────────────────────────────────────────────── */
 .phn-sftp-pathbar {
