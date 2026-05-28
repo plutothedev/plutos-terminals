@@ -1417,27 +1417,35 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         }
         groups={[
           {
+            caption: "Session",
             items: [
               { id: "session", icon: <IconSession />, label: "Session", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
               { id: "servers", icon: <IconServers />, label: "Servers", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
-              { id: "tools", icon: <IconTools />, label: "Tools", title: "Tools — saved command snippets, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-              { id: "games", icon: <IconGames />, label: "Games", title: "Games", onClick: playGames },
               { id: "sessions", icon: <IconStar />, label: "Sessions", title: "Saved sessions panel", active: ribbon === "sessions", onClick: () => selectRibbon(ribbon === "sessions" ? null : "sessions") },
-              { id: "models", icon: <IconModels />, label: "Models", title: "Pick your LLM provider + model (Claude, Hermes, Gemini, GLM, Qwen, Kimi, OpenRouter, … or any endpoint) and enter its API key", onClick: () => setModelsOpen(true) },
-            ],
-          },
-          {
-            items: [
-              { id: "view", icon: <IconView />, label: "View", title: ribbon ? "Hide the left panel" : "Show the left panel (sessions / tools / files)", active: !!ribbon, onClick: () => selectRibbon(ribbon ? null : "sessions") },
-              { id: "split", icon: <IconSplit />, label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-              { id: "multiexec", icon: <IconMultiExec />, label: "MultiExec", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
               { id: "tunneling", icon: <IconTunneling />, label: "Tunneling", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
             ],
           },
           {
+            caption: "View",
             items: [
+              { id: "view", icon: <IconView />, label: "View", title: ribbon ? "Hide the left panel" : "Show the left panel (sessions / tools / files)", active: !!ribbon, onClick: () => selectRibbon(ribbon ? null : "sessions") },
+              { id: "split", icon: <IconSplit />, label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+            ],
+          },
+          {
+            caption: "Tools",
+            items: [
+              { id: "tools", icon: <IconTools />, label: "Snippets", title: "Snippets — saved commands, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+              { id: "models", icon: <IconModels />, label: "Models", title: "Pick your LLM provider + model (Claude, Hermes, Gemini, GLM, Qwen, Kimi, OpenRouter, … or any endpoint) and enter its API key", onClick: () => setModelsOpen(true) },
+              { id: "multiexec", icon: <IconMultiExec />, label: "MultiExec", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
               { id: "packages", icon: <IconPackages />, label: "Packages", title: "MCP servers — curated catalog, copy or one-click install", onClick: () => setMcpOpen(true) },
-              { id: "settings", icon: <IconSettings />, label: "Settings", title: "Settings: API key + skin + factory reset", onClick: () => setSettingsOpen(true) },
+            ],
+          },
+          {
+            caption: "App",
+            items: [
+              { id: "games", icon: <IconGames />, label: "Games", title: "Games", onClick: playGames },
+              { id: "settings", icon: <IconSettings />, label: "Settings", title: "Settings — appearance + factory reset (API keys live in Models)", onClick: () => setSettingsOpen(true) },
               { id: "help", icon: <IconHelp />, label: "Help", title: "Open the GitHub repo (docs, issues, releases)", onClick: () => openExternal(GITHUB_URL) },
             ],
           },
