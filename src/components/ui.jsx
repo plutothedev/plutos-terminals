@@ -5,6 +5,8 @@
 // .phn-ui-* classes (see headerSkins.js) so :hover / :focus-visible / :disabled
 // are real CSS states driven by the design tokens.
 
+import { forwardRef } from "react";
+
 function cx(...parts) {
   return parts.filter(Boolean).join(" ");
 }
@@ -23,13 +25,13 @@ export function Button({ variant = "ghost", size = "md", className, type = "butt
 }
 
 // Text input. Pass mono for monospace (model ids, endpoints, commands).
-export function Input({ mono, className, ...rest }) {
-  return <input className={cx("phn-ui-input", mono && "phn-ui-input--mono", className)} spellCheck={false} {...rest} />;
-}
+export const Input = forwardRef(function Input({ mono, className, ...rest }, ref) {
+  return <input ref={ref} className={cx("phn-ui-input", mono && "phn-ui-input--mono", className)} spellCheck={false} {...rest} />;
+});
 
-export function Textarea({ className, rows = 3, ...rest }) {
-  return <textarea className={cx("phn-ui-input", "phn-ui-input--mono", className)} rows={rows} spellCheck={false} {...rest} />;
-}
+export const Textarea = forwardRef(function Textarea({ className, rows = 3, ...rest }, ref) {
+  return <textarea ref={ref} className={cx("phn-ui-input", "phn-ui-input--mono", className)} rows={rows} spellCheck={false} {...rest} />;
+});
 
 // Labeled field wrapper: uppercase caption + optional hint below the control.
 export function Field({ label, hint, children, className, style }) {

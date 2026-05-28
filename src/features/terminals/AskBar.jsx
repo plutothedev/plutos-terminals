@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Modal from "../../components/Modal.jsx";
+import { Button, Input, Textarea } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";
 
 function readUserSt() {
@@ -73,44 +74,42 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
   const insert = () => { const c = command.trim(); if (!c) return; onInsert(c); onClose(); };
 
   return (
-    <Modal open={open} title="Ask AI — describe what you want to run" onClose={onClose} width={600}>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
+    <Modal open={open} title="Ask AI" onClose={onClose} width={600}>
+      <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
+        <Input
           ref={intentRef}
           value={intent}
           onChange={(e) => setIntent(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") generate(); }}
           placeholder="e.g. find files over 100MB under this folder, newest first"
-          style={input}
         />
-        <button onClick={generate} disabled={loading || !intent.trim()} style={primaryBtn}>
+        <Button variant="primary" onClick={generate} disabled={loading || !intent.trim()}>
           {loading ? "thinking…" : "generate"}
-        </button>
+        </Button>
       </div>
-      {modelLabel && <div style={{ fontSize: 10, color: DIM, marginTop: 6 }}>via {modelLabel}</div>}
+      {modelLabel && <div style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-text-dim)", marginTop: "var(--phn-sp-2)" }}>via {modelLabel}</div>}
 
-      {error && <div style={{ color: "#ff6b6b", fontSize: 12, marginTop: 10 }}>{error}</div>}
+      {error && <div style={{ color: "var(--phn-danger)", fontSize: "var(--phn-fs-sm)", marginTop: "var(--phn-sp-3)" }}>{error}</div>}
 
       {command && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 10, color: DIM, marginBottom: 4, letterSpacing: 0.5 }}>PROPOSED COMMAND — review before running</div>
-          <textarea
+        <div style={{ marginTop: "var(--phn-sp-3)" }}>
+          <div style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-text-dim)", marginBottom: "var(--phn-sp-1)", letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 600 }}>Proposed command — review before running</div>
+          <Textarea
             ref={cmdRef}
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }}
             rows={Math.min(6, command.split("\n").length + 1)}
-            style={{ ...input, width: "100%", fontFamily: "'MesloLGS NF', monospace", fontSize: 12.5, resize: "vertical", boxSizing: "border-box" }}
           />
-          <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
-            <button onClick={onClose} style={ghostBtn}>cancel</button>
-            <button onClick={insert} style={ghostBtn} title="Put it on the prompt without running">insert</button>
-            <button onClick={run} style={primaryBtn} title="Run in the active terminal (⌘/Ctrl+Enter)">run ↵</button>
+          <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginTop: "var(--phn-sp-3)", justifyContent: "flex-end" }}>
+            <Button variant="subtle" onClick={onClose}>cancel</Button>
+            <Button variant="ghost" onClick={insert} title="Put it on the prompt without running">insert</Button>
+            <Button variant="primary" onClick={run} title="Run in the active terminal (⌘/Ctrl+Enter)">run ↵</Button>
           </div>
         </div>
       )}
 
-      <p style={{ fontSize: 10.5, color: DIM, marginTop: 14, lineHeight: 1.5 }}>
+      <p style={{ fontSize: "var(--phn-fs-xs)", color: "var(--phn-text-dim)", marginTop: "var(--phn-sp-4)", lineHeight: "var(--phn-lh)" }}>
         Uses your active model from the <strong>Models</strong> section. The command is shown for
         review — nothing runs until you click <strong>run</strong>. <em>insert</em> drops it on the
         prompt so you can tweak it first.
@@ -118,21 +117,3 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
     </Modal>
   );
 }
-
-const DIM = "var(--phn-text-dim, #888)";
-const input = {
-  flex: 1, background: "var(--phn-page-bg, #1c1c1c)",
-  border: "1px solid var(--phn-surface-border, #2a2a2a)", borderRadius: 4,
-  color: "var(--phn-text-fg, #d4d4d4)", padding: "7px 9px", fontSize: 12.5,
-  fontFamily: "var(--phn-ui-font)", outline: "none",
-};
-const primaryBtn = {
-  background: "var(--phn-link, #4aa8c0)", border: "1px solid var(--phn-link, #4aa8c0)",
-  color: "#06223a", padding: "6px 14px", borderRadius: 4, fontSize: 11.5, fontWeight: 600,
-  cursor: "pointer", fontFamily: "var(--phn-ui-font)", whiteSpace: "nowrap",
-};
-const ghostBtn = {
-  background: "transparent", border: "1px solid var(--phn-surface-border, #3a3a3a)",
-  color: "var(--phn-text-fg, #d4d4d4)", padding: "6px 14px", borderRadius: 4,
-  fontSize: 11.5, cursor: "pointer", fontFamily: "var(--phn-ui-font)", whiteSpace: "nowrap",
-};

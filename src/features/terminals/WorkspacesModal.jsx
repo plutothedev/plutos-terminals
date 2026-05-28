@@ -7,6 +7,7 @@
 // state so workspaces survive restarts and are shared across windows.
 import { useEffect, useState } from "react";
 import Modal from "../../components/Modal.jsx";
+import { Button, Input } from "../../components/ui.jsx";
 
 const DIM = "var(--phn-text-dim, #888)";
 
@@ -22,43 +23,42 @@ export default function WorkspacesModal({ open, workspaces, onClose, onSave, onL
 
   return (
     <Modal open={open} title="Workspaces — save & restore layouts" onClose={onClose} width={560}>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
+      <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
+        <Input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") save(); }}
           placeholder="Save current layout as…  (e.g. prod-debug)"
-          style={input}
         />
-        <button onClick={save} disabled={!name.trim()} style={{ ...primaryBtn, opacity: name.trim() ? 1 : 0.5 }}>save</button>
+        <Button variant="primary" onClick={save} disabled={!name.trim()}>save</Button>
       </div>
 
-      <div style={{ marginTop: 12, maxHeight: "50vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ marginTop: "var(--phn-sp-3)", maxHeight: "50vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "var(--phn-sp-2)" }}>
         {list.length === 0 ? (
-          <div style={{ color: DIM, fontSize: 12, padding: "10px 2px" }}>
+          <div style={{ color: DIM, fontSize: "var(--phn-fs-sm)", padding: "var(--phn-sp-3) 2px" }}>
             No saved workspaces yet. Save your current panel/tab layout above.
           </div>
         ) : (
           list.map((ws) => (
             <div key={ws.name} style={row}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, color: "var(--phn-text-fg, #d4d4d4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ws.name}</div>
-                <div style={{ fontSize: 10, color: DIM }}>
+                <div style={{ fontSize: "var(--phn-fs-sm)", color: "var(--phn-text-fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ws.name}</div>
+                <div style={{ fontSize: "var(--phn-fs-2xs)", color: DIM }}>
                   {(ws.panels || []).length} panel{(ws.panels || []).length === 1 ? "" : "s"} · {tabCount(ws)} tab{tabCount(ws) === 1 ? "" : "s"}
                   {ws.savedAt ? ` · ${new Date(ws.savedAt).toLocaleDateString()}` : ""}
                 </div>
               </div>
               {confirmLoad === ws.name ? (
                 <>
-                  <span style={{ fontSize: 10.5, color: "#ffb454", whiteSpace: "nowrap" }}>replace current tabs?</span>
-                  <button onClick={() => { onLoad(ws); onClose(); }} style={dangerBtn}>yes, load</button>
-                  <button onClick={() => setConfirmLoad(null)} style={ghostBtn}>no</button>
+                  <span style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-warning)", whiteSpace: "nowrap" }}>replace current tabs?</span>
+                  <Button variant="danger" size="sm" onClick={() => { onLoad(ws); onClose(); }}>yes, load</Button>
+                  <Button variant="subtle" size="sm" onClick={() => setConfirmLoad(null)}>no</Button>
                 </>
               ) : (
                 <>
-                  <button onClick={() => setConfirmLoad(ws.name)} style={ghostBtn}>load</button>
-                  <button onClick={() => onDelete(ws.name)} title="Delete workspace" style={delBtn}>✕</button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmLoad(ws.name)}>load</Button>
+                  <Button variant="subtle" size="sm" onClick={() => onDelete(ws.name)} title="Delete workspace">✕</Button>
                 </>
               )}
             </div>
@@ -66,7 +66,7 @@ export default function WorkspacesModal({ open, workspaces, onClose, onSave, onL
         )}
       </div>
 
-      <p style={{ fontSize: 10.5, color: DIM, marginTop: 12, lineHeight: 1.5 }}>
+      <p style={{ fontSize: "var(--phn-fs-2xs)", color: DIM, marginTop: "var(--phn-sp-3)", lineHeight: "var(--phn-lh)" }}>
         Captures your panels, tabs and splits (working dirs + start commands). Loading one{" "}
         <strong>replaces</strong> the current layout — open sessions close and the saved ones re-open fresh.
       </p>
@@ -74,32 +74,7 @@ export default function WorkspacesModal({ open, workspaces, onClose, onSave, onL
   );
 }
 
-const input = {
-  flex: 1, background: "var(--phn-page-bg, #1c1c1c)",
-  border: "1px solid var(--phn-surface-border, #2a2a2a)", borderRadius: 4,
-  color: "var(--phn-text-fg, #d4d4d4)", padding: "7px 9px", fontSize: 12.5,
-  fontFamily: "var(--phn-ui-font)", outline: "none",
-};
 const row = {
-  display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 6,
+  display: "flex", alignItems: "center", gap: "var(--phn-sp-2)", padding: "7px var(--phn-sp-3)", borderRadius: "var(--phn-r-md)",
   background: "var(--phn-surface-bg, #242424)", border: "1px solid var(--phn-surface-border, #2a2a2a)",
-};
-const primaryBtn = {
-  background: "var(--phn-link, #4aa8c0)", border: "1px solid var(--phn-link, #4aa8c0)",
-  color: "#06223a", padding: "6px 14px", borderRadius: 4, fontSize: 11.5, fontWeight: 600,
-  cursor: "pointer", fontFamily: "var(--phn-ui-font)", whiteSpace: "nowrap",
-};
-const ghostBtn = {
-  background: "transparent", border: "1px solid var(--phn-surface-border, #3a3a3a)",
-  color: "var(--phn-text-fg, #d4d4d4)", padding: "5px 12px", borderRadius: 4,
-  fontSize: 11, cursor: "pointer", fontFamily: "var(--phn-ui-font)", whiteSpace: "nowrap",
-};
-const dangerBtn = {
-  background: "transparent", border: "1px solid #ffb454", color: "#ffb454",
-  padding: "5px 12px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-  cursor: "pointer", fontFamily: "var(--phn-ui-font)", whiteSpace: "nowrap",
-};
-const delBtn = {
-  background: "transparent", border: "none", color: "var(--phn-text-dim, #888)",
-  padding: "4px 6px", fontSize: 12, cursor: "pointer", fontFamily: "var(--phn-ui-font)",
 };

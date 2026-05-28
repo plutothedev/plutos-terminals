@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Modal from "../../components/Modal.jsx";
+import { Button } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";
 
 const SYSTEM =
@@ -48,26 +49,23 @@ export default function SessionSummary({ open, text, onClose }) {
 
   return (
     <Modal open={open} title="Summarize session" onClose={onClose} width={620}>
-      <div style={{ fontSize: 10, color: "var(--phn-text-dim, #888)", marginBottom: 8 }}>
+      <div style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-text-dim)", marginBottom: "var(--phn-sp-2)" }}>
         {modelLabel ? `via ${modelLabel}` : "active model"}
       </div>
-      <div style={{ maxHeight: "60vh", overflow: "auto", fontSize: 12.5, lineHeight: 1.55, color: "var(--phn-text-fg, #d4d4d4)", whiteSpace: "pre-wrap" }}>
+      <div style={{ maxHeight: "60vh", overflow: "auto", fontSize: "var(--phn-fs-sm)", lineHeight: "var(--phn-lh)", color: "var(--phn-text-fg)", whiteSpace: "pre-wrap" }}>
         {loading ? (
-          <span style={{ color: "var(--phn-text-dim, #888)" }}>Reading the terminal and summarizing…</span>
+          <span style={{ color: "var(--phn-text-dim)" }}>Reading the terminal and summarizing…</span>
         ) : error ? (
-          <span style={{ color: "#ff6b6b" }}>{error}</span>
+          <span style={{ color: "var(--phn-danger)" }}>{error}</span>
         ) : (
-          answer || <span style={{ color: "var(--phn-text-dim, #888)" }}>No response.</span>
+          answer || <span style={{ color: "var(--phn-text-dim)" }}>No response.</span>
         )}
       </div>
       {answer && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-          <button
-            onClick={() => navigator.clipboard?.writeText(answer)}
-            style={{ background: "transparent", border: "1px solid var(--phn-surface-border, #3a3a3a)", color: "var(--phn-text-fg, #d4d4d4)", borderRadius: 4, padding: "5px 12px", fontSize: 11.5, cursor: "pointer", fontFamily: "var(--phn-ui-font)" }}
-          >
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "var(--phn-sp-3)" }}>
+          <Button variant="ghost" size="sm" onClick={() => navigator.clipboard?.writeText(answer)}>
             copy
-          </button>
+          </Button>
         </div>
       )}
     </Modal>

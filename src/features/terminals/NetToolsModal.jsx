@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Modal from "../../components/Modal.jsx";
+import { Button, Input, Chip } from "../../components/ui.jsx";
 
 const DIM = "var(--phn-text-dim, #888)";
 const TOOLS = [
@@ -57,59 +58,53 @@ export default function NetToolsModal({ open, initialHost, onClose }) {
 
   return (
     <Modal open={open} title="Network tools" onClose={onClose} width={620}>
-      <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: "var(--phn-sp-1)", marginBottom: "var(--phn-sp-3)" }}>
         {TOOLS.map((t) => (
-          <button
+          <Chip
             key={t.id}
+            active={tool === t.id}
             onClick={() => setTool(t.id)}
-            style={{
-              flex: 1,
-              background: tool === t.id ? "var(--phn-accent-subtle, rgba(74,168,192,0.18))" : "transparent",
-              border: `1px solid ${tool === t.id ? "var(--phn-link, #4aa8c0)" : "var(--phn-surface-border, #2a2a2a)"}`,
-              color: tool === t.id ? "var(--phn-link, #4aa8c0)" : "var(--phn-text-fg, #d4d4d4)",
-              borderRadius: 4, padding: "6px 8px", fontSize: 11.5, cursor: "pointer",
-              fontFamily: "var(--phn-ui-font)", fontWeight: tool === t.id ? 600 : 400,
-            }}
+            style={{ flex: 1, textAlign: "center" }}
           >
             {t.label}
-          </button>
+          </Chip>
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
+      <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
+        <Input
+          mono
           autoFocus
           value={host}
           onChange={(e) => setHost(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") run(); }}
           placeholder="host or IP  (e.g. github.com or 10.0.0.5)"
-          style={input}
         />
-        <button onClick={run} disabled={busy || !host.trim()} style={{ ...primaryBtn, opacity: busy || !host.trim() ? 0.5 : 1 }}>
+        <Button variant="primary" onClick={run} disabled={busy || !host.trim()}>
           {busy ? "running…" : "run ▶"}
-        </button>
+        </Button>
       </div>
 
       {tool === "ports" && (
-        <div style={{ marginTop: 8 }}>
-          <input
+        <div style={{ marginTop: "var(--phn-sp-2)" }}>
+          <Input
+            mono
             value={ports}
             onChange={(e) => setPorts(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") run(); }}
             placeholder="ports — e.g. 22,80,443 or 1-1024"
-            style={{ ...input, width: "100%", boxSizing: "border-box", fontFamily: "'MesloLGS NF', monospace", fontSize: 11.5 }}
           />
-          <div style={{ fontSize: 10, color: DIM, marginTop: 3 }}>Comma list or ranges; capped at 256 ports per scan.</div>
+          <div style={{ fontSize: "var(--phn-fs-2xs)", color: DIM, marginTop: 3 }}>Comma list or ranges; capped at 256 ports per scan.</div>
         </div>
       )}
 
       <pre
         style={{
-          marginTop: 12, padding: "10px 12px", borderRadius: 6, minHeight: 120, maxHeight: "42vh",
+          marginTop: "var(--phn-sp-3)", padding: "var(--phn-sp-3)", borderRadius: "var(--phn-r-md)", minHeight: 120, maxHeight: "42vh",
           overflow: "auto", background: "var(--phn-page-bg, #1c1c1c)",
           border: "1px solid var(--phn-surface-border, #2a2a2a)",
-          color: "var(--phn-text-fg, #d4d4d4)", fontFamily: "'MesloLGS NF', monospace",
-          fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word",
+          color: "var(--phn-text-fg)", fontFamily: "var(--phn-mono-font)",
+          fontSize: "var(--phn-fs-sm)", lineHeight: "var(--phn-lh)", whiteSpace: "pre-wrap", wordBreak: "break-word",
         }}
       >
         {out || <span style={{ color: DIM }}>Pick a tool, enter a host, and hit run.</span>}
@@ -117,15 +112,3 @@ export default function NetToolsModal({ open, initialHost, onClose }) {
     </Modal>
   );
 }
-
-const input = {
-  flex: 1, background: "var(--phn-page-bg, #1c1c1c)",
-  border: "1px solid var(--phn-surface-border, #2a2a2a)", borderRadius: 4,
-  color: "var(--phn-text-fg, #d4d4d4)", padding: "7px 9px", fontSize: 12.5,
-  fontFamily: "var(--phn-ui-font)", outline: "none",
-};
-const primaryBtn = {
-  background: "var(--phn-link, #4aa8c0)", border: "1px solid var(--phn-link, #4aa8c0)",
-  color: "#06223a", padding: "6px 16px", borderRadius: 4, fontSize: 11.5, fontWeight: 600,
-  cursor: "pointer", fontFamily: "var(--phn-ui-font)", whiteSpace: "nowrap",
-};
