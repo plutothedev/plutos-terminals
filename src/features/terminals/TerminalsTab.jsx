@@ -1394,12 +1394,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           letterSpacing: 0.2,
         }}
       >
-        <span>v0.1.26</span>
+        <span style={{ opacity: 0.6 }}>v0.1.26</span>
         {shellName && (
-          <>
-            <span className="phn-statusbar-divider">·</span>
-            <span title="Shell new tabs spawn">{shellName}</span>
-          </>
+          <span className="moba-stat" title="Shell new tabs spawn">🖥 {shellName}</span>
         )}
         {sysStats && (
           <>
@@ -1408,11 +1405,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               CPU {Math.round(sysStats.cpu)}%
             </span>
             <span className="moba-stat" title="Memory used / total">
-              🧠 {(sysStats.mem_used / 1e9).toFixed(2)} / {(sysStats.mem_total / 1e9).toFixed(2)} GB
+              💾 {(sysStats.mem_used / 1e9).toFixed(2)} / {(sysStats.mem_total / 1e9).toFixed(2)} GB
             </span>
             <span className="moba-stat" title="Root disk used">
               <span className="dot" style={{ background: loadColor(sysStats.disk_used_pct) }} />
-              /: {Math.round(sysStats.disk_used_pct)}%
+              🗄 /: {Math.round(sysStats.disk_used_pct)}%
             </span>
           </>
         )}

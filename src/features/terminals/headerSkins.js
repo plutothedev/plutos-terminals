@@ -167,17 +167,17 @@ export const HEADER_SKINS = [
   {
     id: "moba",
     label: "MobaXterm — classic toolbox",
-    description: "Blue-grey chrome, pure-black terminal, teal accent. The MobaXterm network-tools look.",
+    description: "Neutral dark charcoal chrome, pure-black terminal, vivid ANSI text. The MobaXterm network-tools look.",
     xterm: {
       background: "#000000",
-      foreground: "#cfd6dd",
-      cursor: "#5fd7a7",
-      selectionBackground: "rgba(95,215,167,0.30)",
-      black: "#2e3436", red: "#ef5350", green: "#5fd7a7", yellow: "#e6c34a",
-      blue: "#5aa8e6", magenta: "#c792ea", cyan: "#56c8c8", white: "#cfd6dd",
-      brightBlack: "#5a6066", brightRed: "#ff7b72", brightGreen: "#7ee7bd",
-      brightYellow: "#ffd866", brightBlue: "#7cc0ff", brightMagenta: "#e0b0ff",
-      brightCyan: "#7fe0e0", brightWhite: "#ffffff",
+      foreground: "#d0d0d0",
+      cursor: "#d0d0d0",
+      selectionBackground: "rgba(58,110,165,0.40)",
+      black: "#2e3436", red: "#ff5f5f", green: "#5fd75f", yellow: "#e5e510",
+      blue: "#5f87ff", magenta: "#d75fd7", cyan: "#5fd7d7", white: "#d0d0d0",
+      brightBlack: "#6a6a6a", brightRed: "#ff8787", brightGreen: "#87ff87",
+      brightYellow: "#ffff5f", brightBlue: "#87afff", brightMagenta: "#ff87ff",
+      brightCyan: "#87ffff", brightWhite: "#ffffff",
     },
   },
 ];
@@ -789,34 +789,34 @@ const CSS = `
 [data-phn-skin="pro"] .phn-muted { color: #62666d !important; }
 [data-phn-skin="pro"] option { background: #0f1011; color: #b4b8c0; }
 
-/* ── moba — MobaXterm classic toolbox (blue-grey chrome) ──── */
+/* ── moba — MobaXterm classic toolbox (neutral dark charcoal, blue accent) ── */
 [data-phn-skin="moba"] .phn-header {
-  background: #2b2d31;
-  border-bottom: 1px solid #1c1d20;
+  background: #2d2d2d;
+  border-bottom: 1px solid #1a1a1a;
 }
 [data-phn-skin="moba"] .phn-title {
-  color: #eaeef2;
+  color: #f0f0f0;
   font-weight: 600;
   letter-spacing: 0.02em;
   font-size: 12px;
 }
-[data-phn-skin="moba"] .phn-meta { color: #9aa0a6; }
-[data-phn-skin="moba"] .phn-cost { color: #5fd7a7; }
+[data-phn-skin="moba"] .phn-meta { color: #9a9a9a; }
+[data-phn-skin="moba"] .phn-cost { color: #5fd75f; }
 [data-phn-skin="moba"] .phn-btn,
 [data-phn-skin="moba"] .phn-select {
-  background: #34373c;
-  border: 1px solid #1c1d20;
-  color: #cfd6dd;
-  border-radius: 4px;
+  background: #3a3a3a;
+  border: 1px solid #1f1f1f;
+  color: #d0d0d0;
+  border-radius: 3px;
 }
 [data-phn-skin="moba"] .phn-btn:hover:not(:disabled),
 [data-phn-skin="moba"] .phn-select:hover {
-  background: #3f4248;
-  border-color: #5fd7a7;
+  background: #454545;
+  border-color: #4f9fd6;
   color: #ffffff;
 }
-[data-phn-skin="moba"] .phn-muted { color: #7a7e85 !important; }
-[data-phn-skin="moba"] option { background: #2b2d31; color: #cfd6dd; }
+[data-phn-skin="moba"] .phn-muted { color: #808080 !important; }
+[data-phn-skin="moba"] option { background: #2d2d2d; color: #d0d0d0; }
 
 /* ────────── Per-skin CSS variables — drive .phn-page / .phn-statusbar /
    .phn-sidebar / .phn-sidebar-header without per-skin specific rules. ─── */
@@ -943,14 +943,15 @@ const CSS = `
 }
 
 [data-phn-skin="moba"] {
-  --phn-page-bg: #1e1f22;        /* behind panels; terminal itself is pure black */
-  --phn-surface-bg: #2b2d31;     /* header / menu / status surfaces */
-  --phn-surface-alt-bg: #25272b; /* sidebar / docked panel */
-  --phn-surface-border: #1c1d20;
-  --phn-text-fg: #cfd6dd;
+  --phn-page-bg: #1e1e1e;        /* behind panels; terminal itself is pure black */
+  --phn-surface-bg: #2d2d2d;     /* header / menu / status surfaces — neutral charcoal */
+  --phn-surface-alt-bg: #262626; /* sidebar / docked panel */
+  --phn-surface-border: #1a1a1a;
+  --phn-text-fg: #c8c8c8;
   --phn-text-active: #ffffff;
-  --phn-text-dim: #8a9099;
-  --phn-link: #5fd7a7;           /* MobaXterm teal-green accent */
+  --phn-text-dim: #888888;
+  --phn-link: #4f9fd6;           /* MobaXterm blue accent (selection / active) */
+  --phn-accent-subtle: rgba(79,159,214,0.18);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
