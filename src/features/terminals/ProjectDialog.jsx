@@ -55,6 +55,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
   const [name, setName] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
   const [folder, setFolder] = useState("");
+  const [tagsText, setTagsText] = useState("");
   const [startCommandsText, setStartCommandsText] = useState("");
 
   // Local
@@ -76,6 +77,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
     setName(initial?.name || "");
     setNameTouched(!!initial?.name);
     setFolder(initial?.folder || "");
+    setTagsText((initial?.tags || []).join(", "));
     setStartCommandsText((initial?.startCommands || []).join("\n"));
 
     setPath(initial?.path || "");
@@ -133,14 +135,24 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
       ? path.trim().length > 0
       : host.trim().length > 0 && user.trim().length > 0);
 
+  const parseTags = () =>
+    tagsText
+      .split(/[,\s]+/)
+      .map((s) => s.trim().replace(/^#/, ""))
+      .filter(Boolean)
+      .filter((t, i, a) => a.indexOf(t) === i)
+      .slice(0, 8);
+
   const save = () => {
     if (!canSave) return;
     const folderVal = folder.trim() || null;
+    const tags = parseTags();
     if (type === "local") {
       onSave({
         type: "local",
         name: name.trim(),
         folder: folderVal,
+        tags,
         path: path.trim(),
         startCommands: startCommands(),
         autoApprove,
@@ -151,6 +163,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
         type: "ssh",
         name: name.trim(),
         folder: folderVal,
+        tags,
         startCommands: startCommands(),
         connection: {
           host: host.trim(),
@@ -381,6 +394,20 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
           </datalist>
           <div style={{ color: FG_DIM, fontSize: 10, marginTop: 4 }}>
             Groups this session under a collapsible folder in the Sessions tree. Leave blank for ungrouped.
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>Tags (optional)</label>
+          <input
+            value={tagsText}
+            onChange={(e) => setTagsText(e.target.value)}
+            placeholder="e.g. prod, db, eu-west  (comma or space separated)"
+            spellCheck={false}
+            style={inputStyle}
+          />
+          <div style={{ color: FG_DIM, fontSize: 10, marginTop: 4 }}>
+            Searchable labels. Filter the sidebar by a tag with <code>#tag</code>; click a tag chip to filter.
           </div>
         </div>
 

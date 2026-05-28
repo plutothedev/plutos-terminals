@@ -285,10 +285,21 @@ export default function ProjectSidebar({
     }
   };
 
+  // Search matches name, folder, host, path, and tags. A leading "#" filters by
+  // tag specifically (e.g. "#prod"); otherwise it's a substring match over the
+  // whole haystack.
   const q = query.trim().toLowerCase();
-  const visibleProjects = q
-    ? projects.filter((p) => (p.name || "").toLowerCase().includes(q))
-    : projects;
+  const matchesQuery = (p) => {
+    if (!q) return true;
+    const tags = Array.isArray(p.tags) ? p.tags : [];
+    if (q.startsWith("#")) {
+      const t = q.slice(1);
+      return tags.some((tag) => String(tag).toLowerCase().includes(t));
+    }
+    const hay = `${p.name || ""} ${p.folder || ""} ${p.connection?.host || ""} ${p.path || ""} ${tags.join(" ")}`.toLowerCase();
+    return hay.includes(q);
+  };
+  const visibleProjects = q ? projects.filter(matchesQuery) : projects;
 
   return (
     <div
@@ -355,7 +366,7 @@ export default function ProjectSidebar({
           <input
             className="phn-sidebar-search"
             type="text"
-            placeholder="Search sessions…"
+            placeholder="Search name, host, folder, #tag…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setQuery(""); } }}
@@ -487,6 +498,21 @@ export default function ProjectSidebar({
                     >
                       {p.name}
                     </span>
+                    {Array.isArray(p.tags) && p.tags.slice(0, 2).map((tag) => (
+                      <span
+                        key={tag}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); setQuery(`#${tag}`); }}
+                        title={`Filter by #${tag}`}
+                        style={{
+                          flexShrink: 0, fontSize: 8.5, lineHeight: 1.4, padding: "0 4px",
+                          borderRadius: 6, background: "rgba(120,120,160,0.18)",
+                          color: FG_DIM, cursor: "pointer", whiteSpace: "nowrap",
+                        }}
+                      >
+                        #{tag}
+                      </span>
+                    ))}
                     {isSsh(p) ? (
                       p.connection?.host && (
                         <span
