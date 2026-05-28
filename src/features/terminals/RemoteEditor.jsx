@@ -1,14 +1,26 @@
 // (C)
 // In-app remote file editor (MobaXterm/Termius parity). Opens a remote file over
-// the active SFTP session in a Monaco editor and saves it back — no local round
-// trip. Cmd/Ctrl+S saves; the title shows a dirty dot. If Monaco fails to load
-// in the webview it falls back to a plain textarea so editing still works.
+// the active SFTP session, edits it, and saves back — no local round trip.
+// Monaco is loaded DYNAMICALLY on first open (never at app startup) so its heavy
+// bundle + web workers can't blank the app if they misbehave in the webview;
+// if the dynamic load fails we fall back to a plain textarea. Cmd/Ctrl+S saves.
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import Editor from "@monaco-editor/react";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
-import { languageForFile } from "./monacoSetup.js";
+
+// Local filename→language guess (kept here so Monaco isn't imported eagerly).
+function languageForFile(name = "") {
+  const ext = name.split(".").pop().toLowerCase();
+  const map = {
+    js: "javascript", jsx: "javascript", mjs: "javascript", ts: "typescript", tsx: "typescript",
+    json: "json", css: "css", scss: "scss", less: "less", html: "html", xml: "xml", svg: "xml",
+    md: "markdown", py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
+    c: "c", h: "c", cpp: "cpp", sh: "shell", bash: "shell", zsh: "shell",
+    yml: "yaml", yaml: "yaml", toml: "ini", ini: "ini", conf: "ini", sql: "sql", php: "php", lua: "lua",
+  };
+  return map[ext] || "plaintext";
+}
 
 export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
   const toast = useToast();
@@ -17,9 +29,26 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [Editor, setEditor] = useState(null);   // Monaco component once loaded
   const [monacoFailed, setMonacoFailed] = useState(false);
   const textRef = useRef("");
   textRef.current = text;
+
+  // Lazy-load Monaco the first time the editor opens; fall back to a textarea.
+  useEffect(() => {
+    if (!open || Editor || monacoFailed) return;
+    let alive = true;
+    (async () => {
+      try {
+        await import("./monacoSetup.js"); // side effects: local monaco + workers
+        const mod = await import("@monaco-editor/react");
+        if (alive) setEditor(() => mod.default);
+      } catch {
+        if (alive) setMonacoFailed(true);
+      }
+    })();
+    return () => { alive = false; };
+  }, [open, Editor, monacoFailed]);
 
   useEffect(() => {
     if (!open || !sessionId || !path) return;
@@ -48,7 +77,6 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
     }
   };
 
-  // Cmd/Ctrl+S anywhere in the modal saves.
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
@@ -59,6 +87,8 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
   }, [open, name, sessionId, path]); // eslint-disable-line
 
   if (!open) return null;
+
+  const useMonaco = Editor && !monacoFailed;
 
   return (
     <Modal open={open} title={`${dirty ? "● " : ""}${name}`} onClose={onClose} width={860}>
@@ -84,30 +114,28 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
           <div style={{ padding: 16, color: "var(--phn-text-dim, #888)", fontSize: 12 }}>Loading {name}…</div>
         ) : error ? (
           <div style={{ padding: 16, color: "#ff6b6b", fontSize: 12 }}>{error}</div>
-        ) : monacoFailed ? (
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            spellCheck={false}
-            style={{
-              width: "100%", height: "100%", boxSizing: "border-box", resize: "none",
-              background: "var(--phn-page-bg, #1c1c1c)", color: "var(--phn-text-fg, #d4d4d4)",
-              border: "none", outline: "none", padding: 10,
-              fontFamily: "'MesloLGS NF', 'JetBrains Mono', monospace", fontSize: 13, lineHeight: 1.5,
-            }}
-          />
-        ) : (
+        ) : useMonaco ? (
           <Editor
             height="100%"
             theme="vs-dark"
             language={languageForFile(name)}
             value={text}
             onChange={(v) => setText(v ?? "")}
-            onValidate={() => {}}
             loading={<div style={{ padding: 16, color: "var(--phn-text-dim, #888)", fontSize: 12 }}>Starting editor…</div>}
-            onMount={() => { /* loaded ok */ }}
-            beforeMount={(m) => { if (!m) setMonacoFailed(true); }}
             options={{ fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false, automaticLayout: true, fontFamily: "'MesloLGS NF', 'JetBrains Mono', monospace" }}
+          />
+        ) : (
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            spellCheck={false}
+            placeholder={monacoFailed ? "" : "Loading editor…"}
+            style={{
+              width: "100%", height: "100%", boxSizing: "border-box", resize: "none",
+              background: "var(--phn-page-bg, #1c1c1c)", color: "var(--phn-text-fg, #d4d4d4)",
+              border: "none", outline: "none", padding: 10,
+              fontFamily: "'MesloLGS NF', 'JetBrains Mono', monospace", fontSize: 13, lineHeight: 1.5,
+            }}
           />
         )}
       </div>
