@@ -663,7 +663,40 @@ export default function TerminalPane({
           const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah';";
           const zshPrompt = "PROMPT='%K{2}%F{0} %D{%m-%d} %K{4}%F{15} %* %K{3}%F{0} %~ %k%f '";
           const bashPrompt = "PS1='\\[\\e[42;30m\\] \\D{%m-%d} \\[\\e[44;97m\\] \\t \\[\\e[43;30m\\] \\w \\[\\e[0m\\] '";
-          const banner = "printf '\\n \\033[36m┌────────────────────────────────────────┐\\033[0m\\n \\033[36m│\\033[0m  \\033[1;32mPluto'\\''s Terminals\\033[0m  \\033[2m— MobaXterm mode\\033[0m   \\033[36m│\\033[0m\\n \\033[36m└────────────────────────────────────────┘\\033[0m\\n\\n'";
+          // MobaXterm-style welcome box: a rounded panel with a cyan title and
+          // ➤ feature lines with green check marks. Plain text is padded to a
+          // fixed inner width BEFORE color is layered on so the box edges align;
+          // sent as one single-quoted printf (only \033 / \n are interpreted).
+          const E = "\\033";
+          const dim = (s) => `${E}[38;5;240m${s}${E}[0m`;
+          const bannerLines = [
+            "• Pluto's Terminals •",
+            "(multi-terminal · SSH · SFTP · serial · RDP · VNC)",
+            "",
+            "➤ Local terminal session",
+            "    Scrollback       :  ✓  saved & replayed on restart",
+            "    Snippets / Tools :  ✓  open the Tools panel from the toolbar",
+            "    MultiExec        :  ✓  broadcast typing to every pane",
+            "    Command palette  :  ✓  press Ctrl+K anywhere",
+          ];
+          const W = Math.max(...bannerLines.map((l) => l.length));
+          const center = (t) => {
+            const p = Math.max(0, Math.floor((W - t.length) / 2));
+            return " ".repeat(p) + t + " ".repeat(W - p - t.length);
+          };
+          const box = [" " + dim("╭" + "─".repeat(W + 2) + "╮")];
+          bannerLines.forEach((t, i) => {
+            let c = i < 2 ? center(t) : t + " ".repeat(W - t.length);
+            if (i < 2) c = `${E}[1;36m${c}${E}[0m`;             // cyan title
+            else {
+              c = c.replace("➤", `${E}[1;33m➤${E}[0m`);          // yellow arrow
+              c = c.replace("✓", `${E}[1;32m✓${E}[0m`);          // green check
+            }
+            box.push(" " + dim("│") + " " + c + " " + dim("│"));
+          });
+          box.push(" " + dim("╰" + "─".repeat(W + 2) + "╯"));
+          const bannerText = "\\n" + box.join("\\n") + "\\n\\n";
+          const banner = "printf '" + bannerText.replace(/'/g, "'\\''") + "'";
           const init = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; clear; ${banner}`;
           if (alive && ptyId) {
             try { await invoke("pty_write", { id: ptyId, data: init + "\r" }); } catch {}

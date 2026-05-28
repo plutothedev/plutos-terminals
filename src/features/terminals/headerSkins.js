@@ -166,13 +166,13 @@ export const HEADER_SKINS = [
   },
   {
     id: "moba",
-    label: "MobaXterm — classic toolbox",
-    description: "Neutral dark charcoal chrome, pure-black terminal, vivid ANSI text. The MobaXterm network-tools look.",
+    label: "MobaXterm — dark theme",
+    description: "MobaXterm's neutral dark-charcoal chrome, flat tabs, pure-black terminal with vivid ANSI text and a cyan/green accent. The MobaXterm network-tools look.",
     xterm: {
       background: "#000000",
       foreground: "#d0d0d0",
-      cursor: "#d0d0d0",
-      selectionBackground: "rgba(58,110,165,0.40)",
+      cursor: "#d8dee9",
+      selectionBackground: "rgba(94,129,172,0.45)",
       black: "#2e3436", red: "#ff5f5f", green: "#5fd75f", yellow: "#e5e510",
       blue: "#5f87ff", magenta: "#d75fd7", cyan: "#5fd7d7", white: "#d0d0d0",
       brightBlack: "#6a6a6a", brightRed: "#ff8787", brightGreen: "#87ff87",
@@ -789,7 +789,7 @@ const CSS = `
 [data-phn-skin="pro"] .phn-muted { color: #62666d !important; }
 [data-phn-skin="pro"] option { background: #0f1011; color: #b4b8c0; }
 
-/* ── moba — MobaXterm classic toolbox (neutral dark charcoal, blue accent) ── */
+/* ── moba — MobaXterm dark theme (neutral dark charcoal, cyan/green accent) ── */
 [data-phn-skin="moba"] .phn-header {
   background: #2d2d2d;
   border-bottom: 1px solid #1a1a1a;
@@ -812,7 +812,7 @@ const CSS = `
 [data-phn-skin="moba"] .phn-btn:hover:not(:disabled),
 [data-phn-skin="moba"] .phn-select:hover {
   background: #454545;
-  border-color: #4f9fd6;
+  border-color: #5fd7d7;
   color: #ffffff;
 }
 [data-phn-skin="moba"] .phn-muted { color: #808080 !important; }
@@ -944,14 +944,15 @@ const CSS = `
 
 [data-phn-skin="moba"] {
   --phn-page-bg: #1e1e1e;        /* behind panels; terminal itself is pure black */
-  --phn-surface-bg: #2d2d2d;     /* header / menu / status surfaces — neutral charcoal */
-  --phn-surface-alt-bg: #262626; /* sidebar / docked panel */
-  --phn-surface-border: #1a1a1a;
-  --phn-text-fg: #c8c8c8;
+  --phn-surface-bg: #2d2d2d;     /* menu / toolbar / status / tab-strip — charcoal */
+  --phn-surface-alt-bg: #1e1e1e; /* sidebar / docked file browser — darker */
+  --phn-surface-border: #161616; /* dark dividers between surfaces */
+  --phn-text-fg: #cfcfcf;
   --phn-text-active: #ffffff;
-  --phn-text-dim: #888888;
-  --phn-link: #4f9fd6;           /* MobaXterm blue accent (selection / active) */
-  --phn-accent-subtle: rgba(79,159,214,0.18);
+  --phn-text-dim: #868686;
+  --phn-link: #5fd7d7;           /* MobaXterm cyan accent (active tab / selection) */
+  --phn-accent-subtle: rgba(95,215,215,0.15);
+  --phn-hover-bg: rgba(255,255,255,0.06);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
