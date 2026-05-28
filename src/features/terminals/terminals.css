@@ -277,6 +277,33 @@
 }
 .moba-stat .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+/* ── MobaXterm "Quick connect" bar (under the toolbar) ───────────────── */
+.moba-quickconnect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--phn-surface-bg, #383838);
+  border-bottom: 1px solid var(--phn-surface-border, #151515);
+  flex-shrink: 0;
+}
+.moba-qc-icon { font-size: 13px; line-height: 1; flex-shrink: 0; opacity: 0.9; }
+.moba-qc-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--phn-page-bg, #1c1c1c);
+  border: 1px solid var(--phn-surface-border, #151515);
+  border-radius: 4px;
+  color: var(--phn-text-fg, #d4d4d4);
+  font-family: var(--phn-ui-font);
+  font-size: 12px;
+  padding: 5px 10px;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+.moba-qc-input::placeholder { color: var(--phn-text-dim, #8a8a8a); }
+.moba-qc-input:focus { border-color: var(--phn-link, #4aa8c0); }
+
 /* ── MobaXterm v12.4 Chrome-style tabs ──────────────────────────────────
    Browser-tab shape: rounded top corners + outward-curving bottom corners
    made with masked ::before/::after pseudo-elements. Each tab sets its own

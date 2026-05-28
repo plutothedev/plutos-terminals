@@ -870,6 +870,54 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     }
   }, [activeTab, openSftp, sftp, closeSftp]);
 
+  // MobaXterm-style quick connect: parse "[user@]host[:port]" and open an SSH
+  // session in the active panel (password auth → prompt, like a saved session).
+  const quickConnect = useCallback((text) => {
+    const t = (text || "").trim();
+    if (!t) return;
+    const m = t.match(/^(?:([^@\s]+)@)?([^@:\s]+)(?::(\d+))?$/);
+    if (!m) { toast.error("Use the form user@host or host:port"); return; }
+    const user = m[1] || "root";
+    const host = m[2];
+    const port = m[3] ? parseInt(m[3], 10) : 22;
+    const tabId = freshId("tab");
+    const tab = {
+      id: tabId,
+      label: `${user}@${host}`,
+      cwd: null,
+      startCommands: [],
+      projectId: null,
+      connection: { host, port, user, auth: { method: "password" } },
+    };
+    const project = { name: `${user}@${host}`, connection: tab.connection };
+    (async () => {
+      let saved = null;
+      try { saved = await invoke("secret_get", { account: sshAccount(tab.connection) }); } catch { /* none */ }
+      if (saved) { setTabPassword(tabId, saved); spawnSessionTab(state.activePanelId, tab); }
+      else { setSshPrompt({ panelId: state.activePanelId, tab, project }); }
+    })();
+  }, [state.activePanelId, toast, spawnSessionTab]);
+
+  // "Games" toolbar button — MobaXterm has built-in games; we keep it honest
+  // with a wink toward the palette.
+  const playGames = useCallback(() => {
+    toast.info("🎮 No games bundled — but Ctrl+K opens the command palette.");
+  }, [toast]);
+
+  // "Exit" toolbar button — truly quit (kills every PTY). Needs the quit_app
+  // backend command; falls back to hiding the window if it isn't available.
+  const exitApp = useCallback(async () => {
+    const ok = await confirm({
+      title: "Quit Pluto's Terminals?",
+      message: "This closes every terminal session in this window and exits the app.",
+      confirmText: "Quit",
+      danger: true,
+    });
+    if (!ok) return;
+    try { await invoke("quit_app"); }
+    catch { try { const { getCurrentWindow } = await import("@tauri-apps/api/window"); getCurrentWindow().close(); } catch { /* ignore */ } }
+  }, [confirm]);
+
   // Write raw data into the active terminal (or all visible, in broadcast mode).
   // Used by the file browser ("cd here", insert path) and snippets.
   const sendToActiveTerminal = useCallback((data) => {
@@ -1127,63 +1175,68 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <MobaToolbar
         brand="⬢ Pluto"
         right={
-          (totalCost.cost > 0 || totalCost.tokens > 0) ? (
-            <span className="phn-cost" title="Live aggregate from Claude /cost output across all sessions">
-              ${totalCost.cost.toFixed(2)}
-              {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
-            </span>
-          ) : null
+          <>
+            {(totalCost.cost > 0 || totalCost.tokens > 0) && (
+              <span className="phn-cost" title="Live aggregate from Claude /cost output across all sessions">
+                ${totalCost.cost.toFixed(2)}
+                {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
+              </span>
+            )}
+            <div className="moba-tool-group" style={{ borderRight: "none", borderLeft: "1px solid var(--phn-surface-border, #151515)" }}>
+              <div className="moba-tool-btns">
+                <button className="moba-tool-btn" onClick={() => toast.info("Pluto's Terminals doesn't bundle an X11 server — that's a MobaXterm-specific feature.")} title="X server (not available in Pluto's Terminals)">
+                  <span className="moba-tool-icon" style={{ color: "#3fae5a" }}>✖</span>
+                  <span className="moba-tool-label">X server</span>
+                </button>
+                <button className="moba-tool-btn" onClick={exitApp} title="Quit Pluto's Terminals (closes all sessions)">
+                  <span className="moba-tool-icon" style={{ color: "#e0524a" }}>⏻</span>
+                  <span className="moba-tool-label">Exit</span>
+                </button>
+              </div>
+            </div>
+          </>
         }
         groups={[
           {
-            caption: "Session",
             items: [
               { id: "session", icon: "🌐", label: "Session", title: "New session (local folder or SSH host)", onClick: () => setDialog({ mode: "add" }) },
-              { id: "home", icon: "🏠", label: "Home", title: "Open the session launch screen in a new tab", onClick: () => addHomeTab(state.activePanelId) },
-              { id: "tab", icon: "＋", label: "Tab", title: "New tab (Ctrl+Shift+T)", onClick: () => addTab(state.activePanelId) },
+              { id: "servers", icon: "🖥️", label: "Servers", title: "New SSH / server session", onClick: () => setDialog({ mode: "add" }) },
+              { id: "tools", icon: "🛠️", label: "Tools", title: "Tools — saved command snippets, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+              { id: "games", icon: "🎮", label: "Games", title: "Games", onClick: playGames },
+              { id: "sessions", icon: "⭐", label: "Sessions", title: "Saved sessions panel", active: ribbon === "sessions", onClick: () => selectRibbon(ribbon === "sessions" ? null : "sessions") },
             ],
           },
           {
-            caption: "Layout",
             items: [
-              { id: "pane", icon: "▦", label: "Pane", title: canAddPanel ? "Add panel" : `Max ${MAX_PANELS} panels`, disabled: !canAddPanel, onClick: addPanel },
-              { id: "split-right", icon: "⬌", label: "Right", title: "Split pane right", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-              { id: "split-down", icon: "⬍", label: "Down", title: "Split pane down", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+              { id: "view", icon: "👁️", label: "View", title: "Appearance & skins", onClick: () => setSettingsOpen(true) },
+              { id: "split", icon: "⬍", label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+              { id: "multiexec", icon: "📡", label: "MultiExec", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
+              { id: "tunneling", icon: "🔀", label: "Tunneling", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
             ],
           },
           {
-            caption: "Tools",
             items: [
-              { id: "snippets", icon: "📋", label: "Tools", title: "Saved command snippets — click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-              { id: "files", icon: "📁", label: "Files", title: activeTab?.connection ? "Remote files (SFTP) for the active SSH session" : "Local file browser", active: ribbon === "files", onClick: () => selectRibbon(ribbon === "files" ? null : "files") },
-              { id: "palette", icon: "⌘", label: "Palette", title: "Command palette (Ctrl+K)", onClick: () => setCommandPaletteOpen(true) },
-            ],
-          },
-          {
-            caption: "Remote",
-            items: [
-              { id: "tunnels", icon: "⇄", label: forwards.length > 0 ? `Tunnels·${forwards.length}` : "Tunnels", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
-              { id: "serial", icon: "⎓", label: "Serial", title: "Open a serial console (USB/UART device)", active: serialOpen, onClick: () => setSerialOpen((v) => !v) },
-              { id: "vnc", icon: "🖥", label: "VNC", title: "Connect to a VNC remote desktop", active: vncOpen, onClick: () => setVncOpen(true) },
-              { id: "rdp", icon: "🪟", label: "RDP", title: "Connect to an RDP remote desktop (Windows / xrdp)", active: rdpOpen, onClick: () => setRdpOpen(true) },
-            ],
-          },
-          {
-            caption: "MultiExec",
-            items: [
-              { id: "broadcast", icon: "📡", label: "Broadcast", title: "Broadcast (MultiExec) — type once, send to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
-            ],
-          },
-          {
-            caption: "Setup",
-            items: [
-              { id: "mcps", icon: "🔌", label: "MCPs", title: "Curated MCP servers — copy or one-click install", onClick: () => setMcpOpen(true) },
-              { id: "setup", icon: "🚀", label: "Setup", title: "Setup check: Node.js + Claude CLI + API key + live API test", onClick: () => setSetupOpen(true) },
+              { id: "packages", icon: "📦", label: "Packages", title: "MCP servers — curated catalog, copy or one-click install", onClick: () => setMcpOpen(true) },
               { id: "settings", icon: "⚙️", label: "Settings", title: "Settings: API key + skin + factory reset", onClick: () => setSettingsOpen(true) },
+              { id: "help", icon: "❓", label: "Help", title: "GitHub repository", onClick: () => window.open("https://github.com/plutothedev/plutos-terminals", "_blank") },
             ],
           },
         ]}
       />
+
+      {/* MobaXterm "Quick connect" bar — type user@host (or host:port) + Enter
+          to open an SSH session in the active panel. */}
+      <div className="moba-quickconnect">
+        <span className="moba-qc-icon">🌐</span>
+        <input
+          className="moba-qc-input"
+          placeholder="Quick connect…   user@host   ·   host:port"
+          spellCheck={false}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { quickConnect(e.currentTarget.value); e.currentTarget.value = ""; }
+          }}
+        />
+      </div>
 
       {/* Body: MobaXterm vertical ribbon + docked left panel + terminal grid.
           The ribbon toggles which panel is docked (Sessions / Tools / Sftp). */}

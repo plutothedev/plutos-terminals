@@ -26,7 +26,34 @@ const colorHex = (id) => COLOR_PALETTE.find(c => c.id === id)?.hex || FG_FAINT;
 
 // SSH sessions carry a `connection`; older/local records have a `path`.
 const isSsh = (p) => p?.type === "ssh" || (!!p?.connection && !p?.path);
-const typeGlyph = (p) => (isSsh(p) ? "🌐" : "🖥");
+
+// MobaXterm-style platform icons: infer the OS/platform from the session name,
+// folder, host, or path so the tree reads like MobaXterm's categorised list
+// (penguin / Apple / Windows / …). Falls back to a generic host/computer icon.
+function platformGlyph(p) {
+  const hay = `${p?.name || ""} ${p?.folder || ""} ${p?.connection?.host || ""} ${p?.path || ""}`.toLowerCase();
+  if (/(ubuntu|debian|linux|fedora|centos|arch|alpine|redhat|rhel|kali|suse)/.test(hay)) return "🐧";
+  if (/(windows|win10|win11|wsl|\bwin\b)/.test(hay)) return "🪟";
+  if (/(macos|macbook|apple|osx|darwin|\bmac\b)/.test(hay)) return "🍎";
+  if (/(android)/.test(hay)) return "🤖";
+  if (/(raspberry|\brpi\b)/.test(hay)) return "🍓";
+  if (/(aix|solaris|\bunix\b|\bbsd\b)/.test(hay)) return "🖧";
+  if (/(docker|container|k8s|kube)/.test(hay)) return "🐳";
+  return isSsh(p) ? "🌐" : "💻";
+}
+const typeGlyph = (p) => platformGlyph(p);
+
+// Folder icon by name keyword (mirrors MobaXterm's per-category folder icons).
+function folderGlyph(name) {
+  const n = (name || "").toLowerCase();
+  if (/(ubuntu|debian|linux|fedora|centos|arch|alpine|redhat|rhel|kali|suse)/.test(n)) return "🐧";
+  if (/(windows|win10|win11|wsl|\bwin\b)/.test(n)) return "🪟";
+  if (/(macos|macbook|apple|osx|darwin|\bmac\b)/.test(n)) return "🍎";
+  if (/(prod|production|server)/.test(n)) return "🖧";
+  if (/(docker|container|k8s|kube)/.test(n)) return "🐳";
+  if (/(local|dev|project)/.test(n)) return "💻";
+  return "📂";
+}
 
 // Spawn a floating drag preview that follows the cursor.
 function makeGhost(label, color) {
@@ -596,7 +623,7 @@ export default function ProjectSidebar({
                       title={isCol ? `Expand "${name}"` : `Collapse "${name}"`}
                     >
                       <span className="phn-folder-chevron">{isCol ? "▸" : "▾"}</span>
-                      <span className="phn-folder-icon">📂</span>
+                      <span className="phn-folder-icon">{folderGlyph(name)}</span>
                       <span className="phn-folder-name">{name}</span>
                       <span className="phn-folder-count">{rows.length}</span>
                     </div>
