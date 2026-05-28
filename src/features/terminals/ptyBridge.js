@@ -72,7 +72,8 @@ const HISTORY_CAP = 500;
 let cmdHistory = [];
 try {
   const raw = localStorage.getItem(HISTORY_KEY);
-  if (raw) cmdHistory = JSON.parse(raw) || [];
+  const parsed = raw ? JSON.parse(raw) : [];
+  if (Array.isArray(parsed)) cmdHistory = parsed;
 } catch { /* ignore */ }
 
 export function recordCommand(cmd) {

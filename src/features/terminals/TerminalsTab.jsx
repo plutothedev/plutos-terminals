@@ -1149,8 +1149,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const toggleFilesDock = useCallback(() => {
     setFilesDock((open) => {
       const next = !open;
+      // closeSftp reads the live sftp state via its own setState updater, so call
+      // it unconditionally on close — guarding on the (possibly stale) closure
+      // `sftp` here could skip the disconnect and leak the session.
       if (next) { if (activeTab?.connection) openSftp(); }
-      else if (sftp) { closeSftp(); }
+      else { closeSftp(); }
       return next;
     });
   }, [activeTab, openSftp, sftp, closeSftp]);
@@ -1780,7 +1783,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <AskBar
         open={askOpen}
         shellName={shellName}
-        cwd={activeTab?.path}
+        cwd={activeTab?.cwd}
         onClose={() => setAskOpen(false)}
         onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
         onInsert={(cmd) => insertSnippet(cmd)}
