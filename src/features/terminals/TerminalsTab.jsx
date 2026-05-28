@@ -9,7 +9,6 @@ import SshPasswordModal from "./SshPasswordModal";
 import SftpBrowser from "./SftpBrowser";
 import TunnelsModal from "./TunnelsModal";
 import SerialModal from "./SerialModal";
-import MobaRibbon from "./MobaRibbon";
 import MobaMenuBar from "./MobaMenuBar";
 import AgentDashboard from "./AgentDashboard";
 import DiffView from "./DiffView";
@@ -166,7 +165,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // the left — "sessions" (project/session list), "snippets" (tools), or "sftp"
   // (remote files). null = dock collapsed. Defaults to the sessions list.
   const [ribbon, setRibbon] = useState("sessions");
-  const [filesDock, setFilesDock] = useState(false); // right-docked SFTP / file browser
+  const [filesDock, setFilesDock] = useState(true); // right-docked SFTP / file browser (shown by default, workstation layout)
 
   // Persisted user snippets. Seeded from the built-in starter set on first use
   // so the drawer is never empty; edits/additions/deletes persist in app state.
@@ -1515,6 +1514,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         brand="⬢ Pluto"
         right={
           <>
+            <div className="moba-qc-inline" title="Quick connect — user@host (Enter)">
+              <span style={{ flexShrink: 0 }}>🌐</span>
+              <input
+                placeholder="quick connect — user@host"
+                spellCheck={false}
+                onKeyDown={(e) => { if (e.key === "Enter") { quickConnect(e.currentTarget.value); e.currentTarget.value = ""; } }}
+              />
+            </div>
             {(totalCost.cost > 0 || totalCost.tokens > 0) && (
               <span className="phn-cost" title="Live aggregate from Claude /cost output across all sessions">
                 ${totalCost.cost.toFixed(2)}
@@ -1578,20 +1585,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           MobaXterm layout: Quick-connect sits NARROW at the top of the left dock
           (not a full-width bar), beside the per-panel tab strip on the right. */}
       <div className="moba-body" style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0, position: "relative", overflow: "hidden" }}>
-        <MobaRibbon active={ribbon} onSelect={selectRibbon} />
         {ribbon && (
           <div className="moba-dock">
-            <div className="moba-quickconnect">
-              <span className="moba-qc-icon">🌐</span>
-              <input
-                className="moba-qc-input"
-                placeholder="Quick connect…  user@host"
-                spellCheck={false}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { quickConnect(e.currentTarget.value); e.currentTarget.value = ""; }
-                }}
-              />
-            </div>
             <div className="moba-dock-body">
             {ribbon === "sessions" && (
               <ProjectSidebar

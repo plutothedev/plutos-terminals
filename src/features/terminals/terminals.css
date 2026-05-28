@@ -432,11 +432,11 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-width: 40px;
-  padding: 3px 6px;
+  min-width: 38px;
+  padding: 2px 5px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 3px;
   color: var(--phn-text-fg, #c8c8c8);
   cursor: pointer;
   font-family: inherit;
@@ -454,8 +454,21 @@
   background: var(--phn-accent-subtle, rgba(79, 159, 214, 0.16));
   border-color: var(--phn-link, #4f9fd6);
 }
-.moba-tool-icon { font-size: 17px; line-height: 1; }
-.moba-tool-label { font-size: 9px; letter-spacing: 0.2px; line-height: 1; }
+.moba-tool-icon { font-size: 15px; line-height: 1; }
+.moba-tool-label { font-size: 8px; letter-spacing: 0.2px; line-height: 1; }
+/* inline quick-connect in the toolbar's right cluster */
+.moba-qc-inline {
+  display: flex; align-items: center; gap: 7px; align-self: center;
+  background: var(--phn-page-bg, #16181C);
+  border: 1px solid var(--phn-surface-border, #34383F);
+  border-radius: 4px; padding: 6px 9px; min-width: 190px;
+  color: var(--phn-text-dim, #8A909A); font-size: 11px;
+}
+.moba-qc-inline input {
+  flex: 1; background: transparent; border: none; outline: none; min-width: 0;
+  color: var(--phn-text-fg, #D3D7DD); font-family: var(--phn-ui-font); font-size: 11px;
+}
+.moba-qc-inline input::placeholder { color: var(--phn-text-faint, #586068); }
 .moba-toolbar-spacer { flex: 1; min-width: 8px; }
 .moba-toolbar .phn-cost { align-self: center; flex-shrink: 0; padding: 0 8px; }
 
