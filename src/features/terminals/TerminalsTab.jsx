@@ -793,6 +793,30 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     openProjectInPanel(state.activePanelId, projectId, [`npm run ${scriptName}`]);
   }, [openProjectInPanel, state.activePanelId]);
 
+  // Tier 1: spawn an agent in its own git worktree (isolated branch + dir) so
+  // parallel agents don't clobber each other. The worktree's cwd runs the
+  // project's start commands (e.g. `claude`); the tab is tagged `worktree`.
+  const openAgentWorktree = useCallback(async (projectId) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project?.path) { toast.error("Worktree agents need a local git project."); return; }
+    const branch = `agent/${Date.now().toString(36).slice(-5)}`;
+    toast.info(`Creating worktree ${branch}…`);
+    try {
+      const wtPath = await invoke("worktree_add", { repo: project.path, branch });
+      spawnSessionTab(state.activePanelId, {
+        id: freshId("tab"),
+        label: branch,
+        cwd: wtPath,
+        startCommands: project.startCommands || [],
+        projectId: project.id,
+        worktree: { path: wtPath, branch, repo: project.path },
+      });
+      toast.success(`Agent worktree ${branch} ready.`);
+    } catch (e) {
+      toast.error(`Worktree failed: ${e}`);
+    }
+  }, [projects, state.activePanelId, spawnSessionTab, toast]);
+
   // ── Dialog handlers ────────────────────────────────────────────────
 
   const dialogInitial = useMemo(() => {
@@ -1301,6 +1325,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 onDropProject={(id, panelId) => openProjectInPanel(panelId, id)}
                 onRunScript={runProjectScript}
                 onSetFolder={setProjectFolder}
+                onNewWorktreeAgent={openAgentWorktree}
                 onForgetPassword={(project) => {
                   if (!project?.connection) return;
                   invoke("secret_delete", { account: sshAccount(project.connection) })

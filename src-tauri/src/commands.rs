@@ -125,6 +125,63 @@ pub fn open_path(path: String) -> Result<(), String> {
     spawned.map(|_| ()).map_err(|e| e.to_string())
 }
 
+// ── Git worktrees for parallel AI agents ──────────────────────────
+//
+// Each agent runs in its own worktree (own directory + branch, sharing the
+// repo's one .git) so parallel agents never clobber each other's files or
+// branch. Worktrees live under <repo>/.worktrees/<branch>; that folder is
+// added to the repo's LOCAL exclude (.git/info/exclude) so it never dirties
+// `git status` and the tracked .gitignore is left untouched.
+fn sanitize_branch(b: &str) -> String {
+    b.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '/' { c } else { '-' })
+        .collect()
+}
+
+#[tauri::command]
+pub fn worktree_add(repo: String, branch: String) -> Result<String, String> {
+    let repo_path = PathBuf::from(&repo);
+    if !repo_path.join(".git").exists() {
+        return Err("Not a git repository (no .git found).".into());
+    }
+    let safe = sanitize_branch(&branch);
+    let wt = repo_path.join(".worktrees").join(safe.replace('/', "-"));
+
+    // Keep .worktrees/ out of `git status` via the repo's local exclude file.
+    let exclude = repo_path.join(".git").join("info").join("exclude");
+    if let Ok(mut content) = fs::read_to_string(&exclude) {
+        if !content.contains(".worktrees/") {
+            if !content.ends_with('\n') { content.push('\n'); }
+            content.push_str(".worktrees/\n");
+            let _ = fs::write(&exclude, content);
+        }
+    }
+
+    let out = std::process::Command::new("git")
+        .arg("-C").arg(&repo_path)
+        .args(["worktree", "add", "-b", &safe])
+        .arg(&wt)
+        .output()
+        .map_err(|e| format!("git not found: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(wt.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn worktree_remove(repo: String, path: String) -> Result<(), String> {
+    let out = std::process::Command::new("git")
+        .arg("-C").arg(&repo)
+        .args(["worktree", "remove", "--force", &path])
+        .output()
+        .map_err(|e| format!("git not found: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
 // ── Quit the whole app (Exit toolbar button) ──────────────────────
 //
 // Fires app.exit(0), which triggers RunEvent::ExitRequested → kill_all()

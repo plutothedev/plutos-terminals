@@ -113,6 +113,7 @@ export default function ProjectSidebar({
   onRunScript,
   onForgetPassword,
   onSetFolder,
+  onNewWorktreeAgent,
 }) {
   const [hoverId, setHoverId] = useState(null);
   const [query, setQuery] = useState(""); // project name filter
@@ -682,6 +683,16 @@ export default function ProjectSidebar({
               >
                 Edit session…
               </button>
+
+              {!isSsh(project) && project.path && onNewWorktreeAgent && (
+                <button
+                  onClick={() => { onNewWorktreeAgent(project.id); closeCtx(); }}
+                  style={{ ...ctxBtnStyle(), color: "#5fd75f" }}
+                  title="Spawn an agent in a fresh git worktree (isolated branch + dir) for parallel work"
+                >
+                  🌿 New agent (git worktree)
+                </button>
+              )}
 
               <div style={{ padding: "6px 4px 4px", color: FG_DIM, fontSize: 9, letterSpacing: 0.6 }}>COLOR</div>
               <div style={{ display: "flex", gap: 4, padding: "0 4px 6px" }}>

@@ -122,6 +122,8 @@ pub fn run() {
             commands::quit_app,
             commands::write_welcome_file,
             commands::open_path,
+            commands::worktree_add,
+            commands::worktree_remove,
             commands::system_stats,
             commands::list_directory,
             pty::pty_spawn,
