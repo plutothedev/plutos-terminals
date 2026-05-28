@@ -307,14 +307,17 @@ export default function TerminalPanel({
         transition: "border-color 0.2s, box-shadow 0.2s",
       }}
     >
-      {/* Tab strip */}
+      {/* Tab strip — MobaXterm look: white tab slabs sit on the dark terminal
+          background. Using PANEL_BG (the xterm theme bg) rather than the chrome
+          surface so tabs read like MobaXterm's "white slabs on black" tabs. */}
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          background: STRIP_BG,
+          alignItems: "flex-end",
+          background: PANEL_BG,
           borderBottom: `1px solid ${BORDER_DIM}`,
-          minHeight: 34,
+          minHeight: 32,
+          paddingTop: 4,
           fontSize: 12,
           flexShrink: 0,
           overflow: "hidden",
@@ -342,14 +345,16 @@ export default function TerminalPanel({
                   marginTop: 3,
                   marginRight: 2,
                   cursor: isRenamingThis ? "text" : "pointer",
-                  // MobaXterm dark tabs: flat slabs with no bright accent line.
-                  // Active = a slightly lighter slab + white text; inactive =
-                  // flush with the strip, dim text, faint right divider.
-                  background: active ? "rgba(255,255,255,0.10)" : "transparent",
-                  color: active ? TAB_FG_ACTIVE : TAB_FG,
-                  borderTop: "1px solid transparent",
-                  borderRight: active ? "1px solid transparent" : `1px solid ${BORDER_DIM}`,
-                  borderRadius: "4px 4px 0 0",
+                  // MobaXterm look: white slab tabs with rounded tops sit on the
+                  // dark terminal strip. Active = opaque white + black text;
+                  // inactive = a dimmer grey-white + muted text. Text colours
+                  // are explicit (not skin vars) so they read correctly on the
+                  // white slab regardless of skin.
+                  background: active ? "#ffffff" : "#bababa",
+                  color: active ? "#000000" : "#3a3a3a",
+                  borderRadius: "6px 6px 0 0",
+                  padding: "5px 14px",
+                  marginRight: 2,
                   whiteSpace: "nowrap",
                   userSelect: "none",
                 }}
@@ -438,13 +443,14 @@ export default function TerminalPanel({
             style={{
               padding: "4px 10px",
               cursor: "pointer",
-              color: TAB_FG,
-              fontSize: 13,
+              color: "#bababa",
+              fontSize: 14,
               lineHeight: 1,
               userSelect: "none",
+              alignSelf: "center",
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = TAB_FG_ACTIVE; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = TAB_FG; }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "#ffffff"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "#bababa"; }}
             title="New tab in this panel"
           >
             +

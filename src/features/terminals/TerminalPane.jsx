@@ -664,43 +664,45 @@ export default function TerminalPane({
           // codes, and a few quality-of-life aliases. zsh-syntax-highlighting is
           // sourced if it's on the system (gives real "rainbow as you type").
           const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export GREP_OPTIONS=; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah'; alias la='ls -laGh'; for __zsh in /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ~/.zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh; do [ -f \"$__zsh\" ] && source \"$__zsh\" 2>/dev/null && break; done; unset __zsh;";
-          // MobaXterm-style segmented prompt with 📅 🕐 📁 icons over coloured
-          // backgrounds — matches the reference screenshot exactly. zsh's %K/%F
-          // know about their own escapes so width tracking stays correct.
-          const zshPrompt = "PROMPT='%K{2}%F{0} 📅 %D{%m-%d} %k%f%K{4}%F{15} 🕐 %* %k%f%K{3}%F{0} 📁 %~ %k%f '";
-          const bashPrompt = "PS1='\\[\\e[42;30m\\] 📅 \\D{%m-%d} \\[\\e[44;97m\\] 🕐 \\t \\[\\e[43;30m\\] 📁 \\w \\[\\e[0m\\] '";
-          // MobaXterm-style welcome box: a rounded panel with a cyan title and
-          // ➤ feature lines with green check marks. Plain text is padded to a
-          // fixed inner width BEFORE color is layered on so the box edges align;
-          // sent as one single-quoted printf (only \033 / \n are interpreted).
+          // MobaXterm two-line prompt: yellow [YYYY-MM-DD HH:MM.SS] + path on the
+          // top line, green [user.host] + red ► on the bottom. zsh uses $'...'
+          // so \n becomes a real newline inside PROMPT; bash stays one-line to
+          // avoid PS1's escape-character collisions with $'...' interpretation.
+          const zshPrompt = "PROMPT=$'%F{yellow}[%D{%Y-%m-%d %H:%M.%S}]%f  %F{15}%~%f\\n%F{green}[%n.%m]%f %F{red}►%f '";
+          const bashPrompt = "PS1='\\[\\e[33m\\][\\D{%Y-%m-%d %H:%M.%S}]\\[\\e[97m\\]  \\w  \\[\\e[32m\\][\\u.\\h]\\[\\e[31m\\] ►\\[\\e[0m\\] '";
+          // MobaXterm-style welcome box: a white-bordered rectangle on the pure
+          // black terminal, with a cyan title, yellow ► markers, and green ✓
+          // checks. Plain text is padded to a fixed inner width BEFORE color is
+          // layered on so the box edges align across every line. Sent as one
+          // single-quoted printf (only \033 / \n are interpreted).
           const E = "\\033";
-          const dim = (s) => `${E}[38;5;240m${s}${E}[0m`;
+          const wht = (s) => `${E}[1;37m${s}${E}[0m`;
           const bannerLines = [
             "• Pluto's Terminals •",
             "(multi-terminal · SSH · SFTP · serial · RDP · VNC)",
             "",
-            "➤ Local terminal session",
-            "    Scrollback       :  ✓  saved & replayed on restart",
-            "    Snippets / Tools :  ✓  open the Tools panel from the toolbar",
-            "    MultiExec        :  ✓  broadcast typing to every pane",
-            "    Command palette  :  ✓  press Ctrl+K anywhere",
+            "► Scrollback persistence : ✓",
+            "► Tools / snippets       : ✓",
+            "► MultiExec broadcast    : ✓",
+            "► Command palette        : Ctrl+K",
+            "► Skin                   : MobaXterm Professional",
           ];
           const W = Math.max(...bannerLines.map((l) => l.length));
           const center = (t) => {
             const p = Math.max(0, Math.floor((W - t.length) / 2));
             return " ".repeat(p) + t + " ".repeat(W - p - t.length);
           };
-          const box = [" " + dim("╭" + "─".repeat(W + 2) + "╮")];
+          const box = [" " + wht("┌" + "─".repeat(W + 2) + "┐")];
           bannerLines.forEach((t, i) => {
             let c = i < 2 ? center(t) : t + " ".repeat(W - t.length);
             if (i < 2) c = `${E}[1;36m${c}${E}[0m`;             // cyan title
             else {
-              c = c.replace("➤", `${E}[1;33m➤${E}[0m`);          // yellow arrow
+              c = c.replace("►", `${E}[1;33m►${E}[0m`);          // yellow marker
               c = c.replace("✓", `${E}[1;32m✓${E}[0m`);          // green check
             }
-            box.push(" " + dim("│") + " " + c + " " + dim("│"));
+            box.push(" " + wht("│") + " " + c + " " + wht("│"));
           });
-          box.push(" " + dim("╰" + "─".repeat(W + 2) + "╯"));
+          box.push(" " + wht("└" + "─".repeat(W + 2) + "┘"));
           const bannerText = "\\n" + box.join("\\n") + "\\n\\n";
           const banner = "printf '" + bannerText.replace(/'/g, "'\\''") + "'";
           // If lolcat is installed, paint a rainbow tagline below the box —

@@ -166,8 +166,8 @@ export const HEADER_SKINS = [
   },
   {
     id: "moba",
-    label: "MobaXterm — dark theme",
-    description: "MobaXterm's neutral dark-charcoal chrome, flat tabs, pure-black terminal with vivid ANSI text and a cyan/green accent. The MobaXterm network-tools look.",
+    label: "MobaXterm — Professional",
+    description: "MobaXterm's default look: light Windows-grey chrome with colourful icons, white tabs on a dark strip, pure-black terminal with a white-bordered welcome box. Matches the MobaXterm reference exactly.",
     xterm: {
       background: "#000000",
       foreground: "#d0d0d0",
@@ -789,34 +789,34 @@ const CSS = `
 [data-phn-skin="pro"] .phn-muted { color: #62666d !important; }
 [data-phn-skin="pro"] option { background: #0f1011; color: #b4b8c0; }
 
-/* ── moba — MobaXterm dark theme (neutral dark charcoal, cyan/green accent) ── */
+/* ── moba — MobaXterm Professional (light Windows chrome, blue accent) ─── */
 [data-phn-skin="moba"] .phn-header {
-  background: #2d2d2d;
-  border-bottom: 1px solid #1a1a1a;
+  background: #f1f1f1;
+  border-bottom: 1px solid #bfbfbf;
 }
 [data-phn-skin="moba"] .phn-title {
-  color: #f0f0f0;
+  color: #000000;
   font-weight: 600;
   letter-spacing: 0.02em;
   font-size: 12px;
 }
-[data-phn-skin="moba"] .phn-meta { color: #9a9a9a; }
-[data-phn-skin="moba"] .phn-cost { color: #5fd75f; }
+[data-phn-skin="moba"] .phn-meta { color: #555555; }
+[data-phn-skin="moba"] .phn-cost { color: #1f8a3a; }
 [data-phn-skin="moba"] .phn-btn,
 [data-phn-skin="moba"] .phn-select {
-  background: #3a3a3a;
-  border: 1px solid #1f1f1f;
-  color: #d0d0d0;
+  background: #ffffff;
+  border: 1px solid #bfbfbf;
+  color: #2a2a2a;
   border-radius: 3px;
 }
 [data-phn-skin="moba"] .phn-btn:hover:not(:disabled),
 [data-phn-skin="moba"] .phn-select:hover {
-  background: #454545;
-  border-color: #5fd7d7;
-  color: #ffffff;
+  background: #e6f0fa;
+  border-color: #1170cc;
+  color: #000000;
 }
-[data-phn-skin="moba"] .phn-muted { color: #808080 !important; }
-[data-phn-skin="moba"] option { background: #2d2d2d; color: #d0d0d0; }
+[data-phn-skin="moba"] .phn-muted { color: #777777 !important; }
+[data-phn-skin="moba"] option { background: #ffffff; color: #2a2a2a; }
 
 /* ────────── Per-skin CSS variables — drive .phn-page / .phn-statusbar /
    .phn-sidebar / .phn-sidebar-header without per-skin specific rules. ─── */
@@ -943,16 +943,16 @@ const CSS = `
 }
 
 [data-phn-skin="moba"] {
-  --phn-page-bg: #0d0d0d;        /* behind panels; the terminal itself is pure black */
-  --phn-surface-bg: #1a1a1a;     /* menu / toolbar / status / tab-strip — near black */
-  --phn-surface-alt-bg: #0f0f0f; /* sidebar / docked file browser — darker still */
-  --phn-surface-border: #050505; /* near-black dividers between surfaces */
-  --phn-text-fg: #cfcfcf;
-  --phn-text-active: #ffffff;
-  --phn-text-dim: #7a7a7a;
-  --phn-link: #5fd7d7;           /* MobaXterm cyan accent — used sparingly */
-  --phn-accent-subtle: rgba(95,215,215,0.13);
-  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-page-bg: #e8e8e8;        /* light Windows-grey app background */
+  --phn-surface-bg: #f1f1f1;     /* menu / toolbar / status / tab-strip chrome */
+  --phn-surface-alt-bg: #ffffff; /* session tree / file browser — white */
+  --phn-surface-border: #bfbfbf; /* light-grey 1px borders */
+  --phn-text-fg: #2a2a2a;        /* near-black body text on light chrome */
+  --phn-text-active: #000000;
+  --phn-text-dim: #6e6e6e;
+  --phn-link: #1170cc;           /* MobaXterm Windows-blue accent */
+  --phn-accent-subtle: rgba(17,112,204,0.13);
+  --phn-hover-bg: rgba(0,0,0,0.06);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
