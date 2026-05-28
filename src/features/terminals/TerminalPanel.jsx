@@ -315,9 +315,10 @@ export default function TerminalPanel({
           display: "flex",
           alignItems: "flex-end",
           background: PANEL_BG,
-          borderBottom: `1px solid ${BORDER_DIM}`,
-          minHeight: 32,
-          paddingTop: 4,
+          borderBottom: "1px solid rgba(255,255,255,0.14)",
+          minHeight: 34,
+          paddingTop: 5,
+          paddingLeft: 4,
           fontSize: 12,
           flexShrink: 0,
           overflow: "hidden",
@@ -341,20 +342,25 @@ export default function TerminalPanel({
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
-                  padding: "5px 11px",
-                  marginTop: 3,
-                  marginRight: 2,
                   cursor: isRenamingThis ? "text" : "pointer",
-                  // MobaXterm look: white slab tabs with rounded tops sit on the
-                  // dark terminal strip. Active = opaque white + black text;
-                  // inactive = a dimmer grey-white + muted text. Text colours
-                  // are explicit (not skin vars) so they read correctly on the
-                  // white slab regardless of skin.
-                  background: active ? "#ffffff" : "#bababa",
-                  color: active ? "#000000" : "#3a3a3a",
+                  // MobaXterm tab shape: a white→grey gradient slab with a thin
+                  // grey outline and rounded top corners, sitting on the dark
+                  // strip. The active tab is brighter and pulled down 1px
+                  // (marginBottom: -1) so it overlaps the strip's bottom line and
+                  // reads as connected to the content — inactive tabs are dimmer
+                  // and recessed. Text colours are explicit so they read on the
+                  // light slab regardless of skin.
+                  background: active
+                    ? "linear-gradient(180deg, #ffffff 0%, #ededed 100%)"
+                    : "linear-gradient(180deg, #c8c8c8 0%, #b3b3b3 100%)",
+                  color: active ? "#000000" : "#454545",
+                  border: "1px solid #8f8f8f",
+                  borderBottom: "none",
                   borderRadius: "6px 6px 0 0",
-                  padding: "5px 14px",
+                  padding: active ? "6px 16px 7px" : "5px 16px",
                   marginRight: 2,
+                  marginBottom: active ? -1 : 0,
+                  boxShadow: active ? "0 -1px 3px rgba(0,0,0,0.25)" : "none",
                   whiteSpace: "nowrap",
                   userSelect: "none",
                 }}
