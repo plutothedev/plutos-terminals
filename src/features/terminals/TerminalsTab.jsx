@@ -22,6 +22,7 @@ import AskBar from "./AskBar";
 import SessionSummary from "./SessionSummary";
 import HistorySearch from "./HistorySearch";
 import WorkspacesModal from "./WorkspacesModal";
+import BroadcastGroupModal from "./BroadcastGroupModal";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
@@ -47,7 +48,7 @@ import {
   applyGlobalSkin,
 } from "./headerSkins";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword, getTabPassword, getTabText, getCommandHistory } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword, getTabPassword, getTabText, getCommandHistory, setBroadcastTargets, getLiveTabIds } from "./ptyBridge.js";
 import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
@@ -176,12 +177,30 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // a keystroke or snippet goes to every visible terminal at once. Not
   // persisted — auto-typing into every pane after a restart would surprise.
   const [broadcast, setBroadcastState] = useState(false);
+  const [bcastTargets, setBcastTargets] = useState(null); // null = all visible; array = explicit group
+  const [broadcastGroupOpen, setBroadcastGroupOpen] = useState(false);
   const toggleBroadcast = useCallback(() => {
     setBroadcastState((on) => {
       const next = !on;
       setBroadcast(next);
+      // The plain toggle is always "all visible" — clear any explicit group.
+      setBroadcastTargets(null);
+      setBcastTargets(null);
       return next;
     });
+  }, []);
+  const applyBroadcastGroup = useCallback((ids) => {
+    setBroadcastTargets(ids);
+    setBcastTargets(ids);
+    setBroadcast(true);
+    setBroadcastState(true);
+    toast.success(`Broadcasting to ${ids.length} terminal${ids.length === 1 ? "" : "s"}.`);
+  }, [toast]);
+  const useAllVisibleBroadcast = useCallback(() => {
+    setBroadcastTargets(null);
+    setBcastTargets(null);
+    setBroadcast(true);
+    setBroadcastState(true);
   }, []);
 
   // Re-render the status bar when the active terminal's dimensions change.
@@ -1444,6 +1463,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               { label: "Command history search…", shortcut: "Cmd+R", action: () => setHistoryOpen(true) },
               { label: "Models — pick provider + model…", action: () => setModelsOpen(true) },
               { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
+              { label: "Broadcast targets… (choose terminals)", action: () => setBroadcastGroupOpen(true) },
               { divider: true },
               { label: "MCP servers…", action: () => setMcpOpen(true) },
               { label: "Setup checker…", action: () => setSetupOpen(true) },
@@ -1762,6 +1782,16 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onDelete={deleteWorkspace}
       />
 
+      <BroadcastGroupModal
+        open={broadcastGroupOpen}
+        panels={state.panels}
+        liveTabIds={broadcastGroupOpen ? getLiveTabIds() : []}
+        current={bcastTargets}
+        onClose={() => setBroadcastGroupOpen(false)}
+        onApply={applyBroadcastGroup}
+        onUseAllVisible={useAllVisibleBroadcast}
+      />
+
       <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
 
       <MacrosModal
@@ -1812,6 +1842,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "vnc", icon: "🖥", label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
           { id: "rdp", icon: "🪟", label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
+          { id: "broadcast-group", icon: "🎯", label: "Broadcast targets… (choose terminals)", hint: "Pick a subset of terminals for MultiExec instead of all visible", action: () => setBroadcastGroupOpen(true) },
           { id: "toggle-sidebar", icon: "◧", label: ribbon ? "Collapse left panel" : "Show sessions panel", hint: "Show or hide the docked left panel", action: () => selectRibbon(ribbon ? null : "sessions") },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
           { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
@@ -1940,7 +1971,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           <>
             <span className="phn-statusbar-divider">·</span>
             <button
-              onClick={toggleBroadcast}
+              onClick={() => setBroadcastGroupOpen(true)}
               style={{
                 background: "transparent",
                 border: "none",
@@ -1951,9 +1982,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 fontSize: 11,
                 fontWeight: 600,
               }}
-              title="Broadcast (MultiExec) is on — input goes to every visible terminal. Click to turn off."
+              title="Broadcast (MultiExec) is on. Click to choose target terminals; the MultiExec button toggles it off."
             >
-              📡 broadcast on
+              📡 broadcast: {bcastTargets ? `${bcastTargets.length} tab${bcastTargets.length === 1 ? "" : "s"}` : "all visible"}
             </button>
           </>
         )}

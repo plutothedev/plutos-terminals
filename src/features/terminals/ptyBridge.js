@@ -17,6 +17,10 @@ const dimsListeners = new Set(); // () => void
 // MultiExec broadcast mode (module-level, so per-window). When on, a keystroke
 // or snippet goes to every visible terminal rather than just the focused one.
 let broadcastMode = false;
+// Optional broadcast group: when set to a Set of tabIds, broadcast targets ONLY
+// those tabs (regardless of visibility — the user chose them explicitly). When
+// null, the default applies: every visible terminal.
+let broadcastTargets = null;
 
 function emitDims() {
   for (const cb of dimsListeners) {
@@ -121,6 +125,21 @@ export function isBroadcast() {
   return broadcastMode;
 }
 
+// Set the broadcast group: an array/Set of tabIds, or null for "all visible".
+export function setBroadcastTargets(ids) {
+  broadcastTargets = ids && [...ids].length ? new Set(ids) : null;
+}
+
+// Current broadcast group as an array, or null when targeting all visible.
+export function getBroadcastTargets() {
+  return broadcastTargets ? [...broadcastTargets] : null;
+}
+
+// tabIds that currently have a live PTY writer (for the group picker).
+export function getLiveTabIds() {
+  return [...writers.keys()];
+}
+
 // ── Transient SSH passwords ─────────────────────────────────────────────────
 // Held in memory only (never localStorage), keyed by tabId. Set when the user
 // enters a password in the connect modal; read by TerminalPane at ssh_spawn.
@@ -161,7 +180,13 @@ export function writeBroadcast(data, { exceptTabId } = {}) {
   let n = 0;
   for (const [tabId, fn] of writers) {
     if (tabId === exceptTabId) continue;
-    if (!visible.has(tabId)) continue;
+    // A custom group targets exactly its tabs (visible or not); otherwise the
+    // default is every currently-visible terminal.
+    if (broadcastTargets) {
+      if (!broadcastTargets.has(tabId)) continue;
+    } else if (!visible.has(tabId)) {
+      continue;
+    }
     try {
       fn(data);
       n += 1;
