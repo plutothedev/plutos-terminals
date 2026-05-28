@@ -228,6 +228,16 @@ export default function TerminalPane({
   onCostRef.current = onCostUpdate;
   const autoApproveRef = useRef(autoApprove);
   autoApproveRef.current = autoApprove;
+  const lastNotifyAtRef = useRef(0);
+
+  // "Away" = this tab isn't the one you're looking at, or the app window isn't
+  // focused. Used to gate OS notifications + the done audio cue.
+  const isAway = () =>
+    !visibleRef.current ||
+    (typeof document !== "undefined" && document.hasFocus && !document.hasFocus());
+  const notifyOS = (title, body) => {
+    invoke("notify", { title, body }).catch(() => {});
+  };
   const tabIdRef = useRef(tabId);
   tabIdRef.current = tabId;
   const projectNameRef = useRef(projectName);
@@ -271,8 +281,9 @@ export default function TerminalPane({
     // the tab is NOT currently visible (you don't need a ding for the tab
     // you're staring at). Respects user gesture requirements: AudioContext
     // is created on demand and resumed if needed.
-    if (prev === "active" && next === "done" && !visibleRef.current) {
+    if (prev === "active" && next === "done" && isAway()) {
       try { playDoneCue(); } catch {}
+      notifyOS("Agent finished ✓", projectNameRef.current ? `${projectNameRef.current} is done` : "A session finished");
     }
   };
   const clearDoneTimer = () => {
@@ -315,9 +326,8 @@ export default function TerminalPane({
   };
 
   const checkAutoApprove = (ptyId) => {
-    if (!autoApproveRef.current || !ptyId) return;
+    if (!ptyId) return;
     const now = Date.now();
-    if (now - lastApproveAtRef.current < AUTO_APPROVE_DEBOUNCE_MS) return;
     // Trim recent buffer to last 2KB for cheap pattern matching.
     if (recentOutRef.current.length > AUTO_APPROVE_BUFFER_BYTES) {
       recentOutRef.current = recentOutRef.current.slice(-AUTO_APPROVE_BUFFER_BYTES);
@@ -328,11 +338,16 @@ export default function TerminalPane({
     const hasArrow = /❯\s*1[.)]/.test(text);
     const hasYes = /\bYes\b/.test(text);
     const hasEsc = /\(esc\)/i.test(text) || /\[esc\]/i.test(text);
-    if (hasArrow && hasYes && hasEsc) {
+    if (!(hasArrow && hasYes && hasEsc)) return;
+    if (autoApproveRef.current) {
+      if (now - lastApproveAtRef.current < AUTO_APPROVE_DEBOUNCE_MS) return;
       lastApproveAtRef.current = now;
       invoke("pty_write", { id: ptyId, data: "1\r" }).catch(() => {});
-      // Clear the buffer so we don't re-match the same prompt
-      recentOutRef.current = "";
+      recentOutRef.current = ""; // don't re-match the same prompt
+    } else if (isAway() && now - lastNotifyAtRef.current > 15000) {
+      // Auto-approve off + you're elsewhere → ping that a session needs you.
+      lastNotifyAtRef.current = now;
+      notifyOS("Needs your input", projectNameRef.current ? `${projectNameRef.current} is waiting for approval` : "A session is waiting for approval");
     }
   };
 

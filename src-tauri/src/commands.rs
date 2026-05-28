@@ -242,6 +242,31 @@ pub fn gh_pr_create(path: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+// ── OS notification (agent finished / needs input) ────────────────
+//
+// Fired when an agent transitions to done — or pauses for approval — while the
+// app is in the background. macOS uses osascript; Linux notify-send; Windows is
+// best-effort (no-op if neither path matches).
+#[tauri::command]
+pub fn notify(title: String, body: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let t = title.replace('"', "'");
+        let b = body.replace('"', "'");
+        let script = format!("display notification \"{b}\" with title \"{t}\"");
+        let _ = std::process::Command::new("osascript").args(["-e", &script]).spawn();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("notify-send").args([&title, &body]).spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (&title, &body); // best-effort: native toast needs a module; skip.
+    }
+    Ok(())
+}
+
 // ── Quit the whole app (Exit toolbar button) ──────────────────────
 //
 // Fires app.exit(0), which triggers RunEvent::ExitRequested → kill_all()

@@ -12,6 +12,7 @@ import MobaRibbon from "./MobaRibbon";
 import MobaMenuBar from "./MobaMenuBar";
 import AgentDashboard from "./AgentDashboard";
 import DiffView from "./DiffView";
+import ComparePromptModal from "./ComparePromptModal";
 import MobaToolbar from "./MobaToolbar";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
@@ -112,6 +113,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   // Diff-review modal: the worktree { path, branch, repo } to review, or null.
   const [diffWorktree, setDiffWorktree] = useState(null);
+  // Multi-model compare: one-shot "send this prompt to every visible terminal".
+  const [compareOpen, setCompareOpen] = useState(false);
 
   // v4.0 MobaXterm layout: a vertical ribbon toggles which panel is docked on
   // the left — "sessions" (project/session list), "snippets" (tools), or "sftp"
@@ -1212,6 +1215,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             items: [
               { label: "Snippets / Tools panel", action: () => selectRibbon("snippets") },
               { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
+              { label: "Compare prompt across agents…", action: () => setCompareOpen(true) },
               { divider: true },
               { label: "MCP servers…", action: () => setMcpOpen(true) },
               { label: "Setup checker…", action: () => setSetupOpen(true) },
@@ -1478,6 +1482,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onClose={() => setDiffWorktree(null)}
       />
 
+      <ComparePromptModal
+        open={compareOpen}
+        targets={state.panels.length}
+        onSend={(text) => writeBroadcast(text + "\r")}
+        onClose={() => setCompareOpen(false)}
+      />
+
       <McpInstaller
         open={mcpOpen}
         onClose={() => setMcpOpen(false)}
@@ -1506,6 +1517,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "vnc", icon: "🖥", label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
           { id: "rdp", icon: "🪟", label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
+          { id: "compare", icon: "🧪", label: "Compare prompt across agents", hint: "Send one prompt to every visible terminal — run Claude + Codex side by side", action: () => setCompareOpen(true) },
           { id: "toggle-sidebar", icon: "◧", label: ribbon ? "Collapse left panel" : "Show sessions panel", hint: "Show or hide the docked left panel", action: () => selectRibbon(ribbon ? null : "sessions") },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
           { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },

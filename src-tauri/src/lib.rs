@@ -126,6 +126,7 @@ pub fn run() {
             commands::worktree_remove,
             commands::git_diff,
             commands::gh_pr_create,
+            commands::notify,
             commands::system_stats,
             commands::list_directory,
             pty::pty_spawn,
