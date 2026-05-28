@@ -21,6 +21,7 @@ import MobaToolbar from "./MobaToolbar";
 import AskBar from "./AskBar";
 import SessionSummary from "./SessionSummary";
 import HistorySearch from "./HistorySearch";
+import WorkspacesModal from "./WorkspacesModal";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
@@ -66,6 +67,36 @@ function loadColor(pct) {
 
 function freshId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+// Deep-clone a saved workspace with fresh ids for every panel/tab/pane so a
+// loaded layout is a clean instance (no scrollback-file or React-key collisions
+// with the layout it replaces). Maps old pane ids → new so activePaneId follows.
+function regenLayout(node, map) {
+  if (!node) return node;
+  const newId = node.dir ? freshId("split") : freshId("pane");
+  map[node.id] = newId;
+  if (!node.dir) return { ...node, id: newId };
+  return { ...node, id: newId, a: regenLayout(node.a, map), b: regenLayout(node.b, map) };
+}
+function cloneWorkspaceFresh(ws) {
+  let newActivePanelId = null;
+  const panels = (ws.panels || []).map((p) => {
+    const newPanelId = freshId("panel");
+    if (p.id === ws.activePanelId) newActivePanelId = newPanelId;
+    let newActiveTabId = null;
+    const tabs = (p.tabs || []).map((t) => {
+      const newTabId = freshId("tab");
+      if (t.id === p.activeTabId) newActiveTabId = newTabId;
+      if (!t.layout) return { ...t, id: newTabId, activePaneId: newTabId };
+      const map = {};
+      const layout = regenLayout(t.layout, map);
+      const activePaneId = map[t.activePaneId] || leafIds(layout)[0] || newTabId;
+      return { ...t, id: newTabId, layout, activePaneId };
+    });
+    return { id: newPanelId, tabs, activeTabId: newActiveTabId || (tabs[0] && tabs[0].id) || null };
+  });
+  return { panels, activePanelId: newActivePanelId || (panels[0] && panels[0].id) || null };
 }
 
 function defaultPanel() {
@@ -122,6 +153,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [askOpen, setAskOpen] = useState(false);
   const [summary, setSummary] = useState(null); // { text } when the summary modal is open
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [workspacesOpen, setWorkspacesOpen] = useState(false);
   const [masterPwOpen, setMasterPwOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -1009,6 +1041,31 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // TerminalPane via the bridge. bumpDims above forces re-read on change.
   const activeDims = activeTabId ? getTabDims(activeTabId) : null;
 
+  // ── Named workspaces (save/restore the whole panel/tab/split layout) ────────
+  const workspaces = Array.isArray(userSt?.workspaces) ? userSt.workspaces : [];
+  const saveWorkspace = useCallback((name) => {
+    const snap = JSON.parse(JSON.stringify({ panels: state.panels, activePanelId: state.activePanelId }));
+    const next = [
+      ...workspaces.filter((w) => w.name !== name),
+      { name, panels: snap.panels, activePanelId: snap.activePanelId, savedAt: Date.now() },
+    ];
+    saveUser({ ...userSt, workspaces: next });
+    toast.success(`Workspace "${name}" saved.`);
+  }, [state.panels, state.activePanelId, workspaces, userSt, saveUser, toast]);
+  const loadWorkspace = useCallback((ws) => {
+    try {
+      const fresh = cloneWorkspaceFresh(JSON.parse(JSON.stringify(ws)));
+      if (!fresh.panels.length) { toast.error("That workspace is empty."); return; }
+      persist({ ...state, panels: fresh.panels, activePanelId: fresh.activePanelId });
+      toast.success(`Loaded workspace "${ws.name}".`);
+    } catch (e) {
+      toast.error(`Couldn't load workspace: ${e}`);
+    }
+  }, [state, persist, toast]);
+  const deleteWorkspace = useCallback((name) => {
+    saveUser({ ...userSt, workspaces: workspaces.filter((w) => w.name !== name) });
+  }, [workspaces, userSt, saveUser]);
+
   // ── SFTP remote file browser (Phase 3) ─────────────────────────────────
   // Opens for the active SSH tab. Connects a dedicated SFTP session (separate
   // from the shell, which owns its own connection), reusing the tab's
@@ -1389,6 +1446,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             label: "View",
             items: [
               { label: ribbon ? "Hide left panel" : "Show sessions panel", action: () => selectRibbon(ribbon ? null : "sessions") },
+              { label: "Workspaces — save / restore layout…", action: () => setWorkspacesOpen(true) },
               { divider: true },
               { label: "Skins & appearance…", action: () => setSettingsOpen(true) },
             ],
@@ -1686,6 +1744,15 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
       />
 
+      <WorkspacesModal
+        open={workspacesOpen}
+        workspaces={workspaces}
+        onClose={() => setWorkspacesOpen(false)}
+        onSave={saveWorkspace}
+        onLoad={loadWorkspace}
+        onDelete={deleteWorkspace}
+      />
+
       <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
 
       <MacrosModal
@@ -1727,6 +1794,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "ask", icon: "✨", label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command (Ctrl+I)", action: () => setAskOpen(true) },
           { id: "summarize", icon: "📝", label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
           { id: "history", icon: "🕘", label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs (Cmd+R / Ctrl+Shift+R)", action: () => setHistoryOpen(true) },
+          { id: "workspaces", icon: "🗂", label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
           { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
           { id: "snippets", icon: "📋", label: "Snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
           { id: "files", icon: "📁", label: "File browser", hint: "Local files (or remote SFTP for an SSH tab) in the left panel", action: () => selectRibbon(ribbon === "files" ? null : "files") },
