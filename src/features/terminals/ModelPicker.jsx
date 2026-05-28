@@ -112,6 +112,7 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
                 border: `1px solid ${isActive ? ACCENT : "var(--phn-surface-border, #2a2a2a)"}`,
                 borderRadius: 6, overflow: "hidden",
                 background: "var(--phn-surface-bg, #242424)",
+                flexShrink: 0, // keep natural height so the list scrolls instead of clipping expanded content
               }}
             >
               <button
