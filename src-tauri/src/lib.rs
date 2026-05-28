@@ -121,6 +121,7 @@ pub fn run() {
             commands::spawn_new_window,
             commands::quit_app,
             commands::write_welcome_file,
+            commands::open_path,
             commands::system_stats,
             commands::list_directory,
             pty::pty_spawn,

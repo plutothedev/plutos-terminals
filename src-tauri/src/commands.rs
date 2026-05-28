@@ -103,6 +103,28 @@ pub fn write_welcome_file(app: AppHandle, content: String) -> Result<String, Str
     Ok(path.to_string_lossy().to_string())
 }
 
+// ── Open a file/dir path with the OS default handler ──────────────
+//
+// Used when a file path printed in the terminal is clicked. A leading `~/`
+// is expanded to the user's home. Opens with `open` (macOS), `start`
+// (Windows), or `xdg-open` (other Unix).
+#[tauri::command]
+pub fn open_path(path: String) -> Result<(), String> {
+    let mut p = path.trim().to_string();
+    if let Some(rest) = p.strip_prefix("~/") {
+        p = local_home().join(rest).to_string_lossy().to_string();
+    } else if p == "~" {
+        p = local_home().to_string_lossy().to_string();
+    }
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("open").arg(&p).spawn();
+    #[cfg(target_os = "windows")]
+    let spawned = std::process::Command::new("cmd").args(["/C", "start", "", &p]).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let spawned = std::process::Command::new("xdg-open").arg(&p).spawn();
+    spawned.map(|_| ()).map_err(|e| e.to_string())
+}
+
 // ── Quit the whole app (Exit toolbar button) ──────────────────────
 //
 // Fires app.exit(0), which triggers RunEvent::ExitRequested → kill_all()

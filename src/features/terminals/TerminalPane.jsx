@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import {
@@ -196,6 +197,10 @@ export default function TerminalPane({
   const containerRef = useRef(null);
   const fitRef = useRef(null);
   const termRef = useRef(null);
+  const searchAddonRef = useRef(null);
+  // Find-in-terminal (Cmd/Ctrl+F) overlay state.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const startCommandsRef = useRef(startCommands);
   startCommandsRef.current = startCommands;
   const systemPromptRef = useRef(systemPrompt);
@@ -425,6 +430,44 @@ export default function TerminalPane({
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
+    const searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
+    searchAddonRef.current = searchAddon;
+    // Cmd/Ctrl+F opens the find overlay (intercepted before the PTY).
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === "keydown" && (ev.metaKey || ev.ctrlKey) && !ev.shiftKey && ev.key.toLowerCase() === "f") {
+        setSearchOpen(true);
+        return false;
+      }
+      return true;
+    });
+    // Clickable absolute file paths (/… or ~/…), with optional :line:col → open
+    // with the OS default handler. Relative paths aren't linkified — the shell's
+    // live cwd isn't known here, so they can't be resolved reliably.
+    term.registerLinkProvider({
+      provideLinks(y, cb) {
+        const lineObj = term.buffer.active.getLine(y - 1);
+        if (!lineObj) { cb(undefined); return; }
+        const text = lineObj.translateToString(true);
+        const re = /(?:~|\/)[^\s'"()<>:]{2,}(?::\d+(?::\d+)?)?/g;
+        const links = [];
+        let m;
+        while ((m = re.exec(text)) !== null) {
+          const raw = m[0];
+          const startX = m.index + 1;
+          links.push({
+            text: raw,
+            range: { start: { x: startX, y }, end: { x: startX + raw.length - 1, y } },
+            decorations: { underline: true },
+            activate: () => {
+              const filePath = raw.replace(/:\d+(?::\d+)?$/, "");
+              invoke("open_path", { path: filePath }).catch(() => {});
+            },
+          });
+        }
+        cb(links.length ? links : undefined);
+      },
+    });
     term.open(container);
     try { fit.fit(); } catch {}
     termRef.current = term;
@@ -848,6 +891,28 @@ export default function TerminalPane({
     return () => clearTimeout(t);
   }, [visible, showHint]);
 
+  // Find-in-terminal helpers (Cmd/Ctrl+F). SearchAddon highlights matches with
+  // decorations (needs allowProposedApi, which the terminal enables).
+  const SEARCH_OPTS = {
+    decorations: {
+      matchBackground: "#4a5a2a",
+      matchOverviewRuler: "#5fd75f",
+      activeMatchBackground: "#b58900",
+      activeMatchColorOverviewRuler: "#ffd700",
+    },
+  };
+  const runSearch = (q, dir) => {
+    const s = searchAddonRef.current;
+    if (!s || !q) { s?.clearDecorations?.(); return; }
+    if (dir === "prev") s.findPrevious(q, SEARCH_OPTS);
+    else s.findNext(q, { ...SEARCH_OPTS, incremental: dir === "incremental" });
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    searchAddonRef.current?.clearDecorations?.();
+    try { termRef.current?.focus(); } catch { /* ignore */ }
+  };
+
   return (
     <div
       style={{
@@ -858,6 +923,48 @@ export default function TerminalPane({
       }}
     >
       <div ref={containerRef} style={{ width: "100%", height: "100%", padding: 6, boxSizing: "border-box" }} />
+      {searchOpen && (
+        <div
+          style={{
+            position: "absolute", top: 8, right: 12, zIndex: 20,
+            display: "flex", alignItems: "center", gap: 4,
+            background: "var(--phn-surface-bg, #2d2d2d)",
+            border: "1px solid var(--phn-surface-border, #151515)",
+            borderRadius: 6, padding: "4px 6px",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.5)",
+          }}
+        >
+          <input
+            autoFocus
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); runSearch(e.target.value, "incremental"); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); runSearch(searchQuery, e.shiftKey ? "prev" : "next"); }
+              else if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
+            }}
+            placeholder="Find in terminal…"
+            spellCheck={false}
+            style={{
+              background: "var(--phn-page-bg, #1c1c1c)",
+              border: "1px solid var(--phn-surface-border, #151515)",
+              color: "var(--phn-text-fg, #d4d4d4)",
+              borderRadius: 4, padding: "4px 8px", fontSize: 12, width: 170,
+              outline: "none", fontFamily: "var(--phn-ui-font)",
+            }}
+          />
+          {["↑", "↓", "✕"].map((g, i) => (
+            <span
+              key={g}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => (i === 0 ? runSearch(searchQuery, "prev") : i === 1 ? runSearch(searchQuery, "next") : closeSearch())}
+              title={i === 0 ? "Previous (Shift+Enter)" : i === 1 ? "Next (Enter)" : "Close (Esc)"}
+              style={{ cursor: "pointer", color: "var(--phn-text-fg, #d4d4d4)", padding: "2px 5px", fontSize: 12, borderRadius: 3, userSelect: "none" }}
+            >
+              {g}
+            </span>
+          ))}
+        </div>
+      )}
       {showHint && (
         <div
           style={{
