@@ -611,6 +611,12 @@ pub fn connect_session(
     let tcp = TcpStream::connect((host, port))
         .map_err(|e| format!("connect to {host}:{port} failed: {e}"))?;
     let mut sess = ssh2::Session::new().map_err(|e| e.to_string())?;
+    // Bound blocking libssh2 ops (handshake, host-key, userauth, channel setup)
+    // so a genuinely stalled negotiation fails with an error instead of hanging
+    // "connecting" forever. A healthy connect is ~700ms, so 30s is generous.
+    // The reader thread flips to non-blocking after setup, so this governs only
+    // the connect phase.
+    sess.set_timeout(30_000);
     sess.set_tcp_stream(tcp);
     sess.handshake()
         .map_err(|e| format!("ssh handshake failed: {e}"))?;
@@ -728,6 +734,14 @@ pub fn ssh_spawn(
         let _sess = sess;
         let mut channel = channel;
         let mut buf = [0u8; 4096];
+        // Give the frontend a beat to attach its `pty://{id}` listener before we
+        // emit the server's initial MOTD/prompt burst. SSH servers push that the
+        // instant the shell opens; without this the first output races ahead of
+        // the subscription and is lost, leaving the tab stuck on "connecting"
+        // even though the shell is live. Output stays buffered in libssh2 until
+        // the read loop below drains it, so nothing is dropped — just delayed
+        // ~150ms (imperceptible next to the ~700ms connect).
+        thread::sleep(Duration::from_millis(150));
         loop {
             // 1. Drain writes pushed by pty_write. A disconnected sender means
             //    the registry entry was dropped (pty_kill / kill_all) → tear down.
