@@ -1,0 +1,127 @@
+# Build Pluto's Terminals installers for macOS, Windows and Linux and publish
+# them as a GitHub Release.
+#
+# Hybrid distribution: this workflow lives in the PRIVATE source repo and
+# publishes the compiled installers to a PUBLIC "releases" repo so the
+# community can download without ever seeing the source.
+#
+# Required repo configuration (Settings → Secrets and variables → Actions):
+#   • Variable RELEASES_REPO  = owner/repo of the PUBLIC releases repo
+#                               (e.g. plutothedev/plutos-terminals).
+#                               If unset, it publishes to THIS repo.
+#   • Secret   RELEASES_TOKEN = a fine-grained PAT with "Contents: read/write"
+#                               on the public releases repo. Only needed when
+#                               RELEASES_REPO differs from this repo.
+#
+# Trigger: push a version tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`)
+# or run it manually from the Actions tab.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            target: ""
+            rust-targets: ""
+          - platform: windows-latest
+            target: ""
+            rust-targets: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux build deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Build the app + installers
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p dist-installers
+          # Copy every produced installer/bundle, regardless of target dir layout.
+          find src-tauri/target -type f \( \
+            -name "*.dmg" -o -name "*.app.tar.gz" -o \
+            -name "*.msi" -o -name "*.exe" -o \
+            -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \
+          \) -path "*/bundle/*" -exec cp {} dist-installers/ \; || true
+          ls -la dist-installers
+
+      - name: Upload installers artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.platform }}
+          path: dist-installers/*
+          if-no-files-found: warn
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          path: all-installers
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -laR all-installers
+
+      - name: Publish GitHub Release
+        env:
+          # Cross-repo publish to the public releases repo when configured,
+          # otherwise publish to this repo with the built-in token.
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN || github.token }}
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then TAG="manual-$(date +%Y%m%d-%H%M%S)"; fi
+          TARGET_REPO="${RELEASES_REPO:-$GITHUB_REPOSITORY}"
+          echo "Publishing $TAG to $TARGET_REPO"
+          gh release create "$TAG" \
+            --repo "$TARGET_REPO" \
+            --title "Pluto's Terminals $TAG" \
+            --notes "Download the installer for your platform below. macOS: .dmg · Windows: .msi/.exe · Linux: .AppImage/.deb. Unsigned builds may show an OS security prompt on first launch." \
+            all-installers/* || \
+          gh release upload "$TAG" --repo "$TARGET_REPO" --clobber all-installers/*

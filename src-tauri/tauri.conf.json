@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Pluto's Terminal",
-  "version": "0.1.32",
+  "version": "0.2.0",
   "identifier": "com.plutothedev.terminals",
   "build": {
     "frontendDist": "../dist",
@@ -28,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "dmg", "app"],
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
