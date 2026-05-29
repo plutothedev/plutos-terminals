@@ -274,15 +274,6 @@ export default function TerminalPane({
   // locks it in.
   const familyRef = useRef(null);
 
-  // In-pane hint: subtle overlay shown on fresh terminals. Dismissed on
-  // user input, after 12s of visibility, or if scrollback was restored
-  // (returning tab, not new). Pointer-events:none so it never blocks input.
-  const [showHint, setShowHint] = useState(true);
-  // Use a ref so the listen() closure can dismiss without forcing a stale
-  // setShowHint reference into the spawn effect.
-  const dismissHintRef = useRef(() => setShowHint(false));
-  dismissHintRef.current = () => setShowHint(false);
-
   const setActivity = (next) => {
     if (activityRef.current === next) return;
     const prev = activityRef.current;
@@ -586,8 +577,6 @@ export default function TerminalPane({
           term.write(saved, () => { restoringScrollback = false; });
           if (!saved.endsWith("\n")) term.writeln("");
           term.writeln("\x1b[90m─── scrollback restored ───\x1b[0m");
-          // Returning tab — not a fresh terminal, hide the hint immediately.
-          dismissHintRef.current?.();
           return true;
         }
       } catch {}
@@ -780,8 +769,6 @@ export default function TerminalPane({
           if (!alive || !ptyId) return;
           userHasTypedRef.current = true;
           recordInput(data); // macro recording (no-op unless armed)
-          // Any user input dismisses the welcome hint.
-          dismissHintRef.current?.();
           // Clear the auto-approve match buffer when the user types — they
           // intend to answer the prompt themselves.
           recentOutRef.current = "";
@@ -1093,14 +1080,6 @@ export default function TerminalPane({
     try { termRef.current.options.theme = xtermTheme; } catch {}
   }, [xtermTheme]);
 
-  // Auto-dismiss the hint after 12 seconds of being visible. Resets when
-  // the user toggles back to a tab so each pane gets a fair window.
-  useEffect(() => {
-    if (!showHint || !visible) return;
-    const t = setTimeout(() => setShowHint(false), 12000);
-    return () => clearTimeout(t);
-  }, [visible, showHint]);
-
   // Find-in-terminal helpers (Cmd/Ctrl+F). SearchAddon highlights matches with
   // decorations (needs allowProposedApi, which the terminal enables).
   const SEARCH_OPTS = {
@@ -1212,35 +1191,6 @@ export default function TerminalPane({
         onClose={() => setExplainBlock(null)}
         onRun={(cmd) => writeToTab(tabId, cmd.replace(/\n+$/, "") + "\r")}
       />
-      {showHint && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 16,
-            pointerEvents: "none",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#6e7681",
-            fontFamily: "'JetBrains Mono', Menlo, Monaco, monospace",
-            fontSize: 11,
-            lineHeight: 1.7,
-            opacity: 0.55,
-            transition: "opacity 0.5s",
-            textAlign: "center",
-            gap: 2,
-            textShadow: "0 1px 2px rgba(0,0,0,0.6)",
-          }}
-        >
-          <div style={{ fontSize: 13, marginBottom: 8, color: "#9D9D9D" }}>💡  Quick tips</div>
-          <div>type commands like any terminal</div>
-          <div>drag tabs between panels &nbsp;·&nbsp; double-click to rename</div>
-          <div>right-click projects for git, npm scripts, recent files</div>
-          <div>🧠 pick any model (Claude · Kimi K2 · OpenRouter…) in the Models picker</div>
-          <div style={{ fontSize: 10, opacity: 0.55, marginTop: 10 }}>fades in 12s · or just start typing</div>
-        </div>
-      )}
     </div>
   );
 }
