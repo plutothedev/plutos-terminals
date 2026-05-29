@@ -676,7 +676,7 @@
 .moba-filebar .sep { width: 1px; height: 16px; background: var(--phn-surface-border, #151515); margin: 0 4px; }
 .moba-filebar .grow { flex: 1; }
 /* Bigger, clearer folder/file glyphs in the list (MobaXterm folder look). */
-.phn-sftp-row .glyph { flex-shrink: 0; font-size: 14px; line-height: 1; width: 18px; text-align: center; }
+.phn-sftp-row .glyph { flex-shrink: 0; font-size: 14px; line-height: 1; width: 18px; display: inline-flex; align-items: center; justify-content: center; }
 
 /* ── SFTP file browser ────────────────────────────────────────────────── */
 .phn-sftp-pathbar {

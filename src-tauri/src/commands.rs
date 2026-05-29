@@ -793,6 +793,7 @@ pub struct LocalEntry {
     pub path: String,
     pub is_dir: bool,
     pub size: u64,
+    pub mtime: Option<u64>,
 }
 
 fn local_home() -> PathBuf {
@@ -823,11 +824,17 @@ pub fn list_directory(path: Option<String>) -> Result<(String, Vec<LocalEntry>),
         if name.starts_with('.') {
             continue;
         }
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
         entries.push(LocalEntry {
             name,
             path: ent.path().to_string_lossy().into_owned(),
             is_dir: meta.is_dir(),
             size: meta.len(),
+            mtime,
         });
     }
     entries.sort_by(|a, b| {

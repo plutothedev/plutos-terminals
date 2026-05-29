@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
-import { fileGlyph } from "./LocalFileBrowser.jsx";
+import { FileIcon } from "./LocalFileBrowser.jsx";
 import { IconHome, IconUp, IconRefresh, IconUpload, IconNewFolder } from "./icons.jsx";
 import RemoteEditor from "./RemoteEditor.jsx";
 import "./terminals.css";
@@ -213,7 +213,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
               className="phn-sftp-row"
               onDoubleClick={() => (e.is_dir ? list(e.path) : setEditTarget(e))}
             >
-              <span className="glyph">{fileGlyph(e)}</span>
+              <span className="glyph"><FileIcon e={e} /></span>
               <span
                 className={e.is_dir ? "name dir" : "name"}
                 onClick={() => e.is_dir && list(e.path)}
