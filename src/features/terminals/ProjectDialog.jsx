@@ -1,3 +1,4 @@
+// (C)
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -70,6 +71,10 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
   const [authMethod, setAuthMethod] = useState("password");
   const [keyPath, setKeyPath] = useState("");
 
+  // RDP-only extra field (RDP reuses host/port/user; domain is optional). VNC
+  // reuses host/port only.
+  const [domain, setDomain] = useState("");
+
   useEffect(() => {
     if (!open) return;
     const t = sessionType(initial);
@@ -85,9 +90,24 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
     setPicking(false);
 
     const c = initial?.connection || {};
-    setHost(c.host || "");
-    setPort(c.port != null ? String(c.port) : "22");
-    setUser(c.user || "");
+    const r = initial?.rdp || {};
+    const v = initial?.vnc || {};
+    if (t === "rdp") {
+      setHost(r.host || "");
+      setPort(r.port != null ? String(r.port) : "3389");
+      setUser(r.username || "");
+      setDomain(r.domain || "");
+    } else if (t === "vnc") {
+      setHost(v.host || "");
+      setPort(v.port != null ? String(v.port) : "5900");
+      setUser("");
+      setDomain("");
+    } else {
+      setHost(c.host || "");
+      setPort(c.port != null ? String(c.port) : "22");
+      setUser(c.user || "");
+      setDomain("");
+    }
     setAuthMethod(c.auth?.method || "password");
     setKeyPath(c.auth?.keyPath || "");
   }, [open, initial]);
@@ -123,6 +143,16 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
     if (!nameTouched && host) setName(`${v}@${host}`);
   };
 
+  // Switch connection type, snapping the port to the new default if the user
+  // hasn't typed a non-default value.
+  const handleTypeChange = (value) => {
+    const defaults = { ssh: "22", rdp: "3389", vnc: "5900" };
+    if (value !== "local" && (port === "" || ["22", "3389", "5900"].includes(port))) {
+      setPort(defaults[value] || port);
+    }
+    setType(value);
+  };
+
   const startCommands = () =>
     startCommandsText
       .split(/\r?\n/)
@@ -133,7 +163,9 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
     name.trim().length > 0 &&
     (type === "local"
       ? path.trim().length > 0
-      : host.trim().length > 0 && user.trim().length > 0);
+      : type === "ssh"
+        ? host.trim().length > 0 && user.trim().length > 0
+        : host.trim().length > 0); // rdp/vnc: host required (rdp username optional)
 
   const parseTags = () =>
     tagsText
@@ -157,7 +189,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
         startCommands: startCommands(),
         autoApprove,
       });
-    } else {
+    } else if (type === "ssh") {
       const portNum = parseInt(port, 10);
       onSave({
         type: "ssh",
@@ -172,12 +204,39 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
           auth: { method: authMethod, keyPath: keyPath.trim() || null },
         },
       });
+    } else if (type === "rdp") {
+      const portNum = parseInt(port, 10);
+      onSave({
+        type: "rdp",
+        name: name.trim(),
+        folder: folderVal,
+        tags,
+        rdp: {
+          host: host.trim(),
+          port: Number.isFinite(portNum) && portNum > 0 ? portNum : 3389,
+          username: user.trim(),
+          domain: domain.trim() || null,
+        },
+      });
+    } else {
+      // vnc
+      const portNum = parseInt(port, 10);
+      onSave({
+        type: "vnc",
+        name: name.trim(),
+        folder: folderVal,
+        tags,
+        vnc: {
+          host: host.trim(),
+          port: Number.isFinite(portNum) && portNum > 0 ? portNum : 5900,
+        },
+      });
     }
   };
 
   const typeTab = (value, label) => (
     <button
-      onClick={() => setType(value)}
+      onClick={() => handleTypeChange(value)}
       style={{
         flex: 1,
         background: type === value ? PAGE : "transparent",
@@ -232,9 +291,11 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
         </div>
 
         {/* Type selector */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          {typeTab("local", "🖥  Local shell")}
+        <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+          {typeTab("local", "🖥  Local")}
           {typeTab("ssh", "🌐  SSH")}
+          {typeTab("rdp", "🪟  RDP")}
+          {typeTab("vnc", "🖱  VNC")}
         </div>
 
         {type === "ssh" && (
@@ -304,22 +365,37 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
                 <input
                   value={port}
                   onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ""))}
-                  placeholder="22"
+                  placeholder={type === "rdp" ? "3389" : type === "vnc" ? "5900" : "22"}
                   spellCheck={false}
                   style={inputStyle}
                 />
               </div>
             </div>
+            {(type === "ssh" || type === "rdp") && (
             <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Username</label>
+              <label style={labelStyle}>Username{type === "rdp" ? " (optional)" : ""}</label>
               <input
                 value={user}
                 onChange={(e) => handleUserChange(e.target.value)}
-                placeholder="root"
+                placeholder={type === "rdp" ? "Administrator" : "root"}
                 spellCheck={false}
                 style={inputStyle}
               />
             </div>
+            )}
+            {type === "rdp" && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Domain (optional)</label>
+              <input
+                value={domain}
+                onChange={(e) => setDomain(e.target.value)}
+                placeholder="WORKGROUP"
+                spellCheck={false}
+                style={inputStyle}
+              />
+            </div>
+            )}
+            {type === "ssh" && (<>
             <div style={{ marginBottom: 12 }}>
               <label style={labelStyle}>Authentication</label>
               <div style={{ display: "flex", gap: 6 }}>
@@ -360,6 +436,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
                 />
               </div>
             )}
+            </>)}
           </>
         )}
 
@@ -411,6 +488,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
           </div>
         </div>
 
+        {(type === "local" || type === "ssh") && (
         <div style={{ marginBottom: 16 }}>
           <label style={labelStyle}>
             {type === "ssh"
@@ -429,6 +507,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
             These run automatically each time you open this session in a panel.
           </div>
         </div>
+        )}
 
         {type === "local" && (
           <div style={{ marginBottom: 16 }}>

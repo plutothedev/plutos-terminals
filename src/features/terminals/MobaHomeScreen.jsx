@@ -52,16 +52,23 @@ export default function MobaHomeScreen({ panelId, tabId, api }) {
             <div className="moba-home-section">Saved sessions</div>
             <div className="moba-home-sessions">
               {projects.slice(0, 16).map((p) => {
-                const ssh = p.type === "ssh" || (p.connection && !p.path);
+                const isRdp = p.type === "rdp" || !!p.rdp;
+                const isVnc = p.type === "vnc" || !!p.vnc;
+                const ssh = p.type === "ssh" || (p.connection && !p.path && !isRdp && !isVnc);
                 const a = acts[p.id];
+                const icon = isRdp ? "🪟" : isVnc ? "🖱" : ssh ? "🌐" : "🖥";
+                const title = isRdp ? `RDP ${p.rdp?.host || ""}:${p.rdp?.port || 3389}`
+                  : isVnc ? `VNC ${p.vnc?.host || ""}:${p.vnc?.port || 5900}`
+                  : ssh ? `${p.connection?.user || ""}@${p.connection?.host || ""}:${p.connection?.port || 22}`
+                  : (p.path || p.name);
                 return (
                   <button
                     key={p.id}
                     className="moba-home-session"
                     onClick={() => api?.openProject?.(panelId, p.id)}
-                    title={ssh ? `${p.connection?.user || ""}@${p.connection?.host || ""}:${p.connection?.port || 22}` : (p.path || p.name)}
+                    title={title}
                   >
-                    <span className="moba-home-session-icon">{ssh ? "🌐" : "🖥"}</span>
+                    <span className="moba-home-session-icon">{icon}</span>
                     <span className="moba-home-session-name">{p.name}</span>
                     <span className={"moba-home-session-dot" + (a === "active" ? " active" : a === "done" ? " done" : "")} />
                   </button>

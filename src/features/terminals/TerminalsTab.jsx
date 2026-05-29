@@ -1,3 +1,4 @@
+// (C)
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../appMeta.js";
@@ -936,6 +937,34 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     persist({ ...state, panels, activePanelId: panelId });
   }, [state, persist]);
 
+  // In-memory per-session password cache (RDP/VNC). Keyed by saved-session id,
+  // app-run lifetime only — NEVER persisted to disk (FR-008). A same-run reconnect
+  // reuses the secret instead of re-prompting; "forget" (sidebar context menu)
+  // clears it. SSH keeps its own keychain path; this is the remote-desktop analog.
+  const sessionPwRef = useRef(new Map());
+  const rememberSessionPassword = useCallback((sessionId, secret) => {
+    if (sessionId) sessionPwRef.current.set(sessionId, secret);
+  }, []);
+  const getSessionPassword = useCallback((sessionId) => sessionPwRef.current.get(sessionId), []);
+  const forgetSessionPassword = useCallback((sessionId) => {
+    if (sessionId) sessionPwRef.current.delete(sessionId);
+  }, []);
+
+  // FR-012: if a saved session already has an open tab, focus it instead of
+  // opening a second connection. Returns true if an existing tab was focused.
+  // Scoped to remote-desktop launches (RDP/VNC) where duplicate connections each
+  // cost a worker thread + socket; local/SSH keep their multi-tab behavior.
+  const focusExistingProjectTab = useCallback((projectId) => {
+    for (const p of state.panels) {
+      const t = p.tabs.find((t) => t.projectId === projectId);
+      if (t) {
+        persist({ ...state, activePanelId: p.id, panels: state.panels.map((pp) => pp.id === p.id ? { ...pp, activeTabId: t.id } : pp) });
+        return true;
+      }
+    }
+    return false;
+  }, [state, persist]);
+
   const openProjectInPanel = useCallback((panelId, projectId, overrideCommands) => {
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
@@ -987,6 +1016,38 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       return;
     }
 
+    // VNC saved session → open a remote-desktop tab (FR-004). Focus an existing
+    // tab if one is open (FR-012); reuse the session-cached password if present,
+    // else prompt via the VNC modal pre-filled with the saved host/port (T006).
+    if (project.type === "vnc" || (project.vnc && !project.connection && !project.path)) {
+      if (!project.vnc?.host) { toast.error(`"${project.name}" is missing a host.`); return; }
+      if (focusExistingProjectTab(project.id)) return;
+      const cached = getSessionPassword(project.id);
+      if (cached !== undefined) {
+        const tabId = freshId("tab");
+        if (cached) setTabPassword(tabId, cached);
+        spawnSessionTab(panelId, { id: tabId, label: project.name, cwd: null, startCommands: [], projectId: project.id, vnc: { host: project.vnc.host, port: project.vnc.port } });
+      } else {
+        setVncLaunch({ panelId, project });
+      }
+      return;
+    }
+
+    // RDP saved session → same pattern as VNC.
+    if (project.type === "rdp" || (project.rdp && !project.connection && !project.path)) {
+      if (!project.rdp?.host) { toast.error(`"${project.name}" is missing a host.`); return; }
+      if (focusExistingProjectTab(project.id)) return;
+      const cached = getSessionPassword(project.id);
+      if (cached !== undefined) {
+        const tabId = freshId("tab");
+        if (cached) setTabPassword(tabId, cached);
+        spawnSessionTab(panelId, { id: tabId, label: project.name, cwd: null, startCommands: [], projectId: project.id, rdp: { host: project.rdp.host, port: project.rdp.port, username: project.rdp.username, domain: project.rdp.domain } });
+      } else {
+        setRdpLaunch({ panelId, project });
+      }
+      return;
+    }
+
     const cmds = overrideCommands || project.startCommands || [];
     const labelSuffix = overrideCommands && overrideCommands.length === 1
       ? ` · ${overrideCommands[0]}`
@@ -998,7 +1059,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       startCommands: cmds,
       projectId: project.id,
     });
-  }, [projects, toast, spawnSessionTab]);
+  }, [projects, toast, spawnSessionTab, focusExistingProjectTab, getSessionPassword]);
 
   // SSH password prompt: { panelId, tab, project } or null. On submit, stash the
   // password transiently in the bridge (keyed by the pending tab id) and create
@@ -1370,7 +1431,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, [state.activePanelId, spawnSessionTab]);
 
   // ── VNC remote desktop ───────────────────────────────────────────────────
+  // `vncOpen` = ephemeral quick-connect; `vncLaunch` = { panelId, project } when
+  // opening a SAVED VNC session (the modal then acts as a password prompt, T006).
   const [vncOpen, setVncOpen] = useState(false);
+  const [vncLaunch, setVncLaunch] = useState(null);
   const connectVnc = useCallback(({ host, port, password }) => {
     const tabId = freshId("tab");
     if (password) setTabPassword(tabId, password); // transient, never persisted
@@ -1384,9 +1448,22 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     });
     setVncOpen(false);
   }, [state.activePanelId, spawnSessionTab]);
+  const launchVnc = useCallback(({ password }) => {
+    if (!vncLaunch) return;
+    const { panelId, project } = vncLaunch;
+    rememberSessionPassword(project.id, password || ""); // in-memory only (FR-008)
+    const tabId = freshId("tab");
+    if (password) setTabPassword(tabId, password);
+    spawnSessionTab(panelId, {
+      id: tabId, label: project.name, cwd: null, startCommands: [], projectId: project.id,
+      vnc: { host: project.vnc.host, port: project.vnc.port },
+    });
+    setVncLaunch(null);
+  }, [vncLaunch, spawnSessionTab, rememberSessionPassword]);
 
   // ── RDP remote desktop ───────────────────────────────────────────────────
   const [rdpOpen, setRdpOpen] = useState(false);
+  const [rdpLaunch, setRdpLaunch] = useState(null);
   const connectRdp = useCallback(({ host, port, username, domain, password }) => {
     const tabId = freshId("tab");
     if (password) setTabPassword(tabId, password); // transient, never persisted
@@ -1400,6 +1477,29 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     });
     setRdpOpen(false);
   }, [state.activePanelId, spawnSessionTab]);
+  const launchRdp = useCallback(({ password }) => {
+    if (!rdpLaunch) return;
+    const { panelId, project } = rdpLaunch;
+    rememberSessionPassword(project.id, password || ""); // in-memory only (FR-008)
+    const tabId = freshId("tab");
+    if (password) setTabPassword(tabId, password);
+    spawnSessionTab(panelId, {
+      id: tabId, label: project.name, cwd: null, startCommands: [], projectId: project.id,
+      rdp: { host: project.rdp.host, port: project.rdp.port, username: project.rdp.username, domain: project.rdp.domain },
+    });
+    setRdpLaunch(null);
+  }, [rdpLaunch, spawnSessionTab, rememberSessionPassword]);
+
+  // FR-013: promote a quick-connect entry to a saved sidebar session (no password).
+  const saveQuickConnection = useCallback((rec) => {
+    const name = rec.host;
+    if (rec.type === "vnc") {
+      upsertProject({ type: "vnc", name, folder: null, tags: [], vnc: { host: rec.host, port: rec.port } });
+    } else {
+      upsertProject({ type: "rdp", name, folder: null, tags: [], rdp: { host: rec.host, port: rec.port, username: rec.username, domain: rec.domain || null } });
+    }
+    toast.success(`Saved ${rec.type.toUpperCase()} session "${name}".`);
+  }, [upsertProject, toast]);
 
   // Actions surfaced on the MobaXterm launch screen (home tabs). useState
   // setters have stable identity, so they're omitted from the dep list.
@@ -1646,6 +1746,12 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 onSetFolder={setProjectFolder}
                 onNewWorktreeAgent={openAgentWorktree}
                 onForgetPassword={(project) => {
+                  // RDP/VNC keep the secret in-memory only — clear the session cache.
+                  if (project?.type === "rdp" || project?.type === "vnc" || project?.rdp || project?.vnc) {
+                    forgetSessionPassword(project.id);
+                    toast.info(`Forgot session password for ${project.name}.`);
+                    return;
+                  }
                   if (!project?.connection) return;
                   invoke("secret_delete", { account: sshAccount(project.connection) })
                     .then(() => toast.info(`Forgot saved password for ${project.name}.`))
@@ -1796,15 +1902,23 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       />
 
       <VncConnectModal
-        open={vncOpen}
-        onConnect={connectVnc}
-        onClose={() => setVncOpen(false)}
+        open={vncOpen || !!vncLaunch}
+        initial={vncLaunch?.project?.vnc || null}
+        lockConnection={!!vncLaunch}
+        title={vncLaunch ? `Connect — ${vncLaunch.project.name}` : undefined}
+        onConnect={vncLaunch ? launchVnc : connectVnc}
+        onSaveSession={vncLaunch ? undefined : (rec) => saveQuickConnection({ type: "vnc", ...rec })}
+        onClose={() => { setVncOpen(false); setVncLaunch(null); }}
       />
 
       <RdpConnectModal
-        open={rdpOpen}
-        onConnect={connectRdp}
-        onClose={() => setRdpOpen(false)}
+        open={rdpOpen || !!rdpLaunch}
+        initial={rdpLaunch?.project?.rdp || null}
+        lockConnection={!!rdpLaunch}
+        title={rdpLaunch ? `Connect — ${rdpLaunch.project.name}` : undefined}
+        onConnect={rdpLaunch ? launchRdp : connectRdp}
+        onSaveSession={rdpLaunch ? undefined : (rec) => saveQuickConnection({ type: "rdp", ...rec })}
+        onClose={() => { setRdpOpen(false); setRdpLaunch(null); }}
       />
 
       <ProjectDialog

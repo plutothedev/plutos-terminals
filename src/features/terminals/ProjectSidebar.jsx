@@ -1,3 +1,4 @@
+// (C)
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./terminals.css";
@@ -344,7 +345,7 @@ export default function ProjectSidebar({
       const t = q.slice(1);
       return tags.some((tag) => String(tag).toLowerCase().includes(t));
     }
-    const hay = `${p.name || ""} ${p.folder || ""} ${p.connection?.host || ""} ${p.path || ""} ${tags.join(" ")}`.toLowerCase();
+    const hay = `${p.name || ""} ${p.folder || ""} ${p.connection?.host || ""} ${p.rdp?.host || ""} ${p.vnc?.host || ""} ${p.path || ""} ${tags.join(" ")}`.toLowerCase();
     return hay.includes(q);
   };
   const visibleProjects = q ? projects.filter(matchesQuery) : projects;
@@ -844,11 +845,14 @@ export default function ProjectSidebar({
                 </>
               )}
 
-              {isSsh(project) && (project.connection?.auth?.method || "password") === "password" && (
+              {((isSsh(project) && (project.connection?.auth?.method || "password") === "password") ||
+                project.type === "rdp" || project.type === "vnc" || project.rdp || project.vnc) && (
                 <button
                   onClick={() => { onForgetPassword?.(project); closeCtx(); }}
                   style={ctxBtnStyle()}
-                  title="Delete this session's saved password from the keychain"
+                  title={project.rdp || project.vnc || project.type === "rdp" || project.type === "vnc"
+                    ? "Clear this session's password from memory"
+                    : "Delete this session's saved password from the keychain"}
                 >
                   Forget saved password
                 </button>

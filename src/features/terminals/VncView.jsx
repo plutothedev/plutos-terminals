@@ -39,6 +39,10 @@ export default function VncView({ host, port, tabId, visible }) {
   const sizeRef = useRef({ w: 0, h: 0 });
   const buttonsRef = useRef(0);
   const [status, setStatus] = useState("Connecting…");
+  // Bumping retryKey re-runs the connect effect (Retry button, FR-009).
+  const [retryKey, setRetryKey] = useState(0);
+  const isError = status && status !== "Connecting…";
+  const retry = () => { idRef.current = null; setStatus("Connecting…"); setRetryKey((k) => k + 1); };
 
   useEffect(() => {
     let alive = true;
@@ -80,7 +84,7 @@ export default function VncView({ host, port, tabId, visible }) {
       unlisten.forEach((u) => u());
       if (idRef.current) invoke("vnc_disconnect", { id: idRef.current }).catch(() => {});
     };
-  }, [host, port, tabId]);
+  }, [host, port, tabId, retryKey]);
 
   // Focus the surface when this tab becomes visible so keyboard input flows.
   useEffect(() => { if (visible) wrapRef.current?.focus(); }, [visible]);
@@ -132,8 +136,16 @@ export default function VncView({ host, port, tabId, visible }) {
       onContextMenu={(e) => e.preventDefault()}
     >
       {status && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--phn-text-dim, #9aa0a6)", fontSize: 13, fontFamily: "var(--phn-ui-font)" }}>
-          {status}
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", color: "var(--phn-text-dim, #9aa0a6)", fontSize: 13, fontFamily: "var(--phn-ui-font)" }}>
+          <div>{status}</div>
+          {isError && (
+            <button
+              onClick={retry}
+              style={{ background: "var(--phn-accent-subtle, rgba(94,106,210,0.15))", border: "1px solid var(--phn-link, #5e6ad2)", color: "var(--phn-link, #828fff)", borderRadius: 6, padding: "6px 18px", fontSize: 12, cursor: "pointer" }}
+            >
+              Retry
+            </button>
+          )}
         </div>
       )}
       <canvas ref={canvasRef} style={{ display: "block", imageRendering: "pixelated" }} />

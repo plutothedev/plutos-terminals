@@ -17,7 +17,7 @@ const field = {
 };
 const label = { fontSize: 10, letterSpacing: 0.5, color: "var(--phn-text-dim, #888)", marginBottom: 4, display: "block", textTransform: "uppercase" };
 
-export default function RdpConnectModal({ open, onConnect, onClose }) {
+export default function RdpConnectModal({ open, onConnect, onClose, initial = null, lockConnection = false, title, onSaveSession }) {
   const [host, setHost] = useState("");
   const [port, setPort] = useState("3389");
   const [username, setUsername] = useState("");
@@ -27,15 +27,21 @@ export default function RdpConnectModal({ open, onConnect, onClose }) {
 
   useEffect(() => {
     if (open) {
-      setHost(""); setPort("3389"); setUsername(""); setDomain(""); setPassword("");
-      const t = setTimeout(() => hostRef.current?.focus(), 30);
+      // Pre-fill (and lock) from a saved session when launching; else blank.
+      setHost(initial?.host || "");
+      setPort(initial?.port != null ? String(initial.port) : "3389");
+      setUsername(initial?.username || "");
+      setDomain(initial?.domain || "");
+      setPassword("");
+      const t = setTimeout(() => (lockConnection ? null : hostRef.current?.focus()), 30);
       return () => clearTimeout(t);
     }
-  }, [open]);
+  }, [open, initial, lockConnection]);
 
   if (!open) return null;
 
-  const canConnect = host.trim().length > 0 && username.trim().length > 0;
+  // For a saved-session launch we only need the password; host/username are locked.
+  const canConnect = lockConnection ? host.trim().length > 0 : (host.trim().length > 0 && username.trim().length > 0);
   const connect = () => {
     if (!canConnect) return;
     onConnect?.({
@@ -46,28 +52,32 @@ export default function RdpConnectModal({ open, onConnect, onClose }) {
       password,
     });
   };
+  const saveSession = () => {
+    if (!(host.trim().length > 0)) return;
+    onSaveSession?.({ host: host.trim(), port: parseInt(port, 10) || 3389, username: username.trim(), domain: domain.trim() || null });
+  };
 
   return (
-    <Modal open={open} title="RDP connection" onClose={onClose} width={460}>
+    <Modal open={open} title={title || "RDP connection"} onClose={onClose} width={460}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
             <label style={label}>Host</label>
-            <input ref={hostRef} style={field} value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" spellCheck={false} />
+            <input ref={hostRef} style={field} value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" spellCheck={false} readOnly={lockConnection} />
           </div>
           <div style={{ width: 96 }}>
             <label style={label}>Port</label>
-            <input style={field} value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" />
+            <input style={field} value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" readOnly={lockConnection} />
           </div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
             <label style={label}>Username</label>
-            <input style={field} value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Administrator" spellCheck={false} />
+            <input style={field} value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Administrator" spellCheck={false} readOnly={lockConnection} />
           </div>
           <div style={{ flex: 1 }}>
             <label style={label}>Domain (optional)</label>
-            <input style={field} value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="" spellCheck={false} />
+            <input style={field} value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="" spellCheck={false} readOnly={lockConnection} />
           </div>
         </div>
         <div>
@@ -86,7 +96,20 @@ export default function RdpConnectModal({ open, onConnect, onClose }) {
         <div style={{ fontSize: 11, color: "var(--phn-text-dim, #888)", lineHeight: 1.5 }}>
           Connects with NLA (CredSSP). Uses the host's TLS cert (self-signed accepted). The password is used only for this connection and is never saved.
         </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div>
+            {onSaveSession && !lockConnection && (
+              <button
+                onClick={saveSession}
+                disabled={!(host.trim().length > 0)}
+                title="Save this connection as a session in the sidebar"
+                style={{ background: "transparent", border: "1px solid var(--phn-surface-border, #2b2b2b)", color: "var(--phn-text-dim, #9aa0a6)", borderRadius: 6, padding: "6px 12px", fontSize: 12, cursor: host.trim().length > 0 ? "pointer" : "not-allowed", opacity: host.trim().length > 0 ? 1 : 0.5 }}
+              >
+                Save this connection
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
           <button onClick={onClose} style={{ background: "transparent", border: "1px solid var(--phn-surface-border, #2b2b2b)", color: "var(--phn-text-fg, #b4b8c0)", borderRadius: 6, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>Cancel</button>
           <button
             onClick={connect}
@@ -104,6 +127,7 @@ export default function RdpConnectModal({ open, onConnect, onClose }) {
           >
             Connect
           </button>
+          </div>
         </div>
       </div>
     </Modal>
