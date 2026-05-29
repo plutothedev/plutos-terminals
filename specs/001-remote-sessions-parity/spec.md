@@ -23,6 +23,15 @@ verification runs against the user's Linux VPS now; live RDP/VNC connection veri
 explicitly deferred until a test RDP/VNC server is available (see deferred acceptance
 criteria) and must not be silently skipped.
 
+## Clarifications
+
+### Session 2026-05-29
+
+- Q: When a user clicks a saved remote session that already has an open tab, what should happen? → A: Focus the existing tab instead of opening a second connection.
+- Q: How should a failed remote connection (unreachable host, auth failure) appear? → A: Inline error state in the tab with a Retry button.
+- Q: What happens to the ephemeral home-screen quick-connect cards once sessions are saveable? → A: Keep both paths; add a "Save this connection" affordance to the quick-connect modal.
+- Q: How should RDP/VNC passwords behave across reconnects within one app run? → A: Remember in-memory for the session (with a "forget" option); never written to disk. Matches existing SSH behavior.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Save and reconnect a remote desktop session (Priority: P1)
@@ -121,8 +130,8 @@ connection attempt.
   must abort cleanly with no orphaned connection.
 - What happens to a saved RDP/VNC session if its connection details are incomplete (e.g.
   missing host)? Saving must be prevented or the session clearly flagged as invalid.
-- How does the system handle launching the same saved session twice? It should open a second
-  tab or focus the existing one — behavior must be defined, not accidental.
+- How does the system handle launching the same saved session twice? It focuses the existing
+  open tab rather than opening a second connection (FR-012).
 - What happens to a saved session's color/folder when its folder is deleted or renamed? It
   must degrade gracefully (e.g. fall back to ungrouped), not vanish.
 
@@ -143,10 +152,18 @@ connection attempt.
 - **FR-006**: Users MUST be able to delete a saved RDP/VNC session.
 - **FR-007**: Saved RDP, VNC, and SSH sessions MUST coexist in the same sidebar, be visually
   distinguishable by type icon, and be searchable together by name/host/folder.
-- **FR-008**: Passwords for RDP/VNC sessions MUST NOT be written to disk; they MUST be
-  prompted at launch and held only transiently (consistent with existing SSH behavior).
-- **FR-009**: Launch failures (unreachable host, auth failure, cancelled prompt) MUST surface
-  a clear, user-visible error state in the tab.
+- **FR-008**: Passwords for RDP/VNC sessions MUST NOT be written to disk. They MUST be
+  prompted at launch, then held in-memory for the duration of the app run so reconnects to
+  the same session do not re-prompt; the user MUST be able to "forget" a remembered password.
+  This matches the existing SSH transient-credential behavior.
+- **FR-009**: Launch failures (unreachable host, auth failure) MUST surface a clear, inline
+  error state within the tab that includes a Retry action; a cancelled password prompt MUST
+  abort the launch cleanly with no orphaned connection.
+- **FR-012**: Clicking a saved session that already has an open tab MUST focus that existing
+  tab rather than opening a second connection.
+- **FR-013**: The ephemeral home-screen quick-connect cards for RDP/VNC MUST be retained for
+  one-off connections, AND the quick-connect modal MUST offer a "Save this connection"
+  affordance that creates a saved sidebar session from the entered details.
 - **FR-010**: New and modified sidebar/dialog UI MUST visually match the MobaXterm v12.4 dark
   reference (Principle IV).
 - **FR-011**: The feature MUST be verified in the running app via screenshots of live
