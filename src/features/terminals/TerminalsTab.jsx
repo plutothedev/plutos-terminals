@@ -1943,140 +1943,89 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           letterSpacing: 0.2,
         }}
       >
-        <span style={{ opacity: 0.6 }}>v{APP_VERSION}</span>
-        {shellName && (
-          <span className="moba-stat" title="Shell new tabs spawn">🖥 {shellName}</span>
-        )}
-        {sysStats && (
-          <>
-            <span className="moba-stat" title="CPU usage">
-              <span className="dot" style={{ background: loadColor(sysStats.cpu) }} />
-              CPU {Math.round(sysStats.cpu)}%
-            </span>
-            <span className="moba-stat" title="Memory used / total">
-              💾 {(sysStats.mem_used / 1e9).toFixed(2)} / {(sysStats.mem_total / 1e9).toFixed(2)} GB
-            </span>
-            <span className="moba-stat" title="Root disk used">
-              <span className="dot" style={{ background: loadColor(sysStats.disk_used_pct) }} />
-              🗄 /: {Math.round(sysStats.disk_used_pct)}%
-            </span>
-          </>
-        )}
-        <span className="phn-statusbar-divider">·</span>
+        {/* LEFT — claude · active session · shell/encoding */}
         <button
           onClick={() => (claudeAvailable === false ? setSetupOpen(true) : setModelsOpen(true))}
-          style={{
-            background: "transparent",
-            border: "none",
-            padding: 0,
-            margin: 0,
-            cursor: "pointer",
-            color:
-              claudeAvailable === true ? "var(--phn-success)"
-              : claudeAvailable === false ? "var(--phn-danger)"
-              : "inherit",
-            fontSize: 11,
-          }}
+          className="moba-stat"
+          style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5 }}
           title={
             claudeAvailable === true ? "Claude Code CLI is on PATH — click to pick a model / API key"
             : claudeAvailable === false ? "Claude Code CLI not found — click for the install checklist"
             : "Checking…"
           }
         >
-          {claudeAvailable === true ? "claude ✓" : claudeAvailable === false ? "claude ✗ — setup" : "claude …"}
+          <span className="dot" style={{ background: claudeAvailable === true ? "var(--phn-success)" : claudeAvailable === false ? "var(--phn-danger)" : "var(--phn-text-faint, #586068)" }} />
+          {claudeAvailable === false ? "claude — setup" : "claude"}
         </button>
-        <span className="phn-statusbar-divider">·</span>
-        <span title="Open panels">{state.panels.length} pane{state.panels.length === 1 ? "" : "s"}</span>
-        {broadcast && (
-          <>
-            <span className="phn-statusbar-divider">·</span>
-            <button
-              onClick={() => setBroadcastGroupOpen(true)}
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                margin: 0,
-                cursor: "pointer",
-                color: "var(--phn-warning)",
-                fontSize: 11,
-                fontWeight: 600,
-              }}
-              title="Broadcast (MultiExec) is on. Click to choose target terminals; the MultiExec button toggles it off."
-            >
-              📡 broadcast: {bcastTargets ? `${bcastTargets.length} tab${bcastTargets.length === 1 ? "" : "s"}` : "all visible"}
-            </button>
-          </>
-        )}
         {activeTab && (
-          <>
-            <span className="phn-statusbar-divider">·</span>
-            <span title="Active tab">{activeTab.label}</span>
-          </>
+          <span title="Active session · terminal size (columns × rows)">
+            {activeTab.label}{activeDims ? <span style={{ opacity: 0.55, marginLeft: 5 }}>{activeDims.cols}×{activeDims.rows}</span> : null}
+          </span>
         )}
-        {activeDims && (
-          <>
-            <span className="phn-statusbar-divider">·</span>
-            <span title="Active terminal size (columns × rows)">{activeDims.cols}×{activeDims.rows}</span>
-          </>
-        )}
-        <span className="phn-statusbar-divider">·</span>
-        <span title="Encoding">UTF-8</span>
-        {(userSt?.activeModel?.model || claudeAvailable) && (
-          <>
-            <span className="phn-statusbar-divider">·</span>
-            <span className="phn-statusbar-active" title="Active model (Models picker)">
-              ✦ {userSt?.activeModel?.model || "claude"}
-            </span>
-          </>
+        <span title="Shell · encoding · line ending" style={{ opacity: 0.8 }}>{shellName || "shell"} · UTF-8 · LF</span>
+        {broadcast && (
+          <button
+            onClick={() => setBroadcastGroupOpen(true)}
+            style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", color: "var(--phn-warning)", fontSize: 11, fontWeight: 600 }}
+            title="Broadcast (MultiExec) is on. Click to choose target terminals; the MultiExec button toggles it off."
+          >
+            📡 broadcast: {bcastTargets ? `${bcastTargets.length} tab${bcastTargets.length === 1 ? "" : "s"}` : "all visible"}
+          </button>
         )}
         {recordingTabIds.length > 0 && (
-          <>
-            <span className="phn-statusbar-divider">·</span>
-            <button
-              onClick={() => {
-                if (activeTabRecording) stopAndSaveRecording();
-                else if (recordingTabIds[0]) {
-                  // Switch to the recording tab so user can save it.
-                  const target = state.panels.find((p) => p.tabs.some((t) => t.id === recordingTabIds[0]));
-                  if (target) {
-                    setActivePanel(target.id);
-                    persist({ ...state, activePanelId: target.id, panels: state.panels.map((p) =>
-                      p.id === target.id ? { ...p, activeTabId: recordingTabIds[0] } : p
-                    ) });
-                  }
+          <button
+            onClick={() => {
+              if (activeTabRecording) stopAndSaveRecording();
+              else if (recordingTabIds[0]) {
+                // Switch to the recording tab so user can save it.
+                const target = state.panels.find((p) => p.tabs.some((t) => t.id === recordingTabIds[0]));
+                if (target) {
+                  setActivePanel(target.id);
+                  persist({ ...state, activePanelId: target.id, panels: state.panels.map((p) =>
+                    p.id === target.id ? { ...p, activeTabId: recordingTabIds[0] } : p
+                  ) });
                 }
-              }}
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                margin: 0,
-                cursor: "pointer",
-                color: "var(--phn-danger)",
-                fontSize: 11,
-                fontWeight: 600,
-              }}
-              title={recordingCapHit
-                ? `Recording hit ${recording.RECORDING_MAX_EVENTS / 1000}k events (memory cap). Save now and start a new recording for further capture.`
-                : activeTabRecording
-                  ? "Click to stop & save the active tab's recording"
-                  : "Click to switch to the recording tab"}
-            >
-              {recordingCapHit ? "⚠ rec capped — save" : `● rec${recordingTabIds.length > 1 ? ` (×${recordingTabIds.length})` : ""}`}
-            </button>
+              }
+            }}
+            style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", color: "var(--phn-danger)", fontSize: 11, fontWeight: 600 }}
+            title={recordingCapHit
+              ? `Recording hit ${recording.RECORDING_MAX_EVENTS / 1000}k events (memory cap). Save now and start a new recording for further capture.`
+              : activeTabRecording
+                ? "Click to stop & save the active tab's recording"
+                : "Click to switch to the recording tab"}
+          >
+            {recordingCapHit ? "⚠ rec capped — save" : `● rec${recordingTabIds.length > 1 ? ` (×${recordingTabIds.length})` : ""}`}
+          </button>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        {/* RIGHT — system load · cost · model · links */}
+        {sysStats && (
+          <>
+            <span className="moba-stat" title="CPU usage">
+              <span className="dot" style={{ background: loadColor(sysStats.cpu) }} />CPU {Math.round(sysStats.cpu)}%
+            </span>
+            <span className="moba-stat" title="Memory used / total">
+              MEM {(sysStats.mem_used / 1e9).toFixed(1)}/{(sysStats.mem_total / 1e9).toFixed(0)}G
+            </span>
+            <span className="moba-stat" title="Root disk used">
+              <span className="dot" style={{ background: loadColor(sysStats.disk_used_pct) }} />DISK {Math.round(sysStats.disk_used_pct)}%
+            </span>
           </>
         )}
         {(totalCost.cost > 0 || totalCost.tokens > 0) && (
-          <>
-            <span className="phn-statusbar-divider">·</span>
-            <span style={{ color: "var(--phn-success)" }} title="Aggregate live spend across all sessions">
-              ${totalCost.cost.toFixed(2)}
-              {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tokens`}
-            </span>
-          </>
+          <span style={{ color: "var(--phn-success)", fontWeight: 600 }} title="Aggregate live spend across all sessions">
+            ${totalCost.cost.toFixed(2)}
+            {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
+          </span>
         )}
-        <div style={{ flex: 1 }} />
+        {(userSt?.activeModel?.model || claudeAvailable) && (
+          <span className="phn-statusbar-active" title="Active model (Models picker)">
+            ✦ {userSt?.activeModel?.model || "claude"}
+          </span>
+        )}
+        <span style={{ opacity: 0.45 }}>v{APP_VERSION}</span>
         <button
           onClick={() => openExternal(GITHUB_URL)}
           className="phn-statusbar-link"
