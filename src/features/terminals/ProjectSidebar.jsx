@@ -43,6 +43,34 @@ function platformGlyph(p) {
 }
 const typeGlyph = (p) => platformGlyph(p);
 
+// Colored stroke OS-type icons, ported 1:1 from the mockup (#i-tux / #i-win /
+// #i-branch / #i-mon). All stroke (fill:none) for the crisp line-art look; the
+// color encodes platform: orange Linux, blue Windows/RDP, green agent worktree,
+// blue local monitor.
+const OS_PATHS = {
+  tux: <path d="M8 2.5c-1.7 0-2.6 1.5-2.6 3.2 0 1-.5 1.6-1.2 2.6C3.2 9.7 3 11 4 12c.7.7 1.6.4 2 1 .5.7 3 .7 3.4 0 .4-.6 1.3-.3 2-1 1-1 .8-2.3-.2-3.7-.7-1-1.2-1.6-1.2-2.6C9.8 4 8.9 2.5 8 2.5z" />,
+  win: <path d="M2.5 4.2 7.3 3.5v4.2H2.5zM8.3 3.4 14 2.5v5.2H8.3zM2.5 8.7h4.8v3.8L2.5 11.8zM8.3 8.7H14v5.2l-5.7-.9z" />,
+  branch: <><circle cx="4.5" cy="3.5" r="1.7" /><circle cx="4.5" cy="12.5" r="1.7" /><circle cx="11.5" cy="3.5" r="1.7" /><path d="M4.5 5.2v5.6M4.5 8.5h3a4 4 0 0 0 4-4V5.2" /></>,
+  mon: <><rect x="2" y="2.5" width="12" height="8.5" rx="1" /><path d="M6 14h4M8 11v3" /></>,
+};
+function osIconFor(p) {
+  const hay = `${p?.name || ""} ${p?.folder || ""} ${p?.connection?.host || ""} ${p?.path || ""}`.toLowerCase();
+  if (p?.worktree || /agent/.test((p?.folder || "").toLowerCase())) return { id: "branch", color: "#6FB85C" };
+  if (p?.rdp || p?.vnc || /(windows|win10|win11|wsl|\bwin\b|rdp)/.test(hay)) return { id: "win", color: "#5B9BE0" };
+  if (isSsh(p)) return { id: "tux", color: "#E0863C" };
+  return { id: "mon", color: "#5B9BE0" };
+}
+function OsIcon({ p, size = 13 }) {
+  const { id, color } = osIconFor(p);
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color}
+      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+      style={{ display: "block", flexShrink: 0 }} aria-hidden="true">
+      {OS_PATHS[id]}
+    </svg>
+  );
+}
+
 // Folder icon by name keyword (mirrors MobaXterm's per-category folder icons).
 function folderGlyph(name) {
   const n = (name || "").toLowerCase();
@@ -503,10 +531,10 @@ export default function ProjectSidebar({
                 ) : (
                   <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 5 }}>
                     <span
-                      style={{ flexShrink: 0, fontSize: 10, opacity: 0.85, alignSelf: "center" }}
+                      style={{ flexShrink: 0, display: "flex", alignItems: "center", alignSelf: "center" }}
                       title={isSsh(p) ? "SSH session" : "Local shell"}
                     >
-                      {typeGlyph(p)}
+                      <OsIcon p={p} />
                     </span>
                     <span
                       style={{
@@ -536,30 +564,12 @@ export default function ProjectSidebar({
                         #{tag}
                       </span>
                     ))}
-                    {isSsh(p) ? (
-                      p.connection?.host && (
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            color: FG_FAINT,
-                            fontSize: 9,
-                            letterSpacing: 0.3,
-                            maxWidth: 80,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                          title={`${p.connection?.user || ""}@${p.connection.host}:${p.connection?.port || 22}`}
-                        >
-                          {p.connection.host}
-                        </span>
-                      )
-                    ) : null}
                     {isSsh(p) && p.id in latency && !collapsed && (
                       <span
                         style={{
                           flexShrink: 0,
-                          fontSize: 9,
+                          marginLeft: "auto",
+                          fontSize: 9.5,
                           letterSpacing: 0.2,
                           color: latency[p.id] == null ? FG_FAINT : latency[p.id] < 80 ? "var(--phn-success, #5FB87A)" : "var(--phn-warning, #E0A93C)",
                           fontFamily: M,
@@ -574,10 +584,11 @@ export default function ProjectSidebar({
                         <span
                           style={{
                             flexShrink: 0,
+                            marginLeft: "auto",
                             color: FG_FAINT,
-                            fontSize: 9,
+                            fontSize: 9.5,
                             letterSpacing: 0.3,
-                            maxWidth: 70,
+                            maxWidth: 90,
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
