@@ -130,6 +130,7 @@ export default function ProjectSidebar({
   projectActivities,
   collapsed = false,
   onToggleCollapse,
+  onCollapse,
   docked = false,
   onClickProject,
   onAddProject,
@@ -148,8 +149,6 @@ export default function ProjectSidebar({
   const [latency, setLatency] = useState({}); // projectId -> ms | null (SSH hosts)
   // Collapsed folders in the Sessions tree (transient — names, not ids).
   const [collapsedFolders, setCollapsedFolders] = useState(() => new Set());
-  // The MobaXterm-style "User sessions" tree root (collapsible).
-  const [userSessionsCollapsed, setUserSessionsCollapsed] = useState(false);
 
   // Per-SSH-host latency (TCP connect to the SSH port). Probed sequentially on
   // mount + every 30s; shown next to the host in the tree. Failures → null (—).
@@ -407,6 +406,9 @@ export default function ProjectSidebar({
           >
             {collapsed ? "»" : "«"}
           </button>
+        )}
+        {docked && onCollapse && (
+          <button className="moba-tree-collapse" onClick={onCollapse} title="Collapse sessions panel">‹</button>
         )}
       </div>
 

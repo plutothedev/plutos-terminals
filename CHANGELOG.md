@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.1 — Panel polish + fixes (2026-05-29)
+
+### Added
+- **Resizable + collapsible side panels.** Drag the splitter to resize the right
+  dock (persisted); collapse either the session tree or the tools dock to a thin
+  rail (click to re-expand). They can no longer be fully closed/lost.
+- **Assistant: "Clear" button** + the conversation history sent to the model is
+  now bounded (last ~12 turns) so cost/latency don't grow unbounded.
+
+### Fixed
+- SFTP: disconnect the previous session before opening a new one (no leaked
+  backend connections when switching SSH tabs); discard a connect that resolves
+  after you've switched away; connect lazily only when the SFTP tab is viewed.
+- Local file browser breadcrumb + "Up" are now separator-agnostic (works on
+  Windows paths).
+- Monitor: guard the MEM gauge against a zero total.
+- Removed dead code and relabeled the obsolete "show sessions panel" menu item.
+
 ## v0.2.0 — Workstation overhaul (2026-05-28)
 
 A ground-up UI overhaul into a MobaXterm-style "industrial-navy" workstation,

@@ -20,7 +20,6 @@ const ACCENT_FALLBACK = "#4DAAFC"; // for drag ghost (DOM-built outside React)
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 // Activity colors mirror Moon Dev: yellow while running, green when finished.
-const DOT_IDLE = "#3C3C3C";
 const DOT_ACTIVE = "#FBBF24";
 const DOT_DONE = "#34D399";
 const GLOW_ACTIVE = "rgba(251,191,36,0.45)";
@@ -56,12 +55,6 @@ function highlightTabDrop(el) {
   el.setAttribute("data-tab-drop", "1");
   el.style.outline = `2px solid ${ACCENT_FALLBACK}`;
   el.style.outlineOffset = "-2px";
-}
-
-function dotColor(state) {
-  if (state === "active") return DOT_ACTIVE;
-  if (state === "done") return DOT_DONE;
-  return DOT_IDLE;
 }
 
 // Activity for a single tab = the "loudest" of its panes (active > done > idle).
@@ -122,7 +115,6 @@ export default function TerminalPanel({
   tabAutoApprove,
   tabProjectNames,
   homeApi,
-  onHome,
   onActivate,
   onAddTab,
   onCloseTab,

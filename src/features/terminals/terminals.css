@@ -881,6 +881,27 @@
 .moba-home-session-dot.active { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
 .moba-home-session-dot.done { background: #34d399; box-shadow: 0 0 6px #34d399; }
 
+/* ── Collapsed side-panel rail (click to re-expand) ──────────────────── */
+.moba-railcol {
+  width: 26px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center;
+  padding-top: 7px; gap: 4px; cursor: pointer; user-select: none; font-size: 13px;
+  background: var(--phn-surface-alt-bg, #1E2125);
+  color: var(--phn-text-dim, #8A909A);
+  border-left: 1px solid var(--phn-surface-border, #34383F);
+  border-right: 1px solid var(--phn-surface-border, #34383F);
+}
+.moba-railcol:hover { color: var(--phn-text-bright, #F2F4F7); background: var(--phn-surface-bg, #24272D); }
+.moba-railcol .lbl {
+  writing-mode: vertical-rl; margin-top: 6px; font-size: 9.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--phn-text-faint, #586068);
+}
+.moba-rd-collapse, .moba-tree-collapse {
+  background: transparent; border: none; cursor: pointer; color: var(--phn-text-dim, #8A909A);
+  font-size: 14px; line-height: 1; padding: 0 6px;
+}
+.moba-rd-collapse { margin-left: auto; }
+.moba-rd-collapse:hover, .moba-tree-collapse:hover { color: var(--phn-text-bright, #F2F4F7); }
+
 /* ── Right-dock Assistant chat ───────────────────────────────────────── */
 .phn-assistant { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .phn-assistant-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -900,6 +921,11 @@
 .phn-assistant-input textarea:focus { border-color: var(--phn-link, #4D8FE0); }
 .phn-assistant-input button { flex-shrink: 0; width: 34px; background: var(--phn-link, #4D8FE0); border: none; border-radius: 6px; color: #fff; font-size: 14px; cursor: pointer; }
 .phn-assistant-input button:disabled { opacity: 0.4; cursor: default; }
+.phn-assistant-input .phn-assistant-clear {
+  width: auto; background: transparent; border: 1px solid var(--phn-surface-border, #34383F);
+  color: var(--phn-text-dim, #8A909A); font-size: 10.5px; padding: 0 8px; border-radius: 6px;
+}
+.phn-assistant-input .phn-assistant-clear:hover { color: var(--phn-text-bright, #F2F4F7); border-color: var(--phn-link, #4D8FE0); }
 
 /* ── Right-dock system Monitor ───────────────────────────────────────── */
 .phn-monitor { height: 100%; overflow-y: auto; padding: 10px; }

@@ -47,7 +47,10 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd }) {
       `You are a concise terminal & developer assistant embedded in Pluto's Terminals on ${os}. ` +
       `The user's shell is ${shellName || "shell"}${cwd ? `, working directory ${cwd}` : ""}. ` +
       `Answer briefly. When you give a shell command, put it on its own line in a fenced code block.`;
+    // Only send the recent turns so the prompt (and cost/latency) stays bounded
+    // as the conversation grows.
     const transcript = next
+      .slice(-12)
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n\n");
     try {
@@ -92,6 +95,16 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd }) {
       </div>
       {error && <div className="phn-assistant-error">{error}</div>}
       <div className="phn-assistant-input">
+        {messages.length > 0 && (
+          <button
+            className="phn-assistant-clear"
+            onClick={() => { setMessages([]); setError(null); }}
+            disabled={loading}
+            title="Clear conversation"
+          >
+            clear
+          </button>
+        )}
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}

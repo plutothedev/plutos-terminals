@@ -169,6 +169,39 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // (remote files). null = dock collapsed. Defaults to the sessions list.
   const [ribbon, setRibbon] = useState(null); // secondary left panel: null | "snippets" | "agents" (session tree is always docked)
   const [dockTab, setDockTab] = useState("files"); // right-dock tab: files | assistant | monitor (the dock is always open)
+  // Side-panel sizing/visibility (persisted). Panels can be collapsed to a thin
+  // rail (re-expandable) or resized, but never fully removed — so they can't be
+  // "lost" like the old close button allowed.
+  const [dockWidth, setDockWidth] = useState(() => {
+    const v = parseInt(localStorage.getItem("pt:dockWidth") || "", 10);
+    return Number.isFinite(v) && v >= 220 && v <= 640 ? v : 320;
+  });
+  const [dockCollapsed, setDockCollapsed] = useState(() => localStorage.getItem("pt:dockCollapsed") === "1");
+  const [treeCollapsed, setTreeCollapsed] = useState(() => localStorage.getItem("pt:treeCollapsed") === "1");
+  const collapseDock = (v) => { setDockCollapsed(v); localStorage.setItem("pt:dockCollapsed", v ? "1" : "0"); };
+  const collapseTree = (v) => { setTreeCollapsed(v); localStorage.setItem("pt:treeCollapsed", v ? "1" : "0"); };
+  // Drag the splitter to resize the right dock (persisted on release).
+  const startDockResize = useCallback((e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    let startW = 320;
+    setDockWidth((w) => { startW = w; return w; });
+    const onMove = (ev) => {
+      const w = Math.max(220, Math.min(640, startW + (startX - ev.clientX)));
+      setDockWidth(w);
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setDockWidth((w) => { localStorage.setItem("pt:dockWidth", String(w)); return w; });
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, []);
 
   // Persisted user snippets. Seeded from the built-in starter set on first use
   // so the drawer is never empty; edits/additions/deletes persist in app state.
@@ -1166,10 +1199,12 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     : null;
   useEffect(() => {
     const token = ++sftpTokenRef.current;
-    if (activeTab?.connection) openSftp(token);
+    // Connect lazily: only when the SFTP tab is actually being viewed, not just
+    // because an SSH tab is focused while the user is on Assistant/Monitor.
+    if (dockTab === "files" && activeTab?.connection) openSftp(token);
     else closeSftp();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTabId, sshKey]);
+  }, [activeTabId, sshKey, dockTab]);
 
   // Secondary left panel selection (Snippets / Agents). "files" focuses the
   // right dock's SFTP tab. "sessions" is a no-op — the tree is always docked.
@@ -1509,7 +1544,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           {
             label: "View",
             items: [
-              { label: ribbon ? "Hide left panel" : "Show sessions panel", action: () => selectRibbon(ribbon ? null : "sessions") },
+              { label: ribbon ? "Hide tools panel" : "Show snippets panel", action: () => selectRibbon(ribbon ? null : "snippets") },
               { label: "Workspaces — save / restore layout…", action: () => setWorkspacesOpen(true) },
               { divider: true },
               { label: "Skins & appearance…", action: () => setSettingsOpen(true) },
@@ -1586,11 +1621,18 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           MobaXterm layout: Quick-connect sits NARROW at the top of the left dock
           (not a full-width bar), beside the per-panel tab strip on the right. */}
       <div className="moba-body" style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0, position: "relative", overflow: "hidden" }}>
-        {/* Permanent session tree — always docked (workstation layout). */}
+        {/* Permanent session tree — always docked (workstation layout).
+            Collapsible to a thin rail (re-expandable), never fully removed. */}
+        {treeCollapsed ? (
+          <div className="moba-railcol" onClick={() => collapseTree(false)} title="Show sessions">
+            ›<span className="lbl">Sessions</span>
+          </div>
+        ) : (
         <div className="moba-dock">
           <div className="moba-dock-body">
               <ProjectSidebar
                 docked
+                onCollapse={() => collapseTree(true)}
                 projects={projects}
                 projectActivities={projectActivities}
                 onAddProject={() => setDialog({ mode: "add" })}
@@ -1612,6 +1654,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               />
           </div>
         </div>
+        )}
 
         {/* Secondary left panel — Snippets / Agents, toggled from the toolbar.
             Never replaces the session tree (which is always docked above). */}
@@ -1664,7 +1707,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               tabAutoApprove={tabAutoApprove}
               tabProjectNames={tabProjectNames}
               homeApi={homeApi}
-              onHome={() => focusOrAddHomeTab(panel.id)}
               onActivate={() => setActivePanel(panel.id)}
               onAddTab={() => addTab(panel.id)}
               onCloseTab={(tabId) => closeTab(panel.id, tabId)}
@@ -1686,11 +1728,16 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           ))}
         </div>
 
-        {/* Right dock — SFTP / Assistant / Monitor. Always open (workstation
-            layout); F4 focuses the SFTP tab. Styled splitter grip on its left. */}
-        <>
-            <div className="moba-splitter" title="Resize"><span className="moba-grip"><i></i><i></i><i></i></span></div>
-            <div className="moba-rightdock">
+        {/* Right dock — SFTP / Assistant / Monitor. Always present (workstation
+            layout); collapsible to a rail and drag-resizable. F4 focuses SFTP. */}
+        {dockCollapsed ? (
+          <div className="moba-railcol" onClick={() => collapseDock(false)} title="Show tools panel">
+            ‹<span className="lbl">Tools</span>
+          </div>
+        ) : (
+          <>
+            <div className="moba-splitter" title="Drag to resize" onMouseDown={startDockResize} style={{ cursor: "col-resize" }}><span className="moba-grip"><i></i><i></i><i></i></span></div>
+            <div className="moba-rightdock" style={{ width: dockWidth }}>
               <div className="moba-rd-tabs">
                 {[
                   { id: "files", label: "SFTP", icon: <IconFolder size={13} />, color: "#E0C04F" },
@@ -1706,6 +1753,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                     <span style={{ color: t.color, display: "inline-flex" }}>{t.icon}</span> {t.label}
                   </span>
                 ))}
+                <button className="moba-rd-collapse" onClick={() => collapseDock(true)} title="Collapse panel">›</button>
               </div>
               <div className="moba-rd-body">
                 {dockTab === "assistant" ? (
@@ -1725,6 +1773,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               </div>
             </div>
           </>
+        )}
       </div>
 
       <TunnelsModal
@@ -1894,7 +1943,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
           { id: "broadcast-group", icon: "🎯", label: "Broadcast targets… (choose terminals)", hint: "Pick a subset of terminals for MultiExec instead of all visible", action: () => setBroadcastGroupOpen(true) },
           { id: "nettools", icon: "🌐", label: "Network tools", hint: "Ping, traceroute, TCP port scan, and DNS lookup", action: () => setNetToolsOpen(true) },
-          { id: "toggle-sidebar", icon: "◧", label: ribbon ? "Collapse left panel" : "Show sessions panel", hint: "Show or hide the docked left panel", action: () => selectRibbon(ribbon ? null : "sessions") },
+          { id: "toggle-sidebar", icon: "◧", label: ribbon ? "Hide tools panel" : "Show snippets panel", hint: "Show or hide the Snippets / Agents panel beside the session tree", action: () => selectRibbon(ribbon ? null : "snippets") },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
           { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
           { id: "settings", icon: "⚙️", label: "Open settings", hint: "API key, app skin, header style, density, terminal bg", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },
