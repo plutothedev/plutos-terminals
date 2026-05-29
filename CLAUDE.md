@@ -86,6 +86,8 @@ If Lyfe ships terminal improvements during pluto-terminals v0/v1, decision gate:
 Don't start v1 features (agent grid, prompt-pack auto-loader, MCP installer) until v0's kill-switch criteria are measured. See `C:\Users\pluto\Documents\pluto-mind\03 Projects\plutos-terminals\roadmap.md`. The kill-switch is real — don't sunk-cost v1 if v0 doesn't pull community engagement.
 
 <!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
+Active feature plan: `specs/001-remote-sessions-parity/plan.md`
+(spec → `specs/001-remote-sessions-parity/spec.md`; constitution →
+`.specify/memory/constitution.md`). For technologies, project structure, and
+build commands for the in-flight feature, read the current plan.
 <!-- SPECKIT END -->
