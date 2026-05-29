@@ -1962,22 +1962,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           letterSpacing: 0.2,
         }}
       >
-        {/* LEFT — claude · active session · shell/encoding */}
-        <button
-          onClick={() => (claudeAvailable === false ? setSetupOpen(true) : setModelsOpen(true))}
-          className="moba-stat"
-          style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5 }}
-          title={
-            claudeAvailable === true ? "Claude Code CLI is on PATH — click to pick a model / API key"
-            : claudeAvailable === false ? "Claude Code CLI not found — click for the install checklist"
-            : "Checking…"
-          }
-        >
-          <span className="dot" style={{ background: claudeAvailable === true ? "var(--phn-success)" : claudeAvailable === false ? "var(--phn-danger)" : "var(--phn-text-faint, #586068)" }} />
-          {claudeAvailable === false ? "claude — setup" : "claude"}
-        </button>
+        {/* LEFT — active session · shell/encoding */}
         {activeTab && (
-          <span title="Active session · terminal size (columns × rows)">
+          <span className="moba-stat" title="Active session · terminal size (columns × rows)">
+            <span className="dot" style={{ background: tabActivities[activeTabId] === "active" ? "#4FB8E6" : tabActivities[activeTabId] === "done" ? "var(--phn-success, #5FB87A)" : "var(--phn-text-faint, #586068)" }} />
             {activeTab.label}{activeDims ? <span style={{ opacity: 0.55, marginLeft: 5 }}>{activeDims.cols}×{activeDims.rows}</span> : null}
           </span>
         )}
@@ -2019,20 +2007,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
         <div style={{ flex: 1 }} />
 
-        {/* RIGHT — system load · cost · model · links */}
-        {sysStats && (
-          <>
-            <span className="moba-stat" title="CPU usage">
-              <span className="dot" style={{ background: loadColor(sysStats.cpu) }} />CPU {Math.round(sysStats.cpu)}%
-            </span>
-            <span className="moba-stat" title="Memory used / total">
-              MEM {(sysStats.mem_used / 1e9).toFixed(1)}/{(sysStats.mem_total / 1e9).toFixed(0)}G
-            </span>
-            <span className="moba-stat" title="Root disk used">
-              <span className="dot" style={{ background: loadColor(sysStats.disk_used_pct) }} />DISK {Math.round(sysStats.disk_used_pct)}%
-            </span>
-          </>
-        )}
+        {/* RIGHT — cost · model · links (CPU/MEM/DISK live in the Monitor tab) */}
         {(totalCost.cost > 0 || totalCost.tokens > 0) && (
           <span style={{ color: "var(--phn-success)", fontWeight: 600 }} title="Aggregate live spend across all sessions">
             ${totalCost.cost.toFixed(2)}
