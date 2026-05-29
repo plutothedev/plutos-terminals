@@ -52,3 +52,6 @@ export const SAgents = ({ size }) => (
 export const SSearch = ({ size }) => (
   <S size={size}><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5 14 14" /></S>
 );
+export const SPulse = ({ size }) => (
+  <S size={size}><path d="M1.5 8h3l2-5 3 10 2-5h3" /></S>
+);

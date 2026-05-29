@@ -28,8 +28,10 @@ import {
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
   IconHelp, IconMoon, IconSun, IconExit, IconModels, IconAsk, IconFolder,
 } from "./icons.jsx";
-import { SLocal, SSsh, SSerial, SSplit, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch } from "./toolbarIcons.jsx";
+import { SLocal, SSsh, SSerial, SSplit, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch, SPulse } from "./toolbarIcons.jsx";
 import LocalFileBrowser from "./LocalFileBrowser";
+import DockAssistant from "./DockAssistant";
+import DockMonitor from "./DockMonitor";
 import VncConnectModal from "./VncConnectModal";
 import RdpConnectModal from "./RdpConnectModal";
 import OnboardingOverlay from "./OnboardingOverlay";
@@ -167,6 +169,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // (remote files). null = dock collapsed. Defaults to the sessions list.
   const [ribbon, setRibbon] = useState("sessions");
   const [filesDock, setFilesDock] = useState(true); // right-docked SFTP / file browser (shown by default, workstation layout)
+  const [dockTab, setDockTab] = useState("files"); // right-dock tab: files | assistant | monitor
 
   // Persisted user snippets. Seeded from the built-in starter set on first use
   // so the drawer is never empty; edits/additions/deletes persist in app state.
@@ -1674,12 +1677,28 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             <div className="moba-splitter" title="Resize"><span className="moba-grip"><i></i><i></i><i></i></span></div>
             <div className="moba-rightdock">
               <div className="moba-rd-tabs">
-                <span className="moba-rd-tab active"><IconFolder size={13} /> SFTP</span>
-                <span className="moba-rd-tab"><IconAsk size={13} /> Assistant</span>
-                <button className="moba-rd-close" onClick={toggleFilesDock} title="Close (F4)">×</button>
+                {[
+                  { id: "files", label: "SFTP", icon: <IconFolder size={13} />, color: "#E0C04F" },
+                  { id: "assistant", label: "Assistant", icon: <SAsk size={13} />, color: "#D982D9" },
+                  { id: "monitor", label: "Monitor", icon: <SPulse size={13} />, color: "#4FB8E6" },
+                ].map((t) => (
+                  <span
+                    key={t.id}
+                    className={dockTab === t.id ? "moba-rd-tab active" : "moba-rd-tab"}
+                    onClick={() => setDockTab(t.id)}
+                    title={t.label}
+                  >
+                    <span style={{ color: t.color, display: "inline-flex" }}>{t.icon}</span> {t.label}
+                  </span>
+                ))}
+                <button className="moba-rd-close" onClick={toggleFilesDock} title="Close — press F4 (or the F4 button below) to reopen">×</button>
               </div>
               <div className="moba-rd-body">
-                {activeTab?.connection ? (
+                {dockTab === "assistant" ? (
+                  <DockAssistant onSendToTerminal={sendToActiveTerminal} shellName={shellName} cwd={activeTab?.cwd} />
+                ) : dockTab === "monitor" ? (
+                  <DockMonitor sysStats={sysStats} panels={state.panels} activities={tabActivities} />
+                ) : activeTab?.connection ? (
                   <SftpBrowser
                     docked
                     connecting={sftp?.connecting}

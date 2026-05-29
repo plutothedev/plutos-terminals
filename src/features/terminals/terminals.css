@@ -880,3 +880,40 @@
 .moba-home-session-dot { width: 7px; height: 7px; border-radius: 50%; background: #3c3c3c; flex-shrink: 0; }
 .moba-home-session-dot.active { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
 .moba-home-session-dot.done { background: #34d399; box-shadow: 0 0 6px #34d399; }
+
+/* ── Right-dock Assistant chat ───────────────────────────────────────── */
+.phn-assistant { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.phn-assistant-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.phn-assistant-empty { color: var(--phn-text-dim, #8A909A); font-size: 11.5px; line-height: 1.6; padding: 6px 2px; }
+.phn-msg { max-width: 100%; font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; }
+.phn-msg-body { white-space: pre-wrap; word-break: break-word; padding: 7px 9px; border-radius: 7px; }
+.phn-msg.user { align-items: flex-end; }
+.phn-msg.user .phn-msg-body { background: var(--phn-accent-subtle, rgba(77,143,224,0.18)); color: var(--phn-text-bright, #F2F4F7); }
+.phn-msg.assistant .phn-msg-body { background: var(--phn-surface-alt-bg, #1E2125); color: var(--phn-text, #D3D7DD); }
+.phn-msg-thinking { opacity: 0.6; font-style: italic; }
+.phn-msg-actions { display: flex; gap: 6px; margin-top: 4px; }
+.phn-msg-actions button { background: var(--phn-surface-elevated-bg, #2C3037); border: 1px solid var(--phn-surface-border, #34383F); color: var(--phn-text, #D3D7DD); font: inherit; font-size: 10.5px; padding: 2px 8px; border-radius: 5px; cursor: pointer; }
+.phn-msg-actions button:hover { border-color: var(--phn-link, #4D8FE0); color: var(--phn-text-bright, #F2F4F7); }
+.phn-assistant-error { color: var(--phn-danger, #E0574A); font-size: 11px; padding: 4px 10px; }
+.phn-assistant-input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--phn-surface-border, #34383F); }
+.phn-assistant-input textarea { flex: 1; resize: none; background: var(--phn-surface-alt-bg, #1E2125); border: 1px solid var(--phn-surface-border, #34383F); border-radius: 6px; color: var(--phn-text-bright, #F2F4F7); font-family: var(--phn-ui-font); font-size: 12px; padding: 6px 8px; outline: none; }
+.phn-assistant-input textarea:focus { border-color: var(--phn-link, #4D8FE0); }
+.phn-assistant-input button { flex-shrink: 0; width: 34px; background: var(--phn-link, #4D8FE0); border: none; border-radius: 6px; color: #fff; font-size: 14px; cursor: pointer; }
+.phn-assistant-input button:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Right-dock system Monitor ───────────────────────────────────────── */
+.phn-monitor { height: 100%; overflow-y: auto; padding: 10px; }
+.phn-mon-sec { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--phn-text-faint, #586068); margin: 12px 2px 6px; }
+.phn-mon-sec:first-child { margin-top: 2px; }
+.phn-mon-empty { color: var(--phn-text-dim, #8A909A); font-size: 11.5px; padding: 4px 2px; }
+.phn-mon-gauge { margin-bottom: 9px; }
+.phn-mon-gauge-top { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; }
+.phn-mon-gauge-top .lbl { color: var(--phn-text-dim, #8A909A); }
+.phn-mon-gauge-top .val { color: var(--phn-text-bright, #F2F4F7); font-family: var(--phn-mono-font, 'JetBrains Mono', Menlo, monospace); }
+.phn-mon-bar { height: 5px; border-radius: 3px; background: var(--phn-surface-alt-bg, #1E2125); overflow: hidden; }
+.phn-mon-bar i { display: block; height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+.phn-mon-row { display: flex; align-items: center; gap: 7px; height: 22px; font-size: 11.5px; color: var(--phn-text, #D3D7DD); }
+.phn-mon-row .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.phn-mon-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phn-mon-row .kind { font-size: 9px; color: var(--phn-text-faint, #586068); text-transform: uppercase; letter-spacing: 0.04em; }
+.phn-mon-row .st { font-size: 9.5px; color: var(--phn-text-dim, #8A909A); width: 40px; text-align: right; }
