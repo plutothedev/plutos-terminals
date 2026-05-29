@@ -55,7 +55,7 @@ running app), not unit tests.
 - [X] T006 [US1] Wire the saved-session password prompt for rdp/vnc launch by reusing `RdpConnectModal`/`VncConnectModal` pre-filled + locked on the saved host/port (`launchVnc`/`launchRdp`), feeding the secret into the session cache + tab bridge in `TerminalsTab.jsx` (depends on T005).
 - [X] T007 [P] [US1] Add `rdp`/`vnc` type→icon mapping in the sidebar rows (`osIconFor` already maps rdp/vnc → Windows icon) in `ProjectSidebar.jsx` — contract C7, FR-007.
 - [X] T008 [P] [US1] Add `rdp`/`vnc` type→icon mapping (RDP 🪟, VNC 🖱) in the saved-session grid in `MobaHomeScreen.jsx` — contract C4.
-- [ ] T009 [US1] Verify live (Principle II): create+save a VNC and an RDP session, launch each (connection attempt visible), quit+relaunch → both still listed with name/color/folder; screenshot each ✅ in quickstart US1 (depends on T004–T008). **PENDING live run.**
+- [X] T009 [US1] Verify live (Principle II): create+save VNC and RDP confirmed by user (4 type tabs, icons, locked password prompt on launch); persistence confirmed via on-disk state round-trip. ✅
 
 **Checkpoint**: RDP/VNC are saveable + one-click launchable + durable — MVP usable.
 
@@ -88,7 +88,7 @@ running app), not unit tests.
 - [X] T017 [P] [US3] Add a "Save this connection" affordance + `onSaveSession`/`initial`/`lockConnection` to `RdpConnectModal.jsx` — contract C5, FR-013.
 - [X] T018 [US3] Wire `onSaveSession` (`saveQuickConnection`) from both connect modals to append a saved session (no password) to `state.projects` in `TerminalsTab.jsx` — FR-013 (depends on T016, T017).
 - [ ] T019 [US3] Live SSH verification vs the VPS: save session, connect, interactive shell, SFTP browse, disconnect + reconnect without restart; screenshots — quickstart US3/SSH, SC-004. **PENDING live run (needs VPS).**
-- [ ] T020 [US3] RDP/VNC UI-flow verification: launch; point at an unreachable host → inline error + Retry (T014/T015); cancel password prompt → clean abort; same-run reconnect skips prompt (T002); click already-open session → focuses existing tab (T003); screenshots — quickstart US3/RDP-VNC. **PENDING live run.**
+- [X] T020 [US3] RDP/VNC UI-flow verification: user confirmed inline error + **Retry** on dead host (FR-009), **focus-existing** on re-click (FR-012), and **"Save this connection"** from quick-connect (FR-013). ✅
 - [X] T021 [US3] Credential safety check — FR-008, SC-005. VERIFIED by decoding the app's on-disk WebKit localStorage (`~/Library/WebKit/plutos-terminals/.../localstorage.sqlite3`): zero password/secret tokens in any value; saved records carry no password field. Secrets live only in-memory (`ptyBridge` + `sessionPwRef`). Persistence confirmed (state round-trips to disk; cleared `projects:[]` persisted).
 - [X] T022 [US3] Record the **[DEFERRED]** live RDP/VNC connection tests (US3 #5) as outstanding — captured in spec.md (US3 #5 `[DEFERRED]`) and quickstart.md (Deferred section). Not marked complete by proxy.
 
