@@ -35,8 +35,8 @@ export default function DockMonitor({ sysStats, panels, activities }) {
           <Gauge label="CPU" value={`${Math.round(sysStats.cpu)}%`} pct={sysStats.cpu} />
           <Gauge
             label="MEM"
-            value={`${(sysStats.mem_used / 1e9).toFixed(1)} / ${(sysStats.mem_total / 1e9).toFixed(0)} G`}
-            pct={(sysStats.mem_used / sysStats.mem_total) * 100}
+            value={sysStats.mem_total > 0 ? `${(sysStats.mem_used / 1e9).toFixed(1)} / ${(sysStats.mem_total / 1e9).toFixed(0)} G` : "—"}
+            pct={sysStats.mem_total > 0 ? (sysStats.mem_used / sysStats.mem_total) * 100 : 0}
           />
           <Gauge label="DISK" value={`${Math.round(sysStats.disk_used_pct)}%`} pct={sysStats.disk_used_pct} />
         </>

@@ -28,9 +28,10 @@ export function fmtMtime(sec) {
   return `${Math.floor(d / 86400 / 365)}y`;
 }
 
+// Parent dir, separator-agnostic (Windows paths use "\", POSIX use "/").
 function parentPath(p) {
-  const t = p.replace(/\/+$/, "");
-  const i = t.lastIndexOf("/");
+  const t = p.replace(/[/\\]+$/, "");
+  const i = Math.max(t.lastIndexOf("/"), t.lastIndexOf("\\"));
   return i <= 0 ? "/" : t.slice(0, i);
 }
 
@@ -100,7 +101,14 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
 
   useEffect(() => { list(null); }, [list]); // home dir on mount
 
-  const segs = (cwd || "").split("/").filter(Boolean);
+  // Breadcrumb, separator-agnostic. On Windows, list_directory returns
+  // canonicalized paths (possibly a "\\?\" verbatim prefix + backslashes);
+  // strip the prefix and split on either separator so the crumb works on both.
+  const cleanCwd = (cwd || "").replace(/^\\\\\?\\/, "");
+  const isWin = /\\/.test(cleanCwd) && !cleanCwd.startsWith("/");
+  const segs = cleanCwd.split(/[/\\]+/).filter(Boolean);
+  const crumbPath = (i) =>
+    isWin ? segs.slice(0, i + 1).join("\\") : "/" + segs.slice(0, i + 1).join("/");
 
   return (
     <div className="moba-dock-panel">
@@ -123,9 +131,9 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
 
       {cwd && (
         <div className="phn-sftp-pathbar phn-sftp-crumb" title={cwd}>
-          <span className="seg" onClick={() => list("/")}>/</span>
+          {!isWin && <span className="seg" onClick={() => list("/")}>/</span>}
           {segs.map((seg, i) => {
-            const path = "/" + segs.slice(0, i + 1).join("/");
+            const path = crumbPath(i);
             return (
               <span key={path} className="crumb-part">
                 <span className="sl">›</span>
