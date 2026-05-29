@@ -1546,26 +1546,26 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           {
             caption: "Connect",
             items: [
-              { id: "local", icon: <SLocal />, label: "Local", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
-              { id: "ssh", icon: <SSsh />, label: "SSH", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
-              { id: "serial", icon: <SSerial />, label: "Serial", title: "Serial console session", onClick: () => setSerialOpen(true) },
+              { id: "local", icon: <SLocal />, color: "#5B9BE0", label: "Local", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
+              { id: "ssh", icon: <SSsh />, color: "#3FC7C7", label: "SSH", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
+              { id: "serial", icon: <SSerial />, color: "#E0863C", label: "Serial", title: "Serial console session", onClick: () => setSerialOpen(true) },
             ],
           },
           {
             caption: "Workspace",
             items: [
-              { id: "split", icon: <SSplit />, label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-              { id: "multiexec", icon: <SMultiX />, label: "MultiX", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
-              { id: "tunnel", icon: <STunnel />, label: "Tunnel", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+              { id: "split", icon: <SSplit />, color: "#6FB85C", label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+              { id: "multiexec", icon: <SMultiX />, color: "#B07CE0", label: "MultiX", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
+              { id: "tunnel", icon: <STunnel />, color: "#4FB8E6", label: "Tunnel", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
             ],
           },
           {
             caption: "AI · Tools",
             items: [
-              { id: "ask", icon: <SAsk />, label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
-              { id: "models", icon: <SModels />, label: "Models", title: "Pick your LLM provider + model and enter its API key", onClick: () => setModelsOpen(true) },
-              { id: "snips", icon: <SSnips />, label: "Snips", title: "Snippets — saved commands, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-              { id: "agents", icon: <SAgents />, label: "Agents", title: "Agent mission control", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
+              { id: "ask", icon: <SAsk />, color: "#D982D9", label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
+              { id: "models", icon: <SModels />, color: "#E06C9B", label: "Models", title: "Pick your LLM provider + model and enter its API key", onClick: () => setModelsOpen(true) },
+              { id: "snips", icon: <SSnips />, color: "#5B9BE0", label: "Snippets", title: "Snippets — saved commands, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+              { id: "agents", icon: <SAgents />, color: "#6FB85C", label: "Agents", title: "Agent mission control", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
             ],
           },
         ]}

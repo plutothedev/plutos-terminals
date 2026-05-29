@@ -26,7 +26,7 @@ export default function MobaToolbar({ brand, groups = [], right }) {
                 disabled={it.disabled}
                 title={it.title || it.label}
               >
-                <span className="moba-tool-icon">{it.icon}</span>
+                <span className="moba-tool-icon" style={it.color ? { color: it.color } : undefined}>{it.icon}</span>
                 <span className="moba-tool-label">{it.label}</span>
               </button>
             ))}
