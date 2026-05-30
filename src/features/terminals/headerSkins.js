@@ -169,7 +169,7 @@ export const HEADER_SKINS = [
   {
     id: "moba",
     label: "Dark",
-    description: "Dark charcoal chrome, pure-black terminal.",
+    description: "Near-black chrome, blood-orange accent, pure-black terminal.",
     xterm: {
       background: "#000000",
       foreground: "#d0d0d0",
@@ -982,10 +982,10 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
 [data-phn-skin="pro"] .phn-muted { color: #62666d !important; }
 [data-phn-skin="pro"] option { background: #0f1011; color: #b4b8c0; }
 
-/* ── moba — MobaXterm v12.4 (dark grey chrome, teal accent, Chrome tabs) ─ */
+/* ── moba — near-black chrome, blood-orange accent, Chrome tabs ───────── */
 [data-phn-skin="moba"] .phn-header {
-  background: #383838;
-  border-bottom: 1px solid #151515;
+  background: #0d0d0d;
+  border-bottom: 1px solid #000000;
 }
 [data-phn-skin="moba"] .phn-title {
   color: #ffffff;
@@ -997,15 +997,15 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
 [data-phn-skin="moba"] .phn-cost { color: #5fd75f; }
 [data-phn-skin="moba"] .phn-btn,
 [data-phn-skin="moba"] .phn-select {
-  background: #454545;
-  border: 1px solid #202020;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
   color: #d4d4d4;
   border-radius: 3px;
 }
 [data-phn-skin="moba"] .phn-btn:hover:not(:disabled),
 [data-phn-skin="moba"] .phn-select:hover {
-  background: #525252;
-  border-color: #4aa8c0;
+  background: #1f1f1f;
+  border-color: #E04A1F;
   color: #ffffff;
 }
 [data-phn-skin="moba"] .phn-muted { color: #888888 !important; }
@@ -1165,27 +1165,26 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
 }
 
 [data-phn-skin="moba"] {
-  /* Industrial Navy — the locked workstation look (design-mockups/12). Lifted
-     graphite/navy chrome (page < sidebar < bars < raised) over a pure-black
-     terminal, hairline dividers, one clean blue accent. Colour otherwise lives
-     in the terminal + the colourful toolbox icons. */
-  --phn-page-bg: #16181C;        /* behind panels; terminal itself is pure black */
-  --phn-surface-bg: #24272D;     /* menu / toolbar / status — the lifted bars */
-  --phn-surface-alt-bg: #1E2125; /* sidebar / docked tree + SFTP */
-  --phn-elevated-bg: #2C3037;    /* modals / popovers / raised */
-  --phn-surface-border: #34383F; /* hairline dividers between surfaces */
+  /* Near-black workstation chrome (page < sidebar < bars < raised, all close to
+     black) over a pure-black terminal, hairline dividers, one blood-orange
+     accent (#E04A1F). Colour otherwise lives in the terminal + toolbox icons. */
+  --phn-page-bg: #000000;        /* behind panels; terminal itself is pure black */
+  --phn-surface-bg: #0d0d0d;     /* menu / toolbar / status — barely lifted off black */
+  --phn-surface-alt-bg: #080808; /* sidebar / docked tree + SFTP */
+  --phn-elevated-bg: #1a1a1a;    /* modals / popovers / raised */
+  --phn-surface-border: #242424; /* hairline dividers between surfaces */
   --phn-text-fg: #D3D7DD;        /* body */
   --phn-text-active: #F2F4F7;    /* headings / emphasis */
   --phn-text-dim: #8A909A;       /* secondary / captions */
   --phn-text-faint: #586068;     /* placeholder / disabled */
-  --phn-link: #4D8FE0;           /* clean blue accent */
-  --phn-accent-hover: #67A2EA;
-  --phn-accent-subtle: rgba(77,143,224,0.18);
-  --phn-accent-fg: #08182A;      /* text on the accent fill */
+  --phn-link: #E04A1F;           /* blood-orange accent */
+  --phn-accent-hover: #F0633A;
+  --phn-accent-subtle: rgba(224,74,31,0.18);
+  --phn-accent-fg: #1a0800;      /* text on the accent fill */
   --phn-success: #5FB87A;
   --phn-warning: #E0A93C;
   --phn-danger: #E0655E;
-  --phn-focus-ring: rgba(77,143,224,0.50);
+  --phn-focus-ring: rgba(224,74,31,0.50);
   --phn-hover-bg: rgba(255,255,255,0.05);
   --phn-tabstrip-bg: #000000;    /* strip behind the tabs (matches the terminal) */
   /* Chrome-style tab slab colours (see .moba-tab) */
@@ -1374,6 +1373,13 @@ export function injectHeaderSkinsCss() {
     document.head.appendChild(styleEl);
   }
   if (styleEl.textContent !== CSS) styleEl.textContent = CSS;
+}
+
+// Dev: hot-reload skin palette edits instantly. injectHeaderSkinsCss otherwise
+// only runs on mount, so a CSS edit here wouldn't repaint a running app until
+// relaunch. import.meta.hot is undefined in production builds (no-op there).
+if (import.meta.hot) {
+  import.meta.hot.accept((mod) => { mod?.injectHeaderSkinsCss?.(); });
 }
 
 // Apply the active skin globally on <html> so portaled / sibling elements
