@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Pluto — AI Cockpit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0D11; --chrome:#14171D; --chrome2:#191D24; --rail:#090B0E; --line:#232830; --line-soft:#191D23;
+    --fg:#C5CCD6; --fg2:#EBEFF5; --dim:#79828F; --faint:#4C535D;
+    --cy:#4FB8E6; --cy-dim:rgba(79,184,230,.13); --grn:#54CE8E; --amber:#E3B23C; --red:#F0696F; --vio:#B496F2;
+    --m:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--fg);font-family:var(--m);-webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:12px}
+  .g{color:var(--grn)}.a{color:var(--amber)}.r{color:var(--red)}.c{color:var(--cy)}.d{color:var(--faint)}.v{color:var(--vio)}
+  .menu{display:flex;align-items:center;gap:2px;padding:0 10px;height:28px;background:var(--rail);border-bottom:1px solid var(--line);font-size:11.5px}
+  .menu .mk{font-weight:700;color:var(--fg2);margin-right:12px}.menu .mk i{color:var(--cy);font-style:normal}
+  .menu a{color:var(--dim);padding:4px 9px;border-radius:5px;cursor:pointer}.menu a:hover{background:var(--chrome);color:var(--fg)}
+  .menu .right{margin-left:auto;display:flex;gap:14px;color:var(--dim)}
+  /* toolbar */
+  .toolbar{display:flex;align-items:center;height:46px;background:var(--chrome);border-bottom:1px solid var(--line);padding:0 6px;gap:2px}
+  .tbtn{height:34px;padding:0 11px;border-radius:7px;display:flex;align-items:center;gap:7px;color:var(--dim);cursor:pointer;font-size:11.5px}
+  .tbtn:hover{background:var(--chrome2);color:var(--fg)} .tbtn.on{background:var(--cy-dim);color:var(--cy)}
+  .tbtn .i{font-size:14px}
+  .sep{width:1px;height:24px;background:var(--line-soft);margin:0 5px}
+  .toolbar .qc{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:7px 11px;color:var(--dim);min-width:210px}
+  .toolbar .qc .k{margin-left:auto;color:var(--faint);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:10px}
+  /* body */
+  .body{flex:1;display:grid;grid-template-columns:200px 1fr 332px;min-height:0}
+  .tree{background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .th{display:flex;align-items:center;height:30px;padding:0 11px;border-bottom:1px solid var(--line-soft);color:var(--dim);font-size:10.5px;letter-spacing:.06em}
+  .th .add{margin-left:auto;color:var(--dim);font-size:14px}
+  .find{margin:8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 9px;color:var(--faint);font-size:11px}
+  .tb{overflow:auto;flex:1;padding:0 5px}
+  .grp2{color:var(--faint);font-size:10px;letter-spacing:.05em;padding:9px 8px 4px}
+  .node{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:5px;cursor:pointer;color:var(--fg);white-space:nowrap}
+  .node:hover{background:var(--chrome)} .node.on{background:var(--cy-dim);color:var(--fg2)}
+  .node .dt{width:6px;height:6px;border-radius:50%;flex:none} .node .h{margin-left:auto;color:var(--faint);font-size:10px}
+  /* center: blocks */
+  .center{display:flex;flex-direction:column;min-width:0;background:#000}
+  .tabs{display:flex;height:32px;background:var(--rail);border-bottom:1px solid var(--line)}
+  .tab{display:flex;align-items:center;gap:7px;padding:0 14px;border-right:1px solid var(--line-soft);color:var(--dim);cursor:pointer;font-size:11.5px}
+  .tab.on{background:#000;color:var(--fg2)} .tab .dt{width:6px;height:6px;border-radius:50%} .tab .c2{color:var(--faint);margin-left:3px}
+  .tab.add{color:var(--faint);font-size:14px}
+  .canvas{flex:1;overflow:auto;padding:13px 15px;display:flex;flex-direction:column;gap:11px}
+  .blk{border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#0A0C0F}
+  .blk .h2{display:flex;align-items:center;gap:9px;padding:8px 12px;border-bottom:1px solid var(--line-soft);background:var(--chrome)}
+  .blk .h2 .ar{color:var(--grn);font-weight:700} .blk .h2 code{color:var(--fg2);font-size:12px}
+  .blk .h2 .st{margin-left:auto;font-size:10px;padding:3px 8px;border-radius:5px}
+  .st.ok{color:var(--grn);background:rgba(84,206,142,.12)} .st.run{color:var(--cy);background:var(--cy-dim)} .st.err{color:var(--red);background:rgba(240,105,111,.12)}
+  .blk .o{padding:10px 12px;font-size:12px;line-height:1.6;color:#aab2bd;white-space:pre-wrap}
+  .live{border:1px solid var(--line);border-radius:9px;padding:11px 13px;display:flex;align-items:center;gap:9px;background:var(--chrome)}
+  .live .ar{color:var(--grn);font-weight:700} .live input{flex:1;background:transparent;border:none;outline:none;color:var(--fg);font:500 12.5px/1 var(--m)} .live input::placeholder{color:var(--faint)}
+  /* right dock: AI co-pilot */
+  .ai{background:var(--chrome);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .ai .ah{display:flex;align-items:center;gap:8px;height:34px;padding:0 13px;border-bottom:1px solid var(--line)}
+  .ai .ah .t{color:var(--fg2);font-weight:600;font-size:12px} .ai .ah .t i{color:var(--cy);font-style:normal}
+  .ai .ah .md{margin-left:auto;color:var(--dim);font-size:10.5px;border:1px solid var(--line);border-radius:5px;padding:2px 7px}
+  .ai .stream{flex:1;overflow:auto;padding:13px;display:flex;flex-direction:column;gap:12px}
+  .msg .who{font-size:10px;letter-spacing:.05em;color:var(--faint);margin-bottom:5px}
+  .msg.u .bub{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:12px;color:var(--fg)}
+  .msg.ai .bub{font-size:12px;line-height:1.6;color:var(--fg)}
+  .codeblock{margin-top:8px;background:#0A0C0F;border:1px solid var(--line);border-radius:7px;padding:9px 11px;font-size:11.5px;color:#aab2bd;white-space:pre-wrap}
+  .codeblock .run{display:inline-block;margin-top:8px;color:var(--grn);border:1px solid var(--grn);border-radius:6px;padding:4px 9px;font-size:10.5px;cursor:pointer}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .chip{font-size:10.5px;color:var(--dim);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 9px;cursor:pointer}
+  .ai .ask{border-top:1px solid var(--line);padding:11px;display:flex;align-items:center;gap:9px}
+  .ai .ask input{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;color:var(--fg);font:400 12px/1 var(--m);outline:none}
+  .ai .ask input::placeholder{color:var(--faint)} .ai .ask .send{color:#06151f;background:var(--cy);border-radius:8px;padding:9px 12px;font-size:11px;font-weight:700;cursor:pointer}
+  /* status */
+  .status{display:flex;align-items:center;gap:14px;height:24px;padding:0 12px;background:var(--rail);border-top:1px solid var(--line);color:var(--dim);font-size:10.5px}
+  .status .sp{flex:1} .status .dt{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:5px}
+</style>
+</head>
+<body>
+  <div class="menu">
+    <span class="mk"><i>⬢</i> Pluto</span>
+    <a>Terminal</a><a>Sessions</a><a>Tools</a><a>View</a><a>Macros</a><a>Help</a>
+    <span class="right"><span>opus-4.8</span><span class="g">●</span></span>
+  </div>
+  <div class="toolbar">
+    <div class="tbtn"><span class="i">🖥</span>Session</div>
+    <div class="tbtn"><span class="i">🌐</span>SSH</div>
+    <div class="sep"></div>
+    <div class="tbtn on"><span class="i">▦</span>Split</div>
+    <div class="tbtn"><span class="i">📡</span>MultiExec</div>
+    <div class="tbtn"><span class="i">🔀</span>Tunnels</div>
+    <div class="sep"></div>
+    <div class="tbtn"><span class="i">🧠</span>Models</div>
+    <div class="tbtn"><span class="i">📋</span>Snippets</div>
+    <div class="tbtn"><span class="i">🌿</span>Agents</div>
+    <div class="qc">🔎 quick connect — user@host<span class="k">⌘K</span></div>
+  </div>
+
+  <div class="body">
+    <div class="tree">
+      <div class="th">SESSIONS <span class="add">+</span></div>
+      <div class="find">find — name · host · #tag</div>
+      <div class="tb">
+        <div class="grp2">▾ PRODUCTION</div>
+        <div class="node"><span class="dt" style="background:var(--grn)"></span>🐧 web-1<span class="h">10.0.0.5</span></div>
+        <div class="node"><span class="dt" style="background:var(--grn)"></span>🐧 db-box<span class="h">db.int</span></div>
+        <div class="grp2">▾ AGENTS</div>
+        <div class="node on"><span class="dt" style="background:var(--amber)"></span>🌿 refactor-auth</div>
+        <div class="node"><span class="dt" style="background:var(--amber)"></span>🌿 migrate-db</div>
+        <div class="node"><span class="dt" style="background:var(--grn)"></span>🌿 write-tests</div>
+        <div class="grp2">▾ LOCAL</div>
+        <div class="node"><span class="dt" style="background:var(--faint)"></span>❯ scratch<span class="h">~/dev</span></div>
+      </div>
+    </div>
+
+    <div class="center">
+      <div class="tabs">
+        <div class="tab on"><span class="dt" style="background:var(--amber)"></span>refactor-auth<span class="c2">×</span></div>
+        <div class="tab"><span class="dt" style="background:var(--grn)"></span>web-1<span class="c2">×</span></div>
+        <div class="tab add">+</div>
+      </div>
+      <div class="canvas">
+        <div class="blk"><div class="h2"><span class="ar">❯</span><code>git status</code><span class="st ok">0 · 0.3s</span></div>
+          <div class="o"><span class="d">On branch</span> feat/auth-v2
+<span class="g">nothing to commit, working tree clean</span></div></div>
+        <div class="blk"><div class="h2"><span class="ar">❯</span><code>cargo build --release</code><span class="st err">exit 101</span></div>
+          <div class="o"><span class="d">   Compiling auth-core v0.4.0</span>
+<span class="r">error[E0599]</span>: no method <span class="a">`verify_token`</span> on `Session` <span class="d">— src/auth.rs:88</span></div></div>
+        <div class="blk"><div class="h2"><span class="ar">❯</span><code>cargo test --workspace</code><span class="st run">running</span></div>
+          <div class="o"><span class="g">   ✓ 142 passed</span> · <span class="c">2 running</span> &nbsp;<span class="d">auth-core, session</span></div></div>
+        <div class="live"><span class="ar">❯</span><input placeholder="run a command…  (⌘I to ask AI · ⌘R history)"></div>
+      </div>
+    </div>
+
+    <!-- AI co-pilot dock -->
+    <div class="ai">
+      <div class="ah"><span class="t"><i>✦</i> Assistant</span><span class="md">opus-4.8 ▾</span></div>
+      <div class="stream">
+        <div class="msg ai"><div class="who">PLUTO · saw exit 101</div>
+          <div class="bub">`verify_token` was renamed to <span class="c">validate_token</span> in the v0.4 refactor. The call site at <span class="c">src/auth.rs:88</span> wasn't updated.
+            <div class="codeblock">sed -i 's/verify_token/validate_token/' \
+  src/auth.rs && cargo build<span class="run">run ▶ in refactor-auth</span></div></div></div>
+        <div class="msg u"><div class="who">YOU</div><div class="bub">summarize what this session did so far</div></div>
+        <div class="msg ai"><div class="who">PLUTO</div>
+          <div class="bub">Extracted token validation into <span class="c">Session::validate_token</span>, updated 2 call sites, tests green (142). One build break from a stale method name — fix queued above.
+          <div class="chips"><span class="chip">↳ open PR</span><span class="chip">↳ run tests</span><span class="chip">↳ explain error</span></div></div></div>
+      </div>
+      <div class="ask"><input placeholder="Ask about this session…"><span class="send">↑</span></div>
+    </div>
+  </div>
+
+  <div class="status">
+    <span><span class="dt" style="background:var(--grn)"></span>claude ✓</span>
+    <span>refactor-auth</span><span class="d">|</span><span>zsh</span><span>124×38</span>
+    <span class="sp"></span>
+    <span class="d">CPU</span> 24%<span class="d">MEM</span> 11.2/16G<span class="d">NET</span> ↓1.2M ↑240K
+    <span class="a">$2.84 · 41k tok</span><span class="c">✦ opus-4.8</span>
+  </div>
+</body>
+</html>

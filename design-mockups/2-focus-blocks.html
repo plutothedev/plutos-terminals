@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Pluto — Focus</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0C0D10; --panel:#14161A; --line:#22252C; --line2:#2C3038;
+    --fg:#EDEFF3; --dim:#959AA4; --faint:#5C616B;
+    --accent:#7CE0C6; --accentdim:rgba(124,224,198,.14);
+    --ok:#6FE39F; --err:#FF8189;
+    --ui:'Instrument Sans',sans-serif; --mono:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--fg);font-family:var(--ui);-webkit-font-smoothing:antialiased;
+    display:flex;height:100vh;overflow:hidden}
+  /* slim session rail */
+  .rail{width:62px;border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;background:#0A0B0E}
+  .rail .logo{color:var(--accent);font-size:20px;margin-bottom:10px}
+  .rail .s{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+    font:600 13px/1 var(--mono);color:var(--dim);background:var(--panel);border:1px solid var(--line);cursor:pointer;position:relative}
+  .rail .s.on{color:#08130f;background:var(--accent);border-color:var(--accent)}
+  .rail .s .b{position:absolute;top:-2px;right:-2px;width:9px;height:9px;border-radius:50%;border:2px solid var(--bg)}
+  .rail .plus{color:var(--dim);font-size:20px;margin-top:6px;cursor:pointer}
+  /* main column */
+  .col{flex:1;display:flex;flex-direction:column;min-width:0}
+  .bar{display:flex;align-items:center;gap:12px;padding:16px 26px;border-bottom:1px solid var(--line)}
+  .crumb{font:500 14px/1 var(--mono);color:var(--dim)}
+  .crumb b{color:var(--fg);font-weight:500}
+  .pill{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--dim);font-size:12.5px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+  .pill .k{font:600 11px/1 var(--mono);color:var(--faint);border:1px solid var(--line);border-radius:5px;padding:2px 6px}
+  /* blocks canvas */
+  .canvas{flex:1;overflow:auto;padding:30px max(40px,8%);display:flex;flex-direction:column;gap:18px}
+  .block{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:linear-gradient(var(--panel),#111317)}
+  .block .cmd{display:flex;align-items:center;gap:11px;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .block .cmd .ar{color:var(--accent);font:700 14px/1 var(--mono)}
+  .block .cmd code{font:500 14px/1 var(--mono);color:var(--fg)}
+  .block .cmd .st{margin-left:auto;font:600 11px/1 var(--ui);padding:4px 9px;border-radius:6px}
+  .st.ok{color:var(--ok);background:rgba(111,227,159,.12)}
+  .st.run{color:var(--accent);background:var(--accentdim)}
+  .st.err{color:var(--err);background:rgba(255,129,137,.12)}
+  .block .out{padding:14px 18px;font:400 13px/1.65 var(--mono);color:#b6bdc8;white-space:pre-wrap}
+  .out .ok{color:var(--ok)} .out .err{color:var(--err)} .out .d{color:var(--faint)} .out .y{color:#E8C36A}
+  .explain{display:flex;gap:9px;align-items:flex-start;margin:12px 18px 16px;padding:12px 14px;border:1px solid var(--line2);border-radius:10px;background:var(--accentdim)}
+  .explain .ai{color:var(--accent);font-weight:700;font-size:12.5px;white-space:nowrap}
+  .explain .tx{font-size:12.5px;line-height:1.6;color:var(--fg)}
+  .explain .fix{margin-top:7px;font:500 12px/1 var(--mono);color:var(--accent);border:1px solid var(--accent);border-radius:7px;padding:6px 10px;display:inline-block;cursor:pointer}
+  /* live prompt */
+  .live{border:1px solid var(--line2);border-radius:14px;padding:16px 18px;display:flex;align-items:center;gap:11px;background:var(--panel)}
+  .live .ar{color:var(--accent);font:700 14px/1 var(--mono)}
+  .live input{flex:1;background:transparent;border:none;outline:none;color:var(--fg);font:500 14px/1 var(--mono)}
+  .live input::placeholder{color:var(--faint)}
+  .live .ask{font:600 11.5px/1 var(--ui);color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:6px 10px}
+</style>
+</head>
+<body>
+  <div class="rail">
+    <div class="logo">⬢</div>
+    <div class="s on">1</div>
+    <div class="s">2<span class="b" style="background:#E8B339"></span></div>
+    <div class="s">3<span class="b" style="background:var(--ok)"></span></div>
+    <div class="s">🔗</div>
+    <div class="plus">+</div>
+  </div>
+
+  <div class="col">
+    <div class="bar">
+      <span class="crumb">~/plutos-terminals · <b>1. shell</b></span>
+      <span class="pill">claude-opus-4.8 <span class="k">⌘M</span></span>
+      <span class="pill">Ask AI <span class="k">⌘I</span></span>
+    </div>
+
+    <div class="canvas">
+      <div class="block">
+        <div class="cmd"><span class="ar">❯</span><code>git status</code><span class="st ok">0 · 0.3s</span></div>
+        <div class="out"><span class="d">On branch</span> feat/auth-v2
+<span class="ok">nothing to commit, working tree clean</span></div>
+      </div>
+
+      <div class="block">
+        <div class="cmd"><span class="ar">❯</span><code>cargo build --release</code><span class="st err">exit 101 · 4.2s</span></div>
+        <div class="out"><span class="d">   Compiling auth-core v0.4.0</span>
+<span class="err">error[E0599]</span>: no method named <span class="y">`verify_token`</span> found for struct `Session`
+  <span class="d">--&gt; src/auth.rs:88:18</span></div>
+        <div class="explain">
+          <span class="ai">✦ AI</span>
+          <div class="tx">`verify_token` was renamed to `validate_token` in the v0.4 refactor. Update the call site.
+            <span class="fix">❯ run fix — sed -i 's/verify_token/validate_token/' src/auth.rs</span></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="cmd"><span class="ar">❯</span><code>npm run dev</code><span class="st run">running · 12s</span></div>
+        <div class="out"><span class="ok">  VITE v8.0.4  ready in 412 ms</span>
+  ➜  Local:   http://localhost:5310/
+  <span class="d">  press h + enter to show help</span></div>
+      </div>
+
+      <div class="live">
+        <span class="ar">❯</span>
+        <input placeholder="Type a command — or ⌘I to describe what you want in plain English" />
+        <span class="ask">✦ Ask AI</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

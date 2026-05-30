@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Pluto — Workstation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0C0E0D; --chrome:#13161A; --chrome2:#171B20; --rail:#0A0C0B; --line:#22272C; --line-soft:#1A1E22;
+    --fg:#C7D0CC; --fg2:#EAF0EC; --dim:#7C868C; --faint:#4E565C;
+    --mint:#52D6A8; --mint-dim:rgba(82,214,168,.13); --amber:#E3B23C; --red:#F0696F; --blue:#5FA8E8;
+    --m:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--fg);font-family:var(--m);-webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:12px}
+  .x{color:var(--mint)} .a{color:var(--amber)} .r{color:var(--red)} .b{color:var(--blue)} .d{color:var(--faint)} .g{color:var(--mint)}
+  /* menubar */
+  .menu{display:flex;align-items:center;gap:2px;padding:0 10px;height:28px;background:var(--rail);border-bottom:1px solid var(--line);font-size:11.5px}
+  .menu .mk{font-weight:700;color:var(--fg2);margin-right:12px}.menu .mk i{color:var(--mint);font-style:normal}
+  .menu a{color:var(--dim);padding:4px 9px;border-radius:5px;cursor:pointer}.menu a:hover{background:var(--chrome);color:var(--fg)}
+  .menu .right{margin-left:auto;display:flex;gap:14px;color:var(--dim)}
+  /* toolbox toolbar */
+  .toolbar{display:flex;align-items:stretch;gap:0;height:54px;background:var(--chrome);border-bottom:1px solid var(--line)}
+  .grp{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 10px;border-right:1px solid var(--line-soft);gap:3px}
+  .grp .btns{display:flex;gap:3px}
+  .tbtn{width:42px;height:34px;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--dim);cursor:pointer;background:transparent}
+  .tbtn:hover{background:var(--chrome2);color:var(--fg)} .tbtn.on{background:var(--mint-dim);color:var(--mint)}
+  .tbtn .i{font-size:15px;line-height:1} .tbtn .l{font-size:8.5px;letter-spacing:.02em}
+  .grp .cap{font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .toolbar .qc{margin-left:auto;align-self:center;display:flex;align-items:center;gap:8px;margin-right:12px;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:7px 11px;color:var(--dim);min-width:230px}
+  .toolbar .qc .k{margin-left:auto;color:var(--faint);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:10px}
+  /* body: tree | terminal | dock */
+  .body{flex:1;display:grid;grid-template-columns:218px 1fr 300px;min-height:0}
+  /* session tree */
+  .tree{background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .tree .th{display:flex;align-items:center;height:30px;padding:0 11px;border-bottom:1px solid var(--line-soft);color:var(--dim);font-size:10.5px;letter-spacing:.06em}
+  .tree .th .add{margin-left:auto;color:var(--dim);font-size:14px;cursor:pointer}
+  .tree .find{margin:8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 9px;color:var(--faint);font-size:11px}
+  .tree .body2{overflow:auto;flex:1;padding:0 5px}
+  .grp2{color:var(--faint);font-size:10px;letter-spacing:.05em;padding:9px 8px 4px}
+  .node{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:5px;cursor:pointer;color:var(--fg);white-space:nowrap}
+  .node:hover{background:var(--chrome)} .node.on{background:var(--mint-dim);color:var(--fg2)}
+  .node .dt{width:6px;height:6px;border-radius:50%;flex:none}
+  .node .h{margin-left:auto;color:var(--faint);font-size:10px}
+  /* center: tabs + terminal */
+  .center{display:flex;flex-direction:column;min-width:0;background:#000}
+  .tabs{display:flex;align-items:stretch;height:32px;background:var(--rail);border-bottom:1px solid var(--line)}
+  .tab{display:flex;align-items:center;gap:7px;padding:0 14px;border-right:1px solid var(--line-soft);color:var(--dim);cursor:pointer;font-size:11.5px}
+  .tab.on{background:#000;color:var(--fg2)}
+  .tab .dt{width:6px;height:6px;border-radius:50%} .tab .c{color:var(--faint);margin-left:3px}
+  .tab.add{color:var(--faint);font-size:14px}
+  .term{flex:1;padding:12px 16px;overflow:hidden;font-size:12.5px;line-height:1.62;color:#bcc6c1}
+  .prompt .seg{padding:1px 7px}
+  .seg.date{background:#3FB46F;color:#04130b}.seg.time{background:#2FA9C4;color:#04130b}.seg.path{background:#E3B23C;color:#1a1405}
+  .arrowg{color:#3FB46F}.arrowc{color:#2FA9C4}.arrowy{color:#E3B23C}
+  /* ai command strip above prompt */
+  .aibar{margin:8px 0;border:1px solid var(--line);border-left:2px solid var(--mint);border-radius:8px;background:var(--chrome);padding:9px 12px;display:flex;gap:9px;align-items:center}
+  .aibar .lab{color:var(--mint);font-weight:600;font-size:11px}
+  .aibar .cmd{color:var(--fg2)} .aibar .run{margin-left:auto;color:var(--mint);border:1px solid var(--mint);border-radius:6px;padding:4px 9px;font-size:10.5px;cursor:pointer}
+  /* right dock: SFTP */
+  .dock{background:var(--chrome);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .dock .dt2{display:flex;align-items:stretch;height:30px;border-bottom:1px solid var(--line)}
+  .dock .dt2 .t{display:flex;align-items:center;gap:6px;padding:0 12px;color:var(--dim);font-size:11px;cursor:pointer;border-right:1px solid var(--line-soft)}
+  .dock .dt2 .t.on{color:var(--fg2);background:var(--chrome2)}
+  .dock .path{padding:7px 11px;color:var(--dim);font-size:10.5px;border-bottom:1px solid var(--line-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .files{overflow:auto;flex:1;padding:3px 4px}
+  .frow{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:5px;cursor:pointer;color:var(--fg)}
+  .frow:hover{background:var(--chrome2)} .frow .sz{margin-left:auto;color:var(--faint);font-size:10px}
+  .xfer{border-top:1px solid var(--line);padding:8px 11px;font-size:10.5px;color:var(--dim)}
+  .bar{height:4px;background:var(--bg);border-radius:3px;margin-top:5px;overflow:hidden}.bar i{display:block;height:100%;width:64%;background:var(--mint)}
+  /* status bar + fn keys */
+  .status{display:flex;align-items:center;gap:14px;height:24px;padding:0 12px;background:var(--rail);border-top:1px solid var(--line);color:var(--dim);font-size:10.5px}
+  .status .sp{flex:1} .status .dt{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:5px}
+  .fnbar{display:flex;gap:4px;height:26px;padding:3px 8px;background:var(--bg);border-top:1px solid var(--line-soft)}
+  .fn{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;background:var(--chrome);border:1px solid var(--line-soft);border-radius:5px;color:var(--dim);font-size:10px;cursor:pointer}
+  .fn:hover{color:var(--fg);border-color:var(--line)} .fn b{color:var(--faint);font-weight:600}
+</style>
+</head>
+<body>
+  <div class="menu">
+    <span class="mk"><i>⬢</i> Pluto</span>
+    <a>Terminal</a><a>Sessions</a><a>Tools</a><a>View</a><a>Macros</a><a>Help</a>
+    <span class="right"><span>opus-4.8</span><span class="g">●</span></span>
+  </div>
+
+  <div class="toolbar">
+    <div class="grp"><div class="btns">
+      <div class="tbtn"><span class="i">🖥</span><span class="l">Session</span></div>
+      <div class="tbtn"><span class="i">🌐</span><span class="l">SSH</span></div>
+      <div class="tbtn"><span class="i">⎓</span><span class="l">Serial</span></div>
+    </div><span class="cap">Connect</span></div>
+    <div class="grp"><div class="btns">
+      <div class="tbtn on"><span class="i">▦</span><span class="l">Split</span></div>
+      <div class="tbtn"><span class="i">📡</span><span class="l">MultiX</span></div>
+      <div class="tbtn"><span class="i">🔀</span><span class="l">Tunnel</span></div>
+    </div><span class="cap">View</span></div>
+    <div class="grp"><div class="btns">
+      <div class="tbtn"><span class="i">✦</span><span class="l">Ask AI</span></div>
+      <div class="tbtn"><span class="i">🧠</span><span class="l">Models</span></div>
+      <div class="tbtn"><span class="i">📋</span><span class="l">Snips</span></div>
+      <div class="tbtn"><span class="i">🌿</span><span class="l">Agents</span></div>
+    </div><span class="cap">AI / Tools</span></div>
+    <div class="qc">🔎 quick connect — user@host<span class="k">⌘K</span></div>
+  </div>
+
+  <div class="body">
+    <!-- session tree -->
+    <div class="tree">
+      <div class="th">SESSIONS <span class="add">+</span></div>
+      <div class="find">find — name · host · #tag</div>
+      <div class="body2">
+        <div class="grp2">▾ PRODUCTION</div>
+        <div class="node"><span class="dt" style="background:var(--mint)"></span>🐧 web-1<span class="h">10.0.0.5</span></div>
+        <div class="node"><span class="dt" style="background:var(--mint)"></span>🐧 db-box<span class="h">db.int</span></div>
+        <div class="node"><span class="dt" style="background:var(--faint)"></span>🪟 win-rdp<span class="h">rdp</span></div>
+        <div class="grp2">▾ AGENTS</div>
+        <div class="node on"><span class="dt" style="background:var(--amber)"></span>🌿 refactor-auth</div>
+        <div class="node"><span class="dt" style="background:var(--amber)"></span>🌿 migrate-db</div>
+        <div class="node"><span class="dt" style="background:var(--mint)"></span>🌿 write-tests</div>
+        <div class="grp2">▾ LOCAL</div>
+        <div class="node"><span class="dt" style="background:var(--faint)"></span>❯ scratch<span class="h">~/dev</span></div>
+        <div class="node"><span class="dt" style="background:var(--faint)"></span>❯ plutos-term</div>
+      </div>
+    </div>
+
+    <!-- terminal -->
+    <div class="center">
+      <div class="tabs">
+        <div class="tab on"><span class="dt" style="background:var(--amber)"></span>refactor-auth<span class="c">×</span></div>
+        <div class="tab"><span class="dt" style="background:var(--mint)"></span>web-1<span class="c">×</span></div>
+        <div class="tab"><span class="dt" style="background:var(--faint)"></span>scratch<span class="c">×</span></div>
+        <div class="tab add">+</div>
+      </div>
+      <div class="term">
+        <div><span class="d">┌─[</span><span class="b">refactor-auth</span><span class="d">]─[</span>~/plutos-terminals<span class="d">]─[</span><span class="g">feat/auth-v2</span><span class="d">]</span></div>
+        <div><span class="d">└─</span><span class="arrowg">❯</span> claude</div>
+        <div class="d">  ● working: extract token validation into Session::validate_token</div>
+        <div><span class="b">  ●</span> Edited src/auth.rs <span class="d">(+18 −6)</span> &nbsp; <span class="b">●</span> Edited src/session.rs <span class="d">(+4 −2)</span></div>
+        <div><span class="arrowg">❯</span> cargo test --workspace</div>
+        <div><span class="g">   ✓ 142 passed</span> · <span class="a">2 running</span> &nbsp;<span class="d">Compiling auth-core v0.4.0…</span></div>
+        <div><span class="arrowg">❯</span> cargo build --release</div>
+        <div><span class="r">   error[E0599]</span>: no method <span class="a">`verify_token`</span> on `Session` <span class="d">— src/auth.rs:88</span></div>
+
+        <div class="aibar"><span class="lab">✦ fix</span><span class="cmd">sed -i 's/verify_token/validate_token/' src/auth.rs && cargo build</span><span class="run">run ▶</span></div>
+
+        <div class="prompt"><span class="seg date"> 📅 28/05 </span><span class="arrowg">​</span><span class="seg time"> 🕐 15:47 </span><span class="seg path"> 📁 ~/plutos-terminals </span> <span class="g">▍</span></div>
+      </div>
+    </div>
+
+    <!-- right dock: SFTP -->
+    <div class="dock">
+      <div class="dt2"><span class="t on">📂 SFTP</span><span class="t">✦ Assistant</span><span class="t">📊 Monitor</span></div>
+      <div class="path">/home/deploy/app/src</div>
+      <div class="files">
+        <div class="frow">📁 <span>..</span></div>
+        <div class="frow">📁 <span>handlers</span><span class="sz">—</span></div>
+        <div class="frow">📁 <span>models</span><span class="sz">—</span></div>
+        <div class="frow">📄 <span class="x">auth.rs</span><span class="sz">8.2K</span></div>
+        <div class="frow">📄 <span>session.rs</span><span class="sz">3.1K</span></div>
+        <div class="frow">📄 <span>main.rs</span><span class="sz">1.4K</span></div>
+        <div class="frow">📄 <span>Cargo.toml</span><span class="sz">642B</span></div>
+        <div class="frow">📄 <span>.env</span><span class="sz">210B</span></div>
+      </div>
+      <div class="xfer">↑ auth.rs → web-1 &nbsp;<span class="g">64%</span> · 1.2 MB/s<div class="bar"><i></i></div></div>
+    </div>
+  </div>
+
+  <div class="status">
+    <span><span class="dt" style="background:var(--mint)"></span>claude ✓</span>
+    <span>refactor-auth</span><span class="d">|</span>
+    <span>zsh</span><span>UTF-8</span><span>124×38</span>
+    <span class="sp"></span>
+    <span class="d">CPU</span> 24%<span class="d">MEM</span> 11.2/16G<span class="d">NET</span> ↓1.2M ↑240K
+    <span class="a">$2.84 · 41k tok</span><span class="x">✦ opus-4.8</span>
+  </div>
+  <div class="fnbar">
+    <div class="fn"><b>F1</b> Help</div><div class="fn"><b>F2</b> New tab</div><div class="fn"><b>F3</b> Split</div>
+    <div class="fn"><b>F4</b> SFTP</div><div class="fn"><b>⌘K</b> Palette</div><div class="fn"><b>⌘I</b> Ask AI</div>
+    <div class="fn"><b>⌘R</b> History</div><div class="fn"><b>F9</b> Macro</div>
+  </div>
+</body>
+</html>

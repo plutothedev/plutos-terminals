@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Pluto — Signature</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0A09; --panel:#16140F; --panel2:#1C1A14; --line:#2A271E; --line2:#39342708;
+    --line2:#393427; --fg:#F0EBE0; --dim:#A39A86; --faint:#6B6353;
+    --amber:#F5A623; --amber2:#FFC15A; --ok:#86C16B; --violet:#B98CFF;
+    --line2:#393427;
+    --disp:'Bricolage Grotesque',sans-serif; --ui:'Inter Tight',sans-serif; --mono:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1000px 480px at 80% -10%, rgba(245,166,35,.10), transparent 58%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.025'/%3E%3C/svg%3E"),
+      var(--bg);
+    color:var(--fg);font-family:var(--ui);-webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  /* top */
+  .top{display:flex;align-items:center;gap:20px;padding:16px 26px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:baseline;gap:10px}
+  .brand .mk{font:800 22px/1 var(--disp);letter-spacing:-.02em;color:var(--fg)}
+  .brand .mk .o{color:var(--amber)}
+  .brand .tg{font:500 11px/1 var(--mono);color:var(--faint);text-transform:uppercase;letter-spacing:.12em}
+  .nav{display:flex;gap:4px;margin-left:14px}
+  .nav a{font:600 13px/1 var(--ui);color:var(--dim);padding:8px 13px;border-radius:8px;text-decoration:none;cursor:pointer}
+  .nav a.on{color:var(--fg);background:var(--panel)}
+  .spend{margin-left:auto;font:500 12px/1 var(--mono);color:var(--dim)}
+  .spend b{color:var(--amber2)}
+  .new{font:700 13px/1 var(--ui);color:#1a1405;background:var(--amber);border:none;border-radius:9px;padding:10px 16px;cursor:pointer}
+  /* hero strip */
+  .hero{padding:26px 26px 6px}
+  .hero h1{font:800 33px/1.02 var(--disp);letter-spacing:-.03em;margin:0}
+  .hero h1 .em{color:var(--amber)}
+  .hero p{font:400 14px/1.5 var(--ui);color:var(--dim);margin:8px 0 0;max-width:560px}
+  /* grid */
+  .wrap{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;padding:22px 26px;overflow:auto;align-content:start}
+  .card{background:linear-gradient(var(--panel),#100E0A);border:1px solid var(--line);border-radius:16px;padding:18px;position:relative;overflow:hidden}
+  .card.feat{grid-column:span 2}
+  .card::after{content:"";position:absolute;inset:0;border-radius:16px;pointer-events:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+  .kale{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .kale .d{width:9px;height:9px;border-radius:50%}
+  .kale h3{font:700 16px/1 var(--disp);letter-spacing:-.01em;margin:0}
+  .kale .br{margin-left:auto;font:500 11px/1 var(--mono);color:var(--amber2);background:rgba(245,166,35,.10);border:1px solid rgba(245,166,35,.22);border-radius:6px;padding:3px 8px}
+  .scr{background:#080706;border:1px solid var(--line);border-radius:11px;padding:13px 15px;font:400 12px/1.6 var(--mono);color:#b8af9c;min-height:96px}
+  .scr .a{color:var(--amber2)} .scr .g{color:var(--ok)} .scr .v{color:var(--violet)} .scr .d{color:var(--faint)}
+  .meta{display:flex;gap:14px;margin-top:13px;font:500 11.5px/1 var(--mono);color:var(--dim)}
+  .meta b{color:var(--fg)}
+  /* feature list inside feat card */
+  .flist{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+  .fitem{display:flex;gap:10px;align-items:flex-start;padding:11px;border:1px solid var(--line);border-radius:11px;background:var(--panel2)}
+  .fitem .ic{font-size:15px} .fitem .t{font:600 13px/1.2 var(--ui)} .fitem .s{font:400 11.5px/1.4 var(--ui);color:var(--dim);margin-top:3px}
+  .ask{grid-column:span 1;display:flex;flex-direction:column;justify-content:space-between}
+  .ask .q{font:500 14px/1.5 var(--ui);color:var(--fg)}
+  .ask .qbar{display:flex;align-items:center;gap:9px;margin-top:14px;background:#080706;border:1px solid var(--line);border-radius:11px;padding:11px 13px}
+  .ask .qbar .ar{color:var(--amber);font:700 14px/1 var(--mono)}
+  .ask .qbar span.ph{color:var(--faint);font:400 13px/1 var(--mono)}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand"><span class="mk">PLUT<span class="o">⬢</span></span><span class="tg">terminal</span></div>
+    <div class="nav"><a class="on">Sessions</a><a>Agents</a><a>Tools</a><a>Models</a></div>
+    <div class="spend">today <b>$2.84</b> · 41k tok</div>
+    <button class="new">+ New session</button>
+  </div>
+
+  <div class="hero">
+    <h1>Three agents <span class="em">shipping</span> in parallel.</h1>
+    <p>Run Claude, Codex and friends side by side — each in its own worktree, pointed at any model. Your command center for the agentic era.</p>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="kale"><span class="d" style="background:var(--amber);box-shadow:0 0 9px var(--amber)"></span><h3>refactor-auth</h3><span class="br">feat/auth-v2</span></div>
+      <div class="scr"><span class="a">❯</span> claude
+<span class="d">  extract token validation…</span>
+<span class="v">●</span> src/auth.rs <span class="d">+18 −6</span>
+<span class="a">❯</span> cargo test
+<span class="g">  ✓ 142 passed</span> · 2 running <span class="a">▍</span></div>
+      <div class="meta"><span>opus-4.8</span><span><b>$0.91</b></span><span>12.4k tok</span></div>
+    </div>
+
+    <div class="card ask">
+      <div class="q">✦ Ask AI — turn plain English into a command, fix failures, summarize a session.</div>
+      <div class="qbar"><span class="ar">❯</span><span class="ph">find files over 100MB, newest first…</span></div>
+    </div>
+
+    <div class="card feat">
+      <div class="kale"><h3>Everything, one keystroke away</h3></div>
+      <div class="flist">
+        <div class="fitem"><span class="ic">🧠</span><div><div class="t">16 model providers</div><div class="s">Claude · GPT · Gemini · GLM · Kimi · any endpoint</div></div></div>
+        <div class="fitem"><span class="ic">🌿</span><div><div class="t">Agent worktrees</div><div class="s">Isolated branches, one-click diff + PR</div></div></div>
+        <div class="fitem"><span class="ic">🗂</span><div><div class="t">Workspaces</div><div class="s">Save & restore whole layouts</div></div></div>
+        <div class="fitem"><span class="ic">📡</span><div><div class="t">MultiExec</div><div class="s">Broadcast to a chosen group of terminals</div></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="kale"><span class="d" style="background:var(--ok);box-shadow:0 0 9px var(--ok)"></span><h3>web-1</h3><span class="br" style="color:var(--ok);background:rgba(134,193,107,.1);border-color:rgba(134,193,107,.22)">ssh</span></div>
+      <div class="scr"><span class="d">deploy@web-1:~$</span> uptime
+<span class="g">  up 38 days</span>, load 0.42
+<span class="g">●</span> nginx · <span class="g">●</span> app healthy
+<span class="d">  14:32 200 GET /api/health</span> <span class="a">▍</span></div>
+      <div class="meta"><span>#prod</span><span>10.0.0.5</span></div>
+    </div>
+
+    <div class="card">
+      <div class="kale"><span class="d" style="background:var(--ok);box-shadow:0 0 9px var(--ok)"></span><h3>write-tests</h3><span class="br">test/cov</span></div>
+      <div class="scr"><span class="g">  ✓ done — 24 tests added</span>
+<span class="d">  coverage 71% → 86%</span>
+<span class="v">●</span> ready to open PR
+<span class="a">❯</span> <span class="d">awaiting review</span> <span class="a">▍</span></div>
+      <div class="meta"><span>sonnet-4.6</span><span><b>$0.31</b></span><span>5.0k tok</span></div>
+    </div>
+  </div>
+</body>
+</html>

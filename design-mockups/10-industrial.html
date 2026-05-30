@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Pluto — Workstation (industrial)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* lifted graphite metal chrome — not void black */
+    --bg:#1A1C1F; --term:#0C0D0F; --rail:#202327; --chrome:#26292E; --chrome2:#2F333A;
+    --line:#3B3F46; --soft:#2D3137;
+    --fg:#C7CCD2; --fg2:#EEF1F4; --dim:#878D95; --faint:#5C636B;
+    /* steel = chrome active/selection (NO yellow in chrome) */
+    --steel:#5B9BE0; --steel-dim:rgba(91,155,224,.16); --steel-line:rgba(91,155,224,.45);
+    /* terminal + status semantic */
+    --ok:#6FB85C; --warn:#D9A441; --err:#D9554D; --cyan:#46C7E0;
+    /* bright ANSI for terminal */
+    --t-grn:#62D672; --t-cyn:#49CBE4; --t-yel:#E2C24F; --t-mag:#D982D9; --t-blu:#62A0E8; --t-red:#E26A60; --t-wht:#D4D9DE;
+    --m:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--fg);font-family:var(--m);font-size:11.5px;
+    -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  ::-webkit-scrollbar{width:11px;height:11px;background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:#41454c;border:3px solid var(--bg)}
+  ::-webkit-scrollbar-thumb:hover{background:#4d525a}
+  svg.ic{width:15px;height:15px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round;display:block;flex:none}
+  svg.ic.sm{width:12px;height:12px;stroke-width:1.5}
+  .d{color:var(--faint)}.dim{color:var(--dim)}
+
+  /* menu / titlebar */
+  .menu{display:flex;align-items:center;height:28px;padding:0 9px;background:var(--rail);border-bottom:1px solid var(--line)}
+  .lights{display:flex;gap:7px;margin-right:13px}.lights i{width:11px;height:11px;border-radius:50%}
+  .mk{display:flex;align-items:center;gap:6px;font-weight:700;color:var(--fg2);margin-right:15px}.mk .hex{color:var(--steel)}
+  .menu a{color:var(--dim);padding:5px 8px;cursor:pointer;font-size:11px}.menu a:hover{color:var(--fg2)}
+  .menu .right{margin-left:auto;display:flex;align-items:stretch}
+  .menu .right .s{padding:0 11px;color:var(--dim);font-size:10.5px;border-left:1px solid var(--soft);display:flex;align-items:center;gap:6px}
+  .menu .right .s .dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+
+  /* toolbar — COLORFUL toolbox icons */
+  .toolbar{display:flex;align-items:stretch;height:52px;background:linear-gradient(#2A2D33,#23262B);border-bottom:1px solid var(--line)}
+  .grp{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:5px 9px;gap:3px;border-right:1px solid var(--soft)}
+  .grp .btns{display:flex;gap:1px}
+  .tbtn{min-width:46px;height:32px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    color:var(--dim);cursor:pointer;border:1px solid transparent;border-radius:3px}
+  .tbtn:hover{background:var(--chrome2)} .tbtn.on{background:var(--steel-dim);border-color:var(--steel-line)}
+  .tbtn .l{font-size:8px;letter-spacing:.02em;color:var(--dim)}
+  .grp .cap{font-size:7.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+  .toolbar .qc{margin-left:auto;align-self:center;display:flex;align-items:center;gap:8px;margin-right:11px;
+    background:var(--term);border:1px solid var(--line);border-radius:3px;padding:7px 10px;color:var(--faint);min-width:240px;font-size:11px}
+  .toolbar .qc .k{margin-left:auto;color:var(--faint);border:1px solid var(--line);border-radius:2px;padding:1px 5px;font-size:9.5px}
+
+  .body{flex:1;display:grid;grid-template-columns:226px 5px 1fr 5px 320px;min-height:0}
+  .split{background:var(--rail);border-left:1px solid var(--line);border-right:1px solid var(--line);cursor:col-resize;display:flex;align-items:center;justify-content:center}
+  .split .grip{display:flex;flex-direction:column;gap:3px}.split .grip i{width:2px;height:2px;background:var(--faint)}
+
+  /* tree */
+  .tree{background:var(--rail);display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+  .th{display:flex;align-items:center;height:27px;padding:0 10px;border-bottom:1px solid var(--soft);color:var(--dim);font-size:9.5px;letter-spacing:.1em}
+  .th .add{margin-left:auto;color:var(--steel);cursor:pointer;display:flex}
+  .find{margin:7px 8px;display:flex;align-items:center;gap:6px;background:var(--term);border:1px solid var(--line);border-radius:3px;padding:6px 8px;color:var(--faint);font-size:10.5px}
+  .scroll{overflow:auto;flex:1}
+  .grp2{display:flex;align-items:center;gap:5px;color:var(--faint);font-size:9.5px;letter-spacing:.05em;padding:8px 9px 3px;text-transform:uppercase}
+  .node{display:flex;align-items:center;gap:7px;height:23px;padding:0 10px;cursor:pointer;color:var(--fg);white-space:nowrap;border-left:2px solid transparent}
+  .node:hover{background:var(--chrome)}
+  .node.on{background:var(--steel-dim);color:var(--fg2);border-left-color:var(--steel)}
+  .node .dt{width:6px;height:6px;border-radius:50%;flex:none}
+  .node .nm{overflow:hidden;text-overflow:ellipsis}
+  .node .lat{margin-left:auto;color:var(--faint);font-size:9.5px}
+
+  /* center */
+  .center{display:flex;flex-direction:column;min-width:0;background:var(--term)}
+  .tabs{display:flex;align-items:stretch;height:30px;background:var(--rail);border-bottom:1px solid var(--line)}
+  .tab{display:flex;align-items:center;gap:7px;padding:0 13px;border-right:1px solid var(--soft);color:var(--dim);cursor:pointer;border-top:2px solid transparent}
+  .tab.on{background:var(--term);color:var(--fg2);border-top-color:var(--steel)}
+  .tab .dt{width:6px;height:6px;border-radius:50%} .tab .c{color:var(--faint);margin-left:2px}
+  .tab.add{color:var(--faint);padding:0 11px}
+  .term{flex:1;padding:11px 14px;overflow:auto;font-size:12px;line-height:1.55;color:#bcc1c7;background:var(--term)}
+  .ln{white-space:pre-wrap}
+  .grn{color:var(--t-grn)}.cyn{color:var(--t-cyn)}.yel{color:var(--t-yel)}.mag{color:var(--t-mag)}.blu{color:var(--t-blu)}.red{color:var(--t-red)}.wht{color:var(--t-wht)}.fa{color:var(--faint)}
+  .arrow{color:var(--t-grn)}
+  /* MobaXterm welcome box */
+  .welcome{border:1px solid #2f6b7a;margin-bottom:9px;font-size:11.5px;line-height:1.5}
+  .welcome .wh{background:#0e3b45;color:var(--t-cyn);padding:3px 10px;border-bottom:1px solid #2f6b7a;font-weight:600}
+  .welcome .wb{padding:7px 11px}
+  .welcome .wb div{white-space:pre-wrap}
+  .welcome .bp{color:var(--t-cyn)}
+  /* colorful powerline prompt */
+  .pl{display:inline-flex;align-items:center;margin-top:7px;font-weight:600}
+  .pl .s{padding:2px 10px;display:inline-flex;align-items:center;gap:5px}
+  .pl .s1{background:#3FB46F;color:#05140b}.pl .a1{color:#3FB46F;background:#2C9CBE}
+  .pl .s2{background:#2C9CBE;color:#05140b}.pl .a2{color:#2C9CBE;background:#D9A441}
+  .pl .s3{background:#D9A441;color:#1a1405}.pl .a3{color:#D9A441;background:transparent;padding-left:4px}
+  .cursor{display:inline-block;width:8px;height:14px;background:var(--t-grn);vertical-align:-2px}
+  /* inline AI fix (steel, not yellow) */
+  .aifix{margin:9px 0 3px;border:1px solid var(--line);border-left:2px solid var(--steel);background:var(--chrome);padding:9px 11px;display:flex;gap:10px;align-items:center}
+  .aifix .lab{display:flex;align-items:center;gap:5px;color:var(--steel);font-weight:600;font-size:10.5px;white-space:nowrap}
+  .aifix .cmd{color:var(--fg2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .aifix .run{margin-left:auto;color:#05131f;background:var(--steel);padding:4px 11px;font-size:10px;font-weight:700;cursor:pointer;border-radius:2px}
+
+  /* dock */
+  .dock{background:var(--chrome);display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--line)}
+  .dtabs{display:flex;align-items:stretch;height:30px;border-bottom:1px solid var(--line);background:var(--rail)}
+  .dtabs .t{display:flex;align-items:center;gap:6px;padding:0 12px;color:var(--dim);cursor:pointer;border-right:1px solid var(--soft);border-top:2px solid transparent;font-size:10.5px}
+  .dtabs .t.on{color:var(--fg2);background:var(--chrome);border-top-color:var(--steel)}
+  .crumb{display:flex;align-items:center;gap:4px;padding:7px 11px;border-bottom:1px solid var(--soft);color:var(--dim);font-size:10px;flex-wrap:wrap}
+  .crumb b{color:var(--fg)} .crumb .sl{color:var(--faint)}
+  .fhead{display:flex;align-items:center;height:22px;padding:0 11px;border-bottom:1px solid var(--line);color:var(--faint);font-size:9px;letter-spacing:.06em;text-transform:uppercase;background:var(--rail)}
+  .fhead .c2{margin-left:auto;width:48px;text-align:right}.fhead .c3{width:50px;text-align:right}
+  .files{overflow:auto;flex:1}
+  .frow{display:flex;align-items:center;gap:8px;height:23px;padding:0 11px;cursor:pointer;color:var(--fg);border-bottom:1px solid var(--soft)}
+  .frow:hover{background:var(--chrome2)} .frow.sel{background:var(--steel-dim);color:var(--fg2);box-shadow:inset 2px 0 0 var(--steel)}
+  .frow .nm{overflow:hidden;text-overflow:ellipsis}
+  .frow .sz{margin-left:auto;width:48px;text-align:right;color:var(--faint);font-size:10px}
+  .frow .mod{width:50px;text-align:right;color:var(--faint);font-size:10px}
+  .xfer{border-top:1px solid var(--line);padding:9px 11px;font-size:10px;color:var(--dim);background:var(--rail)}
+  .xfer .row{display:flex;align-items:center;gap:7px}.xfer .nm{color:var(--fg)}.xfer .pct{margin-left:auto;color:var(--ok)}
+  .bar{height:3px;background:var(--term);margin-top:6px;border:1px solid var(--line)}.bar i{display:block;height:100%;background:var(--ok)}
+
+  /* status */
+  .status{display:flex;align-items:stretch;height:23px;background:var(--rail);border-top:1px solid var(--line);color:var(--dim);font-size:10px}
+  .status .seg{display:flex;align-items:center;gap:6px;padding:0 10px;border-right:1px solid var(--soft)}
+  .status .seg.l{border-right:none;border-left:1px solid var(--soft)}
+  .status .dt{width:6px;height:6px;border-radius:50%} .status .sp{flex:1} .status b{color:var(--fg);font-weight:500}
+  .status .cost{color:var(--warn)}
+  /* fn bar */
+  .fnbar{display:flex;height:25px;background:var(--bg);border-top:1px solid var(--soft)}
+  .fn{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;border-right:1px solid var(--soft);color:var(--dim);font-size:9.5px;cursor:pointer}
+  .fn:last-child{border-right:none}.fn:hover{color:var(--fg);background:var(--chrome)}.fn b{color:var(--faint);font-weight:700;font-size:9px}
+</style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute"><defs>
+    <symbol id="i-mon" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="8.5" rx="1"/><path d="M6 14h4M8 11v3"/></symbol>
+    <symbol id="i-ssh" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"/></symbol>
+    <symbol id="i-serial" viewBox="0 0 16 16"><rect x="3" y="4" width="10" height="8" rx="1"/><path d="M6 4V2.5M10 4V2.5M6 13.5V12M10 13.5V12"/></symbol>
+    <symbol id="i-split" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="1"/><path d="M8 2.5v11"/></symbol>
+    <symbol id="i-cast" viewBox="0 0 16 16"><path d="M2 5a8 8 0 0 1 9 9M2 9a4 4 0 0 1 5 5"/><circle cx="3" cy="13" r="1"/></symbol>
+    <symbol id="i-tunnel" viewBox="0 0 16 16"><path d="M2 5h7a3 3 0 0 1 0 6H4M2 11h7"/><path d="M4 3 2 5l2 2M12 9l2 2-2 2"/></symbol>
+    <symbol id="i-ai" viewBox="0 0 16 16"><path d="M8 2l1.3 3.5L13 7l-3.7 1.5L8 12l-1.3-3.5L3 7l3.7-1.5z"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/><path d="M6.5 1.5v2M9.5 1.5v2M6.5 12.5v2M9.5 12.5v2M1.5 6.5h2M1.5 9.5h2M12.5 6.5h2M12.5 9.5h2"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 16 16"><rect x="3.5" y="3" width="9" height="11" rx="1"/><path d="M6 3V2h4v1M6 7h4M6 10h2.5"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.7"/><circle cx="4.5" cy="12.5" r="1.7"/><circle cx="11.5" cy="3.5" r="1.7"/><path d="M4.5 5.2v5.6M4.5 8.5h3a4 4 0 0 0 4-4V5.2"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.3 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 16 16"><path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 16 16"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 16 16"><path d="M5 6l3 3 3-3"/></symbol>
+    <symbol id="i-tux" viewBox="0 0 16 16"><path d="M8 2.5c-1.7 0-2.6 1.5-2.6 3.2 0 1-.5 1.6-1.2 2.6C3.2 9.7 3 11 4 12c.7.7 1.6.4 2 1 .5.7 3 .7 3.4 0 .4-.6 1.3-.3 2-1 1-1 .8-2.3-.2-3.7-.7-1-1.2-1.6-1.2-2.6C9.8 4 8.9 2.5 8 2.5z"/></symbol>
+    <symbol id="i-win" viewBox="0 0 16 16"><path d="M2.5 4.2 7.3 3.5v4.2H2.5zM8.3 3.4 14 2.5v5.2H8.3zM2.5 8.7h4.8v3.8L2.5 11.8zM8.3 8.7H14v5.2l-5.7-.9z"/></symbol>
+  </defs></svg>
+
+  <div class="menu">
+    <span class="lights"><i style="background:#E0685F"></i><i style="background:#E0B23C"></i><i style="background:#5FB85A"></i></span>
+    <span class="mk"><span class="hex">⬢</span> Pluto</span>
+    <a>Terminal</a><a>Sessions</a><a>Tools</a><a>View</a><a>Macros</a><a>Help</a>
+    <span class="right"><span class="s">124×38</span><span class="s"><span class="dot"></span>opus-4.8</span></span>
+  </div>
+
+  <div class="toolbar">
+    <div class="grp"><div class="btns">
+      <div class="tbtn"><svg class="ic" style="color:#5B9BE0"><use href="#i-mon"/></svg><span class="l">Local</span></div>
+      <div class="tbtn"><svg class="ic" style="color:#3FC7C7"><use href="#i-ssh"/></svg><span class="l">SSH</span></div>
+      <div class="tbtn"><svg class="ic" style="color:#E0863C"><use href="#i-serial"/></svg><span class="l">Serial</span></div>
+    </div><span class="cap">Connect</span></div>
+    <div class="grp"><div class="btns">
+      <div class="tbtn on"><svg class="ic" style="color:#6FB85C"><use href="#i-split"/></svg><span class="l">Split</span></div>
+      <div class="tbtn"><svg class="ic" style="color:#B07CE0"><use href="#i-cast"/></svg><span class="l">MultiX</span></div>
+      <div class="tbtn"><svg class="ic" style="color:#4FB8E6"><use href="#i-tunnel"/></svg><span class="l">Tunnel</span></div>
+    </div><span class="cap">Workspace</span></div>
+    <div class="grp"><div class="btns">
+      <div class="tbtn"><svg class="ic" style="color:#D982D9"><use href="#i-ai"/></svg><span class="l">Ask AI</span></div>
+      <div class="tbtn"><svg class="ic" style="color:#E06C9B"><use href="#i-cpu"/></svg><span class="l">Models</span></div>
+      <div class="tbtn"><svg class="ic" style="color:#5B9BE0"><use href="#i-clip"/></svg><span class="l">Snips</span></div>
+      <div class="tbtn"><svg class="ic" style="color:#6FB85C"><use href="#i-branch"/></svg><span class="l">Agents</span></div>
+    </div><span class="cap">AI · Tools</span></div>
+    <div class="qc"><svg class="ic sm"><use href="#i-search"/></svg> quick connect — user@host<span class="k">⌘K</span></div>
+  </div>
+
+  <div class="body">
+    <div class="tree">
+      <div class="th">SESSIONS<span class="add"><svg class="ic sm"><use href="#i-plus"/></svg></span></div>
+      <div class="find"><svg class="ic sm"><use href="#i-search"/></svg> name · host · #tag</div>
+      <div class="scroll">
+        <div class="grp2"><svg class="ic sm"><use href="#i-chev"/></svg> Production</div>
+        <div class="node"><span class="dt" style="background:#6FB85C"></span><svg class="ic sm" style="color:#E0863C"><use href="#i-tux"/></svg><span class="nm">web-1</span><span class="lat">12ms</span></div>
+        <div class="node"><span class="dt" style="background:#6FB85C"></span><svg class="ic sm" style="color:#E0863C"><use href="#i-tux"/></svg><span class="nm">db-box</span><span class="lat">8ms</span></div>
+        <div class="node"><span class="dt" style="background:var(--faint)"></span><svg class="ic sm" style="color:#5B9BE0"><use href="#i-win"/></svg><span class="nm">win-rdp</span><span class="lat">—</span></div>
+        <div class="grp2"><svg class="ic sm"><use href="#i-chev"/></svg> Agents</div>
+        <div class="node on"><span class="dt" style="background:var(--warn)"></span><svg class="ic sm" style="color:#6FB85C"><use href="#i-branch"/></svg><span class="nm">refactor-auth</span><span class="lat">work</span></div>
+        <div class="node"><span class="dt" style="background:var(--warn)"></span><svg class="ic sm" style="color:#6FB85C"><use href="#i-branch"/></svg><span class="nm">migrate-db</span><span class="lat">work</span></div>
+        <div class="node"><span class="dt" style="background:#6FB85C"></span><svg class="ic sm" style="color:#6FB85C"><use href="#i-branch"/></svg><span class="nm">write-tests</span><span class="lat">done</span></div>
+        <div class="grp2"><svg class="ic sm"><use href="#i-chev"/></svg> Local</div>
+        <div class="node"><span class="dt" style="background:var(--faint)"></span><svg class="ic sm" style="color:#5B9BE0"><use href="#i-mon"/></svg><span class="nm">scratch</span><span class="lat">~/dev</span></div>
+        <div class="node"><span class="dt" style="background:var(--faint)"></span><svg class="ic sm" style="color:#5B9BE0"><use href="#i-mon"/></svg><span class="nm">plutos-terminals</span></div>
+      </div>
+    </div>
+
+    <div class="split"><span class="grip"><i></i><i></i><i></i></span></div>
+
+    <div class="center">
+      <div class="tabs">
+        <div class="tab on"><span class="dt" style="background:var(--warn)"></span>refactor-auth<span class="c">×</span></div>
+        <div class="tab"><span class="dt" style="background:#6FB85C"></span>web-1<span class="c">×</span></div>
+        <div class="tab"><span class="dt" style="background:var(--faint)"></span>scratch<span class="c">×</span></div>
+        <div class="tab add"><svg class="ic sm"><use href="#i-plus"/></svg></div>
+      </div>
+      <div class="term">
+        <div class="welcome">
+          <div class="wh">⬢ Pluto's Terminal — free multi-terminal for the Pluto community</div>
+          <div class="wb">
+            <div><span class="bp">►</span> Saved sessions live in the <span class="yel">Sessions</span> panel — SSH · local · serial · RDP/VNC</div>
+            <div><span class="bp">►</span> Scrollback is <span class="grn">persistent</span> · <span class="mag">MultiExec</span> broadcasts to every terminal</div>
+            <div><span class="bp">►</span> <span class="cyn">Ask AI</span> (⌘I) turns English into commands · <span class="cyn">16 model providers</span> (⌘M)</div>
+            <div><span class="bp">►</span> Tip: <span class="yel">⌘K</span> command palette · <span class="blu">Home</span> to launch a session</div>
+          </div>
+        </div>
+        <div class="ln"><span class="arrow">❯</span> claude</div>
+        <div class="ln fa">  working — extract token validation into Session::validate_token</div>
+        <div class="ln">  <span class="mag">M</span> <span class="blu">src/auth.rs</span> <span class="fa">+18 −6</span>    <span class="mag">M</span> <span class="blu">src/session.rs</span> <span class="fa">+4 −2</span></div>
+        <div class="ln"><span class="arrow">❯</span> cargo test --workspace</div>
+        <div class="ln"><span class="grn">   test result: ok. 142 passed</span> <span class="fa">·</span> <span class="yel">2 running</span>   <span class="fa">Compiling auth-core v0.4.0</span></div>
+        <div class="ln"><span class="arrow">❯</span> cargo build --release</div>
+        <div class="ln"><span class="red">error[E0599]</span>: no method named <span class="yel">`verify_token`</span> found for struct <span class="blu">`Session`</span></div>
+        <div class="ln fa">   --> src/auth.rs:88:18</div>
+
+        <div class="aifix">
+          <span class="lab"><svg class="ic sm" style="color:var(--steel)"><use href="#i-ai"/></svg> FIX</span>
+          <span class="cmd">sed -i '' 's/verify_token/validate_token/' src/auth.rs &amp;&amp; cargo build</span>
+          <span class="run">run</span>
+        </div>
+
+        <div class="pl"><span class="s s1">📅 28/05</span><span class="s a1">​</span><span class="s s2">🕐 15:47</span><span class="s a2">​</span><span class="s s3">📁 ~/plutos-terminals</span><span class="s a3">​</span></div>
+        <span class="cursor"></span>
+      </div>
+    </div>
+
+    <div class="split"><span class="grip"><i></i><i></i><i></i></span></div>
+
+    <div class="dock">
+      <div class="dtabs">
+        <span class="t on"><svg class="ic sm" style="color:#E0C04F"><use href="#i-folder"/></svg> SFTP</span>
+        <span class="t"><svg class="ic sm" style="color:#D982D9"><use href="#i-ai"/></svg> Assistant</span>
+        <span class="t"><svg class="ic sm" style="color:#4FB8E6"><use href="#i-pulse"/></svg> Monitor</span>
+      </div>
+      <div class="crumb"><b>web-1</b><span class="sl">:</span><span>/</span><span class="sl">/</span><span>home</span><span class="sl">/</span><span>deploy</span><span class="sl">/</span><span>app</span><span class="sl">/</span><b>src</b></div>
+      <div class="fhead"><span>Name</span><span class="c2">Size</span><span class="c3">Mod</span></div>
+      <div class="files">
+        <div class="frow"><svg class="ic sm" style="color:#E0C04F"><use href="#i-folder"/></svg><span class="nm">..</span></div>
+        <div class="frow"><svg class="ic sm" style="color:#E0C04F"><use href="#i-folder"/></svg><span class="nm">handlers</span><span class="sz">—</span><span class="mod">2d</span></div>
+        <div class="frow"><svg class="ic sm" style="color:#E0C04F"><use href="#i-folder"/></svg><span class="nm">models</span><span class="sz">—</span><span class="mod">5d</span></div>
+        <div class="frow sel"><svg class="ic sm" style="color:#E0863C"><use href="#i-file"/></svg><span class="nm">auth.rs</span><span class="sz">8.2K</span><span class="mod">2m</span></div>
+        <div class="frow"><svg class="ic sm" style="color:#E0863C"><use href="#i-file"/></svg><span class="nm">session.rs</span><span class="sz">3.1K</span><span class="mod">4m</span></div>
+        <div class="frow"><svg class="ic sm" style="color:#E0863C"><use href="#i-file"/></svg><span class="nm">main.rs</span><span class="sz">1.4K</span><span class="mod">1h</span></div>
+        <div class="frow"><svg class="ic sm" style="color:#6FB85C"><use href="#i-file"/></svg><span class="nm">Cargo.toml</span><span class="sz">642B</span><span class="mod">3h</span></div>
+        <div class="frow"><svg class="ic sm" style="color:#878D95"><use href="#i-file"/></svg><span class="nm">.env</span><span class="sz">210B</span><span class="mod">1d</span></div>
+        <div class="frow"><svg class="ic sm" style="color:#E0863C"><use href="#i-file"/></svg><span class="nm">lib.rs</span><span class="sz">980B</span><span class="mod">1d</span></div>
+      </div>
+      <div class="xfer">
+        <div class="row"><svg class="ic sm" style="color:#E0863C"><use href="#i-file"/></svg><span class="nm">auth.rs</span><span class="fa">→ web-1</span><span class="pct">64%</span></div>
+        <div class="bar"><i style="width:64%"></i></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="status">
+    <span class="seg"><span class="dt" style="background:var(--ok)"></span>claude</span>
+    <span class="seg"><svg class="ic sm" style="color:#6FB85C"><use href="#i-branch"/></svg>feat/auth-v2 <span class="d">↑2</span></span>
+    <span class="seg">refactor-auth <span class="d">12ms</span></span>
+    <span class="seg">zsh · UTF-8 · LF</span>
+    <span class="sp"></span>
+    <span class="seg">CPU <b>24%</b></span>
+    <span class="seg">MEM <b>11.2</b>/16G</span>
+    <span class="seg">↓1.2M ↑240K</span>
+    <span class="seg cost l">$2.84 · 41k tok</span>
+    <span class="seg"><svg class="ic sm" style="color:#D982D9"><use href="#i-ai"/></svg>opus-4.8</span>
+  </div>
+
+  <div class="fnbar">
+    <div class="fn"><b>F1</b> Help</div><div class="fn"><b>F2</b> Tab</div><div class="fn"><b>F3</b> Split</div>
+    <div class="fn"><b>F4</b> SFTP</div><div class="fn"><b>⌘K</b> Palette</div><div class="fn"><b>⌘I</b> Ask AI</div>
+    <div class="fn"><b>⌘R</b> History</div><div class="fn"><b>⌘M</b> Models</div><div class="fn"><b>F9</b> Macro</div>
+  </div>
+</body>
+</html>

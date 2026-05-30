@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Pluto — Mission Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0B0D; --panel:#121419; --panel2:#171A20; --line:#23262E;
+    --fg:#E7EAF0; --dim:#9097A3; --faint:#5B616C;
+    --accent:#5B8CFF; --accent2:#36D6A0; --warn:#E8B339; --danger:#F2697A;
+    --r:12px; --mono:'JetBrains Mono',monospace; --ui:'Hanken Grotesk',sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(900px 500px at 85% -5%, rgba(91,140,255,.10), transparent 60%),
+      radial-gradient(700px 400px at 5% 105%, rgba(54,214,160,.06), transparent 55%),
+      var(--bg);
+    color:var(--fg); font-family:var(--ui); -webkit-font-smoothing:antialiased;
+    display:flex; flex-direction:column; height:100vh; overflow:hidden;
+  }
+  /* top bar */
+  .top{display:flex;align-items:center;gap:18px;padding:14px 22px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;letter-spacing:-.02em;font-size:16px}
+  .hex{color:var(--accent);font-size:18px}
+  .cmd{flex:1;max-width:540px;margin:0 auto;display:flex;align-items:center;gap:10px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 14px;color:var(--dim);font-size:13.5px}
+  .cmd .k{margin-left:auto;font:600 11px/1 var(--mono);color:var(--faint);border:1px solid var(--line);border-radius:5px;padding:3px 6px}
+  .top .stat{font:500 12px/1 var(--mono);color:var(--dim)}
+  .top .stat b{color:var(--accent2)}
+  .avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#5B8CFF,#36D6A0)}
+  /* layout */
+  .wrap{flex:1;display:grid;grid-template-columns:1fr 300px;min-height:0}
+  .main{padding:22px 24px;overflow:auto}
+  .h{display:flex;align-items:baseline;gap:12px;margin:0 0 4px}
+  .h h1{font-size:21px;font-weight:700;letter-spacing:-.02em;margin:0}
+  .h .sub{color:var(--dim);font-size:13px}
+  .seg{display:flex;gap:6px;margin:18px 0 16px}
+  .seg button{font:600 12px/1 var(--ui);color:var(--dim);background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 13px;cursor:pointer}
+  .seg button.on{background:rgba(91,140,255,.14);border-color:var(--accent);color:var(--accent)}
+  /* agent grid */
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;position:relative;overflow:hidden;transition:.15s}
+  .card:hover{border-color:#363B45;transform:translateY(-1px)}
+  .card.live{border-color:rgba(232,179,57,.35)}
+  .card .row1{display:flex;align-items:center;gap:9px;margin-bottom:3px}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .dot.work{background:var(--warn);box-shadow:0 0 9px var(--warn)}
+  .dot.done{background:var(--accent2);box-shadow:0 0 9px var(--accent2)}
+  .dot.idle{background:#4a4f59}
+  .card h3{font-size:14.5px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .card .branch{font:500 11px/1 var(--mono);color:var(--dim);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:3px 7px;margin-left:auto}
+  .card .meta{display:flex;gap:14px;color:var(--dim);font-size:11.5px;margin:9px 0 11px;font-family:var(--mono)}
+  .card .meta b{color:var(--fg);font-weight:500}
+  .preview{background:#08090B;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:400 11px/1.55 var(--mono);color:#aeb6c2;height:74px;overflow:hidden}
+  .preview .g{color:var(--accent2)} .preview .y{color:var(--warn)} .preview .d{color:var(--faint)}
+  .tags{display:flex;gap:6px;margin-top:11px}
+  .tag{font:600 10px/1 var(--ui);color:var(--dim);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:4px 7px}
+  /* right rail */
+  .rail{border-left:1px solid var(--line);padding:22px 18px;overflow:auto;background:rgba(18,20,25,.4)}
+  .rail h4{font:600 10.5px/1 var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:0 0 12px}
+  .big{font-size:34px;font-weight:800;letter-spacing:-.03em;font-family:var(--mono)}
+  .big small{font-size:14px;color:var(--dim);font-weight:500}
+  .spark{height:46px;margin:12px 0 22px;display:flex;align-items:flex-end;gap:3px}
+  .spark i{flex:1;background:linear-gradient(var(--accent),rgba(91,140,255,.2));border-radius:2px 2px 0 0;opacity:.85}
+  .mini{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:12.5px}
+  .mini .d2{width:7px;height:7px;border-radius:50%}
+  .mini .c{margin-left:auto;font:500 11px/1 var(--mono);color:var(--dim)}
+  .newbtn{margin-top:18px;width:100%;background:var(--accent);color:#06122b;border:none;border-radius:9px;padding:11px;font:700 13px/1 var(--ui);cursor:pointer}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand"><span class="hex">⬢</span> Pluto</div>
+    <div class="cmd">⌘ &nbsp;Run a command, jump to a session, or ask AI…<span class="k">⌘K</span></div>
+    <div class="stat">spend <b>$2.84</b></div>
+    <div class="stat">3 running</div>
+    <div class="avatar"></div>
+  </div>
+
+  <div class="wrap">
+    <div class="main">
+      <div class="h"><h1>Mission Control</h1><span class="sub">6 sessions · 3 agents working</span></div>
+      <div class="seg">
+        <button class="on">All</button><button>Working</button><button>Needs input</button><button>Done</button><button>SSH</button>
+      </div>
+      <div class="grid">
+        <div class="card live">
+          <div class="row1"><span class="dot work"></span><h3>refactor-auth</h3><span class="branch">feat/auth-v2</span></div>
+          <div class="meta"><span>claude-opus-4.8</span><span><b>$0.91</b></span><span>12.4k tok</span></div>
+          <div class="preview"><span class="d">$ </span>cargo test --workspace<br><span class="g">  ✓ 142 passed</span> · <span class="y">2 running</span><br><span class="d">  Compiling auth-core v0.4.0…</span></div>
+          <div class="tags"><span class="tag">worktree</span><span class="tag">claude code</span></div>
+        </div>
+        <div class="card live">
+          <div class="row1"><span class="dot work"></span><h3>migrate-db</h3><span class="branch">chore/pg-16</span></div>
+          <div class="meta"><span>gpt-4o</span><span><b>$0.42</b></span><span>8.1k tok</span></div>
+          <div class="preview"><span class="d">$ </span>npx prisma migrate dev<br><span class="y">  Applying migration 0042_user_idx…</span><br><span class="d">  Generating client…</span></div>
+          <div class="tags"><span class="tag">worktree</span><span class="tag">codex</span></div>
+        </div>
+        <div class="card">
+          <div class="row1"><span class="dot done"></span><h3>prod-1 · web</h3><span class="branch">ssh</span></div>
+          <div class="meta"><span>deploy@10.0.0.5</span><span>uptime 38d</span></div>
+          <div class="preview"><span class="g">●</span> nginx active · <span class="g">●</span> app healthy<br><span class="d">$ </span>tail -f /var/log/app.log<br><span class="d">  14:32:01 200 GET /api/health</span></div>
+          <div class="tags"><span class="tag">#prod</span><span class="tag">🔗 ssh</span></div>
+        </div>
+        <div class="card">
+          <div class="row1"><span class="dot done"></span><h3>write-tests</h3><span class="branch">test/coverage</span></div>
+          <div class="meta"><span>claude-sonnet-4.6</span><span><b>$0.31</b></span><span>5.0k tok</span></div>
+          <div class="preview"><span class="g">  ✓ done — 24 tests added</span><br><span class="d">  coverage 71% → 86%</span><br><span class="d">$ </span><span class="g">▍</span> awaiting review</div>
+          <div class="tags"><span class="tag">worktree</span><span class="tag">+ open PR</span></div>
+        </div>
+        <div class="card">
+          <div class="row1"><span class="dot idle"></span><h3>local · scratch</h3><span class="branch">~/dev</span></div>
+          <div class="meta"><span>zsh</span><span>idle</span></div>
+          <div class="preview"><span class="d">$ </span><span class="g">▍</span></div>
+          <div class="tags"><span class="tag">local</span></div>
+        </div>
+        <div class="card">
+          <div class="row1"><span class="dot idle"></span><h3>db-box</h3><span class="branch">ssh</span></div>
+          <div class="meta"><span>root@db.internal</span><span>idle</span></div>
+          <div class="preview"><span class="d">postgres=# </span><span class="g">▍</span></div>
+          <div class="tags"><span class="tag">#prod</span><span class="tag">#db</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rail">
+      <h4>Spend today</h4>
+      <div class="big">$2.84 <small>· 41k tok</small></div>
+      <div class="spark">
+        <i style="height:30%"></i><i style="height:55%"></i><i style="height:40%"></i><i style="height:72%"></i><i style="height:60%"></i><i style="height:88%"></i><i style="height:50%"></i><i style="height:95%"></i><i style="height:66%"></i><i style="height:78%"></i>
+      </div>
+      <h4>Agents</h4>
+      <div class="mini"><span class="d2" style="background:var(--warn)"></span> refactor-auth <span class="c">working</span></div>
+      <div class="mini"><span class="d2" style="background:var(--warn)"></span> migrate-db <span class="c">working</span></div>
+      <div class="mini"><span class="d2" style="background:var(--accent2)"></span> write-tests <span class="c">done</span></div>
+      <div class="mini"><span class="d2" style="background:#4a4f59"></span> scratch <span class="c">idle</span></div>
+      <button class="newbtn">+ New session</button>
+    </div>
+  </div>
+</body>
+</html>
