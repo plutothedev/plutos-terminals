@@ -488,12 +488,13 @@ export default function TerminalPane({
         cb(links.length ? links : undefined);
       },
     });
-    term.open(container);
-    // Inline images: Sixel + iTerm2 inline-image protocol (image previews,
-    // `imgcat`-style output, charts from CLIs that emit them). NOTE: the WebGL
-    // renderer (@xterm/addon-webgl) was tried here but renders blank glyphs in
-    // Tauri's WKWebView, so we stay on xterm's default DOM renderer.
-    try { term.loadAddon(new ImageAddon()); } catch { /* ignore */ }
+    // NOTE: `term.open()` is intentionally deferred to `openIfVisible()` below.
+    // Opening into a hidden / 0×0 / off-Space container leaves xterm's renderer
+    // uncreated (its IntersectionObserver pauses it) and a later async write-flush
+    // then throws on the missing renderer. The WebGL renderer (@xterm/addon-webgl)
+    // was tried but renders blank glyphs in Tauri's WKWebView, so we stay on the
+    // default DOM renderer; ImageAddon (Sixel + iTerm2 inline images) loads in
+    // openIfVisible since it needs the renderer.
     // Command blocks via OSC 133 shell integration. The shell (see promptSetup)
     // emits ESC]133;A BEL at each prompt and ESC]133;D;<exit> BEL when a command
     // finishes. We pair them: A opens a block (record the prompt line), the next
@@ -540,15 +541,40 @@ export default function TerminalPane({
     });
     termRef.current = term;
     fitRef.current = fit;
-    // Only fit when the container is actually on-screen with a real size. A
+    // xterm creates its renderer (and measures char-cell size) inside open() —
+    // but ONLY when the element is visible: its internal IntersectionObserver
+    // pauses an element that's display:none / 0×0 / on an inactive macOS Space,
+    // and opening while paused never creates the renderer, so `_renderer.value`
+    // stays undefined. A later (async) write-flush then runs syncScrollArea →
+    // reads the missing renderer's `dimensions` → throws an unhandled error.
+    // This bit every relaunch as restored background tabs (display:none) replayed
+    // scrollback into a hidden container. So defer open() until the container is
+    // genuinely visible; writes before then buffer safely in xterm's core (no
+    // renderer touched) and render once we open.
+    let opened = false;
+    // Only fit when the terminal is opened AND on-screen with a real size. A
     // hidden tab is display:none (0×0); fitting then clamps the PTY to a tiny
     // width and makes zsh redraw a WRAPPED prompt in the background — the
     // "wonky prompt on tab switch" bug. Skipping 0-size keeps hidden tabs intact.
     const safeFit = () => {
-      if (!alive || !container.clientWidth || !container.clientHeight) return;
+      if (!alive || !opened || !container.clientWidth || !container.clientHeight) return;
       try { fit.fit(); } catch {}
     };
-    safeFit();
+    const openIfVisible = () => {
+      if (opened || !alive || !container.clientWidth || !container.clientHeight) return;
+      opened = true;
+      term.open(container);
+      try { term.loadAddon(new ImageAddon()); } catch { /* ignore */ }
+      safeFit();
+    };
+    // Open as soon as the container actually intersects the viewport — the same
+    // signal xterm gates its renderer on. An initially-visible active tab opens
+    // on the observer's first callback (~a frame); a restored background tab
+    // opens when the user first switches to it.
+    const vis = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) openIfVisible();
+    });
+    vis.observe(container);
 
     // Once the bundled powerline font is ready, RE-ASSIGN fontFamily so xterm
     // rebuilds its glyph atlas with MesloLGS NF (a plain refresh() keeps the
@@ -560,7 +586,7 @@ export default function TerminalPane({
         try {
           term.options.fontFamily = "'MesloLGS NF', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace";
           safeFit();
-          term.refresh(0, term.rows - 1);
+          if (opened) term.refresh(0, term.rows - 1);
         } catch {}
       }).catch(() => {});
     }
@@ -1030,6 +1056,7 @@ export default function TerminalPane({
 
     return () => {
       alive = false;
+      vis.disconnect();
       ro.disconnect();
       clearDoneTimer();
       if (transcriptTimerRef.current) {
