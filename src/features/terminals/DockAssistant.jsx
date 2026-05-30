@@ -6,11 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveActiveLLM } from "./providers.js";
-
-function readUserSt() {
-  try { return JSON.parse(localStorage.getItem("plutos-terminals:user:v0") || "{}"); }
-  catch { return {}; }
-}
+import { readUserSt } from "./storageKeys.js";
 
 // First fenced code block in an assistant reply, if any (so we can offer run/insert).
 function extractCmd(text) {

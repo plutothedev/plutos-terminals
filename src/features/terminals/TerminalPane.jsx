@@ -9,6 +9,7 @@ import { ImageAddon } from "@xterm/addon-image";
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
+import { USER_STORAGE_KEY, getWindowStorageKey } from "./storageKeys.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import {
@@ -649,7 +650,7 @@ export default function TerminalPane({
           // to legacy window-state location for migration safety.
           const env = {};
           let userRaw = null;
-          try { userRaw = localStorage.getItem("plutos-terminals:user:v0"); } catch (_) { /* ignore */ }
+          try { userRaw = localStorage.getItem(USER_STORAGE_KEY); } catch (_) { /* ignore */ }
           if (userRaw) {
             const userPersisted = JSON.parse(userRaw);
             const keys = (userPersisted && userPersisted.providerKeys) || {};
@@ -671,8 +672,11 @@ export default function TerminalPane({
             }
           }
           // envOverrides (and the legacy anthropicKey for not-yet-migrated
-          // users) still live in the per-window state.
-          const winRaw = localStorage.getItem("plutos-terminals:state:v0");
+          // users) still live in the per-window state. Use the per-window key
+          // (matches App's write key) so a detached ?w= window reads ITS OWN
+          // state, not the default window's — previously this read the bare key
+          // and silently missed a secondary window's overrides.
+          const winRaw = localStorage.getItem(getWindowStorageKey());
           if (winRaw) {
             const persisted = JSON.parse(winRaw);
             if (!env.ANTHROPIC_API_KEY && persisted && typeof persisted.anthropicKey === "string" && persisted.anthropicKey.length > 0) {

@@ -8,17 +8,13 @@ import { invoke } from "@tauri-apps/api/core";
 import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";
+import { readUserSt } from "./storageKeys.js";
 
 const SYSTEM =
   "You are summarizing a terminal session for an engineer. From the recent " +
   "terminal output, produce: (1) a 1-2 sentence summary of what was done, " +
   "(2) key results or state changes as short bullets, (3) anything that errored " +
   "or looks wrong, and (4) one suggested next step. Be concise; skip prompts/noise.";
-
-function readUserSt() {
-  try { return JSON.parse(localStorage.getItem("plutos-terminals:user:v0") || "{}"); }
-  catch { return {}; }
-}
 
 export default function SessionSummary({ open, text, onClose }) {
   const [answer, setAnswer] = useState("");

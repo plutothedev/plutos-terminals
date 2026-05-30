@@ -8,11 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Textarea } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";
-
-function readUserSt() {
-  try { return JSON.parse(localStorage.getItem("plutos-terminals:user:v0") || "{}"); }
-  catch { return {}; }
-}
+import { readUserSt } from "./storageKeys.js";
 
 // Strip markdown fences / "$ " prompts the model sometimes adds despite asking
 // for a bare command, and collapse to the first non-empty line(s).

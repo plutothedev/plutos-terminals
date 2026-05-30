@@ -4,6 +4,7 @@ import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import LockScreen from "./features/terminals/LockScreen.jsx";
 import { isUnlockedThisSession } from "./features/terminals/masterPassword.js";
+import { USER_STORAGE_KEY, getWindowStorageKey } from "./features/terminals/storageKeys.js";
 import { ToastProvider } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
 import {
@@ -15,16 +16,9 @@ import {
   applyGlobalLayout,
 } from "./features/terminals/headerSkins.js";
 
-// Per-window storage key (v0.1.19 multi-window). The default window has no
-// ?w= query param → uses the original key for backward compat. Secondary
-// windows spawned via the spawn_new_window Tauri command get ?w=<id> →
-// suffix the key so each window has independent state (panels, skin, etc.).
-function getWindowStorageKey() {
-  if (typeof window === "undefined") return "plutos-terminals:state:v0";
-  const w = new URLSearchParams(window.location.search).get("w");
-  if (!w) return "plutos-terminals:state:v0";
-  return `plutos-terminals:state:v0:${w}`;
-}
+// Per-window state key (default window = bare key; secondary ?w=<id> windows =
+// suffixed for independent panels/skin). Resolver + keys live in storageKeys.js
+// (single source of truth, shared with TerminalPane/TerminalsTab/SettingsModal).
 const STORAGE_KEY = getWindowStorageKey();
 
 // Shared user-level state (v0.1.21): welcomeDone, anthropicKey,
@@ -33,8 +27,6 @@ const STORAGE_KEY = getWindowStorageKey();
 // onboarding tour each time you spawn a window is a confidence-killer.
 // Stored under a constant key so all windows in the same Tauri origin
 // share it via localStorage.
-const USER_STORAGE_KEY = "plutos-terminals:user:v0";
-
 function readUserState() {
   if (typeof window === "undefined") return {};
   try {
@@ -54,10 +46,6 @@ function writeUserState(next) {
   }
 }
 
-const WINDOW_ID = (() => {
-  if (typeof window === "undefined") return null;
-  return new URLSearchParams(window.location.search).get("w") || null;
-})();
 const DEFAULT_DISCORD_URL = DISCORD_URL;
 
 export default function App() {

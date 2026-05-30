@@ -44,6 +44,7 @@ import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { gridDims, MAX_PANELS } from "./grid";
+import { getWindowStorageKey } from "./storageKeys.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -674,7 +675,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       gridMode: "auto",
       projects: state.projects,
     };
-    const stateKey = `plutos-terminals:state:v0:${winId}`;
+    const stateKey = getWindowStorageKey(winId);
     try { localStorage.setItem(stateKey, JSON.stringify(newState)); } catch { /* ignore */ }
     // Open the window FIRST; only drop the tab here once it succeeds, so a spawn
     // failure never loses the session.

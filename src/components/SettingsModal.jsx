@@ -7,6 +7,7 @@ import { useToast } from "./Toast.jsx";
 import { useConfirm } from "./ConfirmModal.jsx";
 import { Button, Field } from "./ui.jsx";
 import { getSkinId } from "../features/terminals/headerSkins.js";
+import { USER_STORAGE_KEY, STATE_KEY_PREFIX } from "../features/terminals/storageKeys.js";
 
 export default function SettingsModal({ open, st, save, onClose }) {
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
@@ -38,7 +39,7 @@ export default function SettingsModal({ open, st, save, onClose }) {
       // multi-window setups. Walks all keys to catch suffixed window states.
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
-        if (k && (k === "plutos-terminals:user:v0" || k.startsWith("plutos-terminals:state:v0"))) {
+        if (k && (k === USER_STORAGE_KEY || k.startsWith(STATE_KEY_PREFIX))) {
           localStorage.removeItem(k);
         }
       }
