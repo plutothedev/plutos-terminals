@@ -936,8 +936,16 @@ export default function TerminalPane({
           const plainLen = (segs) => segs.reduce((n, [t]) => n + t.length, 0);
           // Fit to the pane: -6 leaves the border (space+│+space ... space+│) and
           // a 1-col right margin so terminals with a magic margin don't wrap.
+          // Also clamp to a comfortable ABSOLUTE max: the box can't reflow once
+          // printed to scrollback, so an absolute cap keeps it (a) a tidy card
+          // rather than a sprawling banner, (b) the SAME width in every pane no
+          // matter how wide that pane was when it was created — so a tab split
+          // full-width and a pane born already-narrow get identical boxes that
+          // line up, and (c) narrow enough to survive a 2-way split.
+          const BOX_MAX = 60;
+          const paneCols = term.cols || 80;
           const maxInner = Math.max(...lines.map((l) => plainLen(l.segs)));
-          const W = Math.max(24, Math.min(maxInner, (term.cols || 80) - 6));
+          const W = Math.max(24, Math.min(maxInner, paneCols - 6, BOX_MAX));
           // Word-wrap coloured segments to width, hang-indenting continuations
           // and hard-splitting any token longer than a row (e.g. a URL).
           const wrapLine = (segs, width, hang = 0) => {
