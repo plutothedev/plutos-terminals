@@ -6,12 +6,12 @@
 // handshake (+ extract server SPKI) → connect_finalize (CredSSP/NLA) →
 // ActiveStage loop. v1: input is applied between server PDUs (read is blocking).
 
+use crate::session::{b64, new_id};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::mpsc;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -42,38 +42,6 @@ struct RdpFrame {
     w: u16,
     h: u16,
     data: String, // RGBA, base64
-}
-
-fn new_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("rdp_{:x}", nanos)
-}
-
-fn b64(data: &[u8]) -> String {
-    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
-        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(A[((n >> 18) & 63) as usize] as char);
-        out.push(A[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 {
-            A[((n >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            A[(n & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
 }
 
 /// Default IronRDP client config for a username/password connection.
@@ -210,7 +178,7 @@ pub fn rdp_connect(
         .set_read_timeout(Some(std::time::Duration::from_millis(500)))
         .map_err(|e| format!("set rdp read timeout: {e}"))?;
 
-    let id = new_id();
+    let id = new_id("rdp");
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<RdpCtrl>();
     let (w, h) = (
         connection_result.desktop_size.width,

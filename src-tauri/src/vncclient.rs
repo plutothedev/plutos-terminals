@@ -12,7 +12,9 @@ use std::net::TcpStream;
 use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+use crate::session::{b64, new_id};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -46,39 +48,6 @@ struct VncFrame {
 struct VncSize {
     w: u16,
     h: u16,
-}
-
-fn new_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("vnc_{:x}", nanos)
-}
-
-// Standard base64 (with padding) — small inline encoder, avoids a dep.
-fn b64(data: &[u8]) -> String {
-    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
-        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(A[((n >> 18) & 63) as usize] as char);
-        out.push(A[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 {
-            A[((n >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            A[(n & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
 }
 
 fn vnc_password(pw: &str) -> Vec<u8> {
@@ -180,7 +149,7 @@ pub fn vnc_connect(
         false,
     );
 
-    let id = new_id();
+    let id = new_id("vnc");
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<VncCtrl>();
     state
         .sessions

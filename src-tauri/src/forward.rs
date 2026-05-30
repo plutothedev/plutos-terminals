@@ -14,11 +14,12 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use tauri::State;
 
 use crate::pty::{connect_session, SshAuth};
+use crate::session::new_id;
 
 const BUF: usize = 32 * 1024;
 const MAX_QUEUE: usize = 1 << 20; // 1 MB per-direction backpressure cap
@@ -43,14 +44,6 @@ pub struct ForwardHandle {
 #[derive(Default)]
 pub struct ForwardRegistry {
     forwards: Mutex<HashMap<String, ForwardHandle>>,
-}
-
-fn new_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("fwd_{:x}", nanos)
 }
 
 fn is_eagain(e: &ssh2::Error) -> bool {
@@ -369,7 +362,7 @@ pub fn port_forward_start(
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || worker(sess, listener, remote_host, remote_port, stop_rx));
 
-    let id = new_id();
+    let id = new_id("fwd");
     state
         .forwards
         .lock()
@@ -395,7 +388,7 @@ pub fn socks_forward_start(
     let sess = connect_session(&host, port, &user, &auth, None)?;
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || socks_worker(sess, listener, stop_rx));
-    let id = new_id();
+    let id = new_id("fwd");
     state
         .forwards
         .lock()
@@ -441,7 +434,7 @@ pub fn jump_forward_start(
     )?;
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || worker(sess, listener, target_host, target_port, stop_rx));
-    let id = new_id();
+    let id = new_id("fwd");
     state
         .forwards
         .lock()

@@ -10,6 +10,7 @@ mod forward;
 mod netools;
 mod pty;
 mod rdp;
+mod session;
 mod sftp;
 mod vault;
 mod vncclient;

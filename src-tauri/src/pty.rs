@@ -22,16 +22,17 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::commands::scrollback_path;
+use crate::session::new_id;
 
 // File-size policy: when the on-disk scrollback exceeds MAX_BYTES, rewrite to
 // keep the last KEEP_BYTES (sliced at a line boundary if possible so partial
@@ -118,22 +119,6 @@ pub enum Session {
 #[derive(Default)]
 pub struct SessionRegistry {
     sessions: Mutex<HashMap<String, Session>>,
-}
-
-/// Monotonic per-process counter, mixed into every session id so two sessions
-/// spawned within the same clock tick (e.g. workspace restore opening many tabs
-/// at once) — or under a coarse/backwards-stepping wall clock — can never
-/// collide on the same id (which would clobber the registry entry and strand a
-/// reader thread emitting to a `pty://{id}` that now belongs to another session).
-static SESSION_SEQ: AtomicU64 = AtomicU64::new(0);
-
-fn new_session_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let seq = SESSION_SEQ.fetch_add(1, Ordering::Relaxed);
-    format!("pty_{:x}_{:x}", nanos, seq)
 }
 
 /// On-disk scrollback writer owned by a single PTY reader thread.
@@ -400,7 +385,7 @@ pub fn pty_spawn(
         .take_writer()
         .map_err(|e| format!("take_writer failed: {e}"))?;
 
-    let id = new_session_id();
+    let id = new_id("pty");
     let (ready_tx, ready_rx) = mpsc::channel::<()>();
     let session = PtySession {
         master: pair.master,
@@ -832,7 +817,7 @@ pub fn ssh_spawn(
     // Non-blocking so the reader thread can interleave reads, writes, resizes.
     sess.set_blocking(false);
 
-    let id = new_session_id();
+    let id = new_id("pty");
     let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>();
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<SshCtrl>();
     let (ready_tx, ready_rx) = mpsc::channel::<()>();
@@ -983,7 +968,7 @@ pub fn serial_spawn(
         .map_err(|e| format!("clone serial handle failed: {e}"))?;
 
     let alive = Arc::new(AtomicBool::new(true));
-    let id = new_session_id();
+    let id = new_id("pty");
     let (ready_tx, ready_rx) = mpsc::channel::<()>();
     state
         .sessions

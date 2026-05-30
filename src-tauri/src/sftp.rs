@@ -7,6 +7,7 @@
 // sends a request down an mpsc channel and blocks on the reply. Transfers run
 // fully in Rust (no bytes through JS); local paths come from rfd dialogs.
 
+use crate::session::new_id;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -14,7 +15,6 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::State;
@@ -91,14 +91,6 @@ pub struct SftpHandle {
 #[derive(Default)]
 pub struct SftpRegistry {
     sessions: Mutex<HashMap<String, SftpHandle>>,
-}
-
-fn new_sftp_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("sftp_{:x}", nanos)
 }
 
 fn to_entry(path: &Path, stat: &ssh2::FileStat) -> SftpEntry {
@@ -301,7 +293,7 @@ pub fn sftp_connect(
     let sess = connect_session(&host, port, &user, &auth, None)?;
     let (tx, rx) = mpsc::channel::<SftpReq>();
     thread::spawn(move || worker(sess, rx));
-    let id = new_sftp_id();
+    let id = new_id("sftp");
     state
         .sessions
         .lock()
