@@ -139,6 +139,7 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_ready,
             pty::default_shell,
             pty::ssh_spawn,
             pty::serial_list,

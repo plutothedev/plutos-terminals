@@ -765,6 +765,14 @@ export default function TerminalPane({
           term.writeln(`\r\n\x1b[90m${msg}\x1b[0m`);
         });
 
+        // Both listeners are live — tell the backend it may begin streaming.
+        // SSH sessions gate their first read on this so the server's initial
+        // MOTD/prompt burst can't race ahead of the pty://{id} subscription
+        // above (the old fixed 150ms warm-up lost that race under load).
+        // No-op for local/serial sessions. If this invoke is lost, the backend
+        // falls back to a short timeout, so surface (don't swallow) the failure.
+        invoke("pty_ready", { id }).catch((e) => console.warn("pty_ready failed", e));
+
         term.onData((data) => {
           if (!alive || !ptyId) return;
           userHasTypedRef.current = true;

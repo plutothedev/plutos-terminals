@@ -76,6 +76,13 @@ enum SshCtrl {
 pub struct SshHandle {
     writes: mpsc::Sender<Vec<u8>>,
     ctrl: mpsc::Sender<SshCtrl>,
+    /// One-shot readiness signal. The reader thread blocks on the matching
+    /// receiver before its first read, so the server's initial MOTD/prompt burst
+    /// can't be emitted before the frontend's `pty://{id}` listener exists.
+    /// `pty_ready` fires this once the listener is attached. Replaces a fixed
+    /// 150ms warm-up that lost the race whenever the listener registration's two
+    /// IPC round-trips ran long (busy event loop, other tabs streaming).
+    ready: mpsc::Sender<()>,
 }
 
 /// Registry-side handle to a serial-port session. The write half lives here for
@@ -479,6 +486,26 @@ pub fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(), Str
     Ok(())
 }
 
+/// Signal that the frontend has attached its `pty://{id}` listener and the
+/// session may begin streaming output. Only SSH sessions gate on this (their
+/// reader thread blocks until signaled) so the server's initial MOTD/prompt
+/// can't race the subscription; Local/Serial sessions ignore it. Safe to call
+/// for any session id — unknown or non-SSH ids are a no-op.
+#[tauri::command]
+pub fn pty_ready(state: State<'_, SessionRegistry>, id: String) -> Result<(), String> {
+    let sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "registry mutex poisoned".to_string())?;
+    if let Some(Session::Ssh(h)) = sessions.get(&id) {
+        // Reader thread recv's exactly once; a redundant send (e.g. after the
+        // timeout fallback already let it proceed) returns Ok and is simply
+        // buffered+unread, so ignoring the result is safe either way.
+        let _ = h.ready.send(());
+    }
+    Ok(())
+}
+
 /// Basename of the shell new tabs will spawn (e.g. "zsh", "pwsh.exe"). Surfaced
 /// in the status bar so users can see at a glance which shell they're in.
 /// Matches whatever `pick_shell` chooses for this platform.
@@ -709,6 +736,7 @@ pub fn ssh_spawn(
     let id = new_session_id();
     let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>();
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<SshCtrl>();
+    let (ready_tx, ready_rx) = mpsc::channel::<()>();
 
     state
         .sessions
@@ -719,6 +747,7 @@ pub fn ssh_spawn(
             Session::Ssh(SshHandle {
                 writes: write_tx,
                 ctrl: ctrl_tx,
+                ready: ready_tx,
             }),
         );
 
@@ -734,14 +763,20 @@ pub fn ssh_spawn(
         let _sess = sess;
         let mut channel = channel;
         let mut buf = [0u8; 4096];
-        // Give the frontend a beat to attach its `pty://{id}` listener before we
-        // emit the server's initial MOTD/prompt burst. SSH servers push that the
-        // instant the shell opens; without this the first output races ahead of
-        // the subscription and is lost, leaving the tab stuck on "connecting"
-        // even though the shell is live. Output stays buffered in libssh2 until
-        // the read loop below drains it, so nothing is dropped — just delayed
-        // ~150ms (imperceptible next to the ~700ms connect).
-        thread::sleep(Duration::from_millis(150));
+        // Wait until the frontend signals (via `pty_ready`) that its
+        // `pty://{id}` listener is attached before emitting the server's initial
+        // MOTD/prompt burst. SSH servers push that the instant the shell opens;
+        // without the handshake the first output races ahead of the subscription
+        // and is lost, leaving the tab stuck on "connecting" even though the
+        // shell is live. Output stays buffered in libssh2 until the read loop
+        // below drains it, so nothing is dropped. The timeout is a safety net
+        // for a lost/never-sent signal: starting the read loop then is harmless
+        // because the frontend attaches its listener *before* it signals, so a
+        // fallback start still streams the buffered output to a live listener —
+        // it just costs this much latency. Kept short so a dropped `pty_ready`
+        // can't strand a live tab on "connecting"; a healthy signal lands in a
+        // few ms, well before this fires.
+        let _ = ready_rx.recv_timeout(Duration::from_secs(2));
         loop {
             // 1. Drain writes pushed by pty_write. A disconnected sender means
             //    the registry entry was dropped (pty_kill / kill_all) → tear down.
