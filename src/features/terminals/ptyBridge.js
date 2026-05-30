@@ -34,12 +34,15 @@ function emitDims() {
 
 // ── Writer registry (TerminalPane) ─────────────────────────────────────────
 
-export function registerPtyWriter(tabId, fn) {
+export function registerPtyWriter(tabId, fn, isVisible = true) {
   if (!tabId || typeof fn !== "function") return;
   writers.set(tabId, fn);
-  // Assume visible until the pane's visibility effect says otherwise — avoids a
-  // window where a freshly-spawned active tab is missing from the broadcast set.
-  visible.add(tabId);
+  // Reflect the pane's ACTUAL visibility at registration (passed from the live
+  // visibleRef), routed through the single setTabVisible mutation path. Default
+  // true keeps a freshly-spawned ACTIVE tab in the broadcast set with no gap;
+  // a background tab passes false so a MultiExec broadcast can't land in it
+  // mid-init (e.g. while its welcome-box/clear setup is still running).
+  setTabVisible(tabId, isVisible);
 }
 
 export function unregisterPty(tabId) {

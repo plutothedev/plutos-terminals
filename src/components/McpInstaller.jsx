@@ -79,15 +79,14 @@ export default function McpInstaller({ open, onClose }) {
   };
 
   const onInstall = async (mcp) => {
-    // Filesystem MCP needs a path argument — default to user home via the
-    // platform's native env-var expansion (cmd.exe %USERPROFILE% on Windows,
-    // $HOME on macOS / Linux shells).
-    const isWindows = navigator.userAgent.includes("Windows");
-    const homeVar = isWindows ? "%USERPROFILE%" : "$HOME";
-    let cmd = mcp.command.replace(/\$\{PWD\}/g, homeVar);
+    // Pass an explicit argv vector (no shell runs backend-side). The catalog
+    // command is a fixed, space-separated template; the ${PWD} placeholder for
+    // the filesystem MCP root is resolved to the user's home dir by the Rust
+    // side (it can't shell-expand without a shell).
+    const argv = mcp.command.split(/\s+/).filter(Boolean);
     setInstallState((s) => ({ ...s, [mcp.id]: "installing" }));
     try {
-      const result = await invoke("mcp_install", { command: cmd });
+      const result = await invoke("mcp_install", { argv });
       if (result && result.ok) {
         setInstallState((s) => ({ ...s, [mcp.id]: "ok" }));
         toast.success(`${mcp.name} installed. Restart any open Claude sessions to pick it up.`);

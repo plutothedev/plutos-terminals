@@ -55,6 +55,11 @@ pub struct PtySession {
     // never the (potentially blocking) write. A backpressured PTY write must
     // not stall keystrokes/resizes/spawns/kills on every other session.
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// One-shot readiness signal — the reader thread blocks on the matching
+    /// receiver before its first emit so the shell's initial prompt burst can't
+    /// race ahead of the frontend's `pty://{id}` listener (a fast local shell
+    /// prints its prompt within microseconds). Fired by `pty_ready`.
+    ready: mpsc::Sender<()>,
 }
 
 impl Drop for PtySession {
@@ -96,6 +101,9 @@ pub struct SerialHandle {
     // blocking serial I/O off the shared registry lock.
     writer: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
     alive: Arc<AtomicBool>,
+    /// Readiness gate, same as PtySession::ready — wait for the frontend's
+    /// `pty://{id}` listener before the first emit. Fired by `pty_ready`.
+    ready: mpsc::Sender<()>,
 }
 
 /// A live session, transport-agnostic. Local PTYs, SSH channels, and serial
@@ -393,10 +401,12 @@ pub fn pty_spawn(
         .map_err(|e| format!("take_writer failed: {e}"))?;
 
     let id = new_session_id();
+    let (ready_tx, ready_rx) = mpsc::channel::<()>();
     let session = PtySession {
         master: pair.master,
         child,
         writer: Arc::new(Mutex::new(writer)),
+        ready: ready_tx,
     };
     state
         .sessions
@@ -429,6 +439,14 @@ pub fn pty_spawn(
     thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 4096];
+        // Wait for the frontend's `pty://{id}` listener (signaled via pty_ready)
+        // before the first emit, so a fast shell's initial prompt can't race
+        // ahead of the subscription. Output stays buffered in the OS pipe until
+        // the first read below, so nothing is dropped. The 2s timeout is a
+        // fallback for a lost/never-sent signal (matches the SSH path); the
+        // frontend attaches its listener before signaling, so a fallback start
+        // still streams to a live listener — it just costs this latency.
+        let _ = ready_rx.recv_timeout(Duration::from_secs(2));
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
@@ -560,21 +578,29 @@ pub fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(), Str
 }
 
 /// Signal that the frontend has attached its `pty://{id}` listener and the
-/// session may begin streaming output. Only SSH sessions gate on this (their
-/// reader thread blocks until signaled) so the server's initial MOTD/prompt
-/// can't race the subscription; Local/Serial sessions ignore it. Safe to call
-/// for any session id — unknown or non-SSH ids are a no-op.
+/// session may begin streaming output. Every transport's reader thread blocks
+/// on this before its first emit so the initial prompt/MOTD burst can't race
+/// the subscription. Safe to call for any session id — an unknown id is a no-op.
 #[tauri::command]
 pub fn pty_ready(state: State<'_, SessionRegistry>, id: String) -> Result<(), String> {
     let sessions = state
         .sessions
         .lock()
         .map_err(|_| "registry mutex poisoned".to_string())?;
-    if let Some(Session::Ssh(h)) = sessions.get(&id) {
-        // Reader thread recv's exactly once; a redundant send (e.g. after the
-        // timeout fallback already let it proceed) returns Ok and is simply
-        // buffered+unread, so ignoring the result is safe either way.
-        let _ = h.ready.send(());
+    // Each reader thread recv's exactly once; a redundant/late send (e.g. after
+    // the timeout fallback already let it proceed) is buffered+unread, so
+    // ignoring the result is safe for every variant.
+    match sessions.get(&id) {
+        Some(Session::Local(s)) => {
+            let _ = s.ready.send(());
+        }
+        Some(Session::Ssh(h)) => {
+            let _ = h.ready.send(());
+        }
+        Some(Session::Serial(h)) => {
+            let _ = h.ready.send(());
+        }
+        None => {}
     }
     Ok(())
 }
@@ -958,6 +984,7 @@ pub fn serial_spawn(
 
     let alive = Arc::new(AtomicBool::new(true));
     let id = new_session_id();
+    let (ready_tx, ready_rx) = mpsc::channel::<()>();
     state
         .sessions
         .lock()
@@ -967,6 +994,7 @@ pub fn serial_spawn(
             Session::Serial(SerialHandle {
                 writer: Arc::new(Mutex::new(port)),
                 alive: alive.clone(),
+                ready: ready_tx,
             }),
         );
 
@@ -979,6 +1007,8 @@ pub fn serial_spawn(
     thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 4096];
+        // Gate the first emit on the frontend's listener (see pty_spawn).
+        let _ = ready_rx.recv_timeout(Duration::from_secs(2));
         while alive.load(Ordering::Relaxed) {
             match reader.read(&mut buf) {
                 Ok(0) => thread::sleep(Duration::from_millis(20)),

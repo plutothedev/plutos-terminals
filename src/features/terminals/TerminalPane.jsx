@@ -349,12 +349,17 @@ export default function TerminalPane({
     const hasYes = /\bYes\b/.test(text);
     const hasEsc = /\(esc\)/i.test(text) || /\[esc\]/i.test(text);
     if (!(hasArrow && hasYes && hasEsc)) return;
+    // Invariant #7 (CLAUDE.md): only act on a permission prompt when the tab is
+    // backgrounded/unfocused. A foregrounded tab is being supervised — never
+    // auto-confirm there, so the watching user can intervene before a
+    // destructive tool-use runs.
+    if (!isAway()) return;
     if (autoApproveRef.current) {
       if (now - lastApproveAtRef.current < AUTO_APPROVE_DEBOUNCE_MS) return;
       lastApproveAtRef.current = now;
       invoke("pty_write", { id: ptyId, data: "1\r" }).catch(() => {});
       recentOutRef.current = ""; // don't re-match the same prompt
-    } else if (isAway() && now - lastNotifyAtRef.current > 15000) {
+    } else if (now - lastNotifyAtRef.current > 15000) {
       // Auto-approve off + you're elsewhere → ping that a session needs you.
       lastNotifyAtRef.current = now;
       notifyOS("Needs your input", projectNameRef.current ? `${projectNameRef.current} is waiting for approval` : "A session is waiting for approval");
@@ -747,7 +752,7 @@ export default function TerminalPane({
         // bridge. Writer closes over the local ptyId; dims reported below.
         registerPtyWriter(tabId, (data) => {
           if (ptyId) invoke("pty_write", { id: ptyId, data }).catch(() => {});
-        });
+        }, visibleRef.current);
         // Expose recent buffer text (ANSI already resolved by xterm) for AI
         // features like the session summary. Last ~400 lines, capped at 8 KB.
         registerTabReader(tabId, () => {
@@ -809,11 +814,11 @@ export default function TerminalPane({
         });
 
         // Both listeners are live — tell the backend it may begin streaming.
-        // SSH sessions gate their first read on this so the server's initial
-        // MOTD/prompt burst can't race ahead of the pty://{id} subscription
-        // above (the old fixed 150ms warm-up lost that race under load).
-        // No-op for local/serial sessions. If this invoke is lost, the backend
-        // falls back to a short timeout, so surface (don't swallow) the failure.
+        // EVERY transport (local, SSH, serial) now gates its first emit on this
+        // so the initial prompt/MOTD burst can't race ahead of the pty://{id}
+        // subscription above (the old fixed 150ms warm-up lost that race under
+        // load). If this invoke is lost, the backend falls back to a short
+        // timeout, so surface (don't swallow) the failure.
         invoke("pty_ready", { id }).catch((e) => console.warn("pty_ready failed", e));
 
         term.onData((data) => {

@@ -382,13 +382,12 @@ pub fn save_text_to_file(
 
 // ── MCP installer (v0.1.8 Tier 1 #2) ──────────────────────────────
 //
-// Spawns the `claude mcp add ...` command via the system shell so the user
-// doesn't have to copy + paste install commands. Result is reported back
-// to the frontend as { ok, stdout, stderr }.
-//
-// Security guard: only accepts commands that start with "claude " and
-// reject shell-metacharacters that could chain commands. Everything in the
-// MCP catalog is hard-coded in the frontend; no user input flows through.
+// Runs `claude mcp add ...` directly (no shell) so the user doesn't have to
+// copy + paste install commands. The frontend passes an explicit argv vector;
+// argv[0] MUST be "claude". Because there is NO shell, there is no command
+// chaining / substitution to guard against — the previous denylist let `$(...)`
+// through, so this argv form is both simpler and strictly safer. Result is
+// reported back to the frontend as { ok, stdout, stderr }.
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct McpInstallResult {
@@ -398,28 +397,47 @@ pub struct McpInstallResult {
 }
 
 #[tauri::command]
-pub fn mcp_install(command: String) -> Result<McpInstallResult, String> {
-    let trimmed = command.trim();
-    if !trimmed.starts_with("claude ") {
+pub fn mcp_install(argv: Vec<String>) -> Result<McpInstallResult, String> {
+    if argv.first().map(String::as_str) != Some("claude") {
         return Err("Only `claude` invocations are allowed.".to_string());
     }
-    for ch in trimmed.chars() {
-        if matches!(ch, '|' | ';' | '&' | '>' | '<' | '`') {
-            return Err("Command contains disallowed shell metacharacters.".to_string());
-        }
-    }
+    // No shell runs, so ${PWD}/$HOME/%USERPROFILE% can't be expanded downstream.
+    // Resolve the placeholder to the real home dir here, as a single argv element
+    // (so a home path containing spaces stays one argument). Mirrors the prior
+    // behavior, which expanded the filesystem-MCP root to the user's home.
+    let home = local_home().to_string_lossy().into_owned();
+    let resolved: Vec<String> = argv[1..]
+        .iter()
+        .map(|a| match a.as_str() {
+            "${PWD}" | "$HOME" | "%USERPROFILE%" => home.clone(),
+            _ => a.clone(),
+        })
+        .collect();
 
+    // Unix: exec `claude` directly — no shell at all, so there is no
+    // metacharacter / command-chaining surface regardless of the args.
+    // Windows: the Claude CLI is an npm shim (`claude.cmd`), which CreateProcess
+    // (and thus a bare Command::new("claude")) won't resolve — only `.exe`. Route
+    // through `cmd /c claude …` so PATHEXT finds the `.cmd`, passing every token
+    // as a SEPARATE arg rather than one reparsed string. NOTE: std quotes spaces/
+    // quotes but does NOT caret-escape cmd metacharacters (& | < > ^) when the
+    // spawned program is cmd.exe — safe here ONLY because every argv element is
+    // the hard-coded catalog plus a local_home() path (no user-editable input).
+    // If a user-editable MCP arg is ever added, reject cmd metacharacters on this
+    // Windows branch first (the Unix no-shell branch stays safe either way).
     #[cfg(target_os = "windows")]
     let output = silent_command("cmd")
-        .args(["/c", trimmed])
+        .arg("/c")
+        .arg("claude")
+        .args(&resolved)
         .output()
-        .map_err(|e| format!("Failed to spawn cmd: {e}"))?;
+        .map_err(|e| format!("Failed to run claude: {e}"))?;
 
     #[cfg(not(target_os = "windows"))]
-    let output = silent_command("sh")
-        .args(["-c", trimmed])
+    let output = silent_command("claude")
+        .args(&resolved)
         .output()
-        .map_err(|e| format!("Failed to spawn sh: {e}"))?;
+        .map_err(|e| format!("Failed to run claude: {e}"))?;
 
     Ok(McpInstallResult {
         ok: output.status.success(),
