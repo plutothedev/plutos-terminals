@@ -1,0 +1,14 @@
+# (C)
+# Dev-only on Apple Silicon: re-sign the debug binary with a stable self-signed
+# identity ("Pluto Terminals Dev") on every `cargo run` — which is what
+# `tauri dev` uses. cargo ad-hoc-signs arm64 binaries with a fresh cdhash each
+# build, which invalidates the macOS Keychain "Always Allow" grant for the SSH
+# credential vault and re-prompts on every rebuild. A constant signature keeps
+# the grant alive. The runner is a no-op without the identity (other devs / CI),
+# and only applies to this target, so it's safe to commit.
+#
+# `runner` only affects commands that EXECUTE a binary (run/test/bench); it does
+# NOT affect `cargo build` or `cargo check`. Path is relative to the cargo
+# working directory (src-tauri), where `tauri dev` invokes cargo.
+[target.aarch64-apple-darwin]
+runner = "scripts/dev-sign-run.sh"
