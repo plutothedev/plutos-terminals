@@ -197,6 +197,19 @@ pub fn rdp_connect(
     )
     .map_err(|e| format!("connect_finalize (NLA/TLS): {e}"))?;
 
+    // Bound idle reads so the worker loop can observe a disconnect (the ctrl
+    // sender dropped by rdp_disconnect) instead of parking forever in read_pdu
+    // on an idle remote — which leaked the thread + socket + TLS session until
+    // the server happened to send a PDU. Set only AFTER connect_finalize so the
+    // (potentially slow) NLA/TLS handshake reads aren't cut short. Partial
+    // frames are buffered inside Framed, so a mid-PDU timeout loses nothing.
+    tls_framed
+        .get_inner_mut()
+        .0
+        .get_ref()
+        .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+        .map_err(|e| format!("set rdp read timeout: {e}"))?;
+
     let id = new_id();
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<RdpCtrl>();
     let (w, h) = (
@@ -251,6 +264,38 @@ fn emit_rect(
     );
 }
 
+/// Apply any queued input ops to the active session, writing fastpath input
+/// frames back to the server. Returns true if the control channel's sender was
+/// dropped (rdp_disconnect / app exit) → the worker should tear down.
+fn drain_rdp_ctrl<S: Read + Write>(
+    ctrl_rx: &mpsc::Receiver<RdpCtrl>,
+    active: &mut ActiveStage,
+    image: &mut DecodedImage,
+    input_db: &mut ironrdp::input::Database,
+    framed: &mut Framed<S>,
+) -> bool {
+    use ironrdp::session::ActiveStageOutput;
+    let mut ops = Vec::new();
+    loop {
+        match ctrl_rx.try_recv() {
+            Ok(RdpCtrl::Op(op)) => ops.push(op),
+            Err(mpsc::TryRecvError::Empty) => break,
+            Err(mpsc::TryRecvError::Disconnected) => return true,
+        }
+    }
+    if !ops.is_empty() {
+        let events = input_db.apply(ops);
+        if let Ok(out) = active.process_fastpath_input(image, &events) {
+            for o in out {
+                if let ActiveStageOutput::ResponseFrame(frame) = o {
+                    let _ = framed.write_all(&frame);
+                }
+            }
+        }
+    }
+    false
+}
+
 fn rdp_worker<S: Read + Write>(
     mut framed: Framed<S>,
     connection_result: ironrdp::connector::ConnectionResult,
@@ -270,9 +315,31 @@ fn rdp_worker<S: Read + Write>(
     let mut input_db = ironrdp::input::Database::new();
 
     loop {
-        // Read one PDU (blocking).
+        // Read one PDU. The socket has a read timeout (set in rdp_connect), so
+        // an idle remote surfaces as WouldBlock/TimedOut instead of blocking
+        // forever — letting us notice a disconnect and flush queued input.
         let (action, payload) = match framed.read_pdu() {
             Ok(v) => v,
+            Err(ref e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                // Idle tick: no PDU within the timeout. Partial frames are
+                // buffered inside Framed (lossless); service queued input and
+                // notice shutdown, then wait again.
+                if drain_rdp_ctrl(
+                    &ctrl_rx,
+                    &mut active,
+                    &mut image,
+                    &mut input_db,
+                    &mut framed,
+                ) {
+                    break;
+                }
+                continue;
+            }
             Err(_) => break,
         };
         let outputs = match active.process(&mut image, action, &payload) {
@@ -296,27 +363,15 @@ fn rdp_worker<S: Read + Write>(
             break;
         }
 
-        // Apply any queued input between PDUs.
-        let mut ops = Vec::new();
-        loop {
-            match ctrl_rx.try_recv() {
-                Ok(RdpCtrl::Op(op)) => ops.push(op),
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    let _ = app.emit(&format!("rdp-exit://{}", id), ());
-                    return;
-                }
-            }
-        }
-        if !ops.is_empty() {
-            let events = input_db.apply(ops);
-            if let Ok(out) = active.process_fastpath_input(&mut image, &events) {
-                for o in out {
-                    if let ActiveStageOutput::ResponseFrame(frame) = o {
-                        let _ = framed.write_all(&frame);
-                    }
-                }
-            }
+        // Apply any queued input between PDUs; tear down if the ctrl sender dropped.
+        if drain_rdp_ctrl(
+            &ctrl_rx,
+            &mut active,
+            &mut image,
+            &mut input_db,
+            &mut framed,
+        ) {
+            break;
         }
     }
     let _ = app.emit(&format!("rdp-exit://{}", id), ());

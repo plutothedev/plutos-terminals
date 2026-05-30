@@ -17,12 +17,12 @@
 // thread, so every chunk that hits xterm.js is on disk by the time control
 // returns. Tail-truncation keeps the file bounded.
 
-use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
+use std::collections::{HashMap, VecDeque};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -51,7 +51,10 @@ const SCROLLBACK_FILE_KEEP_BYTES: usize = 5_000_000;
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
-    writer: Box<dyn Write + Send>,
+    // Behind its own mutex so the registry lock only guards the map structure,
+    // never the (potentially blocking) write. A backpressured PTY write must
+    // not stall keystrokes/resizes/spawns/kills on every other session.
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
 }
 
 impl Drop for PtySession {
@@ -89,7 +92,9 @@ pub struct SshHandle {
 /// `pty_write`; the reader thread owns a cloned handle and loops on a short read
 /// timeout, checking `alive` so `pty_kill` can stop it promptly.
 pub struct SerialHandle {
-    writer: Box<dyn serialport::SerialPort>,
+    // Behind its own mutex for the same reason as PtySession::writer — keep
+    // blocking serial I/O off the shared registry lock.
+    writer: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
     alive: Arc<AtomicBool>,
 }
 
@@ -107,12 +112,20 @@ pub struct SessionRegistry {
     sessions: Mutex<HashMap<String, Session>>,
 }
 
+/// Monotonic per-process counter, mixed into every session id so two sessions
+/// spawned within the same clock tick (e.g. workspace restore opening many tabs
+/// at once) — or under a coarse/backwards-stepping wall clock — can never
+/// collide on the same id (which would clobber the registry entry and strand a
+/// reader thread emitting to a `pty://{id}` that now belongs to another session).
+static SESSION_SEQ: AtomicU64 = AtomicU64::new(0);
+
 fn new_session_id() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("pty_{:x}", nanos)
+    let seq = SESSION_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("pty_{:x}_{:x}", nanos, seq)
 }
 
 /// On-disk scrollback writer owned by a single PTY reader thread.
@@ -129,22 +142,45 @@ fn new_session_id() -> String {
 /// across the cut. Reset the counter to whatever was kept.
 struct ScrollbackWriter {
     path: PathBuf,
+    // Held open for the session lifetime so high-throughput output (e.g.
+    // `cat largefile`) doesn't pay an open+close syscall on every 4KB chunk.
+    // `None` only between a failed open and the next lazy retry, or while a
+    // tail rewrite swaps the file. write(2) hands bytes to the OS buffer just
+    // as the per-chunk open path did, so hard-process-death durability is
+    // unchanged — only the syscall overhead drops.
+    file: Option<File>,
     bytes_on_disk: u64,
 }
 
 impl ScrollbackWriter {
     /// Create a new writer for a tab. Creates parent dirs eagerly. Seeds
     /// `bytes_on_disk` from any existing file so we don't lose track on a
-    /// pane that was previously persisted.
+    /// pane that was previously persisted, and opens the append handle once.
     fn new(path: PathBuf) -> Self {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
         let bytes_on_disk = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok();
         Self {
             path,
+            file,
             bytes_on_disk,
         }
+    }
+
+    /// (Re)open the append handle against the current file. Used after a tail
+    /// rewrite swapped the inode, or to recover from an earlier open failure.
+    fn reopen(&mut self) {
+        self.file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .ok();
     }
 
     /// Append a chunk. Best-effort: on I/O failure we silently swallow rather
@@ -154,11 +190,12 @@ impl ScrollbackWriter {
         if bytes.is_empty() {
             return;
         }
-        let opened = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path);
-        if let Ok(mut f) = opened {
+        // Self-heal if a prior open/truncate left us without a handle, without
+        // reopening on every chunk in the common (handle-present) path.
+        if self.file.is_none() {
+            self.reopen();
+        }
+        if let Some(f) = self.file.as_mut() {
             if f.write_all(bytes).is_ok() {
                 self.bytes_on_disk = self.bytes_on_disk.saturating_add(bytes.len() as u64);
             }
@@ -172,11 +209,18 @@ impl ScrollbackWriter {
     /// aligned to the first newline after the cut so ANSI escape sequences
     /// don't straddle the boundary. Atomic via write-tmp + rename.
     fn truncate_tail(&mut self) {
+        // Drop the append handle first: the rewrite below replaces the file via
+        // rename, so an open handle would keep appending to the now-unlinked
+        // inode (silently losing all post-truncate output). Reopened against the
+        // new file before returning on every path.
+        self.file = None;
         let Ok(data) = fs::read(&self.path) else {
+            self.reopen();
             return;
         };
         if data.len() <= SCROLLBACK_FILE_KEEP_BYTES {
             self.bytes_on_disk = data.len() as u64;
+            self.reopen();
             return;
         }
         // Initial cut at exactly KEEP bytes from the end.
@@ -194,7 +238,14 @@ impl ScrollbackWriter {
         let tmp_path = self.path.with_extension("txt.tmp");
         if fs::write(&tmp_path, kept).is_ok() && fs::rename(&tmp_path, &self.path).is_ok() {
             self.bytes_on_disk = kept.len() as u64;
+        } else {
+            // Rewrite failed (disk full, permissions, cross-device rename): the
+            // file is unchanged and still over the cap. Sync the counter to the
+            // real on-disk size so we don't re-enter truncate_tail (re-reading
+            // the whole file) on every subsequent append chunk.
+            self.bytes_on_disk = fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
         }
+        self.reopen();
     }
 }
 
@@ -345,7 +396,7 @@ pub fn pty_spawn(
     let session = PtySession {
         master: pair.master,
         child,
-        writer,
+        writer: Arc::new(Mutex::new(writer)),
     };
     state
         .sessions
@@ -400,32 +451,54 @@ pub fn pty_spawn(
     Ok(id)
 }
 
+/// A write destination cloned out of the registry so the actual (potentially
+/// blocking) write runs *after* the registry guard is dropped. SSH writes are
+/// already a non-blocking mpsc send, so they're handled inline under the lock.
+enum WriteTarget {
+    Local(Arc<Mutex<Box<dyn Write + Send>>>),
+    Serial(Arc<Mutex<Box<dyn serialport::SerialPort>>>),
+}
+
 #[tauri::command]
 pub fn pty_write(
     state: State<'_, SessionRegistry>,
     id: String,
     data: String,
 ) -> Result<(), String> {
-    let mut sessions = state
-        .sessions
-        .lock()
-        .map_err(|_| "registry mutex poisoned".to_string())?;
-    match sessions.get_mut(&id).ok_or("session not found")? {
-        Session::Local(s) => {
-            s.writer
-                .write_all(data.as_bytes())
-                .map_err(|e| e.to_string())?;
+    // Short critical section: resolve the session, then either fire the
+    // non-blocking SSH send inline or clone out the writer Arc. The registry
+    // guard drops at the end of this block — BEFORE any blocking I/O — so a
+    // backpressured write to one pane can't stall keystrokes/resizes/kills/
+    // spawns on every other session sharing the registry lock.
+    let target = {
+        let mut sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "registry mutex poisoned".to_string())?;
+        match sessions.get_mut(&id).ok_or("session not found")? {
+            Session::Ssh(h) => {
+                h.writes
+                    .send(data.into_bytes())
+                    .map_err(|_| "ssh session closed".to_string())?;
+                return Ok(());
+            }
+            Session::Local(s) => WriteTarget::Local(s.writer.clone()),
+            Session::Serial(h) => WriteTarget::Serial(h.writer.clone()),
         }
-        Session::Ssh(h) => {
-            h.writes
-                .send(data.into_bytes())
-                .map_err(|_| "ssh session closed".to_string())?;
+        // registry guard dropped here
+    };
+
+    // Blocking I/O outside the registry lock, holding only this session's own
+    // writer mutex (uncontended — the renderer drives one xterm per tab).
+    match target {
+        WriteTarget::Local(w) => {
+            let mut w = w.lock().map_err(|_| "writer mutex poisoned".to_string())?;
+            w.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
         }
-        Session::Serial(h) => {
-            h.writer
-                .write_all(data.as_bytes())
-                .map_err(|e| e.to_string())?;
-            let _ = h.writer.flush();
+        WriteTarget::Serial(w) => {
+            let mut w = w.lock().map_err(|_| "writer mutex poisoned".to_string())?;
+            w.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+            let _ = w.flush();
         }
     }
     Ok(())
@@ -777,15 +850,19 @@ pub fn ssh_spawn(
         // can't strand a live tab on "connecting"; a healthy signal lands in a
         // few ms, well before this fires.
         let _ = ready_rx.recv_timeout(Duration::from_secs(2));
+        // Outbound bytes awaiting the channel's flow-control window. The channel
+        // is non-blocking (set_blocking(false) above), so a write can accept only
+        // part of a buffer when the window is full; the unwritten tail stays here
+        // and is retried next tick. write_all would instead treat that WouldBlock
+        // as fatal and silently drop the tail — truncating large pastes.
+        let mut outbound: VecDeque<u8> = VecDeque::new();
         loop {
-            // 1. Drain writes pushed by pty_write. A disconnected sender means
-            //    the registry entry was dropped (pty_kill / kill_all) → tear down.
+            // 1. Pull queued writes from pty_write into the outbound buffer. A
+            //    disconnected sender means the registry entry was dropped
+            //    (pty_kill / kill_all) → tear down.
             loop {
                 match write_rx.try_recv() {
-                    Ok(data) => {
-                        let _ = channel.write_all(&data);
-                        let _ = channel.flush();
-                    }
+                    Ok(data) => outbound.extend(data),
                     Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
                         let _ = channel.close();
@@ -793,6 +870,24 @@ pub fn ssh_spawn(
                         return;
                     }
                 }
+            }
+            // 1b. Drain the outbound buffer to the channel with flow control.
+            //     When the window is full the write reports WouldBlock; keep the
+            //     unwritten tail and retry next tick (mirrors forward.rs::pump).
+            let had_outbound = !outbound.is_empty();
+            while !outbound.is_empty() {
+                let (front, _) = outbound.as_slices();
+                match channel.write(front) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        outbound.drain(..n);
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(_) => break,
+                }
+            }
+            if had_outbound {
+                let _ = channel.flush();
             }
             // 2. Apply resizes from pty_resize. (Empty/Disconnected → stop here;
             //    kill is handled by the write-channel disconnect above.)
@@ -870,7 +965,7 @@ pub fn serial_spawn(
         .insert(
             id.clone(),
             Session::Serial(SerialHandle {
-                writer: port,
+                writer: Arc::new(Mutex::new(port)),
                 alive: alive.clone(),
             }),
         );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { APP_VERSION, DISCORD_URL, openExternal } from "./appMeta.js";
 import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
@@ -104,14 +104,60 @@ function AppInner() {
   });
   const [unlocked, setUnlocked] = useState(isUnlockedThisSession);
 
-  const save = useCallback((next) => {
-    setSt(next);
+  // Persisting the whole state blob on every interaction (tab click, split-drag
+  // release) means a synchronous JSON.stringify + localStorage write on the main
+  // thread each time. Debounce the write so bursts coalesce; React state stays
+  // synchronous so in-memory consumers never see stale data.
+  const pendingRef = useRef(null);
+  const timerRef = useRef(0);
+  const flushNow = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = 0;
+    }
+    const next = pendingRef.current;
+    if (next == null) return;
+    pendingRef.current = null;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch (err) {
       console.warn("Pluto's Terminals: localStorage write failed", err);
     }
   }, []);
+
+  const save = useCallback(
+    (next) => {
+      setSt(next);
+      pendingRef.current = next;
+      // envOverrides / the legacy anthropicKey are read straight from this blob
+      // at PTY spawn (TerminalPane) — persist those synchronously so a freshly
+      // opened tab can't miss them. Everything else (layout, UI prefs) debounces.
+      if (next.anthropicKey !== st.anthropicKey || next.envOverrides !== st.envOverrides) {
+        flushNow();
+        return;
+      }
+      if (!timerRef.current) timerRef.current = setTimeout(flushNow, 200);
+    },
+    [st.anthropicKey, st.envOverrides, flushNow],
+  );
+
+  // Flush any pending write before the window goes away (hide → tray, close,
+  // reload) so the last interaction survives a relaunch.
+  useEffect(() => {
+    const onHide = () => flushNow();
+    const onVis = () => {
+      if (document.visibilityState === "hidden") flushNow();
+    };
+    window.addEventListener("pagehide", onHide);
+    window.addEventListener("beforeunload", onHide);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("beforeunload", onHide);
+      document.removeEventListener("visibilitychange", onVis);
+      flushNow(); // belt-and-suspenders: persist any pending write on teardown
+    };
+  }, [flushNow]);
 
   const saveUser = useCallback((next) => {
     setUserSt(next);

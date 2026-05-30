@@ -858,6 +858,11 @@ pub struct SystemStats {
 }
 
 static SYS: OnceLock<Mutex<sysinfo::System>> = OnceLock::new();
+// The OS mount table is enumerated once at startup; each poll then re-stats the
+// already-known disks in place. Rebuilding `Disks::new_with_refreshed_list()`
+// every 2.5s re-walked the mount table (steady-state wasted syscalls, and a
+// stale network mount stalls the whole status bar on the OS stat timeout).
+static DISKS: OnceLock<Mutex<sysinfo::Disks>> = OnceLock::new();
 
 #[tauri::command]
 pub fn system_stats() -> SystemStats {
@@ -875,8 +880,6 @@ pub fn system_stats() -> SystemStats {
         Err(_) => (0.0, 0, 0),
     };
 
-    // Disk: prefer the root mount ("/"), else fall back to the first disk.
-    let disks = sysinfo::Disks::new_with_refreshed_list();
     let pct = |total: u64, avail: u64| -> f32 {
         if total == 0 {
             0.0
@@ -884,17 +887,29 @@ pub fn system_stats() -> SystemStats {
             (total.saturating_sub(avail) as f64 / total as f64 * 100.0) as f32
         }
     };
-    let mut disk_used_pct = disks
-        .list()
-        .iter()
-        .find(|d| d.mount_point() == std::path::Path::new("/"))
-        .map(|d| pct(d.total_space(), d.available_space()))
-        .unwrap_or(0.0);
-    if disk_used_pct == 0.0 {
-        if let Some(d) = disks.list().first() {
-            disk_used_pct = pct(d.total_space(), d.available_space());
+
+    // Disk: prefer the root mount ("/"), else fall back to the first disk.
+    // Reuse the cached Disks handle and refresh space figures in place rather
+    // than re-enumerating the mount table on every poll.
+    let disks_mutex = DISKS.get_or_init(|| Mutex::new(sysinfo::Disks::new_with_refreshed_list()));
+    let disk_used_pct = match disks_mutex.lock() {
+        Ok(mut disks) => {
+            disks.refresh(true);
+            let mut p = disks
+                .list()
+                .iter()
+                .find(|d| d.mount_point() == std::path::Path::new("/"))
+                .map(|d| pct(d.total_space(), d.available_space()))
+                .unwrap_or(0.0);
+            if p == 0.0 {
+                if let Some(d) = disks.list().first() {
+                    p = pct(d.total_space(), d.available_space());
+                }
+            }
+            p
         }
-    }
+        Err(_) => 0.0,
+    };
 
     SystemStats {
         cpu,

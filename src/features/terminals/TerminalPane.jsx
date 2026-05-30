@@ -273,6 +273,13 @@ export default function TerminalPane({
   // of the 10KB cost-scan window. Initialized to null; first banner hit
   // locks it in.
   const familyRef = useRef(null);
+  // Coalesces the expensive cost scan (10KB tail + several regexes) to at most
+  // one run per animation frame. A high-throughput burst fires the pty:// listener
+  // hundreds of times/sec; checkCost reads the accumulated scrollback buffer (not
+  // the chunk), so running it once per frame is lossless. checkAutoApprove stays
+  // synchronous — it's cheap and must keep firing even while this window is hidden
+  // (rAF is paused when hidden), which is exactly when auto-approve does its job.
+  const costRafRef = useRef(0);
 
   const setActivity = (next) => {
     if (activityRef.current === next) return;
@@ -770,8 +777,18 @@ export default function TerminalPane({
           appendScrollback(payload);
           appendTranscript(payload);
           recentOutRef.current += payload;
+          // Cheap (2KB + 3 regexes) and safety-relevant — keep synchronous so it
+          // fires on every chunk even while the window is hidden.
           checkAutoApprove(ptyId);
-          checkCost();
+          // Expensive (10KB tail + several regexes) and display-only — coalesce
+          // to at most one scan per frame. Reads accumulated scrollback, so a
+          // burst of N chunks collapses to one scan with no data loss.
+          if (!costRafRef.current) {
+            costRafRef.current = requestAnimationFrame(() => {
+              costRafRef.current = 0;
+              if (alive) checkCost();
+            });
+          }
 
           // Activity tracking: only count when user isn't watching this tab.
           if (visibleRef.current) return;
@@ -1067,6 +1084,10 @@ export default function TerminalPane({
       vis.disconnect();
       ro.disconnect();
       clearDoneTimer();
+      if (costRafRef.current) {
+        cancelAnimationFrame(costRafRef.current);
+        costRafRef.current = 0;
+      }
       if (transcriptTimerRef.current) {
         clearInterval(transcriptTimerRef.current);
         transcriptTimerRef.current = null;

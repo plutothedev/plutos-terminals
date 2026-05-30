@@ -52,7 +52,7 @@ import {
   applyGlobalSkin,
 } from "./headerSkins";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword, getTabPassword, getTabText, getCommandHistory, setBroadcastTargets, getLiveTabIds } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword, getTabPassword, clearTabPassword, getTabText, getCommandHistory, setBroadcastTargets, getLiveTabIds } from "./ptyBridge.js";
 import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
@@ -525,6 +525,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, [state, persist]);
 
   const closePanel = useCallback((panelId) => {
+    // Drop any transient SSH passwords for the tabs leaving with this panel.
+    // Gated on real removal (not pane unmount) so moveTab — which unmounts +
+    // respawns the same tab id in another panel — keeps its password.
+    const closing = state.panels.find(p => p.id === panelId);
+    if (closing) closing.tabs.forEach(t => clearTabPassword(t.id));
     const panels = state.panels.filter(p => p.id !== panelId);
     if (panels.length === 0) {
       const panel = defaultPanel();
@@ -597,6 +602,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       closePanel(panelId);
       return;
     }
+    clearTabPassword(tabId); // tab genuinely leaving; closePanel handles the 1-tab case
     const panels = state.panels.map(p => {
       if (p.id !== panelId) return p;
       const tabs = renumberDefaultLabels(p.tabs.filter(t => t.id !== tabId));
@@ -688,6 +694,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     if (!panel) return;
     const kept = panel.tabs.filter(t => t.id === keepTabId);
     if (kept.length === 0) return;
+    panel.tabs.forEach(t => { if (t.id !== keepTabId) clearTabPassword(t.id); });
     const panels = state.panels.map(p =>
       p.id === panelId ? { ...p, tabs: renumberDefaultLabels(kept), activeTabId: keepTabId } : p
     );
