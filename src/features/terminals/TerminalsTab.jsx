@@ -48,6 +48,7 @@ import { getWindowStorageKey } from "./storageKeys.js";
 import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useDimsListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
 import { useDockResize } from "./hooks/useDockResize.js";
 import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
+import { useSnippets } from "./hooks/useSnippets.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -56,7 +57,6 @@ import {
 } from "./headerSkins";
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, setTabPassword, getTabPassword, clearTabPassword, getTabText, getCommandHistory, getLiveTabIds } from "./ptyBridge.js";
-import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
@@ -176,12 +176,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Right-dock + session-tree sizing/visibility (persisted to localStorage).
   const { dockWidth, dockCollapsed, treeCollapsed, collapseDock, collapseTree, startDockResize } = useDockResize();
 
-  // Persisted user snippets. Seeded from the built-in starter set on first use
-  // so the drawer is never empty; edits/additions/deletes persist in app state.
-  const snippets = Array.isArray(st?.snippets) ? st.snippets : DEFAULT_SNIPPETS;
-  const setSnippets = useCallback((next) => {
-    save({ ...st, snippets: next });
-  }, [st, save]);
+  // Persisted user snippets (seeded from the starter set; written to the
+  // window-independent st.snippets key, not the per-window panel state).
+  const { snippets, setSnippets } = useSnippets(st, save);
 
   // MultiExec broadcast (MobaXterm-style). Transient per-window mode: when on,
   // a keystroke or snippet goes to every visible terminal at once. Not
