@@ -11,6 +11,7 @@ import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
 import { USER_STORAGE_KEY, getWindowStorageKey } from "./storageKeys.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
+import WelcomeOverlay from "./WelcomeOverlay.jsx";
 import { recordInput } from "./macros.js";
 import {
   registerPtyWriter,
@@ -207,6 +208,10 @@ export default function TerminalPane({
   const termRef = useRef(null);
   const searchAddonRef = useRef(null);
   // Find-in-terminal (Cmd/Ctrl+F) overlay state.
+  // Welcome card overlay — shown on a fresh local shell, dismissed on first
+  // keystroke / click. A DOM card (WelcomeOverlay) that reflows on split/resize,
+  // replacing the old printed ANSI box that broke when a split shrank the pane.
+  const [showWelcome, setShowWelcome] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Command blocks (OSC 133): track the block boundaries the shell marks so we
@@ -828,6 +833,7 @@ export default function TerminalPane({
         term.onData((data) => {
           if (!alive || !ptyId) return;
           userHasTypedRef.current = true;
+          setShowWelcome(false); // first keystroke dismisses the welcome card
           recordInput(data); // macro recording (no-op unless armed)
           // Clear the auto-approve match buffer when the user types — they
           // intend to answer the prompt themselves.
@@ -919,101 +925,6 @@ export default function TerminalPane({
           // MobaXterm's prompt.
           const zshPrompt = "PROMPT='%K{2}%F{0} 📅 %D{%d/%m/%Y} %K{6}%F{2}%F{0} 🕐 %* %K{3}%F{6}%F{0} 📁 %~ %k%F{3}%f '";
           const bashPrompt = "PS1='\\[\\e[42;30m\\] 📅 \\D{%d/%m/%Y} \\[\\e[32;46m\\]\\[\\e[30;46m\\] 🕐 \\t \\[\\e[36;43m\\]\\[\\e[30;43m\\] 📁 \\w \\[\\e[0;33m\\]\\[\\e[0m\\] '";
-          // MobaXterm-style welcome box: a white-bordered rectangle on the pure
-          // black terminal, with a cyan title, yellow ► markers, and green ✓
-          // checks. Plain text is padded to a fixed inner width BEFORE color is
-          // layered on so the box edges align across every line. The box is
-          // written to a file (real ESC bytes) and the shell `cat`s it before
-          // the first prompt — clean ordering, and the short `cat` command
-          // avoids the tty canonical line-length limit that truncates a 2.4 KB
-          // inline printf.
-          const E = "\x1b";
-          // Per-segment colour: each line is a list of [text, ansiCode|null]
-          // pairs (+ optional center / hang). The box edges align because the
-          // inner width is measured on the PLAIN text (✓ ✗ · ► are all width 1)
-          // and colour is layered on after. CRUCIALLY the box is sized to the
-          // pane's actual column count and content is word-wrapped, so a narrow
-          // split pane never wraps a line past the border. MobaXterm-style.
-          const BORDER = "1;36";       // cyan box (MobaXterm header vibe)
-          const TITLE_BG = "1;30;46";  // black-on-cyan title bar
-          const wrap = (code, s) => (code ? `${E}[${code}m${s}${E}[0m` : s);
-          const C = (c, t) => [t, c];  // coloured segment
-          const T = (t) => [t, null];  // plain segment
-          const lines = [
-            { center: true, segs: [C(TITLE_BG, "  ✦ Pluto's Terminal ✦  ")] },
-            { center: true, segs: [C("36", "free multi-terminal for the Pluto community")] },
-            { segs: [] },
-            { hang: 2, segs: [C("1;36", "► "), T("Saved sessions live in the "), C("1;33", "Sessions"), T(" panel — SSH · local · serial · RDP/VNC")] },
-            { hang: 2, segs: [C("1;36", "► "), T("Scrollback is "), C("1;32", "persistent"), T(" — every tab is saved and replayed on restart")] },
-            { hang: 2, segs: [C("1;36", "► "), C("1;35", "MultiExec"), T(" broadcasts your typing to every visible terminal at once")] },
-            { hang: 2, segs: [C("1;36", "► "), C("1;36", "Models"), T(": route to any LLM — Claude · GPT · Gemini · GLM · Kimi · 16 providers")] },
-            { hang: 2, segs: [C("1;36", "► "), T("Split panes, drag tabs and pin sessions to shape your workspace")] },
-            { hang: 2, segs: [C("1;36", "► "), T("Tools, snippets and a file browser are one click away in the toolbar")] },
-            { hang: 2, segs: [C("1;36", "► "), T("Command status shows as a symbol   ("), C("1;32", "✓"), T(" ok · "), C("1;31", "✗"), T(" failed)")] },
-            { segs: [] },
-            { hang: 2, segs: [C("1;36", "► "), C("1;31", "Tip!")] },
-            { hang: 6, segs: [T("   Run "), C("1;33", "Claude Code"), T(", Codex and other AI agents side by side — each in")] },
-            { hang: 6, segs: [T("   its own git worktree, on "), C("1;33", "any model"), T(" you pick.")] },
-            { hang: 6, segs: [T("   Press "), C("1;33", "Ctrl+K"), T(" for the command palette, or "), C("1;36", "Home"), T(" to launch.")] },
-            { segs: [] },
-            { hang: 3, segs: [C("1;32", "➜ "), T("Docs: "), C("4;36", "https://github.com/plutothedev/plutos-terminals")] },
-            { hang: 3, segs: [C("1;35", "➜ "), T("Community: "), C("4;35", "https://discord.gg/3cZQVgKF")] },
-          ];
-          const plainLen = (segs) => segs.reduce((n, [t]) => n + t.length, 0);
-          // Fit to the pane: -6 leaves the border (space+│+space ... space+│) and
-          // a 1-col right margin so terminals with a magic margin don't wrap.
-          // Also clamp to a comfortable ABSOLUTE max: the box can't reflow once
-          // printed to scrollback, so an absolute cap keeps it (a) a tidy card
-          // rather than a sprawling banner, (b) the SAME width in every pane no
-          // matter how wide that pane was when it was created — so a tab split
-          // full-width and a pane born already-narrow get identical boxes that
-          // line up, and (c) narrow enough to survive a 2-way split.
-          const BOX_MAX = 60;
-          const paneCols = term.cols || 80;
-          const maxInner = Math.max(...lines.map((l) => plainLen(l.segs)));
-          const W = Math.max(24, Math.min(maxInner, paneCols - 6, BOX_MAX));
-          // Word-wrap coloured segments to width, hang-indenting continuations
-          // and hard-splitting any token longer than a row (e.g. a URL).
-          const wrapLine = (segs, width, hang = 0) => {
-            const rows = [];
-            let cur = [], curLen = 0;
-            const startRow = (withHang) => { cur = []; curLen = 0; if (withHang && hang) { cur.push([" ".repeat(hang), null]); curLen = hang; } };
-            startRow(false);
-            for (const [t, c] of segs) {
-              for (const tok of t.split(/(\s+)/)) {
-                if (tok === "") continue;
-                if (/^\s+$/.test(tok)) {
-                  if (curLen > 0 && curLen + tok.length <= width) { cur.push([tok, c]); curLen += tok.length; }
-                  continue;
-                }
-                let w = tok;
-                while (w.length > width - curLen) {
-                  if (curLen > (hang || 0)) { rows.push(cur); startRow(true); continue; }
-                  const avail = Math.max(1, width - curLen);
-                  cur.push([w.slice(0, avail), c]); curLen += avail; w = w.slice(avail);
-                  rows.push(cur); startRow(true);
-                }
-                if (w.length) { cur.push([w, c]); curLen += w.length; }
-              }
-            }
-            rows.push(cur);
-            return rows;
-          };
-          const box = [" " + wrap(BORDER, "┌" + "─".repeat(W + 2) + "┐")];
-          const pushRow = (rowSegs, center) => {
-            const len = rowSegs.reduce((n, [t]) => n + t.length, 0);
-            const left = center ? Math.max(0, Math.floor((W - len) / 2)) : 0;
-            const right = Math.max(0, W - len - left);
-            const inner = " ".repeat(left) + rowSegs.map(([t, c]) => wrap(c, t)).join("") + " ".repeat(right);
-            box.push(" " + wrap(BORDER, "│") + " " + inner + " " + wrap(BORDER, "│"));
-          };
-          lines.forEach((l) => {
-            if (!l.segs.length) { pushRow([[" ", null]], false); return; }
-            const rows = wrapLine(l.segs, W, l.hang || 0);
-            rows.forEach((rowSegs, idx) => pushRow(rowSegs, l.center && idx === 0));
-          });
-          box.push(" " + wrap(BORDER, "└" + "─".repeat(W + 2) + "┘"));
-          const boxRaw = "\n" + box.join("\n") + "\n\n";
           // OSC 133 shell integration (command blocks): emit a prompt mark (A)
           // and a command-done mark (D;<exit>) so the UI can pair them into
           // blocks and flag failures. zsh via add-zsh-hook precmd; bash by
@@ -1035,27 +946,19 @@ export default function TerminalPane({
             `__pltcmdb(){ case "$BASH_COMMAND" in __plt*|"$PROMPT_COMMAND") return;; esac; printf '\\033]1337;PlutoCmd=%s\\007' "$(printf '%s' "$BASH_COMMAND" | base64 2>/dev/null | tr -d '\\n')"; }; ` +
             `if [ -n "$ZSH_VERSION" ]; then autoload -Uz add-zsh-hook 2>/dev/null; add-zsh-hook preexec __pltcmdz 2>/dev/null; ` +
             `elif [ -n "$BASH_VERSION" ]; then trap '__pltcmdb' DEBUG; fi`;
-          // Fresh tabs: write the box to a file, then `${promptSetup}; clear; cat
-          // '<file>'` — a short command whose output (the box) lands before the
-          // first prompt (clean ordering, box sits above the prompt where ZLE
-          // never touches it). Restored tabs: set prompt then a scrollback-
-          // PRESERVING clear (ESC[2J, not ESC[3J) hides the echoed setup and
-          // keeps history scrollable.
-          // Send the setup (colors + prompt + OSC 133 hooks) and the visual
-          // (clear + welcome box) as TWO separate lines. Combined they'd be
-          // ~930 bytes — close enough to the tty canonical-mode limit
-          // (MAX_CANON ≈ 1024) that the multi-byte prompt emoji could tip it
-          // over and hang the line (the old 2.4 KB-printf bug). The trailing
-          // `clear` wipes the echoed setup line either way.
+          // Send the setup (colors + prompt + OSC 133 hooks) and the history
+          // capture as TWO separate lines, then a `clear` that wipes the echoed
+          // setup. Two lines keep each under the tty canonical-mode limit
+          // (MAX_CANON ≈ 1024) — combined they'd risk the old line-hang bug.
+          // Fresh tabs then show the React welcome card (WelcomeOverlay), which
+          // reflows on split/resize instead of breaking like the old printed box;
+          // restored tabs use a scrollback-PRESERVING clear (ESC[2J) and no card.
           let display;
           if (restored) {
             display = `printf '\\033[2J\\033[H'`;
           } else {
             display = "clear";
-            try {
-              const p = await invoke("write_welcome_file", { content: boxRaw });
-              if (p) display = `clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
-            } catch { /* no file → just clear */ }
+            setShowWelcome(true);
           }
           if (alive && ptyId) {
             try { await invoke("pty_write", { id: ptyId, data: promptSetup + "\r" }); } catch {}
@@ -1185,6 +1088,9 @@ export default function TerminalPane({
       }}
     >
       <div ref={containerRef} style={{ width: "100%", height: "100%", padding: 6, boxSizing: "border-box" }} />
+      {showWelcome && (
+        <WelcomeOverlay onDismiss={() => { setShowWelcome(false); try { termRef.current?.focus(); } catch { /* ignore */ } }} />
+      )}
       {searchOpen && (
         <div
           style={{
