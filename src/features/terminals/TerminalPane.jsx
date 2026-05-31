@@ -912,13 +912,17 @@ export default function TerminalPane({
           // + a few quality-of-life aliases. (Kept short so the welcome init fits
           // comfortably in one shell line alongside the big welcome box.)
           const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah'; alias la='ls -laGh';";
-          // MobaXterm v12.4 segmented prompt: green 📅 date  cyan 🕐 time
-          // yellow 📁 path, joined by powerline  arrows (rendered via the
-          // bundled MesloLGS NF font). Each  carries fg = the colour it comes
-          // from, bg = the colour it goes to, so the segments blend like
-          // MobaXterm's prompt.
-          const zshPrompt = "PROMPT='%K{2}%F{0} 📅 %D{%d/%m/%Y} %K{6}%F{2}%F{0} 🕐 %* %K{3}%F{6}%F{0} 📁 %~ %k%F{3}%f '";
-          const bashPrompt = "PS1='\\[\\e[42;30m\\] 📅 \\D{%d/%m/%Y} \\[\\e[32;46m\\]\\[\\e[30;46m\\] 🕐 \\t \\[\\e[36;43m\\]\\[\\e[30;43m\\] 📁 \\w \\[\\e[0;33m\\]\\[\\e[0m\\] '";
+          // MobaXterm v12.4 segmented prompt: green  date  cyan  time
+          // yellow  path, joined by powerline  arrows. Icons are Nerd-Font
+          // glyphs from the bundled MesloLGS NF (calendar , clock ,
+          // folder ) — NOT color emoji: emoji fall back to Apple Color
+          // Emoji, which renders taller/wider than the text cell and gets clipped
+          // by the segment edges. Nerd glyphs are single-cell and monochrome
+          // (they take the segment's fg colour), so they sit cleanly like the
+          // powerline arrows. Each  carries fg = the colour it comes from,
+          // bg = the colour it goes to, so the segments blend like MobaXterm's.
+          const zshPrompt = "PROMPT='%K{2}%F{0}  %D{%d/%m/%Y} %K{6}%F{2}%F{0}  %* %K{3}%F{6}%F{0}  %~ %k%F{3}%f '";
+          const bashPrompt = "PS1='\\[\\e[42;30m\\]  \\D{%d/%m/%Y} \\[\\e[32;46m\\]\\[\\e[30;46m\\]  \\t \\[\\e[36;43m\\]\\[\\e[30;43m\\]  \\w \\[\\e[0;33m\\]\\[\\e[0m\\] '";
           // MobaXterm-style welcome box: a white-bordered rectangle on the pure
           // black terminal, with a cyan title, yellow ► markers, and green ✓
           // checks. Plain text is padded to a fixed inner width BEFORE color is
