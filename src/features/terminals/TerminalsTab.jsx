@@ -51,6 +51,7 @@ import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { useSnippets } from "./hooks/useSnippets.js";
 import { useActiveTab } from "./hooks/useActiveTab.js";
 import { useSimpleModals } from "./hooks/useSimpleModals.js";
+import { useTunnels } from "./hooks/useTunnels.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -59,14 +60,9 @@ import {
 } from "./headerSkins";
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, setTabPassword, getTabPassword, clearTabPassword, getTabText, getCommandHistory, getLiveTabIds } from "./ptyBridge.js";
+import { sshAccount } from "./sshAccount.js";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
-
-// Keychain account key for an SSH connection's saved password (vault.rs keys
-// under a fixed service; this is the per-host/user account).
-function sshAccount(conn) {
-  return `${conn.user}@${conn.host}:${conn.port || 22}`;
-}
 
 // Green / amber / red for a 0..100 load gauge (CPU, disk) in the status bar.
 function loadColor(pct) {
@@ -1244,88 +1240,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, [activeTabId, broadcast, toast]);
 
   // ── SSH port forwarding (tunnels) ───────────────────────────────────────
-  const [tunnelsOpen, setTunnelsOpen] = useState(false);
-  const [forwards, setForwards] = useState([]); // { id, localPort, remoteHost, remotePort } (transient)
-  const [tunnelBusy, setTunnelBusy] = useState(false);
-  const [tunnelError, setTunnelError] = useState(null);
-
-  const openTunnels = useCallback(() => {
-    const conn = activeTab?.connection;
-    if (!conn?.host || !conn?.user) {
-      toast.info("Open an SSH session first — tunnels forward ports through it.");
-      return;
-    }
-    setTunnelError(null);
-    setTunnelsOpen(true);
-  }, [activeTab, toast]);
-
-  const startForward = useCallback(async ({ localPort, remoteHost, remotePort }) => {
-    const conn = activeTab?.connection;
-    if (!conn) return;
-    setTunnelBusy(true);
-    setTunnelError(null);
-    try {
-      const method = conn.auth?.method || "password";
-      let password = null;
-      if (method === "password") {
-        password = getTabPassword(activeTabId);
-        if (!password) { try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ } }
-        if (!password) {
-          setTunnelError("No password for this session — reopen the SSH tab first.");
-          return;
-        }
-      }
-      const id = await invoke("port_forward_start", {
-        host: conn.host,
-        port: conn.port || 22,
-        user: conn.user,
-        auth: { ...conn.auth, password },
-        localPort,
-        remoteHost,
-        remotePort,
-      });
-      setForwards((f) => [...f, { id, localPort, remoteHost, remotePort }]);
-      toast.success(`Forwarding 127.0.0.1:${localPort} → ${remoteHost}:${remotePort}`);
-    } catch (e) {
-      setTunnelError(String(e));
-    } finally {
-      setTunnelBusy(false);
-    }
-  }, [activeTab, activeTabId, toast]);
-
-  const startSocks = useCallback(async ({ localPort }) => {
-    const conn = activeTab?.connection;
-    if (!conn) return;
-    setTunnelBusy(true);
-    setTunnelError(null);
-    try {
-      const method = conn.auth?.method || "password";
-      let password = null;
-      if (method === "password") {
-        password = getTabPassword(activeTabId);
-        if (!password) { try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ } }
-        if (!password) {
-          setTunnelError("No password for this session — reopen the SSH tab first.");
-          return;
-        }
-      }
-      const id = await invoke("socks_forward_start", {
-        host: conn.host, port: conn.port || 22, user: conn.user,
-        auth: { ...conn.auth, password }, localPort,
-      });
-      setForwards((f) => [...f, { id, localPort, socks: true }]);
-      toast.success(`SOCKS5 proxy on 127.0.0.1:${localPort} → through ${conn.host}`);
-    } catch (e) {
-      setTunnelError(String(e));
-    } finally {
-      setTunnelBusy(false);
-    }
-  }, [activeTab, activeTabId, toast]);
-
-  const stopForward = useCallback(async (id) => {
-    try { await invoke("port_forward_stop", { id }); } catch { /* ignore */ }
-    setForwards((f) => f.filter((x) => x.id !== id));
-  }, []);
+  const { tunnelsOpen, setTunnelsOpen, forwards, tunnelBusy, tunnelError, openTunnels, startForward, startSocks, stopForward } = useTunnels({ activeTab, activeTabId, toast });
 
   // ── Serial console ──────────────────────────────────────────────────────
   const connectSerial = useCallback(({ path, baud }) => {
