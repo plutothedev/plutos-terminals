@@ -14,6 +14,7 @@ mod rdp;
 mod session;
 mod sftp;
 mod sshconfig;
+mod sysstats;
 mod vault;
 mod vncclient;
 
@@ -127,7 +128,7 @@ pub fn run() {
             commands::git_diff,
             commands::gh_pr_create,
             commands::notify,
-            commands::system_stats,
+            sysstats::system_stats,
             commands::list_directory,
             llm::llm_complete,
             sshconfig::parse_ssh_config,
