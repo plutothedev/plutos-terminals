@@ -7,11 +7,13 @@
 
 mod commands;
 mod forward;
+mod llm;
 mod netools;
 mod pty;
 mod rdp;
 mod session;
 mod sftp;
+mod sshconfig;
 mod vault;
 mod vncclient;
 
@@ -127,10 +129,10 @@ pub fn run() {
             commands::notify,
             commands::system_stats,
             commands::list_directory,
-            commands::llm_complete,
-            commands::parse_ssh_config,
-            commands::ssh_keys_list,
-            commands::ssh_key_generate,
+            llm::llm_complete,
+            sshconfig::parse_ssh_config,
+            sshconfig::ssh_keys_list,
+            sshconfig::ssh_key_generate,
             netools::net_ping,
             netools::net_traceroute,
             netools::net_port_scan,
