@@ -50,3 +50,12 @@ native-tls = "0.2"
 x509-cert = { version = "0.2", features = ["pem"] }
 # CredSSP NetworkClient trait (matches the version IronRDP uses).
 sspi = "0.18"
+
+# Phone/web companion — local HTTP + WebSocket server (Tailscale-reachable) for
+# the remote-control feature. axum (ws) serves the built frontend + the control
+# socket; tokio is the runtime (already pulled transitively); rand mints the
+# device/pairing tokens. See companion.rs + docs/phone-companion-design.md.
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }
+rand = "0.8"

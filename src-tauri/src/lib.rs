@@ -6,6 +6,7 @@
 // RunEvent::ExitRequested → kill_all() so no shell children orphan.
 
 mod commands;
+mod companion;
 mod forward;
 mod llm;
 mod netools;
@@ -30,6 +31,7 @@ pub fn run() {
         .manage(forward::ForwardRegistry::default())
         .manage(vncclient::VncRegistry::default())
         .manage(rdp::RdpRegistry::default())
+        .manage(companion::CompanionState::default())
         .setup(|app| {
             // Ensure the data directory exists for store + scrollback.
             let data_dir = commands::get_data_dir(app.handle());
@@ -174,6 +176,9 @@ pub fn run() {
             rdp::rdp_pointer,
             rdp::rdp_key,
             rdp::rdp_disconnect,
+            companion::companion_start,
+            companion::companion_stop,
+            companion::companion_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pluto's Terminals")
