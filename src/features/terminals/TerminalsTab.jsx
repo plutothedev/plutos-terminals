@@ -45,15 +45,15 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { gridDims, MAX_PANELS } from "./grid";
 import { getWindowStorageKey } from "./storageKeys.js";
+import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useDimsListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
   getSkinXtermTheme,
-  injectHeaderSkinsCss,
   applyGlobalSkin,
 } from "./headerSkins";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, onDimsChange, setBroadcast, setTabPassword, getTabPassword, clearTabPassword, getTabText, getCommandHistory, setBroadcastTargets, getLiveTabIds } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, setBroadcast, setTabPassword, getTabPassword, clearTabPassword, getTabText, getCommandHistory, setBroadcastTargets, getLiveTabIds } from "./ptyBridge.js";
 import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
@@ -244,28 +244,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, []);
 
   // Re-render the status bar when the active terminal's dimensions change.
-  const [, bumpDims] = useState(0);
-  useEffect(() => onDimsChange(() => bumpDims((v) => v + 1)), []);
+  useDimsListener();
 
-  // Recording state — subscribe to recording-module changes so the status
-  // bar indicator + command palette labels update when start/stop fires.
-  // Also tracks cap-hit (v0.1.22) — long recordings auto-stop appending
-  // events at MAX_EVENTS to bound memory growth.
-  const [recordingTabIds, setRecordingTabIds] = useState(() => recording.activeTabIds());
-  const [recordingCapHit, setRecordingCapHit] = useState(() => recording.anyCapped());
-  useEffect(() => {
-    const unsubscribe = recording.onChange(() => {
-      setRecordingTabIds(recording.activeTabIds());
-      setRecordingCapHit(recording.anyCapped());
-    });
-    return unsubscribe;
-  }, []);
-
+  // Recording state for the status-bar indicator + command-palette labels
+  // (recordingCapHit = MAX_EVENTS auto-stop reached).
+  const { recordingTabIds, recordingCapHit } = useRecordingState();
 
   // Inject header-skin CSS once. Idempotent inside injectHeaderSkinsCss.
-  useEffect(() => {
-    injectHeaderSkinsCss();
-  }, []);
+  useHeaderSkinSetup();
 
   // Session-restore confirmation toast — fires once per app launch (not per
   // React remount) when there's a non-trivial saved state to restore.
@@ -368,39 +354,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     [headerSkinId, pureBlackTerminal]
   );
 
-  // Shell name (basename of the shell new tabs spawn) — fetched once, shown in
-  // the status bar so users can see which shell they're in.
-  const [shellName, setShellName] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    invoke("default_shell")
-      .then((s) => { if (!cancelled && typeof s === "string") setShellName(s); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
+  // Shell name (basename of the shell new tabs spawn) — shown in the status bar.
+  const shellName = useShellName();
 
-  // Live system stats (CPU / memory / disk) for the MobaXterm status bar.
-  // Polled every ~2.5s; CPU is a real delta because the backend keeps a
-  // persistent System handle.
-  const [sysStats, setSysStats] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    const poll = () => invoke("system_stats").then((s) => { if (alive) setSysStats(s); }).catch(() => {});
-    poll();
-    const t = setInterval(poll, 2500);
-    return () => { alive = false; clearInterval(t); };
-  }, []);
+  // Live system stats (CPU / memory / disk) for the status bar (polled ~2.5s).
+  const sysStats = useSystemStats();
 
-  // Claude CLI availability — checked once on mount, surfaced in the status
-  // bar. Doesn't gate behavior; just informs.
-  const [claudeAvailable, setClaudeAvailable] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    invoke("check_command_version", { name: "claude" })
-      .then((v) => { if (!cancelled) setClaudeAvailable(!!v); })
-      .catch(() => { if (!cancelled) setClaudeAvailable(false); });
-    return () => { cancelled = true; };
-  }, []);
+  // Claude CLI availability — checked once on mount, surfaced in the status bar.
+  const claudeAvailable = useClaudeAvailable();
 
   // First-launch auto-detect: if user has never seen the setup checker AND
   // `claude` isn't on PATH, auto-open the modal so they don't type `claude`
