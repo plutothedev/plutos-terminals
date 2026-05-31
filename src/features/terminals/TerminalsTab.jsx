@@ -1821,18 +1821,18 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               tabAutoApprove={tabAutoApprove}
               tabProjectNames={tabProjectNames}
               homeApi={homeApi}
-              onActivate={() => setActivePanel(panel.id)}
-              onAddTab={() => addTab(panel.id)}
-              onCloseTab={(tabId) => closeTab(panel.id, tabId)}
-              onSwitchTab={(tabId) => switchTab(panel.id, tabId)}
-              onClosePanel={() => closePanel(panel.id)}
+              onActivate={setActivePanel}
+              onAddTab={addTab}
+              onCloseTab={closeTab}
+              onSwitchTab={switchTab}
+              onClosePanel={closePanel}
               onTabActivityChange={handleTabActivityChange}
               onTabCostUpdate={handleTabCostUpdate}
               onRenameTab={renameTab}
               onSetTabColor={setTabColor}
-              onDuplicateTab={(tabId) => duplicateTab(panel.id, tabId)}
-              onDetachTab={(tabId) => detachTab(panel.id, tabId)}
-              onCloseOthers={(tabId) => closeOtherTabs(panel.id, tabId)}
+              onDuplicateTab={duplicateTab}
+              onDetachTab={detachTab}
+              onCloseOthers={closeOtherTabs}
               onMoveTab={moveTab}
               onSplitPane={splitPane}
               onClosePane={closePane}

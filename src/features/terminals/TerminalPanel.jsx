@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import TerminalPane from "./TerminalPane";
 import VncView from "./VncView";
 import RdpView from "./RdpView";
@@ -106,7 +106,7 @@ function computeLayout(node, dragRatios, rect = { left: 0, top: 0, width: 100, h
   };
 }
 
-export default function TerminalPanel({
+function TerminalPanel({
   panel,
   isActive,
   canClosePanel,
@@ -133,6 +133,22 @@ export default function TerminalPanel({
   onActivatePane,
   onSetPaneRatio,
 }) {
+  // Bind this panel's id onto the parent's stable (panelId-first) callbacks so
+  // the parent passes stable references and React.memo (below) can skip
+  // re-rendering this panel when unrelated TerminalsTab state changes (the 2.5s
+  // sysStats poll, modal toggles, dock resize, …). Re-renders still happen when
+  // the panel object, activity/cost, or theme actually change.
+  const h = useMemo(() => ({
+    activate: () => onActivate(panel.id),
+    addTab: () => onAddTab(panel.id),
+    closeTab: (tabId) => onCloseTab(panel.id, tabId),
+    switchTab: (tabId) => onSwitchTab(panel.id, tabId),
+    closePanel: () => onClosePanel(panel.id),
+    duplicate: (tabId) => onDuplicateTab(panel.id, tabId),
+    detach: (tabId) => onDetachTab(panel.id, tabId),
+    closeOthers: (tabId) => onCloseOthers(panel.id, tabId),
+  }), [panel.id, onActivate, onAddTab, onCloseTab, onSwitchTab, onClosePanel, onDuplicateTab, onDetachTab, onCloseOthers]);
+
   const activeTab = panel.tabs.find(t => t.id === panel.activeTabId) || panel.tabs[0];
   const panelState = aggregatePanelActivity(panel, tabActivities);
 
@@ -292,7 +308,7 @@ export default function TerminalPanel({
   return (
     <div
       data-panel-id={panel.id}
-      onMouseDown={onActivate}
+      onMouseDown={h.activate}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -337,7 +353,7 @@ export default function TerminalPanel({
                 key={tab.id}
                 className={active ? "moba-tab active" : "moba-tab"}
                 onMouseDown={(e) => { handleTabMouseDown(tab, e); }}
-                onClick={(e) => { e.stopPropagation(); if (!isRenamingThis) onSwitchTab(tab.id); }}
+                onClick={(e) => { e.stopPropagation(); if (!isRenamingThis) h.switchTab(tab.id); }}
                 onDoubleClick={(e) => { e.stopPropagation(); startRename(tab); }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setTabCtxMenu({ x: e.clientX, y: e.clientY, tabId: tab.id }); }}
                 onMouseEnter={() => setHoverTabId(tab.id)}
@@ -398,7 +414,7 @@ export default function TerminalPanel({
                 {panel.tabs.length > 1 && !isRenamingThis && (
                   <span
                     className="moba-tab-x"
-                    onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
+                    onClick={(e) => { e.stopPropagation(); h.closeTab(tab.id); }}
                     onMouseEnter={(e) => { e.currentTarget.style.color = "#f44"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.color = ""; }}
                   >
@@ -409,7 +425,7 @@ export default function TerminalPanel({
             );
           })}
           <div
-            onClick={(e) => { e.stopPropagation(); onAddTab(); }}
+            onClick={(e) => { e.stopPropagation(); h.addTab(); }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -440,7 +456,7 @@ export default function TerminalPanel({
         )}
         {canClosePanel && (
           <div
-            onClick={(e) => { e.stopPropagation(); onClosePanel(); }}
+            onClick={(e) => { e.stopPropagation(); h.closePanel(); }}
             style={{
               padding: "4px 8px",
               cursor: "pointer",
@@ -646,12 +662,12 @@ export default function TerminalPanel({
                   ))}
                 </div>
               )}
-              {item("Duplicate", () => onDuplicateTab?.(tab.id))}
-              {onDetachTab && !tab.home && item("Detach to new window", () => onDetachTab(tab.id))}
+              {item("Duplicate", () => h.duplicate(tab.id))}
+              {onDetachTab && !tab.home && item("Detach to new window", () => h.detach(tab.id))}
               {onSplitPane && item("Split right", () => onSplitPane(tab.id, tab.activePaneId || tab.id, "row"))}
               <div style={{ height: 1, background: BORDER_DIM, margin: "4px 0" }} />
-              {item("Close others", () => onCloseOthers?.(tab.id), { disabled: !multi })}
-              {item("Close", () => onCloseTab?.(tab.id), { disabled: !multi, danger: true })}
+              {item("Close others", () => h.closeOthers(tab.id), { disabled: !multi })}
+              {item("Close", () => h.closeTab(tab.id), { disabled: !multi, danger: true })}
             </div>
           </>
         );
@@ -659,3 +675,10 @@ export default function TerminalPanel({
     </div>
   );
 }
+
+// Memoized so a TerminalsTab re-render that doesn't change THIS panel's props
+// (e.g. the 2.5s sysStats poll, a modal toggle, dock resize) skips re-rendering
+// the panel + its xterm panes. All props are stable refs (panelId-bound
+// callbacks via the `h` map; data props are useMemo/useState/primitives), so
+// the default shallow compare correctly re-renders only on real panel changes.
+export default memo(TerminalPanel);
