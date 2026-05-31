@@ -9,6 +9,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <meta name="color-scheme" content="dark" />
   <title>Pluto Remote</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0b0d0f" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-title" content="Pluto" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
   <style>
     :root { --bg:#0b0d0f; --bar:#15181c; --line:#262b31; --cy:#3FC7C7; --fg:#cfd6dd; --dim:#6b7480; }
@@ -227,6 +233,7 @@
       status("connected", "ok");
       // Learn the desktop shell so "cd here" quotes correctly (PowerShell vs POSIX).
       try { const sh = await rpc("default_shell"); shellKind = /powershell|pwsh/i.test(sh) ? "pwsh" : /cmd(\.exe)?$/i.test(sh) ? "cmd" : "posix"; } catch {}
+      registerPush(); // Phase 5: subscribe for push-when-closed (HTTPS only)
       try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
       await loadSessions();
       if (!sessions.length) { status("no sessions on desktop", "err"); return; }
@@ -248,6 +255,33 @@
         if (fresh) { status("connected", "ok"); openSession(fresh); return; }
       }
       status("connected", "ok");
+    }
+
+    // ── Web Push (Phase 5) ──────────────────────────────────────────────────────
+    // Over HTTPS (Tailscale Serve fronts TLS), register the service worker and
+    // subscribe so the desktop can ping this phone when a command finishes with the
+    // tab closed. Best-effort: needs a secure context + the user granting permission.
+    function urlB64ToUint8Array(b64) {
+      const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+      const s = (b64 + pad).replace(/-/g, "+").replace(/_/g, "/");
+      return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+    }
+    async function registerPush() {
+      try {
+        if (location.protocol !== "https:") return;           // push needs a secure context
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+        const reg = await navigator.serviceWorker.register("/sw.js");
+        if (window.Notification && Notification.permission === "default") await Notification.requestPermission();
+        if (!window.Notification || Notification.permission !== "granted") return;
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          const pubKey = await rpc("vapid_public_key");
+          if (!pubKey) return;
+          sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(pubKey) });
+        }
+        await rpc("push_subscribe", { subscription: sub.toJSON() });
+        status("push on", "ok");
+      } catch { /* push is best-effort */ }
     }
 
     let backoff = 1000, failsBeforeReady = 0;

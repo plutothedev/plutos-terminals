@@ -105,29 +105,41 @@ per-device revoke. The current model is the single shared token described above.
 | **2 — Multi-session + notify** | session list, switch sessions, command-finished alerts (OSC-133), reconnect/resilience. | ✅ **Done.** Subscribes to every session; per-tab activity badges; OSC-133 `133;D` → browser notification (silent on bare prompt redraws); reconnect re-arms subs. |
 | **3 — Create sessions** | start local / SSH sessions from the phone. | ✅ **Done (local).** "＋" → `new_session` → desktop `addTab` → new shell appears in the list (verified 13→14). SSH-from-phone deferred (needs an interactive credential prompt). |
 | **4 — File browser + rest** | SFTP / local browser, snippets, models, etc. → **full parity**. | ✅ **File browser done** (read-only `list_directory`, navigate, "cd here"). 🔨 **Snippets + model picker built** (pending `cargo build` + on-device verify): snippets pushed from the desktop → tap to insert into the active session (`{{var}}` fill); model picker pushes the catalog + active selection with **`hasKey` only — API keys never leave the desktop** → picking sets `activeModel` for the next-spawned shell. Other dialogs remain incremental: one allow-list entry + a small panel each. |
-| **5 (opt) — push when closed** | Tailscale HTTPS cert + service worker + web push for "build done" when the tab is closed. | ⏸ **Blocked on HTTPS** (see below). |
+| **5 (opt) — push when closed** | Tailscale HTTPS + service worker + web push for "build done" when the tab is closed. | 🔨 **Built (pending on-device verify).** HTTPS via `tailscale serve` (loopback bind); PWA manifest + `sw.js`; VAPID web-push (keys in the OS keychain); the desktop "agent finished" hook → `companion_notify_finish` → push when no phone is connected. cargo + vite green; needs a real phone to confirm the push round-trip. |
 
-### Phase 5 prerequisites (why it isn't built yet)
+### Phase 5 — as built (push-when-closed)
 
-Service workers and the Web Push API both require a **secure context (HTTPS)** —
-they do not register over plain `http://` except on `localhost`. The companion
-currently serves `http://<tailnet-ip>:8390`, so the whole phase is gated on TLS:
+Built once tailnet HTTPS was enabled; **compile-verified (cargo + vite), pending
+on-device confirmation** of the push round-trip. How it maps to the original
+prerequisites:
 
-1. **HTTPS over the tailnet** — `tailscale cert <magicdns-name>` (requires
-   Tailscale running with HTTPS/MagicDNS enabled on the tailnet) → serve the
-   companion with that cert (axum + `axum-server`/rustls), or front it with
-   `tailscale serve`.
-2. **Service worker** (`/sw.js`) + a web-app manifest (installable PWA).
-3. **Web Push** — generate VAPID keys (server), the page subscribes
-   (`pushManager.subscribe`), the server stores the subscription and sends pushes
-   via a `web-push` crate.
-4. **Server-side command-finish detection** — move the OSC-133 `133;D` scan into
-   the Rust event relay (it's client-side today) so the server can push even when
-   the tab is closed.
+1. **HTTPS** — the companion now binds `127.0.0.1:8390` and is fronted by
+   **`tailscale serve --bg 8390`**, which terminates TLS on the MagicDNS name and
+   auto-provisions/renews the cert. The QR/URL becomes `https://<magicdns>/#<token>`.
+   This also removes the old all-interfaces (`0.0.0.0`) exposure. Serve is left
+   configured on stop (`tailscale serve reset` removes it).
+2. **PWA** — `companion-web/manifest.webmanifest` + `companion-web/sw.js`, served
+   at root scope via `include_str!`'d routes; install `<meta>` tags in the page.
+3. **Web Push (VAPID)** — a P-256 keypair is generated on first use and stored in
+   the **OS keychain** (never on disk). New WS RPCs `vapid_public_key` (the page's
+   `applicationServerKey`) and `push_subscribe` (stores the browser subscription,
+   also keychained). Sends go through the `web-push` crate (`hyper-client`).
+4. **Command-finish detection — reuses the desktop's existing detector** instead of
+   a new server-side scan: the desktop already fires a "done" cue + OS notification
+   on the agent active→done transition (`TerminalPane.jsx`); that hook now also
+   calls `companion_notify_finish`, which web-pushes **only when no phone WS is
+   connected** (`ws_count == 0`) and a subscription exists. The desktop is always
+   alive, so this satisfies "push when the phone tab is closed" without a fragile
+   per-session relay scanner. (Deviates from the literal "move the scan into the
+   Rust relay" wording, same goal.)
 
-This needs real-device + cert testing (a browser, a push service, a provisioned
-tailnet cert) that wasn't available in the build environment, so it's left as a
-clean follow-on rather than shipped unverified.
+**Deferred:** vendoring xterm same-origin (it still loads from a CDN — fine for
+push, but a true offline PWA + the supply-chain hardening want it self-hosted).
+
+**On-device verification (TODO):** open `https://<magicdns>/` on the phone over the
+tailnet, grant notifications (iOS: *Add to Home Screen* first — Web Push needs an
+installed PWA), background/close the tab, trigger a long agent/command finish on
+the desktop while away, and confirm the push arrives.
 
 ## Protocol sketch (Phase 1)
 

@@ -62,3 +62,10 @@ rand = "0.8"
 # Split the WebSocket into independent read/write halves (concurrent RPC replies +
 # event relay) — already pulled transitively, named here so it's a stable dep.
 futures-util = "0.3"
+# Phase 5 (push-when-closed): Web Push with VAPID. hyper-client = tokio-native
+# client (default isahc pulls libcurl — avoid). p256 generates the VAPID EC
+# keypair; base64 (url-safe) encodes the scalar/public point for from_base64 +
+# the browser applicationServerKey. Keys live in the OS keychain (vault.rs).
+web-push = { version = "0.11", default-features = false, features = ["hyper-client"] }
+p256 = "0.13"
+base64 = "0.22"

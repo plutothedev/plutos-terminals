@@ -296,6 +296,12 @@ export default function TerminalPane({
     if (prev === "active" && next === "done" && isAway()) {
       try { playDoneCue(); } catch {}
       notifyOS("Agent finished ✓", projectNameRef.current ? `${projectNameRef.current} is done` : "A session finished");
+      // Phone companion (Phase 5): push a "finished" alert when no phone is actively
+      // connected (the companion no-ops if its server is off / a phone is viewing /
+      // no push subscription). Primary window only, to avoid duplicate pushes.
+      if (!new URLSearchParams(window.location.search).get("w")) {
+        invoke("companion_notify_finish", { label: projectNameRef.current || "session", exit: 0 }).catch(() => {});
+      }
     }
   };
   const clearDoneTimer = () => {

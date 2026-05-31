@@ -1,0 +1,11 @@
+{
+  "name": "Pluto Remote",
+  "short_name": "Pluto",
+  "description": "Remote control for Pluto's Terminals — view, type, and get pinged when a command finishes.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0d0f",
+  "theme_color": "#0b0d0f"
+}

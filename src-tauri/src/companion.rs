@@ -16,13 +16,16 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::http::header;
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::Router;
+use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use tauri::{Emitter, Listener, Manager};
@@ -65,6 +68,127 @@ fn best_host() -> String {
     "localhost".to_string()
 }
 
+// ── Phase 5: HTTPS (Tailscale Serve) + Web Push ──────────────────────────────
+
+/// The device's MagicDNS name (e.g. `host.tailnet.ts.net`), trailing dot trimmed.
+/// `None` when Tailscale isn't up / MagicDNS is off. Used for the `https://` URL
+/// once `tailscale serve` fronts TLS.
+fn magic_dns_name() -> Option<String> {
+    let out = std::process::Command::new("tailscale")
+        .args(["status", "--json"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let name = v
+        .get("Self")?
+        .get("DNSName")?
+        .as_str()?
+        .trim_end_matches('.')
+        .trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// Front the loopback companion with Tailscale Serve so the phone reaches it over
+/// HTTPS — a secure context, required for the service worker + Web Push. Tailscale
+/// auto-provisions and renews the MagicDNS cert. Idempotent; best-effort (logs on
+/// failure). Left configured on stop (it just proxies to a closed port until the
+/// next start; `tailscale serve reset` removes it).
+fn ensure_serve(port: u16) {
+    match std::process::Command::new("tailscale")
+        .args(["serve", "--bg", &port.to_string()])
+        .output()
+    {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => log::warn!(
+            "companion: `tailscale serve` failed: {}",
+            String::from_utf8_lossy(&o.stderr).trim()
+        ),
+        Err(e) => log::warn!("companion: couldn't run `tailscale serve`: {e}"),
+    }
+}
+
+const KEYCHAIN_SERVICE: &str = "com.plutothedev.terminals.companion";
+
+fn kr_get(account: &str) -> Option<String> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, account)
+        .ok()?
+        .get_password()
+        .ok()
+}
+
+fn kr_set(account: &str, val: &str) -> Result<(), String> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, account)
+        .map_err(|e| e.to_string())?
+        .set_password(val)
+        .map_err(|e| e.to_string())
+}
+
+/// Get-or-generate the VAPID keypair, persisted in the OS keychain (never on
+/// disk plaintext). Returns `(private_b64url, public_b64url)`: the public key is
+/// the uncompressed P-256 point the browser uses as `applicationServerKey`; the
+/// private key is the raw 32-byte scalar `web-push` signs the JWT with.
+fn ensure_vapid() -> Result<(String, String), String> {
+    if let (Some(priv_b64), Some(pub_b64)) = (kr_get("vapid_private"), kr_get("vapid_public")) {
+        return Ok((priv_b64, pub_b64));
+    }
+    use p256::elliptic_curve::sec1::ToEncodedPoint;
+    let secret = p256::SecretKey::random(&mut rand::rngs::OsRng);
+    let priv_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret.to_bytes());
+    let point = secret.public_key().to_encoded_point(false);
+    let pub_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(point.as_bytes());
+    kr_set("vapid_private", &priv_b64)?;
+    kr_set("vapid_public", &pub_b64)?;
+    Ok((priv_b64, pub_b64))
+}
+
+/// Append a browser PushSubscription (its `toJSON()` shape) to the stored set,
+/// deduped by endpoint. Stored in the keychain alongside the VAPID keys.
+fn store_subscription(sub_json: &str) -> Result<(), String> {
+    let incoming: serde_json::Value =
+        serde_json::from_str(sub_json).map_err(|e| e.to_string())?;
+    let endpoint = incoming.get("endpoint").and_then(|v| v.as_str()).unwrap_or("");
+    if endpoint.is_empty() {
+        return Err("subscription missing endpoint".into());
+    }
+    let mut subs: Vec<serde_json::Value> = kr_get("push_subscriptions")
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    subs.retain(|s| s.get("endpoint").and_then(|v| v.as_str()) != Some(endpoint));
+    subs.push(incoming);
+    kr_set(
+        "push_subscriptions",
+        &serde_json::to_string(&subs).map_err(|e| e.to_string())?,
+    )
+}
+
+/// Send one Web Push to a stored subscription (async, spawned off the command
+/// thread). `payload` is the JSON the service worker reads in its `push` event.
+/// Best-effort: errors are logged, not surfaced.
+async fn send_push(sub_json: String, vapid_priv_b64: String, payload: Vec<u8>) {
+    use web_push::WebPushClient as _;
+    let result: Result<(), String> = async {
+        let sub: web_push::SubscriptionInfo =
+            serde_json::from_str(&sub_json).map_err(|e| e.to_string())?;
+        let mut sig = web_push::VapidSignatureBuilder::from_base64(&vapid_priv_b64, &sub)
+            .map_err(|e| e.to_string())?;
+        sig.add_claim("sub", "mailto:companion@plutos-terminals.local");
+        let signature = sig.build().map_err(|e| e.to_string())?;
+        let mut builder = web_push::WebPushMessageBuilder::new(&sub);
+        builder.set_payload(web_push::ContentEncoding::Aes128Gcm, &payload);
+        builder.set_vapid_signature(signature);
+        let msg = builder.build().map_err(|e| e.to_string())?;
+        let client = web_push::HyperWebPushClient::new();
+        client.send(msg).await.map_err(|e| e.to_string())
+    }
+    .await;
+    if let Err(e) = result {
+        log::warn!("companion: web-push send failed: {e}");
+    }
+}
+
 /// Tauri-managed companion state: `None` when stopped, `Some` when running.
 /// `sessions` holds the desktop's current session list as a JSON string (pushed
 /// from the React app via `companion_set_sessions`). The companion page can't
@@ -81,6 +205,10 @@ pub struct CompanionState {
     // provider, never the API keys themselves (those stay on the desktop).
     snippets: Mutex<String>,
     models: Mutex<String>,
+    // Count of authenticated WebSocket clients currently connected. Phase 5 pushes
+    // a "finished" web-push notification only when this is 0 — i.e. no phone is
+    // actively viewing, so the tab is closed and the live in-page alert can't fire.
+    ws_count: AtomicUsize,
 }
 
 /// Per-connection context handed to the WS handler: the auth token to check and
@@ -121,6 +249,23 @@ async fn index() -> Html<&'static str> {
     Html(include_str!("../companion-web/index.html"))
 }
 
+/// Service worker (Phase 5) — handles `push` events to show a notification even
+/// when the page/tab is closed. Served at root scope so it controls the page.
+async fn sw_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../companion-web/sw.js"),
+    )
+}
+
+/// Installable-PWA manifest (Phase 5).
+async fn manifest() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/manifest+json")],
+        include_str!("../companion-web/manifest.webmanifest"),
+    )
+}
+
 async fn handle_socket(socket: WebSocket, ctx: WsCtx) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -128,6 +273,12 @@ async fn handle_socket(socket: WebSocket, ctx: WsCtx) {
     match ws_rx.next().await {
         Some(Ok(Message::Text(t))) if t.as_str().trim() == ctx.token => {}
         _ => return,
+    }
+
+    // Authenticated. Count this client so Phase 5 pushes only when none are
+    // connected (i.e. the phone tab is closed and the in-page alert can't fire).
+    if let Some(st) = ctx.app.try_state::<CompanionState>() {
+        st.ws_count.fetch_add(1, Ordering::SeqCst);
     }
 
     // A WebSocket sink can't be shared, so a single task owns it and drains an
@@ -207,6 +358,9 @@ async fn handle_socket(socket: WebSocket, ctx: WsCtx) {
         ctx.app.unlisten(id);
     }
     sender.abort();
+    if let Some(st) = ctx.app.try_state::<CompanionState>() {
+        st.ws_count.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// Read one of the desktop-pushed JSON stashes out of `CompanionState`. Returns
@@ -307,6 +461,16 @@ fn dispatch(
             .map(|_| serde_json::Value::Null)
             .map_err(|e| e.to_string())
         }
+        // Phase 5 web push. The page fetches the VAPID public key (its
+        // applicationServerKey), subscribes via pushManager, and sends the
+        // resulting subscription back to be stored for push-when-closed.
+        "vapid_public_key" => ensure_vapid().map(|(_, pubk)| serde_json::Value::String(pubk)),
+        "push_subscribe" => {
+            let sub = args
+                .get("subscription")
+                .ok_or_else(|| "missing arg 'subscription'".to_string())?;
+            store_subscription(&sub.to_string()).map(|_| serde_json::Value::Null)
+        }
         "system_stats" => {
             serde_json::to_value(crate::sysstats::system_stats()).map_err(|e| e.to_string())
         }
@@ -347,10 +511,15 @@ pub fn start(
     let router = Router::new()
         .route("/", get(index))
         .route("/ws", get(ws_handler))
+        .route("/sw.js", get(sw_js))
+        .route("/manifest.webmanifest", get(manifest))
         .fallback_service(ServeDir::new(dist_dir(&app)))
         .with_state(ctx);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    // Phase 5: bind loopback only — Tailscale Serve fronts TLS and proxies the
+    // tailnet to 127.0.0.1 (a secure context for the service worker + web push).
+    // This also drops the old all-interfaces (0.0.0.0) exposure.
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     // Bind synchronously so a bind failure surfaces to the caller now.
     let std_listener =
         std::net::TcpListener::bind(addr).map_err(|e| format!("bind {addr}: {e}"))?;
@@ -374,7 +543,12 @@ pub fn start(
             .await;
     });
 
-    let host = best_host();
+    // Front loopback with Tailscale Serve (HTTPS on the MagicDNS name). The host
+    // for the URL is the MagicDNS name when available (→ https, no port), else the
+    // best direct host (→ http fallback; only reachable if Tailscale is down and a
+    // future non-serve path is used).
+    ensure_serve(port);
+    let host = magic_dns_name().unwrap_or_else(best_host);
     *guard = Some(Running {
         port,
         token: token.clone(),
@@ -408,12 +582,19 @@ const DEFAULT_PORT: u16 = 8390;
 /// `{ running, port, token, host, url }` — the URL embeds the token in the hash
 /// so opening it (or scanning the QR) auto-connects the companion page.
 fn info_json(port: u16, token: &str, host: &str) -> serde_json::Value {
+    // Tailscale Serve fronts TLS on the MagicDNS name (port 443) → https, no port.
+    // Otherwise fall back to the direct http URL (host:port).
+    let url = if host.ends_with(".ts.net") {
+        format!("https://{host}/#{token}")
+    } else {
+        format!("http://{host}:{port}/#{token}")
+    };
     serde_json::json!({
         "running": true,
         "port": port,
         "token": token,
         "host": host,
-        "url": format!("http://{host}:{port}/#{token}"),
+        "url": url,
     })
 }
 
@@ -479,4 +660,48 @@ pub fn companion_set_models(
     let mut guard = state.models.lock().map_err(|e| e.to_string())?;
     *guard = models;
     Ok(())
+}
+
+/// Phase 5 (push-when-closed): the desktop calls this when a command/agent
+/// finishes in a backgrounded session (it already detects this for its own "done"
+/// cue). If the server is running, NO phone is currently connected (so the tab is
+/// closed and the in-page alert can't fire), and a push subscription + VAPID key
+/// exist, send a Web Push so the phone is notified anyway. Best-effort + silent.
+#[tauri::command]
+pub fn companion_notify_finish(
+    state: tauri::State<'_, CompanionState>,
+    label: String,
+    exit: Option<i64>,
+) {
+    if state.inner.lock().map(|g| g.is_none()).unwrap_or(true) {
+        return; // server not running
+    }
+    if state.ws_count.load(Ordering::SeqCst) > 0 {
+        return; // a phone is connected — its in-page alert already covers this
+    }
+    let subs: Vec<serde_json::Value> = match kr_get("push_subscriptions")
+        .and_then(|s| serde_json::from_str(&s).ok())
+    {
+        Some(v) => v,
+        None => return,
+    };
+    if subs.is_empty() {
+        return;
+    }
+    let vapid_priv = match ensure_vapid() {
+        Ok((priv_b64, _)) => priv_b64,
+        Err(_) => return,
+    };
+    let ok = exit.map(|e| e == 0).unwrap_or(true);
+    let title = format!("{} {}", if ok { "✓" } else { "✗" }, label);
+    let body = match exit {
+        Some(e) if e != 0 => format!("exited {e}"),
+        _ => "finished".to_string(),
+    };
+    let payload = serde_json::json!({ "title": title, "body": body })
+        .to_string()
+        .into_bytes();
+    for sub in subs {
+        tauri::async_runtime::spawn(send_push(sub.to_string(), vapid_priv.clone(), payload.clone()));
+    }
 }
