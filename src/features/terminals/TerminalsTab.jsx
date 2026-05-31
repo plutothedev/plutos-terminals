@@ -54,6 +54,7 @@ import { useSimpleModals } from "./hooks/useSimpleModals.js";
 import { useTunnels } from "./hooks/useTunnels.js";
 import { useSessionSpawn } from "./hooks/useSessionSpawn.js";
 import { useSftpDock } from "./hooks/useSftpDock.js";
+import { useRemoteDesktopLaunch } from "./hooks/useRemoteDesktopLaunch.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -63,6 +64,7 @@ import {
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, setTabPassword, clearTabPassword, getTabText, getCommandHistory, getLiveTabIds } from "./ptyBridge.js";
 import { sshAccount } from "./sshAccount.js";
+import { freshId } from "./ids.js";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
@@ -71,10 +73,6 @@ function loadColor(pct) {
   if (pct >= 85) return "#ef4444";
   if (pct >= 60) return "#f59e0b";
   return "#10b981";
-}
-
-function freshId(prefix) {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
 // Deep-clone a saved workspace with fresh ids for every panel/tab/pane so a
@@ -1154,90 +1152,18 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // ── SSH port forwarding (tunnels) ───────────────────────────────────────
   const { tunnelsOpen, setTunnelsOpen, forwards, tunnelBusy, tunnelError, openTunnels, startForward, startSocks, stopForward } = useTunnels({ activeTab, activeTabId, toast });
 
-  // ── Serial console ──────────────────────────────────────────────────────
-  const connectSerial = useCallback(({ path, baud }) => {
-    const short = path.split("/").pop() || path;
-    spawnSessionTab(state.activePanelId, {
-      id: freshId("tab"),
-      label: `Serial: ${short}`,
-      cwd: null,
-      startCommands: [],
-      projectId: null,
-      serial: { path, baud },
-    });
-    setSerialOpen(false);
-  }, [state.activePanelId, spawnSessionTab]);
-
-  // ── VNC remote desktop ───────────────────────────────────────────────────
-  // `vncOpen` (useSimpleModals) = ephemeral quick-connect; `vncLaunch` =
-  // { panelId, project } when opening a SAVED VNC session (the modal then acts
-  // as a password prompt, T006).
-  const [vncLaunch, setVncLaunch] = useState(null);
-  const connectVnc = useCallback(({ host, port, password }) => {
-    const tabId = freshId("tab");
-    if (password) setTabPassword(tabId, password); // transient, never persisted
-    spawnSessionTab(state.activePanelId, {
-      id: tabId,
-      label: `VNC: ${host}`,
-      cwd: null,
-      startCommands: [],
-      projectId: null,
-      vnc: { host, port },
-    });
-    setVncOpen(false);
-  }, [state.activePanelId, spawnSessionTab]);
-  const launchVnc = useCallback(({ password }) => {
-    if (!vncLaunch) return;
-    const { panelId, project } = vncLaunch;
-    rememberSessionPassword(project.id, password || ""); // in-memory only (FR-008)
-    const tabId = freshId("tab");
-    if (password) setTabPassword(tabId, password);
-    spawnSessionTab(panelId, {
-      id: tabId, label: project.name, cwd: null, startCommands: [], projectId: project.id,
-      vnc: { host: project.vnc.host, port: project.vnc.port },
-    });
-    setVncLaunch(null);
-  }, [vncLaunch, spawnSessionTab, rememberSessionPassword]);
-
-  // ── RDP remote desktop ───────────────────────────────────────────────────
-  // `rdpOpen` lives in useSimpleModals; `rdpLaunch` carries the saved-session payload.
-  const [rdpLaunch, setRdpLaunch] = useState(null);
-  const connectRdp = useCallback(({ host, port, username, domain, password }) => {
-    const tabId = freshId("tab");
-    if (password) setTabPassword(tabId, password); // transient, never persisted
-    spawnSessionTab(state.activePanelId, {
-      id: tabId,
-      label: `RDP: ${host}`,
-      cwd: null,
-      startCommands: [],
-      projectId: null,
-      rdp: { host, port, username, domain },
-    });
-    setRdpOpen(false);
-  }, [state.activePanelId, spawnSessionTab]);
-  const launchRdp = useCallback(({ password }) => {
-    if (!rdpLaunch) return;
-    const { panelId, project } = rdpLaunch;
-    rememberSessionPassword(project.id, password || ""); // in-memory only (FR-008)
-    const tabId = freshId("tab");
-    if (password) setTabPassword(tabId, password);
-    spawnSessionTab(panelId, {
-      id: tabId, label: project.name, cwd: null, startCommands: [], projectId: project.id,
-      rdp: { host: project.rdp.host, port: project.rdp.port, username: project.rdp.username, domain: project.rdp.domain },
-    });
-    setRdpLaunch(null);
-  }, [rdpLaunch, spawnSessionTab, rememberSessionPassword]);
-
-  // FR-013: promote a quick-connect entry to a saved sidebar session (no password).
-  const saveQuickConnection = useCallback((rec) => {
-    const name = rec.host;
-    if (rec.type === "vnc") {
-      upsertProject({ type: "vnc", name, folder: null, tags: [], vnc: { host: rec.host, port: rec.port } });
-    } else {
-      upsertProject({ type: "rdp", name, folder: null, tags: [], rdp: { host: rec.host, port: rec.port, username: rec.username, domain: rec.domain || null } });
-    }
-    toast.success(`Saved ${rec.type.toUpperCase()} session "${name}".`);
-  }, [upsertProject, toast]);
+  // ── VNC / RDP / serial connect + launch (modal-driven) — see
+  // useRemoteDesktopLaunch. setVncLaunch / setRdpLaunch are returned so
+  // openProjectInPanel can open the saved-session password modal.
+  const {
+    connectSerial,
+    vncLaunch, setVncLaunch, connectVnc, launchVnc,
+    rdpLaunch, setRdpLaunch, connectRdp, launchRdp,
+    saveQuickConnection,
+  } = useRemoteDesktopLaunch({
+    state, spawnSessionTab, rememberSessionPassword,
+    setSerialOpen, setVncOpen, setRdpOpen, upsertProject, toast,
+  });
 
   // Actions surfaced on the MobaXterm launch screen (home tabs). useState
   // setters have stable identity, so they're omitted from the dep list.
