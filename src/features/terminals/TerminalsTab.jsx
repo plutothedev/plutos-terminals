@@ -49,6 +49,7 @@ import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, us
 import { useDockResize } from "./hooks/useDockResize.js";
 import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { useSnippets } from "./hooks/useSnippets.js";
+import { useActiveTab } from "./hooks/useActiveTab.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -1043,11 +1044,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const canAddPanel = state.panels.length < MAX_PANELS;
   const canClosePanel = state.panels.length > 1;
 
-  // Recording: start / stop+save handlers for the active tab.
-  const activePanel = state.panels.find((p) => p.id === state.activePanelId);
-  const activeTabId = activePanel?.activeTabId;
-  const activeTab = activePanel?.tabs.find((t) => t.id === activeTabId);
-  const activeTabRecording = activeTabId ? recordingTabIds.includes(activeTabId) : false;
+  // Active panel / tab derivation (plain, un-memoized — see useActiveTab). Sits
+  // here so every reader below keeps the same declaration order.
+  const { activePanel, activeTabId, activeTab, activeTabRecording } = useActiveTab(state, recordingTabIds);
 
   // Snippet insert: type the command into the active tab's shell (no trailing
   // newline — the user reviews it and presses Enter). Bridges via ptyBridge so
