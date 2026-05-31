@@ -57,6 +57,7 @@ import { useSftpDock } from "./hooks/useSftpDock.js";
 import { useRemoteDesktopLaunch } from "./hooks/useRemoteDesktopLaunch.js";
 import { useSshConnect } from "./hooks/useSshConnect.js";
 import { useProjects } from "./hooks/useProjects.js";
+import { useTabTelemetry } from "./hooks/useTabTelemetry.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -335,82 +336,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Per-tab activity state ({tabId: 'idle'|'active'|'done'}). NOT persisted —
-  // it's transient and meaningless across app restarts (PTYs respawn fresh).
-  const [tabActivities, setTabActivities] = useState({});
-
-  // Per-tab cost tracking ({tabId: { tokens, cost }}). Aggregated for the
-  // header display. Not persisted — cumulative figures come from Claude's
-  // own /cost output each session.
-  const [tabCosts, setTabCosts] = useState({});
-
-  const handleTabCostUpdate = useCallback((tabId, c) => {
-    setTabCosts(prev => {
-      const cur = prev[tabId];
-      if (cur && cur.tokens === c.tokens && cur.cost === c.cost) return prev;
-      return { ...prev, [tabId]: c };
-    });
-  }, []);
-
-  const handleTabActivityChange = useCallback((tabId, nextState) => {
-    setTabActivities(prev => {
-      if (prev[tabId] === nextState) return prev;
-      // 'idle' is the default — drop the entry instead of storing it, so the
-      // map stays small as tabs cycle through states.
-      if (nextState === "idle") {
-        if (!(tabId in prev)) return prev;
-        const { [tabId]: _, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [tabId]: nextState };
-    });
-  }, []);
-
-  // Maps from tab id -> project metadata, so each TerminalPane knows which
-  // project it represents (for auto-approve toggle + transcript filename).
-  const { tabAutoApprove, tabProjectNames } = useMemo(() => {
-    const ap = {};
-    const names = {};
-    for (const panel of state.panels) {
-      for (const tab of panel.tabs) {
-        if (!tab.projectId) continue;
-        const project = projects.find(p => p.id === tab.projectId);
-        if (!project) continue;
-        if (project.autoApprove) ap[tab.id] = true;
-        names[tab.id] = project.name;
-      }
-    }
-    return { tabAutoApprove: ap, tabProjectNames: names };
-  }, [state.panels, projects]);
-
-  // Aggregate cost across all open tabs. Each tab's value is Claude's
-  // cumulative session cost, so summing gives the total live spend.
-  const totalCost = useMemo(() => {
-    let cost = 0, tokens = 0;
-    for (const v of Object.values(tabCosts)) {
-      cost += v.cost || 0;
-      tokens += v.tokens || 0;
-    }
-    return { cost, tokens };
-  }, [tabCosts]);
-
-  // Per-project activity: aggregate of any open tab tied to this project.
-  // 'active' wins over 'done' wins over 'idle'.
-  const projectActivities = useMemo(() => {
-    const result = {};
-    if (!projects.length) return result;
-    for (const panel of state.panels) {
-      for (const tab of panel.tabs) {
-        if (!tab.projectId) continue;
-        const ts = tabActivities[tab.id];
-        if (!ts || ts === "idle") continue;
-        const cur = result[tab.projectId];
-        if (cur === "active") continue;
-        if (ts === "active" || cur !== "done") result[tab.projectId] = ts;
-      }
-    }
-    return result;
-  }, [tabActivities, state.panels, projects]);
+  // Per-tab activity + Claude /cost telemetry (transient) and the derived
+  // aggregates the chrome reads. See useTabTelemetry.
+  const {
+    tabActivities, tabCosts,
+    handleTabCostUpdate, handleTabActivityChange,
+    tabAutoApprove, tabProjectNames,
+    totalCost, projectActivities,
+  } = useTabTelemetry({ state, projects });
 
   const persist = useCallback((next) => {
     save({ ...st, terminalsState: next });
