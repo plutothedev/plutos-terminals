@@ -19,9 +19,10 @@
     #bar { display:flex; align-items:center; gap:6px; padding:6px 8px; background:var(--bar);
       border-bottom:1px solid var(--line); overflow-x:auto; white-space:nowrap; flex-shrink:0; }
     #bar .brand { color:var(--cy); font-weight:700; font-size:13px; margin-right:4px; }
-    .tab { padding:4px 10px; border-radius:6px; font-size:12px; color:var(--dim);
-      border:1px solid transparent; cursor:pointer; }
+    .tab { display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:6px;
+      font-size:12px; color:var(--dim); border:1px solid transparent; cursor:pointer; }
     .tab.active { color:var(--fg); background:#1e2228; border-color:var(--line); }
+    .tab .badge { font-size:11px; line-height:1; }
     #status { margin-left:auto; font-size:11px; color:var(--dim); padding-right:4px; }
     #status.ok { color:#6FB85C; } #status.err { color:#E05B5B; }
     #term { flex:1; min-height:0; padding:6px; }
@@ -60,6 +61,9 @@
 
     let ws, rpcId = 0, pending = {}, subs = {}, currentId = null, currentTab = null;
     let term, fit;
+    let sessions = [];              // [{id, tabId, label, active}] from the desktop
+    const sstate = {};              // id -> { dirty, running, exit } activity tracking
+    const tabEls = {};              // id -> tab <span>, for in-place badge updates
 
     function rpc(cmd, args) {
       return new Promise((resolve, reject) => {
@@ -79,39 +83,87 @@
     }
     function sendResize() { if (currentId && term) rpc("pty_resize", { id: currentId, cols: term.cols, rows: term.rows }).catch(() => {}); }
 
+    // ── Per-session activity via OSC 133 (shell-integration) markers ───────────
+    // 133;C = a command started running; 133;D[;exit] = it finished. Each session
+    // is subscribed even while backgrounded, so a long build/test on another tab
+    // badges that tab and fires a notification the moment it completes.
+    const OSC133 = /\x1b\]133;([A-D])(?:;(\d+))?/g;
+    function scanActivity(s, payload) {
+      const st = sstate[s.id];
+      let m, finished = false, exit = 0;
+      while ((m = OSC133.exec(payload))) {
+        if (m[1] === "C") st.running = true;
+        else if (m[1] === "D") { if (st.running) { finished = true; exit = m[2] != null ? +m[2] : 0; } st.running = false; st.exit = m[2] != null ? +m[2] : 0; }
+      }
+      if (s.id !== currentId) { st.dirty = true; if (finished) notifyDone(s, exit); }
+      updateBadge(s.id);
+    }
+    function notifyDone(s, exit) {
+      const title = (exit === 0 ? "✓ " : "✗ ") + (s.label || "session") + " finished" + (exit ? ` (exit ${exit})` : "");
+      try { if (window.Notification && Notification.permission === "granted") new Notification(title, { tag: "pt-" + s.id, body: "Tap to view in Pluto Remote" }); } catch {}
+    }
+    function badgeFor(id) {
+      const st = sstate[id] || {};
+      if (st.running) return { t: "•", c: "#E0A04F" };               // running (amber)
+      if (st.exit) return { t: "✗", c: "#E05B5B" };                  // last command failed
+      if (st.dirty) return { t: "•", c: "var(--cy)" };               // unseen output
+      return null;
+    }
+    function updateBadge(id) {
+      const el = tabEls[id]; if (!el) return;
+      const b = el.querySelector(".badge"); const info = badgeFor(id);
+      if (b) { if (info) { b.textContent = info.t; b.style.color = info.c; b.style.display = ""; } else b.style.display = "none"; }
+    }
+
     // A session is { id, tabId, label, active }: `id` is the live pty channel id
     // (subscribe + write/resize); `tabId` is the scrollback key (history load).
     async function openSession(s) {
       if (!s || !s.id) return;
       currentId = s.id; currentTab = s.tabId || s.id;
+      if (sstate[s.id]) { sstate[s.id].dirty = false; sstate[s.id].exit = 0; }
       term.reset();
       try { const sb = await rpc("scrollback_load", { tabId: currentTab }); if (sb) term.write(sb); } catch {}
-      subscribe("pty://" + s.id, (payload) => { if (currentId === s.id) term.write(payload); });
       try { fit.fit(); } catch {}
       sendResize();
-      [...document.querySelectorAll(".tab")].forEach((el) => el.classList.toggle("active", el.dataset.id === s.id));
+      for (const id in tabEls) tabEls[id].classList.toggle("active", id === s.id);
+      updateBadge(s.id);
     }
 
-    function renderTabs(sessions, activeId) {
-      const c = $("tabs"); c.innerHTML = "";
+    function renderTabs() {
+      const c = $("tabs"); c.innerHTML = ""; for (const k in tabEls) delete tabEls[k];
       for (const s of sessions) {
         const el = document.createElement("span");
-        el.className = "tab" + (s.id === activeId ? " active" : "");
-        el.textContent = s.label || "shell"; el.dataset.id = s.id;
+        el.className = "tab" + (s.id === currentId ? " active" : "");
+        el.dataset.id = s.id;
+        const name = document.createElement("span"); name.textContent = s.label || "shell";
+        const badge = document.createElement("span"); badge.className = "badge"; badge.style.display = "none";
+        el.append(name, badge);
         el.onclick = () => openSession(s);
-        c.appendChild(el);
+        c.appendChild(el); tabEls[s.id] = el;
+        if (!sstate[s.id]) sstate[s.id] = { dirty: false, running: false, exit: 0 };
+        updateBadge(s.id);
       }
     }
 
     async function onReady() {
       status("connected", "ok");
-      let sessions = [];
-      try { sessions = (await rpc("list_sessions")) || []; } catch {}
-      if (!Array.isArray(sessions)) sessions = [];
-      if (!sessions.length) { status("no sessions on desktop", "err"); renderTabs([], null); return; }
-      const active = sessions.find((s) => s.active) || sessions[0];
-      renderTabs(sessions, active.id);
-      openSession(active);
+      try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
+      let list = [];
+      try { list = (await rpc("list_sessions")) || []; } catch {}
+      sessions = Array.isArray(list) ? list : [];
+      if (!sessions.length) { status("no sessions on desktop", "err"); $("tabs").innerHTML = ""; return; }
+      renderTabs();
+      // Subscribe to EVERY session so backgrounded ones still badge + notify; only
+      // the current one is painted into the terminal.
+      for (const s of sessions) {
+        subscribe("pty://" + s.id, (payload) => {
+          if (s.id === currentId) term.write(payload);
+          scanActivity(s, payload);
+        });
+      }
+      // Keep the phone's current view across reconnects when still valid.
+      const keep = sessions.find((s) => s.id === currentId);
+      openSession(keep || sessions.find((s) => s.active) || sessions[0]);
     }
 
     function connect(token) {
@@ -125,7 +177,7 @@
         else if (m.type === "rpc-result") { const p = pending[m.id]; if (p) { delete pending[m.id]; ("err" in m) ? p.reject(m.err) : p.resolve(m.ok); } }
         else if (m.type === "event") { const cb = subs[m.channel]; if (cb) cb(m.payload); }
       };
-      ws.onclose = () => { status("disconnected — reconnecting…", "err"); setTimeout(() => connect(token), 1500); };
+      ws.onclose = () => { status("disconnected — reconnecting…", "err"); subs = {}; setTimeout(() => connect(token), 1500); };
       ws.onerror = () => {};
     }
 
