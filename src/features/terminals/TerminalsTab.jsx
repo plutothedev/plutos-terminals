@@ -52,6 +52,7 @@ import { useSnippets } from "./hooks/useSnippets.js";
 import { useActiveTab } from "./hooks/useActiveTab.js";
 import { useSimpleModals } from "./hooks/useSimpleModals.js";
 import { useTunnels } from "./hooks/useTunnels.js";
+import { useSessionSpawn } from "./hooks/useSessionSpawn.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -835,30 +836,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // (target = panel under cursor). When `overrideCommands` is provided, it
   // replaces the project's default startCommands — used by the npm-script
   // launcher in the context menu.
-  // Append a tab to a panel and make it active. Shared by the local and SSH
-  // paths. `extra` carries SSH-only fields (connection); the password (if any)
-  // is recorded transiently in the bridge by the caller, never on the tab.
-  const spawnSessionTab = useCallback((panelId, tab) => {
-    const panels = state.panels.map(p =>
-      p.id === panelId
-        ? { ...p, tabs: [...p.tabs, tab], activeTabId: tab.id }
-        : p
-    );
-    persist({ ...state, panels, activePanelId: panelId });
-  }, [state, persist]);
-
-  // In-memory per-session password cache (RDP/VNC). Keyed by saved-session id,
-  // app-run lifetime only — NEVER persisted to disk (FR-008). A same-run reconnect
-  // reuses the secret instead of re-prompting; "forget" (sidebar context menu)
-  // clears it. SSH keeps its own keychain path; this is the remote-desktop analog.
-  const sessionPwRef = useRef(new Map());
-  const rememberSessionPassword = useCallback((sessionId, secret) => {
-    if (sessionId) sessionPwRef.current.set(sessionId, secret);
-  }, []);
-  const getSessionPassword = useCallback((sessionId) => sessionPwRef.current.get(sessionId), []);
-  const forgetSessionPassword = useCallback((sessionId) => {
-    if (sessionId) sessionPwRef.current.delete(sessionId);
-  }, []);
+  // Session-tab spawn + in-memory RDP/VNC password cache (keystone — see
+  // useSessionSpawn). spawnSessionTab is the shared launch mutation; the cache is
+  // app-run-lifetime only, never persisted (FR-008).
+  const { spawnSessionTab, rememberSessionPassword, getSessionPassword, forgetSessionPassword } = useSessionSpawn({ state, persist });
 
   // FR-012: if a saved session already has an open tab, focus it instead of
   // opening a second connection. Returns true if an existing tab was focused.
