@@ -47,6 +47,7 @@ import { gridDims, MAX_PANELS } from "./grid";
 import { getWindowStorageKey } from "./storageKeys.js";
 import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useDimsListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
 import { useDockResize } from "./hooks/useDockResize.js";
+import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -54,7 +55,7 @@ import {
   applyGlobalSkin,
 } from "./headerSkins";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, setBroadcast, setTabPassword, getTabPassword, clearTabPassword, getTabText, getCommandHistory, setBroadcastTargets, getLiveTabIds } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, setTabPassword, getTabPassword, clearTabPassword, getTabText, getCommandHistory, getLiveTabIds } from "./ptyBridge.js";
 import { DEFAULT_SNIPPETS } from "./SnippetsDrawer.jsx";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
@@ -185,33 +186,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // MultiExec broadcast (MobaXterm-style). Transient per-window mode: when on,
   // a keystroke or snippet goes to every visible terminal at once. Not
   // persisted — auto-typing into every pane after a restart would surprise.
-  const [broadcast, setBroadcastState] = useState(false);
-  const [bcastTargets, setBcastTargets] = useState(null); // null = all visible; array = explicit group
+  const { broadcast, bcastTargets, toggleBroadcast, applyBroadcastGroup, useAllVisibleBroadcast } = useBroadcastMode(toast);
   const [broadcastGroupOpen, setBroadcastGroupOpen] = useState(false);
   const [netToolsOpen, setNetToolsOpen] = useState(false);
-  const toggleBroadcast = useCallback(() => {
-    setBroadcastState((on) => {
-      const next = !on;
-      setBroadcast(next);
-      // The plain toggle is always "all visible" — clear any explicit group.
-      setBroadcastTargets(null);
-      setBcastTargets(null);
-      return next;
-    });
-  }, []);
-  const applyBroadcastGroup = useCallback((ids) => {
-    setBroadcastTargets(ids);
-    setBcastTargets(ids);
-    setBroadcast(true);
-    setBroadcastState(true);
-    toast.success(`Broadcasting to ${ids.length} terminal${ids.length === 1 ? "" : "s"}.`);
-  }, [toast]);
-  const useAllVisibleBroadcast = useCallback(() => {
-    setBroadcastTargets(null);
-    setBcastTargets(null);
-    setBroadcast(true);
-    setBroadcastState(true);
-  }, []);
 
   // Re-render the status bar when the active terminal's dimensions change.
   useDimsListener();
