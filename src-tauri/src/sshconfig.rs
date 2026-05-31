@@ -5,10 +5,18 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use serde::Serialize;
 
 use crate::commands::local_home;
+
+// Suppress the console window when spawning ssh-keygen on Windows (matches
+// netools.rs / commands.rs). Without this the cfg(windows) `creation_flags`
+// call below doesn't compile (CommandExt + the flag must be in scope).
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 // ── Import ~/.ssh/config ─────────────────────────────────────────────────
 // Parse the user's OpenSSH client config into connectable host entries for the
