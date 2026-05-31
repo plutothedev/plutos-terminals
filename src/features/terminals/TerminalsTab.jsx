@@ -50,6 +50,7 @@ import { useDockResize } from "./hooks/useDockResize.js";
 import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { useSnippets } from "./hooks/useSnippets.js";
 import { useActiveTab } from "./hooks/useActiveTab.js";
+import { useSimpleModals } from "./hooks/useSimpleModals.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -153,19 +154,20 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Dialog: null = closed; { mode: "add" } or { mode: "edit", projectId }
   const [dialog, setDialog] = useState(null);
 
-  // Modal toggles
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [mcpOpen, setMcpOpen] = useState(false);
-  const [modelsOpen, setModelsOpen] = useState(false);
-  const [sshKeysOpen, setSshKeysOpen] = useState(false);
-  const [macrosOpen, setMacrosOpen] = useState(false);
-  const [askOpen, setAskOpen] = useState(false);
+  // Pure on/off modal toggles (no payload) — see useSimpleModals. serialOpen /
+  // vncOpen / rdpOpen are the ephemeral quick-connect flags; their saved-session
+  // launch payloads (vncLaunch / rdpLaunch) stay below.
+  const {
+    settingsOpen, setSettingsOpen, mcpOpen, setMcpOpen, modelsOpen, setModelsOpen,
+    sshKeysOpen, setSshKeysOpen, macrosOpen, setMacrosOpen, askOpen, setAskOpen,
+    historyOpen, setHistoryOpen, workspacesOpen, setWorkspacesOpen, masterPwOpen, setMasterPwOpen,
+    setupOpen, setSetupOpen, commandPaletteOpen, setCommandPaletteOpen,
+    broadcastGroupOpen, setBroadcastGroupOpen, netToolsOpen, setNetToolsOpen,
+    serialOpen, setSerialOpen, vncOpen, setVncOpen, rdpOpen, setRdpOpen,
+  } = useSimpleModals();
+
+  // Payload modals (carry state; extracted in later steps).
   const [summary, setSummary] = useState(null); // { text } when the summary modal is open
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [workspacesOpen, setWorkspacesOpen] = useState(false);
-  const [masterPwOpen, setMasterPwOpen] = useState(false);
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   // Diff-review modal: the worktree { path, branch, repo } to review, or null.
   const [diffWorktree, setDiffWorktree] = useState(null);
 
@@ -185,8 +187,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // a keystroke or snippet goes to every visible terminal at once. Not
   // persisted — auto-typing into every pane after a restart would surprise.
   const { broadcast, bcastTargets, toggleBroadcast, applyBroadcastGroup, useAllVisibleBroadcast } = useBroadcastMode(toast);
-  const [broadcastGroupOpen, setBroadcastGroupOpen] = useState(false);
-  const [netToolsOpen, setNetToolsOpen] = useState(false);
 
   // Re-render the status bar when the active terminal's dimensions change.
   useDimsListener();
@@ -1328,7 +1328,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, []);
 
   // ── Serial console ──────────────────────────────────────────────────────
-  const [serialOpen, setSerialOpen] = useState(false);
   const connectSerial = useCallback(({ path, baud }) => {
     const short = path.split("/").pop() || path;
     spawnSessionTab(state.activePanelId, {
@@ -1343,9 +1342,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, [state.activePanelId, spawnSessionTab]);
 
   // ── VNC remote desktop ───────────────────────────────────────────────────
-  // `vncOpen` = ephemeral quick-connect; `vncLaunch` = { panelId, project } when
-  // opening a SAVED VNC session (the modal then acts as a password prompt, T006).
-  const [vncOpen, setVncOpen] = useState(false);
+  // `vncOpen` (useSimpleModals) = ephemeral quick-connect; `vncLaunch` =
+  // { panelId, project } when opening a SAVED VNC session (the modal then acts
+  // as a password prompt, T006).
   const [vncLaunch, setVncLaunch] = useState(null);
   const connectVnc = useCallback(({ host, port, password }) => {
     const tabId = freshId("tab");
@@ -1374,7 +1373,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, [vncLaunch, spawnSessionTab, rememberSessionPassword]);
 
   // ── RDP remote desktop ───────────────────────────────────────────────────
-  const [rdpOpen, setRdpOpen] = useState(false);
+  // `rdpOpen` lives in useSimpleModals; `rdpLaunch` carries the saved-session payload.
   const [rdpLaunch, setRdpLaunch] = useState(null);
   const connectRdp = useCallback(({ host, port, username, domain, password }) => {
     const tabId = freshId("tab");
