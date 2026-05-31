@@ -15,7 +15,7 @@
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; overflow:hidden; }
-    #app { display:flex; flex-direction:column; height:100%; }
+    #app { display:flex; flex-direction:column; height:100%; position:relative; }
     #bar { display:flex; align-items:center; gap:6px; padding:6px 8px; background:var(--bar);
       border-bottom:1px solid var(--line); overflow-x:auto; white-space:nowrap; flex-shrink:0; }
     #bar .brand { color:var(--cy); font-weight:700; font-size:13px; margin-right:4px; }
@@ -27,6 +27,22 @@
     #status.ok { color:#6FB85C; } #status.err { color:#E05B5B; }
     #term { flex:1; min-height:0; padding:6px; }
     #term .xterm { height:100%; }
+    /* File browser overlay (Phase 4) */
+    #files { position:absolute; left:0; right:0; top:0; bottom:0; background:var(--bg);
+      display:flex; flex-direction:column; z-index:5; }
+    #filesbar { display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--bar);
+      border-bottom:1px solid var(--line); flex-shrink:0; }
+    #filesbar button { background:#23272d; border:1px solid var(--line); color:var(--fg);
+      border-radius:6px; padding:6px 10px; font-size:13px; }
+    #filescd { color:var(--cy); margin-left:auto; }
+    #filespath { font-size:12px; color:var(--dim); overflow:hidden; text-overflow:ellipsis;
+      white-space:nowrap; flex:1; min-width:0; }
+    #fileslist { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+    .frow { display:flex; align-items:center; gap:10px; padding:11px 12px; border-bottom:1px solid #15181c;
+      font-size:14px; }
+    .frow .fname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .frow .fsize { color:var(--dim); font-size:11px; }
+    .frow .ficon { width:20px; text-align:center; }
     /* Login gate */
     #login { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
       justify-content:center; gap:14px; background:var(--bg); padding:24px; text-align:center; }
@@ -41,8 +57,17 @@
 </head>
 <body>
   <div id="app" class="hidden">
-    <div id="bar"><span class="brand">✦ Pluto</span><span id="tabs"></span><span id="newbtn" class="tab" title="New shell on the desktop">＋</span><span id="status">…</span></div>
+    <div id="bar"><span class="brand">✦ Pluto</span><span id="tabs"></span><span id="filesbtn" class="tab" title="Browse files">📁</span><span id="newbtn" class="tab" title="New shell on the desktop">＋</span><span id="status">…</span></div>
     <div id="term"></div>
+    <div id="files" class="hidden">
+      <div id="filesbar">
+        <button id="filesup" title="Up one level">↑</button>
+        <span id="filespath">~</span>
+        <button id="filescd" title="cd the active terminal here">cd here</button>
+        <button id="filesclose" title="Close">✕</button>
+      </div>
+      <div id="fileslist"></div>
+    </div>
   </div>
   <div id="login">
     <h1>✦ Pluto Remote</h1>
@@ -201,6 +226,36 @@
       ws.onclose = () => { status("disconnected — reconnecting…", "err"); subs = {}; setTimeout(() => connect(token), 1500); };
       ws.onerror = () => {};
     }
+
+    // ── File browser (Phase 4) ─────────────────────────────────────────────────
+    // Read-only browse of the desktop's local filesystem; "cd here" sends a cd into
+    // the active session. list_directory returns [resolvedPath, [{name,path,is_dir,size}]].
+    let filesPath = null;
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const human = (n) => (n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(0) + " KB" : (n / 1048576).toFixed(1) + " MB");
+    const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+    const parentPath = (p) => { const q = p.replace(/\/+$/, ""); const i = q.lastIndexOf("/"); return i > 0 ? q.slice(0, i) : "/"; };
+    async function openFiles(path) {
+      try {
+        const res = await rpc("list_directory", { path: path || null });
+        const resolved = res[0], entries = res[1] || [];
+        filesPath = resolved; $("filespath").textContent = resolved;
+        const c = $("fileslist"); c.innerHTML = "";
+        for (const it of entries) {
+          const row = document.createElement("div"); row.className = "frow";
+          row.innerHTML = `<span class="ficon">${it.is_dir ? "📁" : "📄"}</span><span class="fname">${esc(it.name)}</span><span class="fsize">${it.is_dir ? "" : human(it.size)}</span>`;
+          if (it.is_dir) row.onclick = () => openFiles(it.path);
+          c.appendChild(row);
+        }
+        $("files").classList.remove("hidden");
+      } catch (e) { status("files: " + e, "err"); }
+    }
+    $("filesbtn").onclick = () => { if (ws && ws.readyState === 1) openFiles(filesPath || null); };
+    $("filesup").onclick = () => filesPath && openFiles(parentPath(filesPath));
+    $("filesclose").onclick = () => $("files").classList.add("hidden");
+    $("filescd").onclick = () => {
+      if (filesPath && currentId) { rpc("pty_write", { id: currentId, data: `cd ${shq(filesPath)}\r` }); $("files").classList.add("hidden"); }
+    };
 
     $("newbtn").onclick = () => { if (ws && ws.readyState === 1) newSession(); };
     $("connect").onclick = () => { const t = $("token").value.trim(); if (t) { localStorage.setItem("pt_token", t); connect(t); } };

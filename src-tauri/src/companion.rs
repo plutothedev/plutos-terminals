@@ -219,6 +219,15 @@ fn dispatch(
             },
         ),
         "default_shell" => Ok(serde_json::Value::String(crate::pty::default_shell())),
+        // Read-only local file browser. Returns [resolvedPath, [entries…]].
+        "list_directory" => {
+            let path = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            crate::commands::list_directory(path)
+                .and_then(|t| serde_json::to_value(t).map_err(|e| e.to_string()))
+        }
         // Ask the desktop to open a new session. The phone can't spawn a PTY
         // directly — it would have no desktop tab/scrollback/UI — so we emit an
         // event the React app handles by adding a tab (which then spawns + flows
