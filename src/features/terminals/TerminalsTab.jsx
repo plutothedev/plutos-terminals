@@ -646,7 +646,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           {
             caption: "Workspace",
             items: [
-              { id: "split", icon: <SSplit />, color: "#6FB85C", label: "Split", title: "Split the active pane (side by side)", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+              { id: "split", icon: <SSplit />, color: "#6FB85C", label: "Split", title: "Split the active pane", disabled: !activeTabId, menu: [
+                { id: "split-row", label: "▏|▏  Side by side", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+                { id: "split-col", label: "▔▔  Stacked", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+              ] },
               { id: "multiexec", icon: <SMultiX />, color: "#B07CE0", label: "MultiX", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
               { id: "tunnel", icon: <STunnel />, color: "#4FB8E6", label: "Tunnel", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
             ],

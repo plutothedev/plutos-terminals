@@ -285,26 +285,6 @@ function TerminalPanel({
   const activePaneId = activeTab?.activePaneId || activeTab?.id;
   const activeTabMulti = activeTab ? !isLeaf(getLayout(activeTab)) : false;
 
-  const paneIconBtn = (title, glyph, onClick) => (
-    <div
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      onMouseDown={(e) => e.stopPropagation()}
-      style={{
-        padding: "4px 7px",
-        cursor: "pointer",
-        color: "#777",
-        fontSize: 12,
-        lineHeight: 1,
-        userSelect: "none",
-      }}
-      title={title}
-      onMouseEnter={(e) => { e.currentTarget.style.color = TAB_FG_ACTIVE; }}
-      onMouseLeave={(e) => { e.currentTarget.style.color = "#777"; }}
-    >
-      {glyph}
-    </div>
-  );
-
   return (
     <div
       data-panel-id={panel.id}
@@ -444,16 +424,6 @@ function TerminalPanel({
             +
           </div>
         </div>
-        {activeTab && onSplitPane && paneIconBtn(
-          "Split right (side by side)",
-          "⬌",
-          () => onSplitPane(activeTab.id, activePaneId, "row")
-        )}
-        {activeTab && onSplitPane && paneIconBtn(
-          "Split down (stacked)",
-          "⬍",
-          () => onSplitPane(activeTab.id, activePaneId, "col")
-        )}
         {canClosePanel && (
           <div
             onClick={(e) => { e.stopPropagation(); h.closePanel(); }}
