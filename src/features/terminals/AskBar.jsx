@@ -4,7 +4,7 @@
 // you review/edit before running. The provider call runs in Rust (llm_complete)
 // so the key never hits a browser request — same pattern as ErrorExplainer.
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Textarea } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";

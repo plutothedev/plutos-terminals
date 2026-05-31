@@ -4,7 +4,7 @@
 // session id. Navigate dirs, download/upload, mkdir, rename, delete. Transfers
 // run entirely in Rust (rfd dialogs pick local paths); this UI only drives them.
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { FileIcon } from "./LocalFileBrowser.jsx";

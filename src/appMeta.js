@@ -10,7 +10,7 @@
 // xdg-open) is the dependable cross-platform way to open a URL.
 
 import { version } from "../package.json";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 
 export const APP_VERSION = version;
 export const GITHUB_URL = "https://github.com/plutothedev/plutos-terminals";

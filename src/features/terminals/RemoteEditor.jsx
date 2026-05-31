@@ -5,7 +5,7 @@
 // bundle + web workers can't blank the app if they misbehave in the webview;
 // if the dynamic load fails we fall back to a plain textarea. Cmd/Ctrl+S saves.
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 

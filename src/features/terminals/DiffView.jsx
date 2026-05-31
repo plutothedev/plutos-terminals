@@ -3,7 +3,7 @@
 // Shows `git_diff` for the worktree with +/- coloring; "Create PR" pushes the
 // branch and opens a GitHub PR via `gh`.
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { openExternal } from "../../appMeta.js";

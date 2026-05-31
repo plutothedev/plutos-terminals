@@ -4,8 +4,8 @@
 // (not X11 keysyms). Connects on mount via rdp_connect; credentials come from
 // tab.rdp.username + a transient password in ptyBridge.
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@backend";
+import { listen } from "@backend";
 import { getTabPassword } from "./ptyBridge.js";
 
 // JS KeyboardEvent.code → PS/2 set-1 scancode (the common, non-extended keys).

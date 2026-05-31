@@ -5,7 +5,7 @@
 // the remote SFTP dock. Double-click a folder to enter; "cd⇢" sends
 // `cd <dir>` to the active terminal; clicking a file inserts its path.
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import { IconHome, IconUp, IconRefresh, IconReveal, IconCd } from "./icons.jsx";
 import "./terminals.css";
 

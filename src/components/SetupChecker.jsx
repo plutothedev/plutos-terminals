@@ -8,7 +8,7 @@
 // launched — not the ephemeral PATH inside spawned shells).
 
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
 import { openExternal } from "../appMeta.js";

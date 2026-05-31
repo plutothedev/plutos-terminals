@@ -1,6 +1,6 @@
 // (C)
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 
 const BG = "var(--phn-surface-bg, #181818)";
 const PAGE = "var(--phn-page-bg, #0a0a0a)";

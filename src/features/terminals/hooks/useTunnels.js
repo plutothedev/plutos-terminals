@@ -8,7 +8,7 @@
 // TunnelsModal to render.
 
 import { useCallback, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import { getTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
 

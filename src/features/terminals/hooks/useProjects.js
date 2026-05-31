@@ -14,7 +14,7 @@
 // invoked only from the post-render callback body.
 
 import { useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import { freshId } from "../ids.js";
 
 export function useProjects({ state, persist, projects, toast, selectRibbonRef }) {

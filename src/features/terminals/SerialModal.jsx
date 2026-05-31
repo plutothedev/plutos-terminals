@@ -3,7 +3,7 @@
 // rate; on connect, the parent opens a tab whose TerminalPane spawns the port
 // via serial_spawn (streamed through the same pty:// seam as shells/SSH).
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 
 const BAUDS = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];

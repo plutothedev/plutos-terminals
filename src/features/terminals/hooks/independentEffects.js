@@ -5,7 +5,7 @@
 // persist(), so extracting them shrinks TerminalsTab with zero behavior change.
 
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import * as recording from "../recording.js";
 import { onDimsChange } from "../ptyBridge.js";
 import { injectHeaderSkinsCss } from "../headerSkins";

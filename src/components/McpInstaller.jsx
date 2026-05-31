@@ -4,7 +4,7 @@
 // having to google "how to install MCP filesystem server claude code."
 
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
 import { openExternal } from "../appMeta.js";

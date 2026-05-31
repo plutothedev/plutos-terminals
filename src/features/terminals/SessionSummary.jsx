@@ -4,7 +4,7 @@
 // errored, suggested next step). Same Rust llm_complete path as ErrorExplainer
 // (the key never hits a browser request).
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";

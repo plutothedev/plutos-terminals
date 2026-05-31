@@ -10,7 +10,7 @@
 // user feedback.
 
 import { useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import { clearTabPassword } from "../ptyBridge.js";
 import { getWindowStorageKey } from "../storageKeys.js";
 import { freshId } from "../ids.js";

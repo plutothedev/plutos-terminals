@@ -9,7 +9,7 @@
 // the prompt for a saved password-auth session.
 
 import { useCallback, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import { setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
 import { freshId } from "../ids.js";

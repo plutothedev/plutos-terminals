@@ -1,6 +1,6 @@
 // (C)
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import "./terminals.css";
 
 const SIDEBAR_BG = "var(--phn-surface-alt-bg, #0d0d0d)";

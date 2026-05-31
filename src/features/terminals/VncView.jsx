@@ -4,8 +4,8 @@
 // keyboard input. Password comes transiently from the ptyBridge (keyed by tabId,
 // never persisted). One VncView per VNC tab.
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@backend";
+import { listen } from "@backend";
 import { getTabPassword } from "./ptyBridge.js";
 
 // JS KeyboardEvent.key → X11 keysym for the common non-printable keys. Printable

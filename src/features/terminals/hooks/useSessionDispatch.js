@@ -14,7 +14,7 @@
 // passwords go to the ptyBridge (transient) / OS keychain only.
 
 import { useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import { setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
 import { freshId } from "../ids.js";

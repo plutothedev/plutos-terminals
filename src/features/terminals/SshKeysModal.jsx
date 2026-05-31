@@ -3,7 +3,7 @@
 // a public key to paste into a server's authorized_keys, and generates new keys
 // via ssh-keygen. Private key material is never read into the UI.
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 

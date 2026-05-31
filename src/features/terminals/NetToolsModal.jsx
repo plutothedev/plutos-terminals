@@ -4,7 +4,7 @@
 // shell out to the OS tools; port scan + DNS are pure Rust. Output is shown
 // raw/monospace. Host is validated backend-side, so no injection risk.
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Chip } from "../../components/ui.jsx";
 

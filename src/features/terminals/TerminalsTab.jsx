@@ -1,6 +1,6 @@
 // (C)
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@backend";
 import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../appMeta.js";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
