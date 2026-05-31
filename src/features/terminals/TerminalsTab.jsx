@@ -55,6 +55,7 @@ import { useTunnels } from "./hooks/useTunnels.js";
 import { useSessionSpawn } from "./hooks/useSessionSpawn.js";
 import { useSftpDock } from "./hooks/useSftpDock.js";
 import { useRemoteDesktopLaunch } from "./hooks/useRemoteDesktopLaunch.js";
+import { useSshConnect } from "./hooks/useSshConnect.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -951,21 +952,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     });
   }, [projects, toast, spawnSessionTab, focusExistingProjectTab, getSessionPassword]);
 
-  // SSH password prompt: { panelId, tab, project } or null. On submit, stash the
-  // password transiently in the bridge (keyed by the pending tab id) and create
-  // the tab — TerminalPane reads the password at ssh_spawn time.
-  const [sshPrompt, setSshPrompt] = useState(null);
-  const submitSshPassword = useCallback((password, remember) => {
-    if (!sshPrompt) return;
-    setTabPassword(sshPrompt.tab.id, password);
-    if (remember) {
-      invoke("secret_set", { account: sshAccount(sshPrompt.project.connection), secret: password })
-        .then(() => toast.info("Password saved to keychain."))
-        .catch((e) => toast.error(`Couldn't save to keychain: ${e}`));
-    }
-    spawnSessionTab(sshPrompt.panelId, sshPrompt.tab);
-    setSshPrompt(null);
-  }, [sshPrompt, spawnSessionTab, toast]);
+  // SSH connect: password-prompt state machine + MobaXterm quick connect.
+  // setSshPrompt is returned so openProjectInPanel can open the saved-session prompt.
+  const { sshPrompt, setSshPrompt, submitSshPassword, quickConnect } = useSshConnect({ state, spawnSessionTab, toast });
 
   const runProjectScript = useCallback((projectId, scriptName) => {
     openProjectInPanel(state.activePanelId, projectId, [`npm run ${scriptName}`]);
@@ -1092,34 +1081,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     if (id === "sessions") return; // the session tree is always docked — don't touch the secondary panel
     setRibbon(id);
   }, [focusFilesDock]);
-
-  // MobaXterm-style quick connect: parse "[user@]host[:port]" and open an SSH
-  // session in the active panel (password auth → prompt, like a saved session).
-  const quickConnect = useCallback((text) => {
-    const t = (text || "").trim();
-    if (!t) return;
-    const m = t.match(/^(?:([^@\s]+)@)?([^@:\s]+)(?::(\d+))?$/);
-    if (!m) { toast.error("Use the form user@host or host:port"); return; }
-    const user = m[1] || "root";
-    const host = m[2];
-    const port = m[3] ? parseInt(m[3], 10) : 22;
-    const tabId = freshId("tab");
-    const tab = {
-      id: tabId,
-      label: `${user}@${host}`,
-      cwd: null,
-      startCommands: [],
-      projectId: null,
-      connection: { host, port, user, auth: { method: "password" } },
-    };
-    const project = { name: `${user}@${host}`, connection: tab.connection };
-    (async () => {
-      let saved = null;
-      try { saved = await invoke("secret_get", { account: sshAccount(tab.connection) }); } catch { /* none */ }
-      if (saved) { setTabPassword(tabId, saved); spawnSessionTab(state.activePanelId, tab); }
-      else { setSshPrompt({ panelId: state.activePanelId, tab, project }); }
-    })();
-  }, [state.activePanelId, toast, spawnSessionTab]);
 
   // "Games" toolbar button — MobaXterm has built-in games; we keep it honest
   // with a wink toward the palette.
