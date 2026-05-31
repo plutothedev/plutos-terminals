@@ -41,7 +41,7 @@
 </head>
 <body>
   <div id="app" class="hidden">
-    <div id="bar"><span class="brand">✦ Pluto</span><span id="tabs"></span><span id="status">…</span></div>
+    <div id="bar"><span class="brand">✦ Pluto</span><span id="tabs"></span><span id="newbtn" class="tab" title="New shell on the desktop">＋</span><span id="status">…</span></div>
     <div id="term"></div>
   </div>
   <div id="login">
@@ -145,25 +145,46 @@
       }
     }
 
+    // Subscribe to EVERY session so backgrounded ones still badge + notify; only
+    // the current one is painted into the terminal. Idempotent — skips channels
+    // already subscribed (so a refresh only arms the new sessions).
+    function ensureSubscriptions() {
+      for (const s of sessions) {
+        if (subs["pty://" + s.id]) continue;
+        if (!sstate[s.id]) sstate[s.id] = { dirty: false, running: false, exit: 0 };
+        subscribe("pty://" + s.id, (payload) => { if (s.id === currentId) term.write(payload); scanActivity(s, payload); });
+      }
+    }
+    async function loadSessions() {
+      let list = []; try { list = (await rpc("list_sessions")) || []; } catch {}
+      sessions = Array.isArray(list) ? list : [];
+      renderTabs(); ensureSubscriptions();
+      return sessions;
+    }
+
     async function onReady() {
       status("connected", "ok");
       try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
-      let list = [];
-      try { list = (await rpc("list_sessions")) || []; } catch {}
-      sessions = Array.isArray(list) ? list : [];
-      if (!sessions.length) { status("no sessions on desktop", "err"); $("tabs").innerHTML = ""; return; }
-      renderTabs();
-      // Subscribe to EVERY session so backgrounded ones still badge + notify; only
-      // the current one is painted into the terminal.
-      for (const s of sessions) {
-        subscribe("pty://" + s.id, (payload) => {
-          if (s.id === currentId) term.write(payload);
-          scanActivity(s, payload);
-        });
-      }
+      await loadSessions();
+      if (!sessions.length) { status("no sessions on desktop", "err"); return; }
       // Keep the phone's current view across reconnects when still valid.
       const keep = sessions.find((s) => s.id === currentId);
       openSession(keep || sessions.find((s) => s.active) || sessions[0]);
+    }
+
+    // Ask the desktop to open a new shell, then poll the list until it appears
+    // (the desktop spawns the PTY + re-pushes the list asynchronously).
+    async function newSession() {
+      const before = new Set(sessions.map((s) => s.id));
+      status("opening new shell…");
+      try { await rpc("new_session", { kind: "local" }); } catch { status("connected", "ok"); return; }
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 400));
+        await loadSessions();
+        const fresh = sessions.find((s) => !before.has(s.id));
+        if (fresh) { status("connected", "ok"); openSession(fresh); return; }
+      }
+      status("connected", "ok");
     }
 
     function connect(token) {
@@ -181,6 +202,7 @@
       ws.onerror = () => {};
     }
 
+    $("newbtn").onclick = () => { if (ws && ws.readyState === 1) newSession(); };
     $("connect").onclick = () => { const t = $("token").value.trim(); if (t) { localStorage.setItem("pt_token", t); connect(t); } };
     $("token").addEventListener("keydown", (e) => { if (e.key === "Enter") $("connect").click(); });
 

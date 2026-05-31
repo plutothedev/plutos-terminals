@@ -1,6 +1,6 @@
 // (C)
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@backend";
+import { invoke, listen } from "@backend";
 import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../appMeta.js";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
@@ -416,6 +416,18 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   useEffect(() => {
     invoke("companion_set_sessions", { sessions: sessionListJson }).catch(() => {});
   }, [sessionListJson]);
+
+  // Phone companion → "new session" requests. The phone can't spawn a PTY itself,
+  // so companion.rs emits this event and the desktop opens the tab (which spawns
+  // a shell that flows back into the session list). A ref carries the latest
+  // addTab/activePanelId so the listener registers once (no re-subscribe churn).
+  const newSessionReqRef = useRef(() => {});
+  newSessionReqRef.current = () => addTab(state.activePanelId);
+  useEffect(() => {
+    let un;
+    listen("companion://new-session", () => newSessionReqRef.current()).then((f) => { un = f; });
+    return () => { if (un) un(); };
+  }, []);
 
   // Named workspaces — save/restore the whole panel/tab/split layout. Persisted
   // in the window-independent user store (userSt.workspaces). See useWorkspaces.
@@ -1051,6 +1063,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "serial", icon: "⎓", label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
           { id: "vnc", icon: "🖥", label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
           { id: "rdp", icon: "🪟", label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
+          { id: "remote-control", icon: "📱", label: "Remote control (phone)", hint: "Run a private server so your phone can view + type into your terminals over Tailscale", action: () => setRemoteOpen(true) },
           { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
           { id: "broadcast-group", icon: "🎯", label: "Broadcast targets… (choose terminals)", hint: "Pick a subset of terminals for MultiExec instead of all visible", action: () => setBroadcastGroupOpen(true) },
           { id: "nettools", icon: "🌐", label: "Network tools", hint: "Ping, traceroute, TCP port scan, and DNS lookup", action: () => setNetToolsOpen(true) },

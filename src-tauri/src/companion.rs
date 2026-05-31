@@ -25,7 +25,7 @@ use axum::routing::get;
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
-use tauri::{Listener, Manager};
+use tauri::{Emitter, Listener, Manager};
 use tower_http::services::ServeDir;
 
 /// Live-server handle: the bound port, the auth token, and a graceful-shutdown
@@ -219,6 +219,24 @@ fn dispatch(
             },
         ),
         "default_shell" => Ok(serde_json::Value::String(crate::pty::default_shell())),
+        // Ask the desktop to open a new session. The phone can't spawn a PTY
+        // directly — it would have no desktop tab/scrollback/UI — so we emit an
+        // event the React app handles by adding a tab (which then spawns + flows
+        // back into `list_sessions`). Local shell only for now (SSH needs an
+        // interactive credential prompt that doesn't fit the phone path).
+        "new_session" => {
+            let kind = args
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("local")
+                .to_string();
+            app.emit(
+                "companion://new-session",
+                serde_json::json!({ "kind": kind }),
+            )
+            .map(|_| serde_json::Value::Null)
+            .map_err(|e| e.to_string())
+        }
         // The desktop's current session list, pushed via `companion_set_sessions`.
         // Returned as a parsed array so the page can render tabs without re-parsing.
         "list_sessions" => {
