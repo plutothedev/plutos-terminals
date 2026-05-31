@@ -75,6 +75,12 @@ fn best_host() -> String {
 pub struct CompanionState {
     inner: Mutex<Option<Running>>,
     sessions: Mutex<String>,
+    // Desktop-pushed snippets (`st.snippets`) and the model catalog + active
+    // selection — same reason as `sessions`: the page can't read the webview's
+    // localStorage where both live. `models` carries only `hasKey` booleans per
+    // provider, never the API keys themselves (those stay on the desktop).
+    snippets: Mutex<String>,
+    models: Mutex<String>,
 }
 
 /// Per-connection context handed to the WS handler: the auth token to check and
@@ -169,18 +175,28 @@ async fn handle_socket(socket: WebSocket, ctx: WsCtx) {
             // app.emit — so no change to the PTY reader threads is needed.
             Some("subscribe") => {
                 if let Some(ch) = val.get("channel").and_then(|v| v.as_str()) {
-                    let channel = ch.to_string();
-                    let ch_json = serde_json::to_string(&channel).unwrap_or_else(|_| "\"\"".into());
-                    let tx = out_tx.clone();
-                    let id = ctx.app.listen(channel, move |ev| {
-                        // ev.payload() is already JSON — embed it raw as `payload`.
-                        let _ = tx.send(format!(
-                            r#"{{"type":"event","channel":{},"payload":{}}}"#,
-                            ch_json,
-                            ev.payload()
-                        ));
-                    });
-                    subs.push(id);
+                    // Least-privilege event relay: only the live PTY streams the
+                    // page actually consumes. Tauri's `app.emit` fans out to EVERY
+                    // `app.listen` listener regardless of channel, so without this
+                    // gate a token holder could subscribe to channels the command
+                    // allow-list deliberately excludes — e.g. `vnc-frame://` /
+                    // `rdp-frame://` (live remote-desktop pixels). Mirror the
+                    // command allow-list's least-privilege intent for the relay.
+                    if ch.starts_with("pty://") || ch.starts_with("pty-exit://") {
+                        let channel = ch.to_string();
+                        let ch_json =
+                            serde_json::to_string(&channel).unwrap_or_else(|_| "\"\"".into());
+                        let tx = out_tx.clone();
+                        let id = ctx.app.listen(channel, move |ev| {
+                            // ev.payload() is already JSON — embed it raw as `payload`.
+                            let _ = tx.send(format!(
+                                r#"{{"type":"event","channel":{},"payload":{}}}"#,
+                                ch_json,
+                                ev.payload()
+                            ));
+                        });
+                        subs.push(id);
+                    }
                 }
             }
             _ => {}
@@ -191,6 +207,26 @@ async fn handle_socket(socket: WebSocket, ctx: WsCtx) {
         ctx.app.unlisten(id);
     }
     sender.abort();
+}
+
+/// Read one of the desktop-pushed JSON stashes out of `CompanionState`. Returns
+/// the raw string (empty when unset / state missing).
+fn stash_str(app: &tauri::AppHandle, sel: fn(&CompanionState) -> &Mutex<String>) -> String {
+    app.try_state::<CompanionState>()
+        .and_then(|s| sel(&s).lock().ok().map(|g| g.clone()))
+        .unwrap_or_default()
+}
+
+/// Parse a stashed string as a JSON array (empty/garbage → `[]`).
+fn parse_array(raw: &str) -> serde_json::Value {
+    let t = raw.trim();
+    serde_json::from_str(if t.is_empty() { "[]" } else { t }).unwrap_or_else(|_| serde_json::json!([]))
+}
+
+/// Parse a stashed string as an arbitrary JSON value (empty/garbage → `null`).
+fn parse_value(raw: &str) -> serde_json::Value {
+    let t = raw.trim();
+    serde_json::from_str(if t.is_empty() { "null" } else { t }).unwrap_or(serde_json::Value::Null)
 }
 
 /// Execute a backend command for the companion. A small, explicit allow-list (the
@@ -248,16 +284,28 @@ fn dispatch(
         }
         // The desktop's current session list, pushed via `companion_set_sessions`.
         // Returned as a parsed array so the page can render tabs without re-parsing.
-        "list_sessions" => {
-            let raw = app
-                .try_state::<CompanionState>()
-                .and_then(|s| s.sessions.lock().ok().map(|g| g.clone()))
-                .unwrap_or_default();
-            let trimmed = raw.trim();
-            Ok(
-                serde_json::from_str(if trimmed.is_empty() { "[]" } else { trimmed })
-                    .unwrap_or_else(|_| serde_json::json!([])),
+        "list_sessions" => Ok(parse_array(&stash_str(app, |s| &s.sessions))),
+        // The desktop's saved snippets, pushed via `companion_set_snippets`. Same
+        // reason as the session list (page can't read the webview's localStorage).
+        // Read-only: the phone inserts a snippet's command into the active session
+        // via `pty_write`; it never edits the snippet set.
+        "list_snippets" => Ok(parse_array(&stash_str(app, |s| &s.snippets))),
+        // The model catalog + active selection, pushed via `companion_set_models`.
+        // Each provider carries only `{id,label,models,hasKey}` — never API keys.
+        "list_models" => Ok(parse_value(&stash_str(app, |s| &s.models))),
+        // Set the active provider/model for NEXT-spawned shells. Emits an event the
+        // desktop validates (known provider WITH a key configured) and applies via
+        // `saveUser` — a single field, NOT `write_store`: a leaked token can't
+        // touch the persisted layout, the snippet set, or read/write the API keys.
+        "set_active_model" => {
+            let provider_id = s("providerId")?;
+            let model = s("model")?;
+            app.emit(
+                "companion://set-active-model",
+                serde_json::json!({ "providerId": provider_id, "model": model }),
             )
+            .map(|_| serde_json::Value::Null)
+            .map_err(|e| e.to_string())
         }
         "system_stats" => {
             serde_json::to_value(crate::sysstats::system_stats()).map_err(|e| e.to_string())
@@ -404,5 +452,31 @@ pub fn companion_set_sessions(
 ) -> Result<(), String> {
     let mut guard = state.sessions.lock().map_err(|e| e.to_string())?;
     *guard = sessions;
+    Ok(())
+}
+
+/// Receive the desktop's saved snippets (a JSON array of `{id, name, command}`)
+/// for the `list_snippets` RPC. Pushed whenever `st.snippets` changes. Stored
+/// even while the server is stopped, so it's ready the moment it starts.
+#[tauri::command]
+pub fn companion_set_snippets(
+    state: tauri::State<'_, CompanionState>,
+    snippets: String,
+) -> Result<(), String> {
+    let mut guard = state.snippets.lock().map_err(|e| e.to_string())?;
+    *guard = snippets;
+    Ok(())
+}
+
+/// Receive the desktop's model catalog + active selection (JSON
+/// `{ active, providers: [{id, label, models, hasKey}] }`) for the `list_models`
+/// RPC. `hasKey` is a boolean — the API keys themselves never leave the desktop.
+#[tauri::command]
+pub fn companion_set_models(
+    state: tauri::State<'_, CompanionState>,
+    models: String,
+) -> Result<(), String> {
+    let mut guard = state.models.lock().map_err(|e| e.to_string())?;
+    *guard = models;
     Ok(())
 }

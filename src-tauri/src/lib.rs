@@ -180,6 +180,8 @@ pub fn run() {
             companion::companion_stop,
             companion::companion_status,
             companion::companion_set_sessions,
+            companion::companion_set_snippets,
+            companion::companion_set_models,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pluto's Terminals")

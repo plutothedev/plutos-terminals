@@ -80,20 +80,31 @@ access layer and serve the *same* React bundle to the phone over WebSocket.
 
 ### Security (the crux — a token = full shell access)
 
-- **Revocable, per-device tokens.** The QR carries a short-lived *pairing* token
-  that the phone exchanges for a long-lived *device* token (stored via the
-  existing OS keychain `vault.rs`). Each device is listed + revocable.
-- **Bind tailnet only** so Tailscale's device auth is the outer gate.
+- **Token auth (today): a single shared, per-run bearer token.** `start()` mints
+  one 40-char random token; it gates the WebSocket (first frame) and is embedded
+  in the QR link's hash so scanning auto-connects. "Revocation" today is global —
+  stop/restart mints a fresh token (invalidating the old). There is **no**
+  per-device pairing/exchange, **no** `vault.rs`-stored device token, and **no**
+  per-device list/revoke yet — those are future work (below).
+- **Bind:** the server binds `0.0.0.0:<port>` (all interfaces). The *intended*
+  reach is the tailnet, with Tailscale device auth as the outer gate — but the
+  bind itself is not tailnet-scoped, so when Tailscale is down the port is also
+  LAN-reachable, gated only by the token. (Binding the tailnet IP / warning when
+  Tailscale is down is a hardening follow-up.)
 - Server is **off by default**; the user explicitly enables it.
+
+**Future (not built):** per-device pairing (a short-lived pairing token exchanged
+for a long-lived device token stored in `vault.rs`), a connected-device list, and
+per-device revoke. The current model is the single shared token described above.
 
 ## Phases (the "all phases" to complete)
 
 | Phase | Deliverable | Status |
 |---|---|---|
-| **1 — Transport + 1 session** | companion server (serve + WS), QR pairing + revocable token auth, the frontend `Backend` seam, web client that **mirrors + types into the active session**. | ✅ **Done.** Verified: bad token rejected; auth→ready; live `pty://` relay; a typed command runs in the real shell and its output streams back. |
+| **1 — Transport + 1 session** | companion server (serve + WS), QR + a single shared bearer token (rotated on restart), the frontend `Backend` seam, web client that **mirrors + types into the active session**. | ✅ **Done.** Verified: bad token rejected; auth→ready; live `pty://` relay; a typed command runs in the real shell and its output streams back. |
 | **2 — Multi-session + notify** | session list, switch sessions, command-finished alerts (OSC-133), reconnect/resilience. | ✅ **Done.** Subscribes to every session; per-tab activity badges; OSC-133 `133;D` → browser notification (silent on bare prompt redraws); reconnect re-arms subs. |
 | **3 — Create sessions** | start local / SSH sessions from the phone. | ✅ **Done (local).** "＋" → `new_session` → desktop `addTab` → new shell appears in the list (verified 13→14). SSH-from-phone deferred (needs an interactive credential prompt). |
-| **4 — File browser + rest** | SFTP / local browser, snippets, models, etc. → **full parity**. | ✅ **File browser done** (read-only `list_directory`, navigate, "cd here"). Remaining parity (snippets, model picker, other dialogs) is incremental: one allow-list entry + a small panel each. |
+| **4 — File browser + rest** | SFTP / local browser, snippets, models, etc. → **full parity**. | ✅ **File browser done** (read-only `list_directory`, navigate, "cd here"). 🔨 **Snippets + model picker built** (pending `cargo build` + on-device verify): snippets pushed from the desktop → tap to insert into the active session (`{{var}}` fill); model picker pushes the catalog + active selection with **`hasKey` only — API keys never leave the desktop** → picking sets `activeModel` for the next-spawned shell. Other dialogs remain incremental: one allow-list entry + a small panel each. |
 | **5 (opt) — push when closed** | Tailscale HTTPS cert + service worker + web push for "build done" when the tab is closed. | ⏸ **Blocked on HTTPS** (see below). |
 
 ### Phase 5 prerequisites (why it isn't built yet)

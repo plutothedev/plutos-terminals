@@ -43,6 +43,34 @@
     .frow .fname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .frow .fsize { color:var(--dim); font-size:11px; }
     .frow .ficon { width:20px; text-align:center; }
+    /* Snippets + model overlays (Phase 4) — share the file-browser shell */
+    #snippets, #models { position:absolute; left:0; right:0; top:0; bottom:0; background:var(--bg);
+      display:flex; flex-direction:column; z-index:5; }
+    .ovbar { display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--bar);
+      border-bottom:1px solid var(--line); flex-shrink:0; }
+    .ovbar .ovtitle { color:var(--cy); font-weight:600; font-size:14px; }
+    .ovbar button { margin-left:auto; background:#23272d; border:1px solid var(--line); color:var(--fg);
+      border-radius:6px; padding:6px 10px; font-size:13px; }
+    .ovlist { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+    .srow { padding:11px 12px; border-bottom:1px solid #15181c; cursor:pointer; }
+    .srow .sname { font-size:14px; color:var(--fg); }
+    .srow .scmd { font-size:12px; color:var(--dim); font-family:Menlo,Monaco,monospace;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .sfill { padding:10px 12px; border-bottom:1px solid var(--line); display:flex; flex-direction:column; gap:8px; }
+    .sfill input { padding:10px; border-radius:6px; border:1px solid var(--line); background:#15181c;
+      color:var(--fg); font-size:16px; }
+    .sfill .scmd { font-family:Menlo,Monaco,monospace; font-size:12px; color:var(--dim); word-break:break-all; }
+    .sfill .sfrow { display:flex; gap:8px; }
+    .sfill .sfrow button { flex:1; margin:0; padding:9px; border-radius:6px; border:1px solid var(--line);
+      background:#23272d; color:var(--fg); font-size:14px; }
+    .sfill .sfrow button.go { background:var(--cy); color:#06231a; border:none; font-weight:700; }
+    .mgroup { padding:8px 12px 4px; font-size:11px; text-transform:uppercase; letter-spacing:0.4px;
+      color:var(--dim); background:#101316; }
+    .mrow { display:flex; align-items:center; gap:10px; padding:11px 12px; border-bottom:1px solid #15181c;
+      font-size:14px; cursor:pointer; }
+    .mrow.active { color:var(--cy); }
+    .mrow .mcheck { width:18px; text-align:center; color:var(--cy); }
+    .mrow .mname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     /* Login gate */
     #login { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
       justify-content:center; gap:14px; background:var(--bg); padding:24px; text-align:center; }
@@ -57,7 +85,7 @@
 </head>
 <body>
   <div id="app" class="hidden">
-    <div id="bar"><span class="brand">✦ Pluto</span><span id="tabs"></span><span id="filesbtn" class="tab" title="Browse files">📁</span><span id="newbtn" class="tab" title="New shell on the desktop">＋</span><span id="status">…</span></div>
+    <div id="bar"><span class="brand">✦ Pluto</span><span id="tabs"></span><span id="snipbtn" class="tab" title="Snippets">📋</span><span id="modelbtn" class="tab" title="Model">✦</span><span id="filesbtn" class="tab" title="Browse files">📁</span><span id="newbtn" class="tab" title="New shell on the desktop">＋</span><span id="status">…</span></div>
     <div id="term"></div>
     <div id="files" class="hidden">
       <div id="filesbar">
@@ -67,6 +95,14 @@
         <button id="filesclose" title="Close">✕</button>
       </div>
       <div id="fileslist"></div>
+    </div>
+    <div id="snippets" class="hidden">
+      <div class="ovbar"><span class="ovtitle">📋 Snippets</span><button id="snipclose" title="Close">✕</button></div>
+      <div id="sniplist" class="ovlist"></div>
+    </div>
+    <div id="models" class="hidden">
+      <div class="ovbar"><span class="ovtitle">✦ Model</span><button id="modelclose" title="Close">✕</button></div>
+      <div id="modellist" class="ovlist"></div>
     </div>
   </div>
   <div id="login">
@@ -189,6 +225,8 @@
 
     async function onReady() {
       status("connected", "ok");
+      // Learn the desktop shell so "cd here" quotes correctly (PowerShell vs POSIX).
+      try { const sh = await rpc("default_shell"); shellKind = /powershell|pwsh/i.test(sh) ? "pwsh" : /cmd(\.exe)?$/i.test(sh) ? "cmd" : "posix"; } catch {}
       try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
       await loadSessions();
       if (!sessions.length) { status("no sessions on desktop", "err"); return; }
@@ -212,18 +250,38 @@
       status("connected", "ok");
     }
 
+    let backoff = 1000, failsBeforeReady = 0;
     function connect(token) {
+      let readyThisConn = false;
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(`${proto}://${location.host}/ws`);
       ws.onopen = () => ws.send(token);
       ws.onmessage = (e) => {
         let m; try { m = JSON.parse(e.data); } catch { return; }
-        if (m.type === "ready") { $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+        if (m.type === "ready") { readyThisConn = true; backoff = 1000; failsBeforeReady = 0;
+          $("login").classList.add("hidden"); $("app").classList.remove("hidden");
           if (!term) initTerm(); setTimeout(() => { try { fit.fit(); sendResize(); } catch {} }, 50); onReady(); }
         else if (m.type === "rpc-result") { const p = pending[m.id]; if (p) { delete pending[m.id]; ("err" in m) ? p.reject(m.err) : p.resolve(m.ok); } }
         else if (m.type === "event") { const cb = subs[m.channel]; if (cb) cb(m.payload); }
       };
-      ws.onclose = () => { status("disconnected — reconnecting…", "err"); subs = {}; setTimeout(() => connect(token), 1500); };
+      ws.onclose = () => {
+        subs = {};
+        // A close BEFORE "ready" means auth failed — usually a stale token after the
+        // server restarted (restart mints a fresh one). Back off, and after a few
+        // such failures stop and re-show the login gate so the new token can be
+        // entered, instead of hammering the just-restarted server every 1.5s forever.
+        if (!readyThisConn && ++failsBeforeReady >= 3) {
+          try { localStorage.removeItem("pt_token"); } catch {}
+          $("app").classList.add("hidden"); $("files").classList.add("hidden");
+          $("login").classList.remove("hidden");
+          $("loginerr").textContent = "Token rejected — enter the current token from your desktop.";
+          return;
+        }
+        const delay = readyThisConn ? 1500 : backoff;
+        if (!readyThisConn) backoff = Math.min(backoff * 2, 15000);
+        status("disconnected — reconnecting…", "err");
+        setTimeout(() => connect(token), delay);
+      };
       ws.onerror = () => {};
     }
 
@@ -233,7 +291,16 @@
     let filesPath = null;
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     const human = (n) => (n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(0) + " KB" : (n / 1048576).toFixed(1) + " MB");
-    const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+    // Shell-aware quoting for "cd here". Set from default_shell on connect: the
+    // desktop is usually PowerShell on Windows, which escapes a single quote by
+    // DOUBLING it ('') — the POSIX '\'' idiom would mis-parse and leave stray text.
+    let shellKind = "posix";
+    const shq = (s) => {
+      s = String(s);
+      if (shellKind === "pwsh") return "'" + s.replace(/'/g, "''") + "'";   // PowerShell
+      if (shellKind === "cmd") return '"' + s.replace(/"/g, "") + '"';       // cmd.exe (no quote-escape)
+      return "'" + s.replace(/'/g, "'\\''") + "'";                          // sh / bash / zsh
+    };
     const parentPath = (p) => { const q = p.replace(/\/+$/, ""); const i = q.lastIndexOf("/"); return i > 0 ? q.slice(0, i) : "/"; };
     async function openFiles(path) {
       try {
@@ -254,11 +321,106 @@
     $("filesup").onclick = () => filesPath && openFiles(parentPath(filesPath));
     $("filesclose").onclick = () => $("files").classList.add("hidden");
     $("filescd").onclick = () => {
-      if (filesPath && currentId) { rpc("pty_write", { id: currentId, data: `cd ${shq(filesPath)}\r` }); $("files").classList.add("hidden"); }
+      if (filesPath && currentId) {
+        const p = filesPath.replace(/^\\\\\?\\/, ""); // strip Windows \\?\ verbatim prefix so `cd` accepts it
+        rpc("pty_write", { id: currentId, data: `cd ${shq(p)}\r` });
+        $("files").classList.add("hidden");
+      }
     };
 
+    // ── Snippets (Phase 4) ──────────────────────────────────────────────────────
+    // Saved commands pushed from the desktop (st.snippets). Tap to INSERT a command
+    // into the active session — no auto-run (matches the desktop's "click to insert":
+    // review, then press Enter). {{vars}} open an inline fill form first.
+    let snippets = [];
+    const VARRE = /\{\{\s*([\w.-]+)\s*\}\}/g;
+    const snipVars = (cmd) => { const out = []; let m; VARRE.lastIndex = 0; while ((m = VARRE.exec(cmd || ""))) if (!out.includes(m[1])) out.push(m[1]); return out; };
+    const fillVars = (cmd, vals) => String(cmd || "").replace(VARRE, (_, n) => (vals[n] != null && vals[n] !== "" ? vals[n] : `{{${n}}}`));
+    function insertSnippet(cmd) { if (currentId && cmd) rpc("pty_write", { id: currentId, data: cmd }); $("snippets").classList.add("hidden"); }
+    function renderSnippets() {
+      const c = $("sniplist"); c.innerHTML = "";
+      if (!snippets.length) { c.innerHTML = `<div class="srow" style="cursor:default"><div class="sname" style="color:var(--dim)">No snippets on the desktop.</div></div>`; return; }
+      for (const s of snippets) {
+        const row = document.createElement("div"); row.className = "srow";
+        row.innerHTML = `<div class="sname">${esc(s.name || s.command || "")}</div><div class="scmd">${esc(s.command || "")}</div>`;
+        row.onclick = () => pickSnippet(s);
+        c.appendChild(row);
+      }
+    }
+    function pickSnippet(s) {
+      const vars = snipVars(s.command);
+      if (!vars.length) { insertSnippet(s.command); return; }
+      const c = $("sniplist"); c.innerHTML = "";
+      const form = document.createElement("div"); form.className = "sfill";
+      const vals = {};
+      const preview = document.createElement("div"); preview.className = "scmd"; preview.textContent = s.command;
+      const inputs = vars.map((v) => {
+        const i = document.createElement("input"); i.placeholder = v; i.autocapitalize = "off"; i.autocomplete = "off"; i.spellcheck = false;
+        i.oninput = () => { vals[v] = i.value; preview.textContent = fillVars(s.command, vals); };
+        return i;
+      });
+      const bar = document.createElement("div"); bar.className = "sfrow";
+      const cancel = document.createElement("button"); cancel.textContent = "cancel"; cancel.onclick = renderSnippets;
+      const go = document.createElement("button"); go.className = "go"; go.textContent = "insert"; go.onclick = () => insertSnippet(fillVars(s.command, vals));
+      bar.append(cancel, go);
+      form.append(...inputs, preview, bar);
+      c.appendChild(form);
+      if (inputs[0]) inputs[0].focus();
+    }
+    async function openSnippets() {
+      try { snippets = (await rpc("list_snippets")) || []; } catch { snippets = []; }
+      if (!Array.isArray(snippets)) snippets = [];
+      renderSnippets(); $("snippets").classList.remove("hidden");
+    }
+    $("snipbtn").onclick = () => { if (ws && ws.readyState === 1) openSnippets(); };
+    $("snipclose").onclick = () => $("snippets").classList.add("hidden");
+
+    // ── Model picker (Phase 4) ──────────────────────────────────────────────────
+    // Catalog + active model pushed from the desktop. Only providers with a key
+    // configured carry hasKey:true — API keys NEVER leave the desktop. Picking a
+    // model sets it active for the NEXT shell spawned on the desktop (same as the
+    // desktop picker: env vars inject at spawn, so `claude`/`codex` route to it).
+    let models = { active: null, providers: [] };
+    function renderModels() {
+      const c = $("modellist"); c.innerHTML = "";
+      const active = models.active || {};
+      const usable = (models.providers || []).filter((p) => p.hasKey && (p.models || []).length);
+      if (!usable.length) {
+        c.innerHTML = `<div class="srow" style="cursor:default"><div class="sname" style="color:var(--dim)">No models configured. Add a provider key in the desktop Models picker.</div></div>`;
+        return;
+      }
+      for (const p of usable) {
+        const g = document.createElement("div"); g.className = "mgroup"; g.textContent = p.label || p.id; c.appendChild(g);
+        for (const m of p.models) {
+          const on = active.providerId === p.id && active.model === m;
+          const row = document.createElement("div"); row.className = "mrow" + (on ? " active" : "");
+          row.innerHTML = `<span class="mcheck">${on ? "✓" : ""}</span><span class="mname">${esc(m)}</span>`;
+          row.onclick = () => selectModel(p.id, m);
+          c.appendChild(row);
+        }
+      }
+    }
+    async function selectModel(providerId, model) {
+      try { await rpc("set_active_model", { providerId, model }); } catch {}
+      models.active = { providerId, model };
+      renderModels();
+      status("model → " + model, "ok");
+      // Re-pull once the desktop has validated + re-pushed (it may reject an
+      // unconfigured provider, in which case the active stays as the desktop sees it).
+      setTimeout(() => { loadModels().then(renderModels).catch(() => {}); }, 500);
+    }
+    async function loadModels() {
+      let v = null; try { v = await rpc("list_models"); } catch {}
+      models = v && typeof v === "object" ? v : { active: null, providers: [] };
+      if (!Array.isArray(models.providers)) models.providers = [];
+      return models;
+    }
+    async function openModels() { await loadModels(); renderModels(); $("models").classList.remove("hidden"); }
+    $("modelbtn").onclick = () => { if (ws && ws.readyState === 1) openModels(); };
+    $("modelclose").onclick = () => $("models").classList.add("hidden");
+
     $("newbtn").onclick = () => { if (ws && ws.readyState === 1) newSession(); };
-    $("connect").onclick = () => { const t = $("token").value.trim(); if (t) { localStorage.setItem("pt_token", t); connect(t); } };
+    $("connect").onclick = () => { const t = $("token").value.trim(); if (t) { failsBeforeReady = 0; backoff = 1000; $("loginerr").textContent = ""; localStorage.setItem("pt_token", t); connect(t); } };
     $("token").addEventListener("keydown", (e) => { if (e.key === "Enter") $("connect").click(); });
 
     // Auto-connect if a token is in the URL hash (#<token>) or remembered.

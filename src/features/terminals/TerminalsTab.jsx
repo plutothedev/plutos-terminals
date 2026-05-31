@@ -25,6 +25,7 @@ import WorkspacesModal from "./WorkspacesModal";
 import BroadcastGroupModal from "./BroadcastGroupModal";
 import NetToolsModal from "./NetToolsModal";
 import RemoteControlModal from "./RemoteControlModal.jsx";
+import { PROVIDERS, findProvider } from "./providers.js";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
@@ -417,6 +418,33 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     invoke("companion_set_sessions", { sessions: sessionListJson }).catch(() => {});
   }, [sessionListJson]);
 
+  // Phone companion: publish the snippet set. Read-only on the phone — it inserts
+  // a snippet's command into the active session; it never edits the set. Same push
+  // rationale as the session list (the page can't read st.snippets from the
+  // webview localStorage). String identity short-circuits redundant pushes.
+  const snippetsJson = useMemo(() => JSON.stringify(snippets || []), [snippets]);
+  useEffect(() => {
+    invoke("companion_set_snippets", { snippets: snippetsJson }).catch(() => {});
+  }, [snippetsJson]);
+
+  // Phone companion: publish the model catalog + active selection. ONLY a `hasKey`
+  // boolean per provider crosses the wire — the API keys never leave this
+  // localStorage. The phone's picker sets `activeModel` (which the next spawned
+  // shell routes to), exactly like the desktop ModelPicker.
+  const modelsJson = useMemo(() => {
+    const keys = userSt?.providerKeys || {};
+    const providers = PROVIDERS.map((pp) => ({
+      id: pp.id,
+      label: pp.label,
+      models: pp.models || [],
+      hasKey: typeof keys[pp.id] === "string" && keys[pp.id].length > 0,
+    }));
+    return JSON.stringify({ active: userSt?.activeModel || null, providers });
+  }, [userSt]);
+  useEffect(() => {
+    invoke("companion_set_models", { models: modelsJson }).catch(() => {});
+  }, [modelsJson]);
+
   // Phone companion → "new session" requests. The phone can't spawn a PTY itself,
   // so companion.rs emits this event and the desktop opens the tab (which spawns
   // a shell that flows back into the session list). A ref carries the latest
@@ -424,9 +452,40 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const newSessionReqRef = useRef(() => {});
   newSessionReqRef.current = () => addTab(state.activePanelId);
   useEffect(() => {
-    let un;
-    listen("companion://new-session", () => newSessionReqRef.current()).then((f) => { un = f; });
-    return () => { if (un) un(); };
+    // companion://* are GLOBAL app.emit broadcasts → every open window receives
+    // them. Only the primary window (no ?w= suffix) should act, else one phone
+    // tap spawns a shell tab in EVERY window. Secondary windows skip registration.
+    if (new URLSearchParams(window.location.search).get("w")) return;
+    let un, cancelled = false;
+    // Guard the async listen(): if this effect unmounts before the promise
+    // resolves, unlisten as soon as we get the handle (else the listener leaks
+    // and a single phone tap fires addTab twice under StrictMode/HMR).
+    listen("companion://new-session", () => newSessionReqRef.current())
+      .then((f) => { if (cancelled) f(); else un = f; });
+    return () => { cancelled = true; if (un) un(); };
+  }, []);
+
+  // Phone companion → "set active model". The phone picks a provider/model from
+  // the pushed catalog; we accept it only when it's a known provider WITH a key
+  // configured, then persist activeModel (one field — NOT write_store, so a leaked
+  // token can't rewrite the layout or touch keys). The next spawned shell routes
+  // to it (TerminalPane reads activeModel at spawn). Ref carries latest userSt.
+  const setActiveModelRef = useRef(() => {});
+  setActiveModelRef.current = (payload) => {
+    const providerId = payload?.providerId;
+    const model = payload?.model;
+    if (!providerId || typeof model !== "string" || !model) return;
+    const provider = findProvider(providerId);
+    const key = userSt?.providerKeys?.[providerId];
+    if (!provider || typeof key !== "string" || !key) return; // unknown provider / no key → ignore
+    saveUser({ ...userSt, activeModel: { providerId, model } });
+  };
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("w")) return; // primary window only (see new-session)
+    let un, cancelled = false;
+    listen("companion://set-active-model", (e) => setActiveModelRef.current(e?.payload))
+      .then((f) => { if (cancelled) f(); else un = f; });
+    return () => { cancelled = true; if (un) un(); };
   }, []);
 
   // Named workspaces — save/restore the whole panel/tab/split layout. Persisted
