@@ -46,6 +46,7 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { gridDims, MAX_PANELS } from "./grid";
 import { getWindowStorageKey } from "./storageKeys.js";
 import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useDimsListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
+import { useDockResize } from "./hooks/useDockResize.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -171,39 +172,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // (remote files). null = dock collapsed. Defaults to the sessions list.
   const [ribbon, setRibbon] = useState(null); // secondary left panel: null | "snippets" | "agents" (session tree is always docked)
   const [dockTab, setDockTab] = useState("files"); // right-dock tab: files | assistant | monitor (the dock is always open)
-  // Side-panel sizing/visibility (persisted). Panels can be collapsed to a thin
-  // rail (re-expandable) or resized, but never fully removed — so they can't be
-  // "lost" like the old close button allowed.
-  const [dockWidth, setDockWidth] = useState(() => {
-    const v = parseInt(localStorage.getItem("pt:dockWidth") || "", 10);
-    return Number.isFinite(v) && v >= 220 && v <= 640 ? v : 320;
-  });
-  const [dockCollapsed, setDockCollapsed] = useState(() => localStorage.getItem("pt:dockCollapsed") === "1");
-  const [treeCollapsed, setTreeCollapsed] = useState(() => localStorage.getItem("pt:treeCollapsed") === "1");
-  const collapseDock = (v) => { setDockCollapsed(v); localStorage.setItem("pt:dockCollapsed", v ? "1" : "0"); };
-  const collapseTree = (v) => { setTreeCollapsed(v); localStorage.setItem("pt:treeCollapsed", v ? "1" : "0"); };
-  // Drag the splitter to resize the right dock (persisted on release).
-  const startDockResize = useCallback((e) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    let startW = 320;
-    setDockWidth((w) => { startW = w; return w; });
-    const onMove = (ev) => {
-      const w = Math.max(220, Math.min(640, startW + (startX - ev.clientX)));
-      setDockWidth(w);
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      setDockWidth((w) => { localStorage.setItem("pt:dockWidth", String(w)); return w; });
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, []);
+  // Right-dock + session-tree sizing/visibility (persisted to localStorage).
+  const { dockWidth, dockCollapsed, treeCollapsed, collapseDock, collapseTree, startDockResize } = useDockResize();
 
   // Persisted user snippets. Seeded from the built-in starter set on first use
   // so the drawer is never empty; edits/additions/deletes persist in app state.
