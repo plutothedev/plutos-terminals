@@ -7,6 +7,7 @@
 // tree mutations mint identical shapes.
 
 import { freshId } from "./ids.js";
+import { leafIds } from "./splitTree";
 
 export function defaultPanel() {
   const tabId = freshId("tab");
@@ -42,4 +43,34 @@ export function renumberDefaultLabels(tabs) {
     }
     return t;
   });
+}
+
+// Deep-clone a saved workspace with fresh ids for every panel/tab/pane so a
+// loaded layout is a clean instance (no scrollback-file or React-key collisions
+// with the layout it replaces). Maps old pane ids → new so activePaneId follows.
+function regenLayout(node, map) {
+  if (!node) return node;
+  const newId = node.dir ? freshId("split") : freshId("pane");
+  map[node.id] = newId;
+  if (!node.dir) return { ...node, id: newId };
+  return { ...node, id: newId, a: regenLayout(node.a, map), b: regenLayout(node.b, map) };
+}
+export function cloneWorkspaceFresh(ws) {
+  let newActivePanelId = null;
+  const panels = (ws.panels || []).map((p) => {
+    const newPanelId = freshId("panel");
+    if (p.id === ws.activePanelId) newActivePanelId = newPanelId;
+    let newActiveTabId = null;
+    const tabs = (p.tabs || []).map((t) => {
+      const newTabId = freshId("tab");
+      if (t.id === p.activeTabId) newActiveTabId = newTabId;
+      if (!t.layout) return { ...t, id: newTabId, activePaneId: newTabId };
+      const map = {};
+      const layout = regenLayout(t.layout, map);
+      const activePaneId = map[t.activePaneId] || leafIds(layout)[0] || newTabId;
+      return { ...t, id: newTabId, layout, activePaneId };
+    });
+    return { id: newPanelId, tabs, activeTabId: newActiveTabId || (tabs[0] && tabs[0].id) || null };
+  });
+  return { panels, activePanelId: newActivePanelId || (panels[0] && panels[0].id) || null };
 }

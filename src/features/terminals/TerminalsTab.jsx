@@ -59,8 +59,8 @@ import { useProjects } from "./hooks/useProjects.js";
 import { useTabTelemetry } from "./hooks/useTabTelemetry.js";
 import { useWorkspaceTree } from "./hooks/useWorkspaceTree.js";
 import { useSessionDispatch } from "./hooks/useSessionDispatch.js";
+import { useWorkspaces } from "./hooks/useWorkspaces.js";
 import { defaultState } from "./workspaceModel.js";
-import { leafIds } from "./splitTree";
 import {
   getSkinId,
   getSkinXtermTheme,
@@ -69,7 +69,6 @@ import {
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds } from "./ptyBridge.js";
 import { sshAccount } from "./sshAccount.js";
-import { freshId } from "./ids.js";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
@@ -78,36 +77,6 @@ function loadColor(pct) {
   if (pct >= 85) return "#ef4444";
   if (pct >= 60) return "#f59e0b";
   return "#10b981";
-}
-
-// Deep-clone a saved workspace with fresh ids for every panel/tab/pane so a
-// loaded layout is a clean instance (no scrollback-file or React-key collisions
-// with the layout it replaces). Maps old pane ids → new so activePaneId follows.
-function regenLayout(node, map) {
-  if (!node) return node;
-  const newId = node.dir ? freshId("split") : freshId("pane");
-  map[node.id] = newId;
-  if (!node.dir) return { ...node, id: newId };
-  return { ...node, id: newId, a: regenLayout(node.a, map), b: regenLayout(node.b, map) };
-}
-function cloneWorkspaceFresh(ws) {
-  let newActivePanelId = null;
-  const panels = (ws.panels || []).map((p) => {
-    const newPanelId = freshId("panel");
-    if (p.id === ws.activePanelId) newActivePanelId = newPanelId;
-    let newActiveTabId = null;
-    const tabs = (p.tabs || []).map((t) => {
-      const newTabId = freshId("tab");
-      if (t.id === p.activeTabId) newActiveTabId = newTabId;
-      if (!t.layout) return { ...t, id: newTabId, activePaneId: newTabId };
-      const map = {};
-      const layout = regenLayout(t.layout, map);
-      const activePaneId = map[t.activePaneId] || leafIds(layout)[0] || newTabId;
-      return { ...t, id: newTabId, layout, activePaneId };
-    });
-    return { id: newPanelId, tabs, activeTabId: newActiveTabId || (tabs[0] && tabs[0].id) || null };
-  });
-  return { panels, activePanelId: newActivePanelId || (panels[0] && panels[0].id) || null };
 }
 
 export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {} }) {
@@ -404,30 +373,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // TerminalPane via the bridge. bumpDims above forces re-read on change.
   const activeDims = activeTabId ? getTabDims(activeTabId) : null;
 
-  // ── Named workspaces (save/restore the whole panel/tab/split layout) ────────
-  const workspaces = Array.isArray(userSt?.workspaces) ? userSt.workspaces : [];
-  const saveWorkspace = useCallback((name) => {
-    const snap = JSON.parse(JSON.stringify({ panels: state.panels, activePanelId: state.activePanelId }));
-    const next = [
-      ...workspaces.filter((w) => w.name !== name),
-      { name, panels: snap.panels, activePanelId: snap.activePanelId, savedAt: Date.now() },
-    ];
-    saveUser({ ...userSt, workspaces: next });
-    toast.success(`Workspace "${name}" saved.`);
-  }, [state.panels, state.activePanelId, workspaces, userSt, saveUser, toast]);
-  const loadWorkspace = useCallback((ws) => {
-    try {
-      const fresh = cloneWorkspaceFresh(JSON.parse(JSON.stringify(ws)));
-      if (!fresh.panels.length) { toast.error("That workspace is empty."); return; }
-      persist({ ...state, panels: fresh.panels, activePanelId: fresh.activePanelId });
-      toast.success(`Loaded workspace "${ws.name}".`);
-    } catch (e) {
-      toast.error(`Couldn't load workspace: ${e}`);
-    }
-  }, [state, persist, toast]);
-  const deleteWorkspace = useCallback((name) => {
-    saveUser({ ...userSt, workspaces: workspaces.filter((w) => w.name !== name) });
-  }, [workspaces, userSt, saveUser]);
+  // Named workspaces — save/restore the whole panel/tab/split layout. Persisted
+  // in the window-independent user store (userSt.workspaces). See useWorkspaces.
+  const { workspaces, saveWorkspace, loadWorkspace, deleteWorkspace } =
+    useWorkspaces({ state, persist, userSt, saveUser, toast });
 
   // ── SFTP remote file browser (Phase 3) ─────────────────────────────────
   // Bound to the active SSH tab; connects/disconnects automatically (see
