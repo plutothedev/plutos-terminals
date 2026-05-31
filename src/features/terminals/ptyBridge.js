@@ -10,6 +10,7 @@
 
 const writers = new Map(); // tabId -> (data: string) => void
 const readers = new Map(); // tabId -> () => string (recent terminal text)
+const ptyIds = new Map(); // tabId -> live pty channel id ("pty-…", from pty_spawn)
 const dims = new Map(); // tabId -> { cols, rows }
 const visible = new Set(); // tabIds whose pane is currently shown
 const dimsListeners = new Set(); // () => void
@@ -49,9 +50,28 @@ export function unregisterPty(tabId) {
   if (!tabId) return;
   writers.delete(tabId);
   readers.delete(tabId);
+  ptyIds.delete(tabId);
   dims.delete(tabId);
   visible.delete(tabId);
   emitDims();
+}
+
+// ── Live PTY channel ids (TerminalPane registers; the phone companion reads) ──
+// pty_spawn mints a fresh registry id per session ("pty-…") that the renderer
+// listens on as `pty://<id>` — it is NOT the tabId. The companion needs this id
+// to subscribe to live output and to write/resize, so each pane publishes it
+// here keyed by its tabId (= scrollback key). emitDims doubles as the "bridge
+// changed" pulse so TerminalsTab re-pushes the session list when panes spawn.
+
+export function setPtyId(tabId, ptyId) {
+  if (!tabId) return;
+  if (ptyId) ptyIds.set(tabId, ptyId);
+  else ptyIds.delete(tabId);
+  emitDims();
+}
+
+export function getPtyId(tabId) {
+  return ptyIds.get(tabId) || null;
 }
 
 // ── Terminal text reader (TerminalPane exposes recent buffer; AI features read) ─

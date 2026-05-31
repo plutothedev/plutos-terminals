@@ -24,6 +24,7 @@ import HistorySearch from "./HistorySearch";
 import WorkspacesModal from "./WorkspacesModal";
 import BroadcastGroupModal from "./BroadcastGroupModal";
 import NetToolsModal from "./NetToolsModal";
+import RemoteControlModal from "./RemoteControlModal.jsx";
 import {
   IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
@@ -67,7 +68,8 @@ import {
   applyGlobalSkin,
 } from "./headerSkins";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds, getPtyId, onDimsChange } from "./ptyBridge.js";
+import { getLayout, leafIds } from "./splitTree.js";
 import { sshAccount } from "./sshAccount.js";
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
@@ -101,6 +103,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   } = useSimpleModals();
 
   // Payload modals (carry state; extracted in later steps).
+  const [remoteOpen, setRemoteOpen] = useState(false); // phone/web remote-control panel
   const [summary, setSummary] = useState(null); // { text } when the summary modal is open
   // Diff-review modal: the worktree { path, branch, repo } to review, or null.
   const [diffWorktree, setDiffWorktree] = useState(null);
@@ -373,6 +376,47 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // TerminalPane via the bridge. bumpDims above forces re-read on change.
   const activeDims = activeTabId ? getTabDims(activeTabId) : null;
 
+  // ── Phone companion: publish the live session list ──────────────────────────
+  // The companion server (companion.rs) can't read the webview's localStorage
+  // (where the panel/tab layout lives) and doesn't know the per-spawn pty channel
+  // ids (minted in pty_spawn, held only by each live TerminalPane). So the desktop
+  // pushes its session list here whenever the panels/active-tab or the live PTY
+  // set changes. Each entry pairs the live channel id (for `pty://` subscribe +
+  // write/resize) with the tabId (the scrollback key). Harmless when the server
+  // is off — it just stashes the JSON for the next `list_sessions` RPC.
+  const [bridgeTick, setBridgeTick] = useState(0);
+  useEffect(() => onDimsChange(() => setBridgeTick((n) => (n + 1) % 1e9)), []);
+  const sessionListJson = useMemo(() => {
+    const out = [];
+    for (const panel of state.panels) {
+      for (const tab of panel.tabs || []) {
+        if (tab.home) continue; // launch screens (and vnc/rdp tabs) have no PTY
+        const leaves = leafIds(getLayout(tab));
+        leaves.forEach((leafId, i) => {
+          const id = getPtyId(leafId);
+          if (!id) return; // pane not spawned yet
+          const active =
+            panel.id === state.activePanelId &&
+            tab.id === panel.activeTabId &&
+            leafId === (tab.activePaneId || tab.id);
+          out.push({
+            id,
+            tabId: leafId,
+            label: leaves.length > 1 ? `${tab.label || "shell"} ·${i + 1}` : tab.label || "shell",
+            active,
+          });
+        });
+      }
+    }
+    return JSON.stringify(out);
+    // bridgeTick re-derives when a pane spawns/dies (getPtyId changes); equal
+    // JSON short-circuits the push effect below (string identity).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.panels, state.activePanelId, bridgeTick]);
+  useEffect(() => {
+    invoke("companion_set_sessions", { sessions: sessionListJson }).catch(() => {});
+  }, [sessionListJson]);
+
   // Named workspaces — save/restore the whole panel/tab/split layout. Persisted
   // in the window-independent user store (userSt.workspaces). See useWorkspaces.
   const { workspaces, saveWorkspace, loadWorkspace, deleteWorkspace } =
@@ -583,6 +627,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
               { label: "Broadcast targets… (choose terminals)", action: () => setBroadcastGroupOpen(true) },
               { divider: true },
+              { label: "Remote control (phone)…", action: () => setRemoteOpen(true) },
               { label: "MCP servers…", action: () => setMcpOpen(true) },
               { label: "Setup checker…", action: () => setSetupOpen(true) },
               { label: "Command palette", shortcut: "Ctrl+K", action: () => setCommandPaletteOpen(true) },
@@ -954,6 +999,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         initialHost={activeTab?.connection?.host || ""}
         onClose={() => setNetToolsOpen(false)}
       />
+
+      <RemoteControlModal open={remoteOpen} onClose={() => setRemoteOpen(false)} />
 
       <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
 

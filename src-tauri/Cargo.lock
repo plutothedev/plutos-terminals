@@ -4263,6 +4263,7 @@ version = "0.2.2"
 dependencies = [
  "axum",
  "chrono",
+ "futures-util",
  "ironrdp",
  "ironrdp-blocking",
  "keyring",

@@ -15,6 +15,7 @@ import { recordInput } from "./macros.js";
 import {
   registerPtyWriter,
   unregisterPty,
+  setPtyId,
   setTabDims,
   setTabVisible,
   isBroadcast,
@@ -757,6 +758,9 @@ export default function TerminalPane({
         registerPtyWriter(tabId, (data) => {
           if (ptyId) invoke("pty_write", { id: ptyId, data }).catch(() => {});
         }, visibleRef.current);
+        // Publish the live channel id so the phone companion can subscribe to
+        // `pty://<id>` and write/resize this session. Cleared by unregisterPty.
+        setPtyId(tabId, id);
         // Expose recent buffer text (ANSI already resolved by xterm) for AI
         // features like the session summary. Last ~400 lines, capped at 8 KB.
         registerTabReader(tabId, () => {
