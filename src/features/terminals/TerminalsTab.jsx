@@ -56,6 +56,7 @@ import { useSessionSpawn } from "./hooks/useSessionSpawn.js";
 import { useSftpDock } from "./hooks/useSftpDock.js";
 import { useRemoteDesktopLaunch } from "./hooks/useRemoteDesktopLaunch.js";
 import { useSshConnect } from "./hooks/useSshConnect.js";
+import { useProjects } from "./hooks/useProjects.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "./splitTree";
 import {
   getSkinId,
@@ -727,109 +728,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, [state, persist, panelIdForTab]);
 
   // ── Project mutations ──────────────────────────────────────────────
-
-  const upsertProject = useCallback((data, editingId) => {
-    let nextProjects;
-    let resultId;
-    if (editingId) {
-      nextProjects = projects.map(p => p.id === editingId ? { ...p, ...data } : p);
-      resultId = editingId;
-    } else {
-      const id = freshId("proj");
-      nextProjects = [...projects, { id, color: null, ...data }];
-      resultId = id;
-    }
-    persist({ ...state, projects: nextProjects });
-    return resultId;
-  }, [state, persist, projects]);
-
-  const removeProject = useCallback((projectId) => {
-    const nextProjects = projects.filter(p => p.id !== projectId);
-    // Detach any open tabs that referenced this project (keep the tab + PTY,
-    // just clear the link) so the user doesn't lose an active session.
-    const panels = state.panels.map(p => ({
-      ...p,
-      tabs: p.tabs.map(t => t.projectId === projectId ? { ...t, projectId: null } : t),
-    }));
-    persist({ ...state, projects: nextProjects, panels });
-  }, [state, persist, projects]);
-
-  const colorProject = useCallback((projectId, colorId) => {
-    const nextProjects = projects.map(p => p.id === projectId ? { ...p, color: colorId } : p);
-    persist({ ...state, projects: nextProjects });
-  }, [state, persist, projects]);
-
-  const renameProject = useCallback((projectId, name) => {
-    if (!name) return;
-    const nextProjects = projects.map(p => p.id === projectId ? { ...p, name } : p);
-    persist({ ...state, projects: nextProjects });
-  }, [state, persist, projects]);
-
-  // Import ~/.ssh/config into the Sessions tree (Termius/MobaXterm parity).
-  // Each non-wildcard Host becomes an SSH session under an "SSH config" folder;
-  // IdentityFile → key auth, otherwise ssh-agent. Existing host+user+port pairs
-  // are skipped so re-importing is idempotent. ProxyJump is kept for Tier 3b.
-  const importSshConfig = useCallback(async () => {
-    let entries;
-    try {
-      entries = await invoke("parse_ssh_config");
-    } catch (e) {
-      toast.error(`Couldn't read ~/.ssh/config: ${e}`);
-      return;
-    }
-    if (!Array.isArray(entries) || entries.length === 0) {
-      toast.info("No hosts found in ~/.ssh/config.");
-      return;
-    }
-    const seen = new Set(
-      projects
-        .filter((p) => p.connection)
-        .map((p) => `${p.connection.host}|${p.connection.user || ""}|${p.connection.port || 22}`)
-    );
-    const fresh = [];
-    for (const e of entries) {
-      const port = e.port || 22;
-      const user = e.user || "";
-      const key = `${e.host_name}|${user}|${port}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      fresh.push({
-        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-        color: null,
-        type: "ssh",
-        name: e.alias,
-        folder: "SSH config",
-        startCommands: [],
-        proxyJump: e.proxy_jump || null,
-        connection: {
-          host: e.host_name,
-          port,
-          user,
-          auth: { method: e.identity_file ? "key" : "agent", keyPath: e.identity_file || null },
-        },
-      });
-    }
-    if (fresh.length === 0) {
-      toast.info(`~/.ssh/config: all ${entries.length} host${entries.length === 1 ? "" : "s"} already imported.`);
-      return;
-    }
-    persist({ ...state, projects: [...projects, ...fresh] });
-    selectRibbon("sessions");
-    toast.success(`Imported ${fresh.length} session${fresh.length === 1 ? "" : "s"} from ~/.ssh/config.`);
-    // NOTE: selectRibbon is a useCallback declared LATER in this component, so it
-    // must NOT appear in this deps array — evaluating the array at render time
-    // would touch it in its temporal dead zone (ReferenceError → blank app). The
-    // body closes over it safely (only called post-render). Same for any other
-    // callback defined above selectRibbon.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, persist, projects, toast]);
-
-  // Assign (or clear, with folder === null) a session's folder grouping in the
-  // Sessions tree. Empty/null folder = ungrouped (rendered at the root).
-  const setProjectFolder = useCallback((projectId, folder) => {
-    const nextProjects = projects.map(p => p.id === projectId ? { ...p, folder: folder || null } : p);
-    persist({ ...state, projects: nextProjects });
-  }, [state, persist, projects]);
+  // importSshConfig reveals the imported hosts via selectRibbon, which is
+  // declared far below — bridge it through a ref so passing it doesn't touch a
+  // temporal dead zone at render. The ref's .current is set just after
+  // selectRibbon's declaration.
+  const selectRibbonRef = useRef(null);
+  const { upsertProject, removeProject, colorProject, renameProject, importSshConfig, setProjectFolder } =
+    useProjects({ state, persist, projects, toast, selectRibbonRef });
 
   // Add a new tab to `panelId` running `projectId`'s shell with its cwd and
   // start commands. Used by both click (target = active panel) and drop
@@ -1081,6 +986,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     if (id === "sessions") return; // the session tree is always docked — don't touch the secondary panel
     setRibbon(id);
   }, [focusFilesDock]);
+  // Bridge selectRibbon to useProjects' importSshConfig (declared above) without a
+  // render-time TDZ: the ref is read only from the post-render callback body.
+  selectRibbonRef.current = selectRibbon;
 
   // "Games" toolbar button — MobaXterm has built-in games; we keep it honest
   // with a wink toward the palette.
