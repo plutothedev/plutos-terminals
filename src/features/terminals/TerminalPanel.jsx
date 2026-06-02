@@ -178,6 +178,7 @@ function TerminalPanel({
   // Transient divider ratios during an active drag, keyed by splitId. Kept out
   // of app state so a drag doesn't hammer localStorage; committed on mouseup.
   const [dragRatios, setDragRatios] = useState({});
+  const [zoomedPaneId, setZoomedPaneId] = useState(null); // pane zoomed to fill its tab
 
   // Tab drag between panels. Mouse-event based (HTML5 drag is broken in
   // WebView2 per the code-rule memo). On drop over a different panel, the
@@ -487,6 +488,9 @@ function TerminalPanel({
           const { panes, dividers } = computeLayout(layout, dragRatios);
           const multi = panes.length > 1;
           const tabActivePaneId = tab.activePaneId || tab.id;
+          // Zoom: when a pane in THIS tab is zoomed, it fills the tab (covering the
+          // siblings, which stay MOUNTED so their PTYs live); dividers hide.
+          const zoomNodeId = zoomedPaneId != null && panes.some((p) => p.node.id === zoomedPaneId) ? zoomedPaneId : null;
           return (
             <div
               key={tab.id}
@@ -503,18 +507,21 @@ function TerminalPanel({
               {panes.map(({ node, rect }) => {
                 const isRoot = node.id === tab.id;
                 const paneActive = node.id === tabActivePaneId;
+                const zoomed = zoomNodeId != null && node.id === zoomNodeId;
+                const r = zoomed ? { left: 0, top: 0, width: 100, height: 100 } : rect;
                 return (
                   <div
                     key={`pane-${node.id}`}
                     onMouseDownCapture={() => { if (multi && !paneActive) onActivatePane?.(tab.id, node.id); }}
                     style={{
                       position: "absolute",
-                      left: `${rect.left}%`,
-                      top: `${rect.top}%`,
-                      width: `${rect.width}%`,
-                      height: `${rect.height}%`,
+                      left: `${r.left}%`,
+                      top: `${r.top}%`,
+                      width: `${r.width}%`,
+                      height: `${r.height}%`,
+                      zIndex: zoomed ? 6 : undefined,
                       boxSizing: "border-box",
-                      outline: multi && paneActive ? `1px solid ${ACCENT}` : "none",
+                      outline: multi && paneActive && !zoomNodeId ? `1px solid ${ACCENT}` : "none",
                       outlineOffset: "-1px",
                       overflow: "hidden",
                     }}
@@ -535,33 +542,49 @@ function TerminalPanel({
                       onCostUpdate={(c) => onTabCostUpdate?.(node.id, c)}
                     />
                     {multi && (
-                      <span
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => { e.stopPropagation(); onClosePane?.(tab.id, node.id); }}
-                        title="Close this pane"
-                        style={{
-                          position: "absolute",
-                          top: 3,
-                          right: 5,
-                          zIndex: 5,
-                          color: "#777",
-                          cursor: "pointer",
-                          fontSize: 12,
-                          lineHeight: 1,
-                          padding: "0 3px",
-                          borderRadius: 2,
-                          background: "rgba(0,0,0,0.35)",
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = "#f44"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = "#777"; }}
-                      >
-                        ×
-                      </span>
+                      <>
+                        <span
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => { e.stopPropagation(); setZoomedPaneId(zoomed ? null : node.id); }}
+                          title={zoomed ? "Restore split (un-zoom)" : "Zoom this pane to fill the tab"}
+                          style={{
+                            position: "absolute", top: 3, right: 24, zIndex: 5,
+                            color: "#888", cursor: "pointer", fontSize: 12, lineHeight: 1,
+                            padding: "0 3px", borderRadius: 2, background: "rgba(0,0,0,0.35)",
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = ACCENT_FALLBACK; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = "#888"; }}
+                        >
+                          {zoomed ? "⤡" : "⤢"}
+                        </span>
+                        <span
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => { e.stopPropagation(); onClosePane?.(tab.id, node.id); }}
+                          title="Close this pane"
+                          style={{
+                            position: "absolute",
+                            top: 3,
+                            right: 5,
+                            zIndex: 5,
+                            color: "#777",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            lineHeight: 1,
+                            padding: "0 3px",
+                            borderRadius: 2,
+                            background: "rgba(0,0,0,0.35)",
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = "#f44"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = "#777"; }}
+                        >
+                          ×
+                        </span>
+                      </>
                     )}
                   </div>
                 );
               })}
-              {dividers.map((d) => {
+              {!zoomNodeId && dividers.map((d) => {
                 const isRow = d.dir === "row";
                 const boundary = isRow
                   ? d.container.left + d.container.width * d.ratio
