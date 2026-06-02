@@ -1062,20 +1062,45 @@ export default function TerminalPane({
           // over and hang the line (the old 2.4 KB-printf bug). The trailing
           // `clear` wipes the echoed setup line either way.
           if (isWindowsUA) {
-            // Windows: the POSIX prompt / OSC-133 / command-capture setup can't run
-            // in PowerShell (the app's Windows shell), so skip it and just show the
-            // welcome box on a fresh tab. `[Console]::OutputEncoding = UTF8` keeps
-            // the box-drawing chars (and any later Unicode output) from being mangled
-            // to the OEM codepage; Get-Content prints the box like the POSIX `cat`,
-            // landing above the first prompt. (Restored tabs already have scrollback.)
-            if (!restored && alive && ptyId) {
-              let winDisplay = "Clear-Host";
-              try {
-                const p = await invoke("write_welcome_file", { content: boxRaw });
-                if (p) winDisplay =
-                  `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ` +
-                  `Clear-Host; Get-Content -Raw -Encoding utf8 -LiteralPath '${String(p).replace(/'/g, "''")}'`;
-              } catch { /* no file → just clear */ }
+            // Windows uses PowerShell, which can't run the POSIX prompt / OSC-133 /
+            // command-capture setup above — so emit the PowerShell equivalents.
+            // OutputEncoding = UTF8 keeps the box-drawing + powerline glyphs from
+            // being re-encoded to the OEM codepage (mojibake in xterm).
+            const psEnc = `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8`;
+            // Themed powerline prompt (green date  cyan time  yellow cwd) that ALSO
+            // emits OSC-133: D;<exit> closes the previous command block, A opens the
+            // prompt — the UI pairs them into blocks (✓/✗ status). $? / $LASTEXITCODE
+            // are captured FIRST so the real exit code survives.
+            const psPrompt =
+              `function prompt { ` +
+              `$c = if ($?) { 0 } elseif ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 }; ` +
+              `$e = [char]27; $b = [char]7; $a = [char]0xE0B0; ` +
+              `$o = "$e]133;D;$c$b$e]133;A$b"; ` +
+              `$d = Get-Date -Format 'dd/MM/yyyy'; $t = Get-Date -Format 'HH:mm:ss'; ` +
+              `$p = $PWD.Path; if ($HOME -and $p.StartsWith($HOME)) { $p = '~' + $p.Substring($HOME.Length) }; ` +
+              `"$o$e[42;30m $d $e[32;46m$a$e[30;46m $t $e[36;43m$a$e[30;43m $p $e[0;33m$a$e[0m " }`;
+            // Command-history capture: emit OSC 1337 PlutoCmd=<base64> as each command
+            // is submitted (PSReadLine's history handler ≈ a preexec hook).
+            const psHist =
+              `if (Get-Module PSReadLine) { Set-PSReadLineOption -AddToHistoryHandler { param($l) ` +
+              `try { $e=[char]27; $b=[char]7; $x=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($l)); ` +
+              `[Console]::Write("$e]1337;PlutoCmd=$x$b") } catch {}; $true } }`;
+            if (alive && ptyId) {
+              try { await invoke("pty_write", { id: ptyId, data: `${psEnc}; ${psPrompt}` + "\r" }); } catch {}
+              try { await invoke("pty_write", { id: ptyId, data: psHist + "\r" }); } catch {}
+              // Fresh tab: clear + welcome box. Restored tab: scrollback was replayed,
+              // so a scrollback-PRESERVING clear (ESC[2J, not Clear-Host) hides the
+              // echoed setup without wiping the history.
+              let winDisplay;
+              if (restored) {
+                winDisplay = `[Console]::Write([char]27 + '[2J' + [char]27 + '[H')`;
+              } else {
+                winDisplay = "Clear-Host";
+                try {
+                  const p = await invoke("write_welcome_file", { content: boxRaw });
+                  if (p) winDisplay = `Clear-Host; Get-Content -Raw -Encoding utf8 -LiteralPath '${String(p).replace(/'/g, "''")}'`;
+                } catch { /* no file → just clear */ }
+              }
               try { await invoke("pty_write", { id: ptyId, data: winDisplay + "\r" }); } catch {}
             }
           } else {
