@@ -254,6 +254,11 @@ fn pick_shell() -> (String, Vec<String>) {
         std::env::var("LOCALAPPDATA")
             .ok()
             .map(|p| format!("{}\\Microsoft\\PowerShell\\7\\pwsh.exe", p)),
+        // winget installs PowerShell 7 as an MSIX/Store package — pwsh is reached
+        // via its execution alias here (modern PSReadLine = autosuggestions).
+        std::env::var("LOCALAPPDATA")
+            .ok()
+            .map(|p| format!("{}\\Microsoft\\WindowsApps\\pwsh.exe", p)),
     ];
     for opt in candidates.into_iter().flatten() {
         if std::path::Path::new(&opt).exists() {

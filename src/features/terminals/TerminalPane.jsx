@@ -1154,9 +1154,18 @@ export default function TerminalPane({
               `if (Get-Module PSReadLine) { Set-PSReadLineOption -AddToHistoryHandler { param($l) ` +
               `try { $e=[char]27; $b=[char]7; $x=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($l)); ` +
               `[Console]::Write("$e]1337;PlutoCmd=$x$b") } catch {}; $true } }`;
+            // Autosuggestions + Tab completion (Milestone 2): PSReadLine renders
+            // fish-style inline ghost text (accept with →/End/Ctrl+F) + a Tab
+            // completion menu — natively, right in xterm. Needs PSReadLine >= 2.1
+            // (PowerShell 7 / updated 5.1); guarded → silent no-op on stock 5.1.
+            const psComplete =
+              `$prl = Get-Module PSReadLine; if ($prl -and $prl.Version -ge [version]'2.1.0') { ` +
+              `Set-PSReadLineOption -PredictionSource History -PredictionViewStyle InlineView; ` +
+              `Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete }`;
             if (alive && ptyId) {
               try { await invoke("pty_write", { id: ptyId, data: `${psEnc}; ${psPrompt}` + "\r" }); } catch {}
               try { await invoke("pty_write", { id: ptyId, data: psHist + "\r" }); } catch {}
+              try { await invoke("pty_write", { id: ptyId, data: psComplete + "\r" }); } catch {}
               // Fresh tab: clear + welcome box. Restored tab: scrollback was replayed,
               // so a scrollback-PRESERVING clear (ESC[2J, not Clear-Host) hides the
               // echoed setup without wiping the history.
