@@ -31,6 +31,22 @@ export const SSerial = ({ size }) => (
 export const SSplit = ({ size }) => (
   <S size={size}><rect x="2" y="2.5" width="12" height="11" rx="1.4" /><path d="M8 2.5v11" /></S>
 );
+// Split-direction glyphs for the Split dropdown: a pane divided into two, with the
+// active (new) half tinted so the direction reads at a glance.
+export const SSplitRow = ({ size }) => (
+  <S size={size}>
+    <rect x="2" y="2.5" width="12" height="11" rx="1.4" />
+    <rect x="8" y="2.5" width="6" height="11" fill="currentColor" opacity="0.25" stroke="none" />
+    <path d="M8 2.5v11" />
+  </S>
+);
+export const SSplitCol = ({ size }) => (
+  <S size={size}>
+    <rect x="2" y="2.5" width="12" height="11" rx="1.4" />
+    <rect x="2" y="8" width="12" height="5.5" fill="currentColor" opacity="0.25" stroke="none" />
+    <path d="M2 8h12" />
+  </S>
+);
 export const SMultiX = ({ size }) => (
   <S size={size}><path d="M2 5a8 8 0 0 1 9 9M2 9a4 4 0 0 1 5 5" /><circle cx="3" cy="13" r="1" /></S>
 );
