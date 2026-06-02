@@ -212,9 +212,11 @@ export default function TerminalPane({
   const [searchQuery, setSearchQuery] = useState("");
   // Command blocks (OSC 133): track the block boundaries the shell marks so we
   // can flag a failed command + feed it to the AI explainer.
-  const currentBlockRef = useRef(null); // { startLine } between A and D
+  const currentBlockRef = useRef(null); // the open block { startLine, command, endLine, exit, el } between A and D
+  const blocksRef = useRef([]);         // finished blocks (capped) for right-click actions
   const blockDecorationsRef = useRef([]); // xterm decorations tinting each command block
   const [failedBlock, setFailedBlock] = useState(null);  // banner: most recent failure
+  const [blockMenu, setBlockMenu] = useState(null); // right-click block actions { block, x, y }
   const [explainBlock, setExplainBlock] = useState(null); // explainer popover target
   const startCommandsRef = useRef(startCommands);
   startCommandsRef.current = startCommands;
@@ -529,13 +531,18 @@ export default function TerminalPane({
       const buf = term.buffer.active;
       const here = buf.baseY + buf.cursorY;
       if (data === "A" || data.startsWith("A;")) {
-        currentBlockRef.current = { startLine: here };
+        const b = { startLine: here, command: null, endLine: null, exit: 0, el: null };
+        currentBlockRef.current = b;
+        blocksRef.current.push(b);
+        if (blocksRef.current.length > 200) blocksRef.current.shift();
       } else if (data === "D" || data.startsWith("D;")) {
         const blk = currentBlockRef.current;
         currentBlockRef.current = null;
         if (!blk) return true; // first D (after our init) — no block open
         const exit = data.includes(";") ? parseInt(data.split(";")[1], 10) : 0;
         const ok = Number.isNaN(exit) || exit === 0;
+        blk.endLine = here;
+        blk.exit = Number.isNaN(exit) ? 0 : exit;
         // Warp-style command block (Blocks UI, slice 1): tint the just-finished
         // command's region (prompt → here) with a left accent bar — green ok / red
         // fail — plus a faint red wash on failure. xterm decorations track their
@@ -548,6 +555,7 @@ export default function TerminalPane({
             const deco = term.registerDecoration({ marker, x: 0, width: term.cols, height: rows, layer: "bottom" });
             if (deco) {
               deco.onRender((el) => {
+                blk.el = el; // for right-click block hit-testing
                 el.style.pointerEvents = "none";
                 el.style.boxSizing = "border-box";
                 el.style.borderLeft = `2px solid ${ok ? "rgba(111,184,92,0.45)" : "rgba(224,91,91,0.85)"}`;
@@ -578,7 +586,10 @@ export default function TerminalPane({
       try {
         const bin = atob(data.slice("PlutoCmd=".length));
         const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
-        recordCommand(new TextDecoder().decode(bytes));
+        const cmd = new TextDecoder().decode(bytes);
+        recordCommand(cmd);
+        // Tag the open block with the command it's running (for block copy/re-run).
+        if (currentBlockRef.current) currentBlockRef.current.command = cmd;
       } catch { /* malformed payload — ignore */ }
       return true;
     });
@@ -1256,6 +1267,36 @@ export default function TerminalPane({
     try { termRef.current?.focus(); } catch { /* ignore */ }
   };
 
+  // ── Block actions (Blocks UI, slice 2) ─────────────────────────────────────
+  // Right-click a command block → copy its command / output / both, or re-run it.
+  // Blocks are hit-tested by their decoration element's on-screen rect (xterm
+  // positions those for us), so no fragile pixel math.
+  const blockText = (block, which) => {
+    if (which === "command") return block.command || "";
+    const t = termRef.current; if (!t) return "";
+    const buf = t.buffer.active;
+    const end = block.endLine != null ? block.endLine : block.startLine;
+    let out = "";
+    for (let i = block.startLine + 1; i <= end && i < buf.length; i++) {
+      const line = buf.getLine(i);
+      if (line) out += line.translateToString(true) + "\n";
+    }
+    out = out.replace(/\s+$/, "");
+    if (which === "output") return out;
+    return (block.command ? block.command + "\n" : "") + out; // both
+  };
+  const onTermContextMenu = (e) => {
+    let hit = null;
+    for (const b of blocksRef.current) {
+      const r = b.el && b.el.getBoundingClientRect();
+      if (r && r.height > 0 && e.clientY >= r.top && e.clientY <= r.bottom) { hit = b; break; }
+    }
+    if (!hit) return; // not over a block → leave default behaviour
+    e.preventDefault();
+    setBlockMenu({ block: hit, x: e.clientX, y: e.clientY });
+  };
+  const copyToClipboard = (t) => { try { navigator.clipboard?.writeText(t); } catch { /* ignore */ } };
+
   return (
     <div
       style={{
@@ -1265,7 +1306,40 @@ export default function TerminalPane({
         overflow: "hidden",
       }}
     >
-      <div ref={containerRef} style={{ width: "100%", height: "100%", padding: 6, boxSizing: "border-box" }} />
+      <div ref={containerRef} onContextMenu={onTermContextMenu} style={{ width: "100%", height: "100%", padding: 6, boxSizing: "border-box" }} />
+      {blockMenu && (
+        <>
+          <div onMouseDown={() => setBlockMenu(null)} onContextMenu={(e) => { e.preventDefault(); setBlockMenu(null); }}
+            style={{ position: "fixed", inset: 0, zIndex: 60 }} />
+          <div style={{
+            position: "fixed", zIndex: 61,
+            left: Math.min(blockMenu.x, window.innerWidth - 200),
+            top: Math.min(blockMenu.y, window.innerHeight - 180),
+            background: "var(--phn-surface-bg, #1a1d21)", border: "1px solid var(--phn-surface-border, #2b2b2b)",
+            borderRadius: 8, padding: 5, minWidth: 188, boxShadow: "0 10px 30px rgba(0,0,0,0.55)",
+            fontSize: 12, fontFamily: "var(--phn-ui-font, -apple-system, sans-serif)", color: "var(--phn-text-fg, #cfd6dd)",
+          }}>
+            <div style={{ fontSize: 10.5, color: "var(--phn-text-faint, #6b7480)", padding: "3px 10px 5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {blockMenu.block.exit ? `✗ exit ${blockMenu.block.exit} · ` : "✓ "}{blockMenu.block.command || "(command)"}
+            </div>
+            {[
+              { label: "Copy command", on: () => copyToClipboard(blockText(blockMenu.block, "command")), dis: !blockMenu.block.command },
+              { label: "Copy output", on: () => copyToClipboard(blockText(blockMenu.block, "output")) },
+              { label: "Copy command + output", on: () => copyToClipboard(blockText(blockMenu.block, "both")) },
+              { label: "Re-run command", on: () => blockMenu.block.command && writeToTab(tabId, blockMenu.block.command + "\r"), dis: !blockMenu.block.command },
+            ].map((it, i) => (
+              <button key={i} disabled={it.dis} onClick={() => { it.on(); setBlockMenu(null); }}
+                style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none",
+                  color: it.dis ? "#5a626b" : "var(--phn-text-fg, #cfd6dd)", padding: "7px 10px", borderRadius: 5,
+                  cursor: it.dis ? "default" : "pointer", fontSize: 12 }}
+                onMouseEnter={(e) => { if (!it.dis) e.currentTarget.style.background = "rgba(127,127,127,0.16)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                {it.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       {searchOpen && (
         <div
           style={{
