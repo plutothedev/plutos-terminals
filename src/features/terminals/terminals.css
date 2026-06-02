@@ -349,6 +349,14 @@
   line-height: 1;
   transition: color 0.12s ease;
 }
+/* Tab strip scrolls horizontally only — no vertical scrollbar (those were the
+   up/down arrows on Windows/WebView2). The horizontal scrollbar is hidden too;
+   tabs scroll via wheel + the reorder drag. */
+.moba-tabstrip { scrollbar-width: none; }
+.moba-tabstrip::-webkit-scrollbar { width: 0; height: 0; }
+/* Drag-to-reorder: insertion bar on the target tab's leading/trailing edge. */
+.moba-tab.tab-drop-before { box-shadow: inset 2px 0 0 var(--phn-link, #4D8FE0); }
+.moba-tab.tab-drop-after { box-shadow: inset -2px 0 0 var(--phn-link, #4D8FE0); }
 
 /* ── MobaXterm grouped icon toolbar (big icon-over-label buttons) ────── */
 .moba-toolbar {

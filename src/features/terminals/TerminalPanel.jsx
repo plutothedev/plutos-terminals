@@ -56,6 +56,15 @@ function highlightTabDrop(el) {
   el.style.outline = `2px solid ${ACCENT_FALLBACK}`;
   el.style.outlineOffset = "-2px";
 }
+// In-strip reorder: an insertion bar on the target tab's left/right edge.
+function clearTabInserts() {
+  document.querySelectorAll(".moba-tab.tab-drop-before, .moba-tab.tab-drop-after").forEach(el => {
+    el.classList.remove("tab-drop-before", "tab-drop-after");
+  });
+}
+function markTabInsert(el, after) {
+  if (el) el.classList.add(after ? "tab-drop-after" : "tab-drop-before");
+}
 
 // Activity for a single tab = the "loudest" of its panes (active > done > idle).
 function aggregateTabActivity(tab, tabActivities) {
@@ -128,6 +137,7 @@ function TerminalPanel({
   onDetachTab,
   onCloseOthers,
   onMoveTab,
+  onReorderTab,
   onSplitPane,
   onClosePane,
   onActivatePane,
@@ -180,6 +190,7 @@ function TerminalPanel({
     let dragging = false;
     let ghost = null;
     let lastTargetEl = null;
+    let dropIndex = null; // in-strip reorder target, when dragging over our own panel
     const onMove = (ev) => {
       const dx = Math.abs(ev.clientX - startX);
       const dy = Math.abs(ev.clientY - startY);
@@ -198,6 +209,21 @@ function TerminalPanel({
           if (panelEl && !isOwn) highlightTabDrop(panelEl);
           lastTargetEl = panelEl || null;
         }
+        // Over our own panel → reorder: show an insertion bar on the tab under the
+        // cursor (left/right half decides before/after) and remember the index.
+        clearTabInserts();
+        dropIndex = null;
+        if (isOwn) {
+          const tabEl = el?.closest(".moba-tab");
+          if (tabEl && tabEl.dataset.tabId) {
+            const r = tabEl.getBoundingClientRect();
+            const after = ev.clientX > r.left + r.width / 2;
+            const overIdx = panel.tabs.findIndex((t) => t.id === tabEl.dataset.tabId);
+            if (overIdx >= 0) { dropIndex = after ? overIdx + 1 : overIdx; markTabInsert(tabEl, after); }
+          } else {
+            dropIndex = panel.tabs.length; // dropped on the strip past the last tab
+          }
+        }
       }
     };
     const onUp = () => {
@@ -206,8 +232,15 @@ function TerminalPanel({
       if (ghost) ghost.remove();
       const tgt = lastTargetEl?.getAttribute("data-panel-id");
       clearTabDropHighlights();
+      clearTabInserts();
       if (dragging && tgt && tgt !== panel.id) {
         onMoveTab?.(tab.id, tgt);
+      } else if (dragging && dropIndex != null) {
+        // Reorder within our strip. Removing the dragged tab shifts indices to its
+        // right, so drop targets past the origin move back by one.
+        const from = panel.tabs.findIndex((t) => t.id === tab.id);
+        const to = dropIndex > from ? dropIndex - 1 : dropIndex;
+        if (to !== from) onReorderTab?.(tab.id, to);
       }
     };
     document.addEventListener("mousemove", onMove);
@@ -317,7 +350,7 @@ function TerminalPanel({
           overflow: "hidden",
         }}
       >
-        <div style={{ display: "flex", flex: 1, minWidth: 0, overflow: "auto", alignItems: "stretch" }}>
+        <div className="moba-tabstrip" style={{ display: "flex", flex: 1, minWidth: 0, overflowX: "auto", overflowY: "hidden", alignItems: "stretch" }}>
           {panel.tabs.map((tab, ti) => {
             const active = tab.id === panel.activeTabId;
             const tabState = aggregateTabActivity(tab, tabActivities);
@@ -331,6 +364,7 @@ function TerminalPanel({
             return (
               <div
                 key={tab.id}
+                data-tab-id={tab.id}
                 className={active ? "moba-tab active" : "moba-tab"}
                 onMouseDown={(e) => { handleTabMouseDown(tab, e); }}
                 onClick={(e) => { e.stopPropagation(); if (!isRenamingThis) h.switchTab(tab.id); }}

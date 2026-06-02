@@ -295,7 +295,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const {
     setActivePanel, addPanel, closePanel,
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell,
-    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab,
+    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
   } = useWorkspaceTree({ state, persist, toast });
 
@@ -892,6 +892,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onDetachTab={detachTab}
               onCloseOthers={closeOtherTabs}
               onMoveTab={moveTab}
+              onReorderTab={reorderTab}
               onSplitPane={splitPane}
               onClosePane={closePane}
               onActivatePane={activatePane}

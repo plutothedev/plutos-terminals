@@ -246,6 +246,26 @@ export function useWorkspaceTree({ state, persist, toast }) {
     persist({ ...state, panels, activePanelId });
   }, [state, persist]);
 
+  // Reorder a tab WITHIN its own panel (drag-to-rearrange). Unlike moveTab this
+  // keeps the live PTY — the tab keeps its React key (tab.id), so the array just
+  // reorders and nothing remounts. Default "shell N" labels renumber to the new
+  // order; custom-renamed tabs keep their name.
+  const reorderTab = useCallback((tabId, toIndex) => {
+    const panel = state.panels.find(p => p.tabs.some(t => t.id === tabId));
+    if (!panel) return;
+    const from = panel.tabs.findIndex(t => t.id === tabId);
+    if (from < 0) return;
+    const to = Math.max(0, Math.min(toIndex, panel.tabs.length - 1));
+    if (to === from) return;
+    const tabs = panel.tabs.slice();
+    const [moved] = tabs.splice(from, 1);
+    tabs.splice(to, 0, moved);
+    const panels = state.panels.map(p =>
+      p.id === panel.id ? { ...p, tabs: renumberDefaultLabels(tabs) } : p
+    );
+    persist({ ...state, panels });
+  }, [state, persist]);
+
   // ── In-tab split panes (v3.0) ──────────────────────────────────────
   // A tab's content is a binary split tree (splitTree.js). Mutations find the
   // owning panel by tab id so TerminalPanel can call them with just (tabId, …).
@@ -333,7 +353,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
   return {
     setActivePanel, addPanel, closePanel,
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell,
-    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab,
+    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
   };
 }
