@@ -213,6 +213,7 @@ export default function TerminalPane({
   // Command blocks (OSC 133): track the block boundaries the shell marks so we
   // can flag a failed command + feed it to the AI explainer.
   const currentBlockRef = useRef(null); // { startLine } between A and D
+  const blockDecorationsRef = useRef([]); // xterm decorations tinting each command block
   const [failedBlock, setFailedBlock] = useState(null);  // banner: most recent failure
   const [explainBlock, setExplainBlock] = useState(null); // explainer popover target
   const startCommandsRef = useRef(startCommands);
@@ -534,7 +535,29 @@ export default function TerminalPane({
         currentBlockRef.current = null;
         if (!blk) return true; // first D (after our init) — no block open
         const exit = data.includes(";") ? parseInt(data.split(";")[1], 10) : 0;
-        if (!Number.isNaN(exit) && exit !== 0) {
+        const ok = Number.isNaN(exit) || exit === 0;
+        // Warp-style command block (Blocks UI, slice 1): tint the just-finished
+        // command's region (prompt → here) with a left accent bar — green ok / red
+        // fail — plus a faint red wash on failure. xterm decorations track their
+        // own scroll position (bottom layer = behind the text). exit comes from
+        // OSC 133 D;<code>, which fires on bash/zsh AND PowerShell.
+        try {
+          const rows = Math.max(1, here - blk.startLine + 1);
+          const marker = term.registerMarker(blk.startLine - here);
+          if (marker) {
+            const deco = term.registerDecoration({ marker, x: 0, width: term.cols, height: rows, layer: "bottom" });
+            if (deco) {
+              deco.onRender((el) => {
+                el.style.pointerEvents = "none";
+                el.style.boxSizing = "border-box";
+                el.style.borderLeft = `2px solid ${ok ? "rgba(111,184,92,0.45)" : "rgba(224,91,91,0.85)"}`;
+                el.style.backgroundColor = ok ? "transparent" : "rgba(224,91,91,0.08)";
+              });
+              blockDecorationsRef.current.push(deco);
+            }
+          }
+        } catch { /* decorations are best-effort */ }
+        if (!ok) {
           let text = "";
           for (let i = blk.startLine; i <= here && i < buf.length; i++) {
             const line = buf.getLine(i);
