@@ -9,14 +9,28 @@
 // the built-in starter set, so it still works before persistence is wired.
 import { useMemo, useState } from "react";
 
+// Workflows: named, parameterized saved commands. `{{arg}}` placeholders are
+// filled on run; `arguments` carries each arg's description + default so the run
+// form pre-fills sensibly. (Same shape Warp uses, so its YAML library can import.)
 export const DEFAULT_SNIPPETS = [
-  { id: "git-status", name: "Git status", command: "git status" },
-  { id: "git-log", name: "Git log", command: "git log --oneline -20" },
-  { id: "ls", name: "List files", command: "ls -la" },
-  { id: "pwd", name: "Current dir", command: "pwd" },
-  { id: "node-v", name: "Node + npm version", command: "node -v && npm -v" },
-  { id: "disk", name: "Disk usage", command: "du -sh * | sort -h" },
-  { id: "clear", name: "Clear screen", command: "clear" },
+  { id: "git-status", name: "Git status", command: "git status", description: "Working tree status" },
+  { id: "git-log", name: "Git log (graph)", command: "git log --oneline --graph -20", description: "Recent commits as a graph" },
+  { id: "git-new-branch", name: "Git: new branch", command: "git checkout -b {{branch}}", description: "Create and switch to a new branch",
+    arguments: [{ name: "branch", description: "new branch name", default_value: "feature/" }] },
+  { id: "git-commit-all", name: "Git: commit all", command: "git add -A && git commit -m {{message}}", description: "Stage everything and commit",
+    arguments: [{ name: "message", description: "commit message", default_value: "" }] },
+  { id: "grep-recursive", name: "Search in files", command: "grep -rn {{pattern}} {{path}}", description: "Recursive grep with line numbers",
+    arguments: [{ name: "pattern", description: "text or regex to find", default_value: "" }, { name: "path", description: "directory", default_value: "." }] },
+  { id: "find-name", name: "Find files by name", command: "find {{path}} -iname {{glob}}", description: "Find files matching a glob",
+    arguments: [{ name: "path", description: "directory", default_value: "." }, { name: "glob", description: "name pattern (quoted)", default_value: "'*.log'" }] },
+  { id: "kill-port", name: "Kill process on port", command: "npx kill-port {{port}}", description: "Free a TCP port",
+    arguments: [{ name: "port", description: "port number", default_value: "3000" }] },
+  { id: "docker-logs", name: "Docker: tail logs", command: "docker logs -f --tail 100 {{container}}", description: "Follow a container's logs",
+    arguments: [{ name: "container", description: "container name or id", default_value: "" }] },
+  { id: "npm-run", name: "npm run", command: "npm run {{script}}", description: "Run a package.json script",
+    arguments: [{ name: "script", description: "script name", default_value: "dev" }] },
+  { id: "ls", name: "List files", command: "ls -la", description: "Detailed listing" },
+  { id: "disk", name: "Disk usage", command: "du -sh * | sort -h", description: "Folder sizes, sorted" },
 ];
 
 function freshSnippetId() {
@@ -59,7 +73,11 @@ export default function SnippetsDrawer({
     const vars = extractVars(s.command);
     if (vars.length) {
       setFillSnippet(s);
-      setVals(Object.fromEntries(vars.map((v) => [v, ""])));
+      const args = Array.isArray(s.arguments) ? s.arguments : [];
+      setVals(Object.fromEntries(vars.map((v) => {
+        const a = args.find((x) => x && x.name === v);
+        return [v, a && a.default_value != null ? String(a.default_value) : ""];
+      })));
     } else {
       onInsert?.(s.command);
     }
@@ -76,7 +94,8 @@ export default function SnippetsDrawer({
     return items.filter(
       (s) =>
         (s.name || "").toLowerCase().includes(q) ||
-        (s.command || "").toLowerCase().includes(q)
+        (s.command || "").toLowerCase().includes(q) ||
+        (s.description || "").toLowerCase().includes(q)
     );
   }, [items, query]);
 
@@ -105,13 +124,13 @@ export default function SnippetsDrawer({
       aria-hidden={!docked && !open}
     >
       <div className="phn-snippets-header">
-        <span>📋 Snippets</span>
+        <span>📋 Workflows</span>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {editable && (
             <button
               className="phn-snippets-close"
               onClick={() => setAdding((v) => !v)}
-              title={adding ? "Cancel" : "Add a snippet"}
+              title={adding ? "Cancel" : "Add a workflow"}
               style={{ fontSize: 16 }}
             >
               {adding ? "−" : "+"}
@@ -140,7 +159,7 @@ export default function SnippetsDrawer({
               }
             }
           }}
-          placeholder="Filter snippets…"
+          placeholder="Filter workflows…"
           spellCheck={false}
         />
       </div>
@@ -189,23 +208,33 @@ export default function SnippetsDrawer({
       {fillSnippet && (
         <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: 6, borderBottom: "1px solid var(--phn-surface-border, #2b2b2b)" }}>
           <div style={{ fontSize: 11, color: "var(--phn-text-dim, #888)" }}>
-            Fill in <strong style={{ color: "var(--phn-text-fg, #d4d4d4)" }}>{fillSnippet.name}</strong>
+            Run <strong style={{ color: "var(--phn-text-fg, #d4d4d4)" }}>{fillSnippet.name}</strong>
           </div>
-          {extractVars(fillSnippet.command).map((v, i) => (
-            <input
-              key={v}
-              className="phn-sidebar-search"
-              autoFocus={i === 0}
-              value={vals[v] || ""}
-              onChange={(e) => setVals({ ...vals, [v]: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") { e.preventDefault(); doFill(); }
-                if (e.key === "Escape") { e.stopPropagation(); setFillSnippet(null); }
-              }}
-              placeholder={v}
-              spellCheck={false}
-            />
-          ))}
+          {fillSnippet.description && (
+            <div style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", marginTop: -2 }}>{fillSnippet.description}</div>
+          )}
+          {extractVars(fillSnippet.command).map((v, i) => {
+            const arg = (fillSnippet.arguments || []).find((a) => a && a.name === v);
+            return (
+              <div key={v} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <label style={{ fontSize: 10, color: "var(--phn-text-dim, #888)" }}>
+                  {v}{arg && arg.description ? ` — ${arg.description}` : ""}
+                </label>
+                <input
+                  className="phn-sidebar-search"
+                  autoFocus={i === 0}
+                  value={vals[v] || ""}
+                  onChange={(e) => setVals({ ...vals, [v]: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); doFill(); }
+                    if (e.key === "Escape") { e.stopPropagation(); setFillSnippet(null); }
+                  }}
+                  placeholder={arg && arg.description ? arg.description : v}
+                  spellCheck={false}
+                />
+              </div>
+            );
+          })}
           <div style={{ fontFamily: "'JetBrains Mono', Menlo, Monaco, monospace", fontSize: 10.5, color: "var(--phn-text-dim, #888)", wordBreak: "break-all" }}>
             {fillVars(fillSnippet.command, vals)}
           </div>
@@ -220,8 +249,8 @@ export default function SnippetsDrawer({
         {filtered.length === 0 ? (
           <div className="phn-snippets-empty">
             {query
-              ? "No snippets match your filter."
-              : "No snippets yet. Use + to add one."}
+              ? "No workflows match your filter."
+              : "No workflows yet. Use + to add one."}
           </div>
         ) : (
           filtered.map((s) => (
@@ -233,6 +262,7 @@ export default function SnippetsDrawer({
               style={{ position: "relative" }}
             >
               <div className="phn-snippet-name">{s.name}</div>
+              {s.description && <div style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", margin: "1px 0" }}>{s.description}</div>}
               <div className="phn-snippet-command">{s.command}</div>
               {editable && (
                 <span

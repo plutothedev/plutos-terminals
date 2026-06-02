@@ -775,7 +775,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             items: [
               { id: "ask", icon: <SAsk />, color: "#D982D9", label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
               { id: "models", icon: <SModels />, color: "#E06C9B", label: "Models", title: "Pick your LLM provider + model and enter its API key", onClick: () => setModelsOpen(true) },
-              { id: "snips", icon: <SSnips />, color: "#5B9BE0", label: "Snippets", title: "Snippets — saved commands, click to insert into the active terminal", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+              { id: "snips", icon: <SSnips />, color: "#5B9BE0", label: "Workflows", title: "Workflows — saved parameterized commands; click to run", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
               { id: "agents", icon: <SAgents />, color: "#6FB85C", label: "Agents", title: "Agent mission control", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
             ],
           },
@@ -1117,7 +1117,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "history", icon: "🕘", label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs (Cmd+R / Ctrl+Shift+R)", action: () => setHistoryOpen(true) },
           { id: "workspaces", icon: "🗂", label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
           { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
-          { id: "snippets", icon: "📋", label: "Snippets panel", hint: "Saved commands — click to insert into the active terminal", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+          { id: "snippets", icon: "📋", label: "Workflows panel", hint: "Saved parameterized commands — click to run", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
           { id: "files", icon: "📁", label: "File browser (SFTP) — focus right dock", hint: "Local files, or remote SFTP for an SSH tab, in the right dock (F4)", action: () => focusFilesDock() },
           { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
           { id: "serial", icon: "⎓", label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
