@@ -914,7 +914,7 @@ export default function TerminalPane({
         // serial tabs and for tabs that launch their own app via startCommands.
         // Detects zsh/bash at runtime. Windows shells keep their default.
         const isWindowsUA = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
-        if (!connection && !serial && cmdsAtSpawn.length === 0 && !isWindowsUA && alive && ptyId) {
+        if (!connection && !serial && cmdsAtSpawn.length === 0 && alive && ptyId) {
           // Let the shell render its first prompt before we send the (now short)
           // welcome line so the colours/box land cleanly.
           await new Promise(r => setTimeout(r, 450));
@@ -1061,20 +1061,39 @@ export default function TerminalPane({
           // (MAX_CANON ≈ 1024) that the multi-byte prompt emoji could tip it
           // over and hang the line (the old 2.4 KB-printf bug). The trailing
           // `clear` wipes the echoed setup line either way.
-          let display;
-          if (restored) {
-            display = `printf '\\033[2J\\033[H'`;
+          if (isWindowsUA) {
+            // Windows: the POSIX prompt / OSC-133 / command-capture setup can't run
+            // in PowerShell (the app's Windows shell), so skip it and just show the
+            // welcome box on a fresh tab. `[Console]::OutputEncoding = UTF8` keeps
+            // the box-drawing chars (and any later Unicode output) from being mangled
+            // to the OEM codepage; Get-Content prints the box like the POSIX `cat`,
+            // landing above the first prompt. (Restored tabs already have scrollback.)
+            if (!restored && alive && ptyId) {
+              let winDisplay = "Clear-Host";
+              try {
+                const p = await invoke("write_welcome_file", { content: boxRaw });
+                if (p) winDisplay =
+                  `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ` +
+                  `Clear-Host; Get-Content -Raw -Encoding utf8 -LiteralPath '${String(p).replace(/'/g, "''")}'`;
+              } catch { /* no file → just clear */ }
+              try { await invoke("pty_write", { id: ptyId, data: winDisplay + "\r" }); } catch {}
+            }
           } else {
-            display = "clear";
-            try {
-              const p = await invoke("write_welcome_file", { content: boxRaw });
-              if (p) display = `clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
-            } catch { /* no file → just clear */ }
-          }
-          if (alive && ptyId) {
-            try { await invoke("pty_write", { id: ptyId, data: promptSetup + "\r" }); } catch {}
-            try { await invoke("pty_write", { id: ptyId, data: cmdCapture + "\r" }); } catch {}
-            try { await invoke("pty_write", { id: ptyId, data: display + "\r" }); } catch {}
+            let display;
+            if (restored) {
+              display = `printf '\\033[2J\\033[H'`;
+            } else {
+              display = "clear";
+              try {
+                const p = await invoke("write_welcome_file", { content: boxRaw });
+                if (p) display = `clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
+              } catch { /* no file → just clear */ }
+            }
+            if (alive && ptyId) {
+              try { await invoke("pty_write", { id: ptyId, data: promptSetup + "\r" }); } catch {}
+              try { await invoke("pty_write", { id: ptyId, data: cmdCapture + "\r" }); } catch {}
+              try { await invoke("pty_write", { id: ptyId, data: display + "\r" }); } catch {}
+            }
           }
         }
 
