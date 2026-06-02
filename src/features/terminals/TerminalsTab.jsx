@@ -195,6 +195,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         // Ctrl+Shift+W → close active tab in active panel
         fns.closeActiveTab?.();
         handled = true;
+      } else if (shift && key === "z") {
+        // Ctrl+Shift+Z → reopen the last closed tab
+        fns.reopenTab?.();
+        handled = true;
       } else if (key === "k" && !shift) {
         // Ctrl+K → command palette
         fns.openCommandPalette?.();
@@ -203,9 +207,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         // Ctrl+I → Ask AI command bar
         fns.openAskAi?.();
         handled = true;
-      } else if (key === "r" && (e.metaKey || shift)) {
-        // Cmd+R (mac) or Ctrl+Shift+R → command-history search. Plain Ctrl+R is
-        // intentionally left to the shell's reverse-i-search.
+      } else if (key === "r") {
+        // Ctrl/Cmd+R → fuzzy command-history search (Warp-style). Overrides the
+        // shell's reverse-i-search; the app history is cross-session + fuzzy.
         fns.openHistory?.();
         handled = true;
       } else if (key === "," && !shift) {
@@ -295,7 +299,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const {
     setActivePanel, addPanel, closePanel,
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell,
-    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab,
+    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
   } = useWorkspaceTree({ state, persist, toast });
 
@@ -635,6 +639,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     openAskAi: () => setAskOpen(true),
     openHistory: () => setHistoryOpen(true),
     openSettings: () => setSettingsOpen(true),
+    reopenTab,
     toggleTheme,
     switchPanel: (idx) => {
       if (state.panels[idx]) setActivePanel(state.panels[idx].id);

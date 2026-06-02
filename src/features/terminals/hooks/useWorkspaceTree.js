@@ -9,7 +9,7 @@
 // that touches localStorage / spawn_new_window. toast is injected for detachTab's
 // user feedback.
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { invoke } from "@backend";
 import { clearTabPassword } from "../ptyBridge.js";
 import { getWindowStorageKey } from "../storageKeys.js";
@@ -19,6 +19,11 @@ import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "../
 import { MAX_PANELS } from "../grid";
 
 export function useWorkspaceTree({ state, persist, toast }) {
+  // Recently-closed tabs, for reopen (Ctrl+Shift+T). Stash the tab config + where
+  // it was; reopen re-inserts it (a fresh PTY spawns, scrollback replays if the
+  // on-disk file under its id survived).
+  const recentlyClosedRef = useRef([]);
+
   // ── Panel / tab mutations ──────────────────────────────────────────
 
   const setActivePanel = useCallback((panelId) => {
@@ -110,6 +115,12 @@ export function useWorkspaceTree({ state, persist, toast }) {
       closePanel(panelId);
       return;
     }
+    const closedIdx = target.tabs.findIndex(t => t.id === tabId);
+    const closedTab = target.tabs[closedIdx];
+    if (closedTab && !closedTab.home) {
+      recentlyClosedRef.current.push({ panelId, index: closedIdx, tab: closedTab });
+      if (recentlyClosedRef.current.length > 12) recentlyClosedRef.current.shift();
+    }
     clearTabPassword(tabId); // tab genuinely leaving; closePanel handles the 1-tab case
     const panels = state.panels.map(p => {
       if (p.id !== panelId) return p;
@@ -124,6 +135,24 @@ export function useWorkspaceTree({ state, persist, toast }) {
     });
     persist({ ...state, panels });
   }, [state, persist, closePanel]);
+
+  // Reopen the most recently closed tab (Ctrl+Shift+T) into its original panel if
+  // it still exists, else the active panel. A fresh PTY spawns; scrollback replays
+  // if the on-disk file under the tab's id survived the close.
+  const reopenTab = useCallback(() => {
+    const last = recentlyClosedRef.current.pop();
+    if (!last) return;
+    const hasPanel = state.panels.some(p => p.id === last.panelId);
+    const pid = hasPanel ? last.panelId : state.activePanelId;
+    const panels = state.panels.map(p => {
+      if (p.id !== pid) return p;
+      const tabs = p.tabs.slice();
+      const at = Math.max(0, Math.min(last.index, tabs.length));
+      tabs.splice(at, 0, last.tab);
+      return { ...p, tabs: renumberDefaultLabels(tabs), activeTabId: last.tab.id };
+    });
+    persist({ ...state, panels, activePanelId: pid });
+  }, [state, persist]);
 
   const switchTab = useCallback((panelId, tabId) => {
     const panels = state.panels.map(p =>
@@ -353,7 +382,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
   return {
     setActivePanel, addPanel, closePanel,
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell,
-    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab,
+    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
   };
 }
