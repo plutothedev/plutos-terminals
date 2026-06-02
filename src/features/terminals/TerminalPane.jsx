@@ -217,6 +217,7 @@ export default function TerminalPane({
   const blockDecorationsRef = useRef([]); // xterm decorations tinting each command block
   const [failedBlock, setFailedBlock] = useState(null);  // banner: most recent failure
   const [blockMenu, setBlockMenu] = useState(null); // right-click block actions { block, x, y }
+  const [stickyBlock, setStickyBlock] = useState(null); // command pinned at top while scrolled into its output
   const [explainBlock, setExplainBlock] = useState(null); // explainer popover target
   const startCommandsRef = useRef(startCommands);
   startCommandsRef.current = startCommands;
@@ -482,6 +483,26 @@ export default function TerminalPane({
         setSearchOpen(true);
         return false;
       }
+      // Jump between command blocks (Blocks slice 4): Alt+Up / Alt+Down scrolls the
+      // viewport to the previous / next command's prompt line.
+      if (ev.type === "keydown" && ev.altKey && !ev.ctrlKey && !ev.metaKey && (ev.key === "ArrowUp" || ev.key === "ArrowDown")) {
+        const buf = term.buffer.active;
+        const top = buf.viewportY;
+        const starts = blocksRef.current.map((b) => b.startLine).filter((n) => typeof n === "number");
+        if (starts.length) {
+          let target;
+          if (ev.key === "ArrowUp") {
+            const above = starts.filter((n) => n < top);
+            target = above.length ? Math.max(...above) : starts[0];
+          } else {
+            const below = starts.filter((n) => n > top);
+            target = below.length ? Math.min(...below) : buf.baseY;
+          }
+          if (typeof term.scrollToLine === "function") term.scrollToLine(target);
+          else term.scrollLines(target - top);
+          return false;
+        }
+      }
       return true;
     });
     // Clickable absolute file paths (/… or ~/…), with optional :line:col → open
@@ -593,6 +614,20 @@ export default function TerminalPane({
       } catch { /* malformed payload — ignore */ }
       return true;
     });
+    // Sticky command header (Blocks slice 3): while scrolled up into a block's
+    // output, pin that block's command at the top so you know what produced it.
+    const updateSticky = () => {
+      const buf = term.buffer.active;
+      if (buf.viewportY >= buf.baseY) { setStickyBlock(null); return; } // at the live bottom
+      const top = buf.viewportY;
+      let found = null;
+      for (const b of blocksRef.current) {
+        const end = b.endLine != null ? b.endLine : b.startLine;
+        if (b.command && b.startLine < top && top <= end) found = b;
+      }
+      setStickyBlock(found);
+    };
+    term.onScroll(updateSticky);
     termRef.current = term;
     fitRef.current = fit;
     // xterm creates its renderer (and measures char-cell size) inside open() —
@@ -1307,6 +1342,20 @@ export default function TerminalPane({
       }}
     >
       <div ref={containerRef} onContextMenu={onTermContextMenu} style={{ width: "100%", height: "100%", padding: 6, boxSizing: "border-box" }} />
+      {stickyBlock && (
+        <div style={{
+          position: "absolute", top: 6, left: 6, right: 6, zIndex: 15, height: 22,
+          display: "flex", alignItems: "center", gap: 8, padding: "0 10px",
+          background: "var(--phn-surface-bg, #1a1d21)",
+          borderLeft: `2px solid ${stickyBlock.exit ? "#E05B5B" : "#6FB85C"}`,
+          borderBottom: "1px solid var(--phn-surface-border, #2b2b2b)", borderRadius: "0 0 6px 6px",
+          fontSize: 11.5, fontFamily: "'JetBrains Mono', Menlo, monospace", color: "var(--phn-text-fg, #cfd6dd)",
+          overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", opacity: 0.97, pointerEvents: "none",
+        }}>
+          <span style={{ color: stickyBlock.exit ? "#E05B5B" : "#6FB85C", flexShrink: 0 }}>{stickyBlock.exit ? "✗" : "✓"}</span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{stickyBlock.command}</span>
+        </div>
+      )}
       {blockMenu && (
         <>
           <div onMouseDown={() => setBlockMenu(null)} onContextMenu={(e) => { e.preventDefault(); setBlockMenu(null); }}
