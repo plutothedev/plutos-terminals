@@ -32,6 +32,25 @@ pub fn run() {
         .manage(vncclient::VncRegistry::default())
         .manage(rdp::RdpRegistry::default())
         .manage(companion::CompanionState::default())
+        // Global summon hotkey: on press, toggle the main window (show+focus, or
+        // hide if it's already the foreground window).
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if let Some(w) = app.get_webview_window("main") {
+                            if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) {
+                                let _ = w.hide();
+                            } else {
+                                let _ = w.show();
+                                let _ = w.unminimize();
+                                let _ = w.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             // Ensure the data directory exists for store + scrollback.
             let data_dir = commands::get_data_dir(app.handle());
@@ -43,6 +62,15 @@ pub fn run() {
                         .level(log::LevelFilter::Info)
                         .build(),
                 )?;
+            }
+
+            // Global summon hotkey — Ctrl+Shift+` shows/hides the window from anywhere.
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                let sc = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Backquote);
+                if let Err(e) = app.global_shortcut().register(sc) {
+                    log::warn!("global summon hotkey register failed: {e}");
+                }
             }
 
             // System tray + hide-on-close.
