@@ -8,6 +8,35 @@
 // `onSnippetsChange`. With no onSnippetsChange the drawer is read-only and shows
 // the built-in starter set, so it still works before persistence is wired.
 import { useMemo, useState } from "react";
+import yaml from "js-yaml";
+
+// Map between our workflow shape and Warp's workflow YAML schema (name, command,
+// description, tags, arguments[{name, description, default_value}]) — so Warp's
+// public workflow library (and exports) interop directly.
+function warpToWorkflow(doc) {
+  if (!doc || typeof doc !== "object" || !doc.command) return null;
+  return {
+    id: freshSnippetId(),
+    name: String(doc.name || String(doc.command).slice(0, 48)),
+    command: String(doc.command),
+    description: doc.description ? String(doc.description) : "",
+    tags: Array.isArray(doc.tags) ? doc.tags.map(String) : [],
+    arguments: Array.isArray(doc.arguments)
+      ? doc.arguments
+          .map((a) => a && a.name ? { name: String(a.name), description: a.description ? String(a.description) : "", default_value: a.default_value != null ? String(a.default_value) : "" } : null)
+          .filter(Boolean)
+      : [],
+  };
+}
+function workflowToWarp(w) {
+  const o = { name: w.name, command: w.command };
+  if (w.description) o.description = w.description;
+  if (Array.isArray(w.tags) && w.tags.length) o.tags = w.tags;
+  if (Array.isArray(w.arguments) && w.arguments.length) {
+    o.arguments = w.arguments.map((a) => ({ name: a.name, description: a.description || "", default_value: a.default_value != null ? a.default_value : "" }));
+  }
+  return o;
+}
 
 // Workflows: named, parameterized saved commands. `{{arg}}` placeholders are
 // filled on run; `arguments` carries each arg's description + default so the run
@@ -67,6 +96,35 @@ export default function SnippetsDrawer({
   const [newCommand, setNewCommand] = useState("");
   const [fillSnippet, setFillSnippet] = useState(null); // snippet with {{vars}} awaiting values
   const [vals, setVals] = useState({});
+  const [importing, setImporting] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [ioMsg, setIoMsg] = useState("");
+
+  // Import Warp-format workflow YAML (single or multi-doc, or a YAML list). Each
+  // file in Warp's library is one workflow; a pasted blob can hold many.
+  const doImport = () => {
+    try {
+      const flat = [];
+      for (const d of yaml.loadAll(importText)) {
+        if (Array.isArray(d)) flat.push(...d);
+        else if (d) flat.push(d);
+      }
+      const imported = flat.map(warpToWorkflow).filter(Boolean);
+      if (!imported.length) { setIoMsg("No workflows found in that YAML."); return; }
+      onSnippetsChange?.([...items, ...imported]);
+      setIoMsg(`Imported ${imported.length} workflow${imported.length === 1 ? "" : "s"}.`);
+      setImportText("");
+      setTimeout(() => { setImporting(false); setIoMsg(""); }, 1400);
+    } catch (e) { setIoMsg("Parse error: " + (e && e.message ? e.message : String(e))); }
+  };
+  const doExport = () => {
+    try {
+      const txt = items.map((w) => yaml.dump(workflowToWarp(w))).join("---\n");
+      navigator.clipboard?.writeText(txt);
+      setIoMsg(`Copied ${items.length} workflow${items.length === 1 ? "" : "s"} as YAML.`);
+      setTimeout(() => setIoMsg(""), 1500);
+    } catch (e) { setIoMsg("Export failed."); }
+  };
 
   // Click → insert. If the command has {{vars}}, open the fill form first.
   const handlePick = (s) => {
@@ -136,6 +194,12 @@ export default function SnippetsDrawer({
               {adding ? "−" : "+"}
             </button>
           )}
+          {editable && (
+            <button className="phn-snippets-close" onClick={() => { setImporting((v) => !v); setIoMsg(""); }} title="Import Warp workflow YAML" style={{ fontSize: 13 }}>⤓</button>
+          )}
+          {editable && (
+            <button className="phn-snippets-close" onClick={doExport} title="Export workflows as YAML (copy to clipboard)" style={{ fontSize: 13 }}>⤒</button>
+          )}
           <button
             className="phn-snippets-close"
             onClick={onClose}
@@ -163,6 +227,29 @@ export default function SnippetsDrawer({
           spellCheck={false}
         />
       </div>
+
+      {ioMsg && !importing && (
+        <div style={{ padding: "2px 10px 4px", fontSize: 10.5, color: "var(--phn-text-dim, #888)" }}>{ioMsg}</div>
+      )}
+
+      {importing && editable && (
+        <div style={{ padding: "4px 8px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
+          <textarea
+            className="phn-sidebar-search"
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder={"Paste Warp workflow YAML…\nname / command / description / arguments. Grab files from github.com/warpdotdev/workflows."}
+            spellCheck={false}
+            rows={6}
+            style={{ fontFamily: "'JetBrains Mono', Menlo, Monaco, monospace", resize: "vertical", minHeight: 96, width: "100%", boxSizing: "border-box" }}
+          />
+          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
+            {ioMsg && <span style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", marginRight: "auto" }}>{ioMsg}</span>}
+            <button className="phn-snippets-close" onClick={() => { setImporting(false); setImportText(""); setIoMsg(""); }} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4 }}>cancel</button>
+            <button className="phn-snippets-close" onClick={doImport} disabled={!importText.trim()} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4, opacity: importText.trim() ? 1 : 0.5, cursor: importText.trim() ? "pointer" : "not-allowed" }}>import</button>
+          </div>
+        </div>
+      )}
 
       {adding && editable && (
         <div style={{ padding: "4px 8px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
