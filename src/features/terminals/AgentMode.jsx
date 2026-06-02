@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
-import { Button, Input } from "../../components/ui.jsx";
+import { Button, Input, Textarea } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { runAndCapture } from "./ptyBridge.js";
@@ -34,13 +34,20 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
   const [goal, setGoal] = useState("");
   const [steps, setSteps] = useState([]);
   const [running, setRunning] = useState(false);
+  const [autoRun, setAutoRun] = useState(false); // off = approve each command before it runs
+  const [pending, setPending] = useState(null);   // command awaiting approval { command }
+  const [pendingCmd, setPendingCmd] = useState(""); // editable text of the pending command
   const stopRef = useRef(false);
+  const autoRunRef = useRef(false);
+  const approveRef = useRef(null); // resolver for the current approval gate
   const goalRef = useRef(null);
   const scrollRef = useRef(null);
+  autoRunRef.current = autoRun;
 
   useEffect(() => {
     if (open) {
       setGoal(""); setSteps([]); setRunning(false); stopRef.current = false;
+      setPending(null); approveRef.current = null;
       setTimeout(() => goalRef.current?.focus(), 30);
     }
   }, [open]);
@@ -83,8 +90,25 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
       const action = parseAction(reply);
       if (action.type === "DONE") { push({ type: "done", text: action.content || "Done." }); break; }
       if (action.type === "ASK") { push({ type: "ask", text: action.content }); break; }
-      const cmd = action.content;
+      let cmd = action.content;
       if (!cmd) { push({ type: "error", text: "Model returned an empty command." }); break; }
+      if (!autoRunRef.current) {
+        // Approval gate: show the proposed command and wait for Approve / Skip
+        // (the command is editable before approving).
+        const decision = await new Promise((resolve) => {
+          setPendingCmd(cmd);
+          setPending({ command: cmd });
+          approveRef.current = resolve;
+        });
+        setPending(null); approveRef.current = null;
+        if (stopRef.current || decision.action === "stop") { push({ type: "done", text: "Stopped by you." }); break; }
+        if (decision.action === "skip") {
+          push({ type: "skip", command: cmd });
+          history.push({ command: cmd, output: "(the user skipped this command)" });
+          continue;
+        }
+        cmd = (decision.command || cmd).trim();
+      }
       const entry = push({ type: "run", command: cmd, output: "running…" });
       const result = await runAndCapture(tabId, cmd);
       const out = (result?.output || "").slice(-3000);
@@ -96,7 +120,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
     setRunning(false);
   };
 
-  const color = (t) => t === "error" ? "#E05B5B" : t === "done" ? "#6FB85C" : t === "ask" ? "#E0A04F" : "#4D8FE0";
+  const color = (t) => t === "error" ? "#E05B5B" : t === "done" ? "#6FB85C" : t === "ask" ? "#E0A04F" : t === "skip" ? "#888" : "#4D8FE0";
 
   return (
     <Modal open={open} title="🤖 Agent Mode" onClose={onClose} width={700}>
@@ -110,9 +134,31 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
           disabled={running}
         />
         {running
-          ? <Button variant="danger" onClick={() => { stopRef.current = true; }}>stop</Button>
+          ? <Button variant="danger" onClick={() => { stopRef.current = true; if (approveRef.current) approveRef.current({ action: "stop" }); }}>stop</Button>
           : <Button variant="primary" onClick={start} disabled={!goal.trim()}>run agent</Button>}
       </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: "var(--phn-sp-2)", fontSize: "var(--phn-fs-xs)", color: "var(--phn-text-dim)", cursor: "pointer" }}>
+        <input type="checkbox" checked={autoRun} onChange={(e) => setAutoRun(e.target.checked)} />
+        Auto-run — run each command without asking (default: approve each)
+      </label>
+
+      {pending && (
+        <div style={{ marginTop: "var(--phn-sp-3)", padding: 10, border: "1px solid #E0A04F", borderRadius: 8, background: "rgba(224,160,79,0.08)" }}>
+          <div style={{ fontSize: 10.5, color: "#E0A04F", textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600, marginBottom: 4 }}>
+            Approve command — edit if you like
+          </div>
+          <Textarea
+            value={pendingCmd}
+            onChange={(e) => setPendingCmd(e.target.value)}
+            rows={Math.min(4, pendingCmd.split("\n").length)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) approveRef.current?.({ action: "run", command: pendingCmd }); }}
+          />
+          <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginTop: "var(--phn-sp-2)", justifyContent: "flex-end" }}>
+            <Button variant="subtle" onClick={() => approveRef.current?.({ action: "skip" })}>skip</Button>
+            <Button variant="primary" onClick={() => approveRef.current?.({ action: "run", command: pendingCmd })}>approve &amp; run ↵</Button>
+          </div>
+        </div>
+      )}
 
       <div ref={scrollRef} style={{ marginTop: "var(--phn-sp-3)", maxHeight: 380, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
         {steps.map((s, i) => (
@@ -122,6 +168,8 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
                 <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "var(--phn-text-fg)" }}>$ {s.command}</div>
                 <pre style={{ margin: "3px 0 0", fontSize: 11, color: "var(--phn-text-dim)", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 150, overflow: "auto" }}>{s.output}</pre>
               </>
+            ) : s.type === "skip" ? (
+              <div style={{ fontSize: 12, color: "#888" }}>⤼ skipped: <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{s.command}</span></div>
             ) : (
               <div style={{ fontSize: 12.5, color: color(s.type) }}>
                 {s.type === "done" ? "✓ " : s.type === "ask" ? "? " : "✗ "}{s.text}
