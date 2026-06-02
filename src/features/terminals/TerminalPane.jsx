@@ -24,6 +24,7 @@ import {
   writeToTab,
   registerTabReader,
   recordCommand,
+  reportBlockDone,
 } from "./ptyBridge.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
@@ -586,6 +587,16 @@ export default function TerminalPane({
             }
           }
         } catch { /* decorations are best-effort */ }
+        // Native Agent Mode: hand the finished command + its output to any waiting
+        // agent step (ptyBridge.runAndCapture).
+        try {
+          let out = "";
+          for (let i = blk.startLine + 1; i <= here && i < buf.length; i++) {
+            const line = buf.getLine(i);
+            if (line) out += line.translateToString(true) + "\n";
+          }
+          reportBlockDone(tabId, { command: blk.command || "", output: out.replace(/\s+$/, ""), exit: Number.isNaN(exit) ? 0 : exit });
+        } catch { /* best-effort */ }
         if (!ok) {
           let text = "";
           for (let i = blk.startLine; i <= here && i < buf.length; i++) {

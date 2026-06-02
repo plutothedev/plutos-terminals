@@ -197,6 +197,36 @@ export function writeToTab(tabId, data) {
   }
 }
 
+// ── Agent command capture (Native Agent Mode) ───────────────────────────────
+// The agent runs a command in a tab and needs its output back. TerminalPane
+// reports each finished command block here (via reportBlockDone); runAndCapture
+// writes a command then resolves with the next block-done for that tab. Falls
+// back to the recent buffer text on timeout. Sequential by design — the agent
+// awaits each step, so at most one capture is pending per tab.
+const pendingCapture = new Map(); // tabId -> { resolve, command }
+
+export function reportBlockDone(tabId, block) {
+  const p = pendingCapture.get(tabId);
+  if (p) { pendingCapture.delete(tabId); p.resolve(block); }
+}
+
+export function runAndCapture(tabId, command, timeoutMs = 120000) {
+  return new Promise((resolve) => {
+    const prev = pendingCapture.get(tabId);
+    if (prev) { pendingCapture.delete(tabId); prev.resolve(null); }
+    const entry = { resolve, command };
+    pendingCapture.set(tabId, entry);
+    const ok = writeToTab(tabId, command + "\r");
+    if (!ok) { pendingCapture.delete(tabId); resolve(null); return; }
+    setTimeout(() => {
+      if (pendingCapture.get(tabId) === entry) {
+        pendingCapture.delete(tabId);
+        resolve({ command, output: getTabText(tabId), exit: null, timedOut: true });
+      }
+    }, timeoutMs);
+  });
+}
+
 // MultiExec: fan a write out to every VISIBLE terminal (the active tab of each
 // panel), optionally skipping the originating tab so a keystroke isn't doubled
 // in the pane that produced it. Returns the number of terminals written to.

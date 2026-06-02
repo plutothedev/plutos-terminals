@@ -19,6 +19,7 @@ import MacrosModal from "./MacrosModal";
 import MasterPasswordModal from "./MasterPasswordModal";
 import MobaToolbar from "./MobaToolbar";
 import AskBar from "./AskBar";
+import AgentMode from "./AgentMode";
 import SessionSummary from "./SessionSummary";
 import HistorySearch from "./HistorySearch";
 import WorkspacesModal from "./WorkspacesModal";
@@ -120,6 +121,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Persisted user snippets (seeded from the starter set; written to the
   // window-independent st.snippets key, not the per-window panel state).
   const { snippets, setSnippets } = useSnippets(st, save);
+  const [agentOpen, setAgentOpen] = useState(false); // Native Agent Mode modal
 
   // MultiExec broadcast (MobaXterm-style). Transient per-window mode: when on,
   // a keystroke or snippet goes to every visible terminal at once. Not
@@ -206,6 +208,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       } else if (key === "i" && !shift) {
         // Ctrl+I → Ask AI command bar
         fns.openAskAi?.();
+        handled = true;
+      } else if (key === "a" && shift) {
+        // Ctrl+Shift+A → Agent Mode (autonomous, runs commands)
+        fns.openAgent?.();
         handled = true;
       } else if (key === "r") {
         // Ctrl/Cmd+R → fuzzy command-history search (Warp-style). Overrides the
@@ -637,6 +643,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     },
     openCommandPalette: () => setCommandPaletteOpen(true),
     openAskAi: () => setAskOpen(true),
+    openAgent: () => setAgentOpen(true),
     openHistory: () => setHistoryOpen(true),
     openSettings: () => setSettingsOpen(true),
     reopenTab,
@@ -779,6 +786,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             caption: "AI · Tools",
             items: [
               { id: "ask", icon: <SAsk />, color: "#D982D9", label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
+              { id: "agent", icon: <SAgents />, color: "#6FB85C", label: "Agent", title: "Agent Mode — give a goal in plain English; it runs commands to do it (Ctrl+Shift+A)", onClick: () => setAgentOpen(true) },
               { id: "models", icon: <SModels />, color: "#E06C9B", label: "Models", title: "Pick your LLM provider + model and enter its API key", onClick: () => setModelsOpen(true) },
               { id: "snips", icon: <SSnips />, color: "#5B9BE0", label: "Workflows", title: "Workflows — saved parameterized commands; click to run", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
               { id: "agents", icon: <SAgents />, color: "#6FB85C", label: "Agents", title: "Agent mission control", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
@@ -1038,6 +1046,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         onInsert={(cmd) => insertSnippet(cmd)}
       />
 
+      <AgentMode
+        open={agentOpen}
+        onClose={() => setAgentOpen(false)}
+        tabId={activeTab?.activePaneId || activeTabId}
+        cwd={activeTab?.cwd || null}
+        shellName={shellName}
+      />
+
       <SessionSummary
         open={!!summary}
         text={summary?.text || ""}
@@ -1118,6 +1134,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
           { id: "ask", icon: "✨", label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command (Ctrl+I)", action: () => setAskOpen(true) },
+          { id: "agent", icon: "🤖", label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal (Ctrl+Shift+A)", action: () => setAgentOpen(true) },
           { id: "summarize", icon: "📝", label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
           { id: "history", icon: "🕘", label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs (Cmd+R / Ctrl+Shift+R)", action: () => setHistoryOpen(true) },
           { id: "workspaces", icon: "🗂", label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
