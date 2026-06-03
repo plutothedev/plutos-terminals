@@ -46,7 +46,7 @@ import CommandPalette from "../../components/CommandPalette.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
-import { KEY_ACTIONS, comboFromEvent, resolveBindings, isCapturing } from "./keybindings.js";
+import { KEY_ACTIONS, comboFromEvent, resolveBindings, isCapturing, formatCombo } from "./keybindings.js";
 import { gridDims, MAX_PANELS } from "./grid";
 import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useDimsListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
 import { useDockResize } from "./hooks/useDockResize.js";
@@ -632,6 +632,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   };
   // Keep the dispatcher's binding map in sync with the user's remaps.
   bindingsRef.current = resolveBindings(userSt?.keybindings);
+  // Live-combo lookup for command-palette shortcut chips (reflects remaps).
+  const scOf = (actionId) => {
+    const c = bindingsRef.current.byAction.get(actionId);
+    return c ? formatCombo(c) : undefined;
+  };
 
   return (
     <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative" }}>
@@ -1106,7 +1111,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <CommandPalette
         open={commandPaletteOpen}
         commands={[
-          { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
+          { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: scOf("newTab"), action: () => addTab(state.activePanelId) },
           { id: "new-session", icon: "🌐", label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
           { id: "import-ssh", icon: "🔑", label: "Import ~/.ssh/config", hint: "Add every SSH host from your OpenSSH config to the Sessions tree", action: () => importSshConfig() },
           { id: "ssh-keys", icon: "🗝️", label: "SSH keys", hint: "List / generate SSH keypairs; copy a public key to a server", action: () => setSshKeysOpen(true) },
@@ -1115,10 +1120,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
           { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
-          { id: "ask", icon: "✨", label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command (Ctrl+I)", action: () => setAskOpen(true) },
-          { id: "agent", icon: "🤖", label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal (Ctrl+Shift+A)", action: () => setAgentOpen(true) },
+          { id: "ask", icon: "✨", label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
+          { id: "agent", icon: "🤖", label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal", shortcut: scOf("agentMode"), action: () => setAgentOpen(true) },
           { id: "summarize", icon: "📝", label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
-          { id: "history", icon: "🕘", label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs (Cmd+R / Ctrl+Shift+R)", action: () => setHistoryOpen(true) },
+          { id: "history", icon: "🕘", label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs", shortcut: scOf("history"), action: () => setHistoryOpen(true) },
           { id: "workspaces", icon: "🗂", label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
           { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
           { id: "snippets", icon: "📋", label: "Workflows panel", hint: "Saved parameterized commands — click to run", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
@@ -1134,7 +1139,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           { id: "toggle-sidebar", icon: "◧", label: ribbon ? "Hide tools panel" : "Show snippets panel", hint: "Show or hide the Snippets / Agents panel beside the session tree", action: () => selectRibbon(ribbon ? null : "snippets") },
           { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
           { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
-          { id: "settings", icon: "⚙️", label: "Open settings", hint: "API key, app skin, header style, density, terminal bg", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },
+          { id: "settings", icon: "⚙️", label: "Open settings", hint: "Appearance, keyboard shortcuts, factory reset", shortcut: scOf("settings"), action: () => setSettingsOpen(true) },
           activeTabRecording
             ? {
                 id: "stop-recording",
