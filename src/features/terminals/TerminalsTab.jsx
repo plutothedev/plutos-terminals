@@ -46,6 +46,7 @@ import CommandPalette from "../../components/CommandPalette.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
+import { KEY_ACTIONS, comboFromEvent, resolveBindings, isCapturing } from "./keybindings.js";
 import { gridDims, MAX_PANELS } from "./grid";
 import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useDimsListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
 import { useDockResize } from "./hooks/useDockResize.js";
@@ -179,58 +180,35 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // transpose, etc.). Ctrl+P opens pack search; Ctrl+K opens command
   // palette; Ctrl+1..8 switches active panel.
   const shortcutsRef = useRef({});
+  // Resolved combo→action map, refreshed each render from userSt.keybindings so
+  // the dispatcher (a stable [] effect) always sees the latest remaps.
+  const bindingsRef = useRef(resolveBindings(userSt?.keybindings));
   useEffect(() => {
     const onKey = (e) => {
-      const meta = e.ctrlKey || e.metaKey;
-      if (!meta) return;
-      const key = e.key.toLowerCase();
-      const shift = e.shiftKey;
-
+      // Stand down while the Keybindings remap UI is capturing a keystroke.
+      if (isCapturing()) return;
+      // Only act on combos with a non-Shift modifier — never swallow plain
+      // typing in the terminal.
+      if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
       const fns = shortcutsRef.current;
       let handled = false;
 
-      if (shift && key === "t") {
-        // Ctrl+Shift+T → new tab in active panel
-        fns.addTab?.();
+      // Ctrl+1..8 → switch active panel by index. Kept special (8 numbered
+      // slots, not individually remappable).
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && /^[1-8]$/.test(e.key)) {
+        fns.switchPanel?.(parseInt(e.key, 10) - 1);
         handled = true;
-      } else if (shift && key === "w") {
-        // Ctrl+Shift+W → close active tab in active panel
-        fns.closeActiveTab?.();
-        handled = true;
-      } else if (shift && key === "z") {
-        // Ctrl+Shift+Z → reopen the last closed tab
-        fns.reopenTab?.();
-        handled = true;
-      } else if (key === "k" && !shift) {
-        // Ctrl+K → command palette
-        fns.openCommandPalette?.();
-        handled = true;
-      } else if (key === "i" && !shift) {
-        // Ctrl+I → Ask AI command bar
-        fns.openAskAi?.();
-        handled = true;
-      } else if (key === "a" && shift) {
-        // Ctrl+Shift+A → Agent Mode (autonomous, runs commands)
-        fns.openAgent?.();
-        handled = true;
-      } else if (key === "r") {
-        // Ctrl/Cmd+R → fuzzy command-history search (Warp-style). Overrides the
-        // shell's reverse-i-search; the app history is cross-session + fuzzy.
-        fns.openHistory?.();
-        handled = true;
-      } else if (key === "," && !shift) {
-        // Ctrl+, → settings
-        fns.openSettings?.();
-        handled = true;
-      } else if (key === "\\" && !shift) {
-        // Ctrl+\ → toggle Dark/Light chrome
-        fns.toggleTheme?.();
-        handled = true;
-      } else if (/^[1-8]$/.test(e.key) && !shift) {
-        // Ctrl+1..8 → switch active panel by index
-        const idx = parseInt(e.key, 10) - 1;
-        fns.switchPanel?.(idx);
-        handled = true;
+      } else {
+        // Everything else: look the pressed combo up in the user-resolved map.
+        const combo = comboFromEvent(e);
+        const actionId = combo ? bindingsRef.current.byCombo.get(combo) : null;
+        if (actionId) {
+          const action = KEY_ACTIONS.find((a) => a.id === actionId);
+          if (action && fns[action.fn]) {
+            fns[action.fn]();
+            handled = true;
+          }
+        }
       }
 
       if (handled) {
@@ -652,6 +630,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       if (state.panels[idx]) setActivePanel(state.panels[idx].id);
     },
   };
+  // Keep the dispatcher's binding map in sync with the user's remaps.
+  bindingsRef.current = resolveBindings(userSt?.keybindings);
 
   return (
     <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative" }}>
@@ -1021,6 +1001,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         open={settingsOpen}
         st={st}
         save={save}
+        userSt={userSt}
+        saveUser={saveUser}
         onClose={() => setSettingsOpen(false)}
       />
 

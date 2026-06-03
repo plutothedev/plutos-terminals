@@ -8,8 +8,9 @@ import { useConfirm } from "./ConfirmModal.jsx";
 import { Button, Field } from "./ui.jsx";
 import { getSkinId } from "../features/terminals/headerSkins.js";
 import { USER_STORAGE_KEY, STATE_KEY_PREFIX } from "../features/terminals/storageKeys.js";
+import KeybindingsSection from "../features/terminals/KeybindingsSection.jsx";
 
-export default function SettingsModal({ open, st, save, onClose }) {
+export default function SettingsModal({ open, st, save, userSt, saveUser, onClose }) {
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
   const toast = useToast();
   const confirm = useConfirm();
@@ -68,6 +69,15 @@ export default function SettingsModal({ open, st, save, onClose }) {
           <Button variant={isLight ? "primary" : "ghost"} onClick={() => setTheme("moba-light")} style={{ flex: 1 }}>☀️&nbsp; Light</Button>
         </div>
       </Field>
+
+      {saveUser && (
+        <Field
+          label="Keyboard shortcuts"
+          hint="Click a shortcut, then press the new key combo (Esc cancels). Changes apply instantly and sync across windows."
+        >
+          <KeybindingsSection userSt={userSt} saveUser={saveUser} />
+        </Field>
+      )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "var(--phn-sp-6)" }}>
         <Button variant="danger" onClick={handleFactoryReset} title="Wipe all local state and reload">factory reset</Button>
