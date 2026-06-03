@@ -5,11 +5,15 @@
 // userSt.keybindings via saveUser (shared across windows).
 
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@backend";
 import { Button } from "../../components/ui.jsx";
 import {
   KEY_ACTIONS, CATEGORY_ORDER, resolveBindings, comboFromEvent, canon,
   isBindable, formatCombo, setCapturing,
+  DEFAULT_SUMMON, comboFromCode, isSummonBindable, formatCodeCombo,
 } from "./keybindings.js";
+
+const SUMMON = "__summon__"; // recording sentinel for the OS-level summon row
 
 export default function KeybindingsSection({ userSt, saveUser }) {
   const [recordingId, setRecordingId] = useState(null);
@@ -19,11 +23,29 @@ export default function KeybindingsSection({ userSt, saveUser }) {
 
   const { byAction } = resolveBindings(userSt?.keybindings);
 
+  // Summon combo (code-based): string | null (disabled) | undefined (default).
+  const summonRaw = userSt?.keybindings?.summon;
+  const summonHasOverride = userSt?.keybindings
+    && Object.prototype.hasOwnProperty.call(userSt.keybindings, "summon");
+  const summonCombo = summonHasOverride ? summonRaw : DEFAULT_SUMMON; // string | null
+
   const writeBinding = (id, value) => {
     const kb = { ...(userSt?.keybindings || {}) };
     if (value === "__reset__") delete kb[id];
     else kb[id] = value; // string (remap) or null (disabled)
     saveUser({ ...userSt, keybindings: kb });
+  };
+
+  // Persist a summon change and (re)register it OS-wide via Rust.
+  const applySummon = (value) => {
+    const kb = { ...(userSt?.keybindings || {}) };
+    if (value === "__reset__") delete kb.summon;
+    else kb.summon = value; // string or null (disabled)
+    saveUser({ ...userSt, keybindings: kb });
+    const effective = value === "__reset__" ? DEFAULT_SUMMON : value;
+    invoke("set_summon_shortcut", { combo: effective || "" }).catch((err) => {
+      setError(`Couldn't register hotkey: ${err}`);
+    });
   };
 
   // While a row is recording, capture the next real keystroke. The global
@@ -36,6 +58,19 @@ export default function KeybindingsSection({ userSt, saveUser }) {
       e.preventDefault();
       e.stopPropagation();
       if (e.key === "Escape") { setRecordingId(null); return; }
+
+      if (recRef.current === SUMMON) {
+        const combo = comboFromCode(e);
+        if (!combo) return; // lone modifier
+        if (!isSummonBindable(combo)) {
+          setError("Use Ctrl or Alt (optionally + Shift) plus a key.");
+          return;
+        }
+        applySummon(combo);
+        setRecordingId(null);
+        return;
+      }
+
       const combo = comboFromEvent(e);
       if (!combo) return; // lone modifier — wait for the real key
       if (!isBindable(combo)) {
@@ -120,11 +155,41 @@ export default function KeybindingsSection({ userSt, saveUser }) {
           })}
         </div>
       ))}
+      <div style={{ marginBottom: "var(--phn-sp-3)" }}>
+        <div style={{ fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase", opacity: 0.55, margin: "var(--phn-sp-2) 0 4px" }}>
+          Window (system-wide)
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--phn-sp-2)", padding: "5px 0", borderBottom: "1px solid var(--phn-border, #222)" }}>
+          <span style={{ flex: 1, fontSize: 13 }}>
+            Summon / hide window
+            <span style={{ opacity: 0.5, fontSize: 11 }}>&nbsp;— works even when Pluto is not focused</span>
+          </span>
+          <button
+            className="phn-ui-kbd"
+            onClick={() => setRecordingId(recordingId === SUMMON ? null : SUMMON)}
+            title="Click, then press the new shortcut (Esc to cancel)"
+            style={{
+              cursor: "pointer", minWidth: 92, textAlign: "center",
+              border: recordingId === SUMMON ? "1px solid var(--phn-accent, #6cf)" : undefined,
+              color: !summonCombo ? "var(--phn-fg-dim, #888)" : undefined,
+            }}
+          >
+            {recordingId === SUMMON ? "Press keys…" : summonCombo ? formatCodeCombo(summonCombo) : "Disabled"}
+          </button>
+          <Button variant="subtle" size="sm" onClick={() => applySummon(null)} disabled={!summonCombo} title="Unbind the summon hotkey">
+            disable
+          </Button>
+          <Button variant="subtle" size="sm" onClick={() => applySummon("__reset__")} disabled={!summonHasOverride} title={`Reset to default (${formatCodeCombo(DEFAULT_SUMMON)})`}>
+            reset
+          </Button>
+        </div>
+      </div>
+
       {error && (
         <div style={{ color: "var(--phn-danger, #e66)", fontSize: 12, marginTop: 6 }}>{error}</div>
       )}
       <div style={{ fontSize: 11, opacity: 0.55, marginTop: 8 }}>
-        Find in terminal applies to the focused terminal. The OS-level summon hotkey (Ctrl+Shift+`) is set separately.
+        Find in terminal applies to the focused terminal. The summon hotkey is registered with the OS, so it works from any app.
       </div>
     </div>
   );

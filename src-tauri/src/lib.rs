@@ -23,6 +23,66 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 
+const DEFAULT_SUMMON: &str = "Ctrl+Shift+Backquote";
+
+// Map a W3C KeyboardEvent.code token to a global-shortcut Code. Covers the keys
+// a user might realistically bind the summon hotkey to.
+fn summon_code(token: &str) -> Option<tauri_plugin_global_shortcut::Code> {
+    use tauri_plugin_global_shortcut::Code::*;
+    Some(match token {
+        "KeyA" => KeyA, "KeyB" => KeyB, "KeyC" => KeyC, "KeyD" => KeyD, "KeyE" => KeyE,
+        "KeyF" => KeyF, "KeyG" => KeyG, "KeyH" => KeyH, "KeyI" => KeyI, "KeyJ" => KeyJ,
+        "KeyK" => KeyK, "KeyL" => KeyL, "KeyM" => KeyM, "KeyN" => KeyN, "KeyO" => KeyO,
+        "KeyP" => KeyP, "KeyQ" => KeyQ, "KeyR" => KeyR, "KeyS" => KeyS, "KeyT" => KeyT,
+        "KeyU" => KeyU, "KeyV" => KeyV, "KeyW" => KeyW, "KeyX" => KeyX, "KeyY" => KeyY,
+        "KeyZ" => KeyZ,
+        "Digit0" => Digit0, "Digit1" => Digit1, "Digit2" => Digit2, "Digit3" => Digit3,
+        "Digit4" => Digit4, "Digit5" => Digit5, "Digit6" => Digit6, "Digit7" => Digit7,
+        "Digit8" => Digit8, "Digit9" => Digit9,
+        "F1" => F1, "F2" => F2, "F3" => F3, "F4" => F4, "F5" => F5, "F6" => F6,
+        "F7" => F7, "F8" => F8, "F9" => F9, "F10" => F10, "F11" => F11, "F12" => F12,
+        "Backquote" => Backquote, "Minus" => Minus, "Equal" => Equal,
+        "BracketLeft" => BracketLeft, "BracketRight" => BracketRight, "Backslash" => Backslash,
+        "Semicolon" => Semicolon, "Quote" => Quote, "Comma" => Comma, "Period" => Period,
+        "Slash" => Slash, "Space" => Space, "Enter" => Enter, "Tab" => Tab,
+        "ArrowUp" => ArrowUp, "ArrowDown" => ArrowDown, "ArrowLeft" => ArrowLeft,
+        "ArrowRight" => ArrowRight,
+        _ => return None,
+    })
+}
+
+fn parse_summon(combo: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, String> {
+    use tauri_plugin_global_shortcut::{Modifiers, Shortcut};
+    let parts: Vec<&str> = combo.split('+').filter(|s| !s.is_empty()).collect();
+    let (key, mod_parts) = parts.split_last().ok_or_else(|| "empty shortcut".to_string())?;
+    let mut mods = Modifiers::empty();
+    for m in mod_parts {
+        match m.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => mods |= Modifiers::CONTROL,
+            "alt" | "option" => mods |= Modifiers::ALT,
+            "shift" => mods |= Modifiers::SHIFT,
+            "meta" | "super" | "cmd" | "win" => mods |= Modifiers::SUPER,
+            other => return Err(format!("unknown modifier: {other}")),
+        }
+    }
+    let code = summon_code(key).ok_or_else(|| format!("unsupported key: {key}"))?;
+    Ok(Shortcut::new(if mods.is_empty() { None } else { Some(mods) }, code))
+}
+
+// Re-register the global summon hotkey at runtime. Empty combo = disabled.
+#[tauri::command]
+fn set_summon_shortcut(app: tauri::AppHandle, combo: String) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    app.global_shortcut().unregister_all().map_err(|e| e.to_string())?;
+    let trimmed = combo.trim();
+    if trimmed.is_empty() {
+        return Ok(()); // user disabled the summon hotkey
+    }
+    let sc = parse_summon(trimmed)?;
+    app.global_shortcut().register(sc).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -64,12 +124,18 @@ pub fn run() {
                 )?;
             }
 
-            // Global summon hotkey — Ctrl+Shift+` shows/hides the window from anywhere.
+            // Global summon hotkey — Ctrl+Shift+` shows/hides the window from
+            // anywhere. The frontend re-applies the user's stored override (or
+            // disables it) on boot via set_summon_shortcut.
             {
-                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
-                let sc = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Backquote);
-                if let Err(e) = app.global_shortcut().register(sc) {
-                    log::warn!("global summon hotkey register failed: {e}");
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                match parse_summon(DEFAULT_SUMMON) {
+                    Ok(sc) => {
+                        if let Err(e) = app.global_shortcut().register(sc) {
+                            log::warn!("global summon hotkey register failed: {e}");
+                        }
+                    }
+                    Err(e) => log::warn!("default summon parse failed: {e}"),
                 }
             }
 
@@ -158,6 +224,7 @@ pub fn run() {
             commands::git_diff,
             commands::gh_pr_create,
             commands::notify,
+            set_summon_shortcut,
             sysstats::system_stats,
             commands::list_directory,
             llm::llm_complete,

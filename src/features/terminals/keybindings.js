@@ -131,6 +131,59 @@ export function formatCombo(combo) {
   return [...parts, KEY_PRETTY[key] || key].join("+");
 }
 
+// ── OS-level summon hotkey ────────────────────────────────────────────────
+// The summon hotkey is an OS global shortcut registered in Rust, which keys off
+// the physical KeyboardEvent.code (not the produced character — Shift+Backquote
+// yields "~" but the OS still sees Backquote). So it gets its own code-based
+// representation, e.g. "Ctrl+Shift+Backquote", that the Rust parser mirrors.
+
+export const DEFAULT_SUMMON = "Ctrl+Shift+Backquote";
+
+const CODE_PRETTY = {
+  Backquote: "`", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]",
+  Backslash: "\\", Semicolon: ";", Quote: "'", Comma: ",", Period: ".",
+  Slash: "/", Space: "Space", Enter: "Enter", Tab: "Tab", Escape: "Esc",
+  ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
+};
+
+function prettyCode(code) {
+  if (CODE_PRETTY[code]) return CODE_PRETTY[code];
+  const k = /^Key([A-Z])$/.exec(code);
+  if (k) return k[1];
+  const d = /^Digit([0-9])$/.exec(code);
+  if (d) return d[1];
+  return code; // F1..F12 and anything else
+}
+
+// Canonical summon combo from a live event, using physical codes. Null for a
+// lone modifier. Ctrl and Meta are kept distinct (Rust maps Meta → SUPER) so a
+// mac user could bind Cmd.
+export function comboFromCode(e) {
+  if (/^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/.test(e.code) || e.code === "") return null;
+  const mods = [];
+  if (e.ctrlKey) mods.push("Ctrl");
+  if (e.altKey) mods.push("Alt");
+  if (e.shiftKey) mods.push("Shift");
+  if (e.metaKey) mods.push("Meta");
+  return [...mods, e.code].join("+");
+}
+
+// A summon combo needs a non-Shift modifier + a real key.
+export function isSummonBindable(combo) {
+  if (!combo) return false;
+  const parts = combo.split("+");
+  const key = parts.pop();
+  if (!key) return false;
+  return parts.includes("Ctrl") || parts.includes("Alt") || parts.includes("Meta");
+}
+
+export function formatCodeCombo(combo) {
+  if (!combo) return "";
+  const parts = combo.split("+");
+  const key = parts.pop();
+  return [...parts, prettyCode(key)].join("+");
+}
+
 // Capture guard: while the remap UI is recording a keystroke, the global
 // dispatcher must stand down so pressing e.g. Ctrl+K records instead of firing.
 let _capturing = false;

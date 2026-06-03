@@ -214,6 +214,15 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     window.addEventListener("keydown", onKey, true); // capture phase
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
+
+  // Apply the user's stored OS-level summon hotkey on boot (Rust registers the
+  // Ctrl+Shift+` default at startup; this overrides it if remapped/disabled).
+  useEffect(() => {
+    const s = userSt?.keybindings?.summon;
+    const combo = s === undefined ? "Ctrl+Shift+Backquote" : s; // null → disabled
+    invoke("set_summon_shortcut", { combo: combo || "" }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const pureBlackTerminal = !!st?.pureBlackTerminal;
   const xtermTheme = useMemo(
     () => getSkinXtermTheme(headerSkinId, { pureBlackTerminal }),
