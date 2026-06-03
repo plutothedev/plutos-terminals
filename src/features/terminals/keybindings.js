@@ -17,15 +17,25 @@ export const KEY_ACTIONS = [
   { id: "commandPalette", label: "Command palette",        category: "General",    default: "Ctrl+K",       fn: "openCommandPalette" },
   { id: "history",        label: "Command history search", category: "General",    default: "Ctrl+R",       fn: "openHistory" },
   { id: "settings",       label: "Settings",               category: "General",    default: "Ctrl+,",       fn: "openSettings" },
+  { id: "find",           label: "Find in terminal",       category: "Terminal",   default: "Ctrl+F",       fn: "openFind" },
   { id: "askAi",          label: "Ask AI",                 category: "AI",         default: "Ctrl+I",       fn: "openAskAi" },
   { id: "agentMode",      label: "Agent Mode",             category: "AI",         default: "Ctrl+Shift+A", fn: "openAgent" },
   { id: "newTab",         label: "New tab",                category: "Tabs",       default: "Ctrl+Shift+T", fn: "addTab" },
   { id: "closeTab",       label: "Close tab",              category: "Tabs",       default: "Ctrl+Shift+W", fn: "closeActiveTab" },
   { id: "reopenTab",      label: "Reopen closed tab",      category: "Tabs",       default: "Ctrl+Shift+Z", fn: "reopenTab" },
   { id: "toggleTheme",    label: "Toggle dark / light",    category: "Appearance", default: "Ctrl+\\",      fn: "toggleTheme" },
+  // Panel switching — 8 numbered slots; arg is the 0-based panel index.
+  ...Array.from({ length: 8 }, (_, i) => ({
+    id: `panel${i + 1}`,
+    label: `Switch to panel ${i + 1}`,
+    category: "Panels",
+    default: `Ctrl+${i + 1}`,
+    fn: "switchPanel",
+    arg: i,
+  })),
 ];
 
-export const CATEGORY_ORDER = ["General", "AI", "Tabs", "Appearance"];
+export const CATEGORY_ORDER = ["General", "Terminal", "AI", "Tabs", "Appearance", "Panels"];
 
 const MOD_ORDER = ["Ctrl", "Alt", "Shift", "Meta"];
 const LONE_MODS = ["Control", "Alt", "Shift", "Meta", "Os", "OS", "ContextMenu", "Dead"];
@@ -94,6 +104,21 @@ export function resolveBindings(userKb) {
     if (combo) byCombo.set(canon(combo), a.id);
   }
   return { byCombo, byAction };
+}
+
+// Shared resolved-bindings cache. TerminalsTab refreshes it each render via
+// setResolved(); pane-local handlers (e.g. find-in-terminal in TerminalPane,
+// which lives in xterm's key handler, not the global dispatcher) read it
+// without needing keybindings threaded through props.
+let _resolved = resolveBindings(null);
+export function setResolved(userKb) {
+  _resolved = resolveBindings(userKb);
+  return _resolved;
+}
+// actionId currently bound to a live KeyboardEvent, or null.
+export function actionForEvent(e) {
+  const combo = comboFromEvent(e);
+  return combo ? _resolved.byCombo.get(combo) || null : null;
 }
 
 // Human display of a combo, e.g. "Ctrl+Shift+T" → "Ctrl Shift T" tokens.

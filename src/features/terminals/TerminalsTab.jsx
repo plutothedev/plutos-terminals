@@ -46,7 +46,7 @@ import CommandPalette from "../../components/CommandPalette.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
-import { KEY_ACTIONS, comboFromEvent, resolveBindings, isCapturing, formatCombo } from "./keybindings.js";
+import { KEY_ACTIONS, comboFromEvent, resolveBindings, setResolved, isCapturing, formatCombo } from "./keybindings.js";
 import { gridDims, MAX_PANELS } from "./grid";
 import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useDimsListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
 import { useDockResize } from "./hooks/useDockResize.js";
@@ -193,21 +193,16 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       const fns = shortcutsRef.current;
       let handled = false;
 
-      // Ctrl+1..8 → switch active panel by index. Kept special (8 numbered
-      // slots, not individually remappable).
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && /^[1-8]$/.test(e.key)) {
-        fns.switchPanel?.(parseInt(e.key, 10) - 1);
-        handled = true;
-      } else {
-        // Everything else: look the pressed combo up in the user-resolved map.
-        const combo = comboFromEvent(e);
-        const actionId = combo ? bindingsRef.current.byCombo.get(combo) : null;
-        if (actionId) {
-          const action = KEY_ACTIONS.find((a) => a.id === actionId);
-          if (action && fns[action.fn]) {
-            fns[action.fn]();
-            handled = true;
-          }
+      // Look the pressed combo up in the user-resolved map. (Find-in-terminal
+      // resolves to "find", which has no global fn — it falls through to
+      // xterm's own handler in TerminalPane, where the active pane is known.)
+      const combo = comboFromEvent(e);
+      const actionId = combo ? bindingsRef.current.byCombo.get(combo) : null;
+      if (actionId) {
+        const action = KEY_ACTIONS.find((a) => a.id === actionId);
+        if (action && fns[action.fn]) {
+          fns[action.fn](action.arg);
+          handled = true;
         }
       }
 
@@ -630,8 +625,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       if (state.panels[idx]) setActivePanel(state.panels[idx].id);
     },
   };
-  // Keep the dispatcher's binding map in sync with the user's remaps.
-  bindingsRef.current = resolveBindings(userSt?.keybindings);
+  // Keep the dispatcher's binding map (and the shared cache TerminalPane reads
+  // for find-in-terminal) in sync with the user's remaps.
+  bindingsRef.current = setResolved(userSt?.keybindings);
   // Live-combo lookup for command-palette shortcut chips (reflects remaps).
   const scOf = (actionId) => {
     const c = bindingsRef.current.byAction.get(actionId);
@@ -1190,7 +1186,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             icon: i + 1 < 10 ? `${i + 1}` : "•",
             label: `Switch to panel ${i + 1}`,
             hint: `${p.tabs.length} tab${p.tabs.length === 1 ? "" : "s"}${p.id === state.activePanelId ? " · active" : ""}`,
-            shortcut: i < 8 ? `Ctrl+${i + 1}` : undefined,
+            shortcut: i < 8 ? scOf(`panel${i + 1}`) : undefined,
             action: () => setActivePanel(p.id),
           })),
         ]}

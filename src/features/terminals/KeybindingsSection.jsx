@@ -124,7 +124,7 @@ export default function KeybindingsSection({ userSt, saveUser }) {
         <div style={{ color: "var(--phn-danger, #e66)", fontSize: 12, marginTop: 6 }}>{error}</div>
       )}
       <div style={{ fontSize: 11, opacity: 0.55, marginTop: 8 }}>
-        Panel switching (Ctrl+1…8) and find-in-terminal (Ctrl+F) are fixed for now.
+        Find in terminal applies to the focused terminal. The OS-level summon hotkey (Ctrl+Shift+`) is set separately.
       </div>
     </div>
   );

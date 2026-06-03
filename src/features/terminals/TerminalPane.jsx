@@ -12,6 +12,7 @@ import { envForModel } from "./providers.js";
 import { USER_STORAGE_KEY, getWindowStorageKey } from "./storageKeys.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
+import { actionForEvent } from "./keybindings.js";
 import {
   registerPtyWriter,
   unregisterPty,
@@ -478,9 +479,10 @@ export default function TerminalPane({
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;
-    // Cmd/Ctrl+F opens the find overlay (intercepted before the PTY).
+    // The "find" shortcut opens the find overlay (intercepted before the PTY).
+    // Combo is user-remappable; read it live from the shared keybinding cache.
     term.attachCustomKeyEventHandler((ev) => {
-      if (ev.type === "keydown" && (ev.metaKey || ev.ctrlKey) && !ev.shiftKey && ev.key.toLowerCase() === "f") {
+      if (ev.type === "keydown" && actionForEvent(ev) === "find") {
         setSearchOpen(true);
         return false;
       }
