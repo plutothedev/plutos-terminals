@@ -12,6 +12,7 @@ import {
   getLayoutId,
   injectHeaderSkinsCss,
   applyGlobalSkin,
+  applyActiveTheme,
   applyGlobalButtonStyle,
   applyGlobalLayout,
 } from "./features/terminals/headerSkins.js";
@@ -199,7 +200,7 @@ function AppInner() {
 
   const skinId = getSkinId(st.headerSkin);
   const layoutId = getLayoutId(st.headerLayout);
-  useEffect(() => { applyGlobalSkin(skinId); }, [skinId]);
+  useEffect(() => { applyActiveTheme(st.headerSkin, userSt.customThemes); }, [st.headerSkin, userSt.customThemes]);
   useEffect(() => { applyGlobalButtonStyle("bracket"); }, []);
   useEffect(() => { applyGlobalLayout(layoutId); }, [layoutId]);
 

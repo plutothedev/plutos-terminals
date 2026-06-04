@@ -9,6 +9,7 @@ import { Button, Field } from "./ui.jsx";
 import { getSkinId } from "../features/terminals/headerSkins.js";
 import { USER_STORAGE_KEY, STATE_KEY_PREFIX } from "../features/terminals/storageKeys.js";
 import KeybindingsSection from "../features/terminals/KeybindingsSection.jsx";
+import ThemesSection from "../features/terminals/ThemesSection.jsx";
 
 export default function SettingsModal({ open, st, save, userSt, saveUser, onClose }) {
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
@@ -16,7 +17,11 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
   const confirm = useConfirm();
 
   const handleSave = () => {
-    save({ ...st, headerSkin: getSkinId(headerSkin) });
+    // Preserve an active custom theme (custom:<id>) — the Dark/Light picker only
+    // governs the built-in chrome skin and already persists live.
+    const cur = st.headerSkin;
+    const nextSkin = typeof cur === "string" && cur.startsWith("custom:") ? cur : getSkinId(headerSkin);
+    save({ ...st, headerSkin: nextSkin });
     toast.success("Settings saved.");
     onClose();
   };
@@ -69,6 +74,15 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
           <Button variant={isLight ? "primary" : "ghost"} onClick={() => setTheme("moba-light")} style={{ flex: 1 }}>☀️&nbsp; Light</Button>
         </div>
       </Field>
+
+      {saveUser && (
+        <Field
+          label="Custom themes"
+          hint="Import a Warp theme and use it across the terminal and the whole app."
+        >
+          <ThemesSection st={st} save={save} userSt={userSt} saveUser={saveUser} />
+        </Field>
+      )}
 
       {saveUser && (
         <Field

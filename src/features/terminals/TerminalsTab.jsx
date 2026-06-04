@@ -69,6 +69,10 @@ import {
   getSkinId,
   getSkinXtermTheme,
   applyGlobalSkin,
+  resolveBaseSkinId,
+  getActiveXtermTheme,
+  applyActiveTheme,
+  findCustomTheme,
 } from "./headerSkins";
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds, getPtyId, onDimsChange } from "./ptyBridge.js";
@@ -159,13 +163,16 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const headerSkinId = getSkinId(st?.headerSkin);
+  // Effective base built-in skin (custom themes ride on moba/moba-light).
+  const headerSkinId = resolveBaseSkinId(st?.headerSkin, userSt?.customThemes);
+  const customThemeActive = !!findCustomTheme(st?.headerSkin, userSt?.customThemes);
 
-  // Apply skin globally on <html> so portaled/sibling elements (toasts,
-  // modals via Provider tree) inherit skin CSS vars.
+  // Apply the active theme globally on <html> so portaled/sibling elements
+  // (toasts, modals via Provider tree) inherit the theme's CSS vars. Custom
+  // themes also inject their --phn-* overrides here.
   useEffect(() => {
-    applyGlobalSkin(headerSkinId);
-  }, [headerSkinId]);
+    applyActiveTheme(st?.headerSkin, userSt?.customThemes);
+  }, [st?.headerSkin, userSt?.customThemes]);
 
   // Dark ⇄ Light chrome toggle (toolbar button + Ctrl+\). Flips the only two
   // skins; the terminal stays black either way.
@@ -225,8 +232,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, []);
   const pureBlackTerminal = !!st?.pureBlackTerminal;
   const xtermTheme = useMemo(
-    () => getSkinXtermTheme(headerSkinId, { pureBlackTerminal }),
-    [headerSkinId, pureBlackTerminal]
+    () => getActiveXtermTheme(st?.headerSkin, userSt?.customThemes, { pureBlackTerminal }),
+    [st?.headerSkin, userSt?.customThemes, pureBlackTerminal]
   );
 
   // Shell name (basename of the shell new tabs spawn) — shown in the status bar.
@@ -644,7 +651,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   };
 
   return (
-    <div className="phn-page" data-phn-skin={headerSkinId} style={{ height: "100%", position: "relative" }}>
+    <div className="phn-page" data-phn-skin={headerSkinId} data-phn-theme={customThemeActive ? "custom" : undefined} style={{ height: "100%", position: "relative" }}>
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* MobaXterm menu bar — classic dropdown menus wired to existing actions. */}
       <MobaMenuBar

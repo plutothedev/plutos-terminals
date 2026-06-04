@@ -1390,3 +1390,81 @@ export function applyGlobalSkin(skinId) {
   const id = HEADER_SKINS.find((s) => s.id === skinId) ? skinId : "default";
   document.documentElement.dataset.phnSkin = id;
 }
+
+// ── Custom themes ────────────────────────────────────────────────────────────
+// A custom theme is referenced by a stored value of "custom:<id>" and lives in
+// userSt.customThemes. It reuses a base skin's structural CSS (moba/moba-light)
+// but overrides every color token via an injected stylesheet scoped to
+// [data-phn-theme="custom"], placed AFTER #phn-header-skins so its equal-
+// specificity rules win on source order. The terminal palette comes straight
+// from the theme's xterm object.
+
+export const CUSTOM_PREFIX = "custom:";
+
+export function findCustomTheme(stored, customThemes) {
+  if (typeof stored !== "string" || !stored.startsWith(CUSTOM_PREFIX)) return null;
+  const id = stored.slice(CUSTOM_PREFIX.length);
+  return (customThemes || []).find((t) => t && t.id === id) || null;
+}
+
+// Base built-in skin used for structural CSS under an active custom theme.
+function customBaseSkin(theme) {
+  return theme && theme.dark === false ? "moba-light" : "moba";
+}
+
+// Effective built-in skin id for DOM/component CSS, given a stored value that
+// may be a custom:<id> reference.
+export function resolveBaseSkinId(stored, customThemes) {
+  const custom = findCustomTheme(stored, customThemes);
+  if (custom) return customBaseSkin(custom);
+  return getSkinId(stored);
+}
+
+// Pure: the xterm theme object for the active selection (built-in or custom).
+export function getActiveXtermTheme(stored, customThemes, opts = {}) {
+  const custom = findCustomTheme(stored, customThemes);
+  if (custom) {
+    return opts.pureBlackTerminal ? { ...custom.xterm, background: "#000000" } : custom.xterm;
+  }
+  return getSkinXtermTheme(getSkinId(stored), opts);
+}
+
+function customThemeStyleEl() {
+  let el = document.getElementById("phn-custom-theme");
+  if (!el) {
+    el = document.createElement("style");
+    el.id = "phn-custom-theme";
+    const skins = document.getElementById("phn-header-skins");
+    if (skins) skins.after(el); // ensure source order beats the skins CSS
+    else document.head.appendChild(el);
+  }
+  return el;
+}
+function setCustomThemeCss(chrome) {
+  const decls = Object.entries(chrome || {})
+    .map(([k, v]) => `  ${k}: ${v};`)
+    .join("\n");
+  customThemeStyleEl().textContent = `[data-phn-theme="custom"]{\n${decls}\n}`;
+}
+function clearCustomThemeCss() {
+  const el = document.getElementById("phn-custom-theme");
+  if (el) el.textContent = "";
+}
+
+// Side-effecting: apply the active theme to <html>. Built-in → data-phn-skin
+// only; custom → base skin + data-phn-theme="custom" + the injected overrides.
+export function applyActiveTheme(stored, customThemes) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  const custom = findCustomTheme(stored, customThemes);
+  if (custom) {
+    root.dataset.phnSkin = customBaseSkin(custom);
+    root.dataset.phnTheme = "custom";
+    setCustomThemeCss(custom.chrome);
+  } else {
+    delete root.dataset.phnTheme;
+    clearCustomThemeCss();
+    const id = getSkinId(stored);
+    root.dataset.phnSkin = HEADER_SKINS.find((s) => s.id === id) ? id : "default";
+  }
+}
