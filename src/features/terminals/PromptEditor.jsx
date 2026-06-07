@@ -7,14 +7,43 @@
 // (not running a command, not in a full-screen app). See the design spec.
 
 import { useEffect, useRef } from "react";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { EditorView, keymap, ViewPlugin, Decoration, WidgetType } from "@codemirror/view";
 import { insertNewlineAndIndent } from "@codemirror/commands";
 import { StreamLanguage, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { autocompletion, completionKeymap, startCompletion, acceptCompletion, completionStatus } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
 import { getCommandHistory } from "./ptyBridge.js";
+import { KNOWN_CMDS } from "./inputClassify.js";
 import { MONO_STACK } from "./fonts.js";
+
+// ── Tab completions (fuzzy menu) ─────────────────────────────────────────────
+// First token → command names (known binaries + history first-words). With args
+// already typed → full prior commands from history that extend the line. Driven
+// by Tab (typing is covered by ghost text), so the menu never nags.
+const SORTED_CMDS = [...KNOWN_CMDS].sort();
+function completionSource(context) {
+  const before = context.state.sliceDoc(0, context.pos);
+  const hist = getCommandHistory();
+  if (!/\s/.test(before)) {
+    // typing the command name
+    const word = context.matchBefore(/\S*/);
+    const from = word ? word.from : context.pos;
+    const seen = new Set();
+    const options = [];
+    const add = (label, type) => { if (label && !seen.has(label)) { seen.add(label); options.push({ label, type }); } };
+    for (const h of hist) add(h.split(/\s+/)[0], "history"); // your commands first
+    for (const c of SORTED_CMDS) add(c, "keyword");
+    return options.length ? { from, options, validFor: /^\S*$/ } : null;
+  }
+  // args present → complete the whole line from history
+  const line = before;
+  const matches = hist.filter((h) => h.length > line.length && h.startsWith(line));
+  const pool = matches.length ? matches : (context.explicit ? hist.filter((h) => h.includes(line.trim())) : []);
+  if (!pool.length) return null;
+  return { from: 0, options: pool.map((h) => ({ label: h, type: "history" })), filter: false };
+}
 
 // ── Ghost-text autosuggest (fish/Warp style) ────────────────────────────────
 // As you type, show the best command-history match as grey inline text after the
@@ -88,6 +117,19 @@ function editorTheme(theme) {
     ".cm-scroller": { fontFamily: MONO_STACK, lineHeight: "inherit", overflow: "hidden" },
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: c.selectionBackground || "rgba(120,140,200,0.35)" },
     ".cm-ghost": { color: c.brightBlack || "#6b7280", opacity: 0.7 },
+    ".cm-tooltip.cm-tooltip-autocomplete": {
+      background: c.background || "var(--phn-elevated-bg, #1a1a1a)",
+      border: "1px solid var(--phn-surface-border, #333)",
+      borderRadius: "6px",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+      fontFamily: MONO_STACK,
+    },
+    ".cm-tooltip-autocomplete ul li": { padding: "2px 8px", color: c.foreground || "#d0d0d0" },
+    ".cm-tooltip-autocomplete ul li[aria-selected]": {
+      background: c.selectionBackground || "var(--phn-accent-subtle, rgba(120,140,200,0.3))",
+      color: c.brightWhite || "#fff",
+    },
+    ".cm-completionIcon": { display: "none" },
   }, { dark: true });
 }
 
@@ -136,7 +178,11 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
     const km = keymap.of([
       { key: "Enter", run: (v) => { cbRef.current.onSubmit?.(v.state.doc.toString()); return true; } },
       { key: "Shift-Enter", run: insertNewlineAndIndent },
-      { key: "Tab", run: (v) => { acceptGhost(v); return true; } }, // accept ghost; swallow tab otherwise
+      { key: "Tab", run: (v) => {
+        if (acceptGhost(v)) return true;                              // 1) accept ghost
+        if (completionStatus(v.state) === "active") return acceptCompletion(v); // 2) accept menu pick
+        return startCompletion(v) || true;                           // 3) open the menu
+      } },
       { key: "ArrowRight", run: acceptGhost }, // accept at end; else default cursor move
       { key: "End", run: acceptGhost },
       { key: "ArrowUp", run: histPrev },
@@ -149,8 +195,13 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
     const state = EditorState.create({
       doc: "",
       extensions: [
+        // completionKeymap (active-only handlers) wins over our Enter/arrows so
+        // the open menu handles Enter/↑/↓/Esc; it falls through to ours when no
+        // menu is open.
+        Prec.high(keymap.of(completionKeymap)),
         km,
         ghostPlugin,
+        autocompletion({ override: [completionSource], activateOnTyping: false, icons: false, defaultKeymap: false }),
         StreamLanguage.define(shell),
         themeComp.current.of([editorTheme(theme), syntaxHighlighting(highlightFor(theme))]),
         EditorView.lineWrapping,

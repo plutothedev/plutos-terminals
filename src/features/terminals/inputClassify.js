@@ -6,7 +6,7 @@
 
 // Common binaries / builtins whose presence as the first token strongly implies
 // a command. (Cross-platform: POSIX + a few Windows/PowerShell.)
-const KNOWN_CMDS = new Set([
+export const KNOWN_CMDS = new Set([
   "ls", "cd", "pwd", "cat", "echo", "cp", "mv", "rm", "mkdir", "rmdir", "touch",
   "grep", "rg", "head", "tail", "less", "more", "chmod", "chown", "ln", "du", "df",
   "ps", "kill", "pkill", "clear", "export", "env", "printenv", "which", "whereis",
