@@ -19,33 +19,35 @@ Plus no **Warp Drive** (sync/notebooks/workflows/secrets).
 
 ## Build order (weighted to his picks)
 
-**Milestone 1 — Blocks (in progress)**
-- [ ] P0/L — Blocks UI: render OSC-133 command+output as discrete units (overlay over xterm; markers already fire incl. PowerShell)
-- [ ] P0/M — Copy command / output / both per block
-- [ ] P0/S — Block color-coding by exit status (red on failure; exit already known)
-- [ ] P1/M — Sticky command header (pin running command while scrolling)
-- [ ] P1/S — Block Find (Ctrl+F across blocks, regex) · P2/S — bookmark/jump blocks
+_Status as of v0.3.3 (branch `001-remote-sessions-parity`): Milestones 1, 3, 4, 5 essentially done; Milestone 2 is the only one with a big rock left — the decoupled input editor + inline syntax highlighting._
 
-**Milestone 2 — Input editor + autocomplete (his pick)**
-- [ ] P0/L — Modern input editor decoupled from xterm (multiline, click-to-place, soft-wrap)
-- [ ] P0/L — Autosuggestions (fish-style ghost text; Windows via PSReadLine PredictionSource)
-- [ ] P0/L — Tab completions (fuzzy menu: cmds/paths/flags; Windows via PSReadLine completion bridge)
-- [ ] P1/M — Syntax + error highlighting in input · P2/M — Vim mode
+**Milestone 1 — Blocks ✅ DONE (v0.3.1)**
+- [x] P0/L — Blocks UI: OSC-133 command+output as discrete units (xterm decorations: exit-status bar/wash)
+- [x] P0/M — Copy command / output / both per block (right-click) + re-run
+- [x] P0/S — Block color-coding by exit status (red on failure)
+- [x] P1/M — Sticky command header (pins running command on scroll)
+- [x] P1/S — Block Find (Ctrl+F) · Alt+↑/↓ jump between blocks (bookmark/jump)
 
-**Milestone 3 — Warp Drive (his pick)**
-- [ ] P1/M — Workflows: promote Snippets → named parameterized workflows (defaults/desc, YAML import/export)
-- [ ] P1/L — Settings/sync across machines (account/cloud; everything is per-device localStorage today)
-- [ ] P2/M — Notebooks (Monaco already bundled) · P2/S — Saved Prompts library
+**Milestone 2 — Input editor + autocomplete (PARTIAL — the remaining frontier)**
+- [ ] P0/L — Modern input editor decoupled from xterm (multiline, click-to-place, soft-wrap) ← **the big lift left**
+- [x] P0/L — Autosuggestions (PSReadLine PredictionSource inline ghost text on pwsh 7)
+- [x] P0/L — Tab completions (PSReadLine MenuComplete on pwsh 7)
+- [ ] P1/M — Syntax + error highlighting in input (needs the input editor) · [ ] P2/M — Vim mode
 
-**Milestone 4 — Native Agent Mode**
-- [ ] P0/M — NL-vs-command auto-detection + routing (plain English → agent; needs input editor)
-- [ ] P1/L — In-app streaming, tool-using agent loop with self-correction (grow `llm_complete`)
-- [ ] P2/M — MCP for the native agent · P2/M — Rules/AGENTS.md + codebase context
+**Milestone 3 — Warp Drive (his pick) — mostly done**
+- [x] P1/M — Workflows: Snippets → named parameterized workflows (defaults/desc, Warp-YAML import/export)
+- [ ] P1/L — Settings/sync across machines (account/cloud backend; per-device localStorage today)
+- [ ] P2/M — Notebooks (Monaco bundled) · [ ] P2/S — Saved Prompts library
 
-**Milestone 5 — Polish (table-stakes Warp users tune day one)**
-- [ ] P1/S — Global summon hotkey (Tauri global-shortcut) · P1/S — Reopen closed tab · P1/S — Zoom/maximize pane
-- [ ] P1/M — Customizable keybindings (remap UI) · P1/M — Custom themes (YAML import, OS light/dark sync)
-- [ ] P1/S — Bind Ctrl+R to unified fuzzy command search (history+workflows)
+**Milestone 4 — Native Agent Mode ✅ DONE (core)**
+- [x] P0/M — NL-vs-command auto-detection + routing (at the Ask AI bar; v0.3.3)
+- [x] P1/L — In-app ReAct agent loop with per-command approval + self-correction + live token streaming (v0.3.1/0.3.3)
+- [ ] P2/M — MCP for the native agent · [ ] P2/M — Rules/AGENTS.md + codebase context
+
+**Milestone 5 — Polish ✅ DONE**
+- [x] P1/S — Global summon hotkey · [x] Reopen closed tab · [x] Zoom/maximize pane
+- [x] P1/M — Customizable keybindings (remap UI, incl. OS summon; v0.3.3) · [x] Custom themes (Warp-YAML import + OS light/dark sync; v0.3.3)
+- [x] P1/S — Ctrl+R unified fuzzy command-history search
 
 **Later (P2/P3):** block sharing (web permalinks — phone-companion infra can seed it) · live multi-viewer session sharing · active AI recommendations/diffs · voice · theme-from-image.
 
