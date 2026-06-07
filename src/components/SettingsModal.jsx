@@ -75,6 +75,16 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
         </div>
       </Field>
 
+      <Field
+        label="Prompt editor (beta)"
+        hint="App-owned input line at the shell prompt: syntax highlighting, ↑/↓ history, Enter to run. Full-screen apps (vim, ssh prompts, REPLs) pass through untouched. Off = the classic terminal."
+      >
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!st.promptEditor} onChange={(e) => save({ ...st, promptEditor: e.target.checked })} />
+          Enable the app-owned prompt editor
+        </label>
+      </Field>
+
       {saveUser && (
         <Field
           label="Custom themes"

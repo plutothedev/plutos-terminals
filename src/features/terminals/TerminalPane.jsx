@@ -13,6 +13,7 @@ import { USER_STORAGE_KEY, getWindowStorageKey } from "./storageKeys.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import { actionForEvent } from "./keybindings.js";
+import PromptEditor from "./PromptEditor.jsx";
 import {
   registerPtyWriter,
   unregisterPty,
@@ -204,11 +205,21 @@ export default function TerminalPane({
   autoApprove,
   onActivityChange,
   onCostUpdate,
+  promptEditor = false, // opt-in app-owned prompt editor (Milestone 2, slice 1)
 }) {
   const containerRef = useRef(null);
+  const wrapperRef = useRef(null);
   const fitRef = useRef(null);
   const termRef = useRef(null);
   const searchAddonRef = useRef(null);
+  // App-owned prompt editor state (gated by OSC-133 prompt state).
+  const [atPrompt, setAtPrompt] = useState(false);
+  const [altScreen, setAltScreen] = useState(false);
+  const [peRect, setPeRect] = useState({ top: 0, left: 0, width: 0, height: 0 });
+  const peEnabledRef = useRef(promptEditor);
+  peEnabledRef.current = promptEditor;
+  const captureRef = useRef(null);   // latest prompt-capture fn for the OSC handler
+  const settleTimerRef = useRef(null);
   // Find-in-terminal (Cmd/Ctrl+F) overlay state.
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -559,6 +570,13 @@ export default function TerminalPane({
         currentBlockRef.current = b;
         blocksRef.current.push(b);
         if (blocksRef.current.length > 200) blocksRef.current.shift();
+        // App-owned prompt editor: the prompt is (re)opening. Once the prompt
+        // string finishes printing and the cursor settles, capture the input
+        // origin and show the editor. Re-armed on every prompt.
+        if (peEnabledRef.current) {
+          clearTimeout(settleTimerRef.current);
+          settleTimerRef.current = setTimeout(() => captureRef.current?.(), 70);
+        }
       } else if (data === "D" || data.startsWith("D;")) {
         const blk = currentBlockRef.current;
         currentBlockRef.current = null;
@@ -622,6 +640,10 @@ export default function TerminalPane({
         const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
         const cmd = new TextDecoder().decode(bytes);
         recordCommand(cmd);
+        // A command was submitted → leave prompt state (hide the editor) until
+        // the next prompt re-arms it.
+        clearTimeout(settleTimerRef.current);
+        setAtPrompt(false);
         // Tag the open block with the command it's running (for block copy/re-run).
         if (currentBlockRef.current) currentBlockRef.current.command = cmd;
       } catch { /* malformed payload — ignore */ }
@@ -944,6 +966,16 @@ export default function TerminalPane({
             }).catch(() => {});
           }
         });
+
+        // App-owned prompt editor: drop to raw passthrough whenever a full-screen
+        // app takes the alternate screen buffer (vim, less, a TUI); restore after.
+        try {
+          term.buffer.onBufferChange(() => {
+            const alt = term.buffer.active.type === "alternate";
+            setAltScreen(alt);
+            if (alt) { clearTimeout(settleTimerRef.current); setAtPrompt(false); }
+          });
+        } catch { /* older xterm — feature degrades to prompt-state only */ }
 
         // Pre-flight check (v0.1.14): if any startCommand invokes `claude` and
         // the CLI isn't on PATH, the shell would respond "claude is not
@@ -1354,8 +1386,66 @@ export default function TerminalPane({
   };
   const copyToClipboard = (t) => { try { navigator.clipboard?.writeText(t); } catch { /* ignore */ } };
 
+  // ── App-owned prompt editor wiring ──────────────────────────────────────────
+  const showEditor = promptEditor && active && atPrompt && !altScreen;
+  const capturePrompt = () => {
+    const term = termRef.current;
+    if (!term || !peEnabledRef.current) return;
+    if (term.buffer.active.type === "alternate") return; // full-screen app
+    const wrapEl = wrapperRef.current;
+    const screen = containerRef.current?.querySelector(".xterm-screen");
+    if (!wrapEl || !screen || !term.cols) return;
+    const wrap = wrapEl.getBoundingClientRect();
+    const sr = screen.getBoundingClientRect();
+    if (!sr.width) return;
+    const cellW = sr.width / term.cols;
+    const cellH = sr.height / term.rows;
+    const cx = term.buffer.active.cursorX;
+    const cy = term.buffer.active.cursorY;
+    setPeRect({
+      top: (sr.top - wrap.top) + cy * cellH,
+      left: (sr.left - wrap.left) + cx * cellW,
+      width: Math.max(60, sr.width - cx * cellW - 4),
+      height: Math.max(12, cellH),
+    });
+    setAtPrompt(true);
+  };
+  captureRef.current = capturePrompt;
+
+  const sendToPty = (data) => { if (isBroadcast()) writeBroadcast(data); else writeToTab(tabId, data); };
+  const submitPrompt = (text) => {
+    setAtPrompt(false);
+    sendToPty((text || "") + "\r");
+    const c = (text || "").trim();
+    if (c) recordCommand(c);
+    setTimeout(() => termRef.current?.focus(), 0);
+  };
+  const promptCtrlC = () => { sendToPty("\x03"); setAtPrompt(false); };
+  const promptClear = () => { sendToPty("\x0c"); };
+  const promptEscape = () => { setAtPrompt(false); setTimeout(() => termRef.current?.focus(), 0); };
+
+  // Hide xterm's idle caret while the editor owns input (avoids a double caret).
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    try { term.options.cursorInactiveStyle = showEditor ? "none" : "outline"; } catch { /* ignore */ }
+  }, [showEditor]);
+
+  // Reposition the editor as the viewport scrolls/resizes while shown.
+  useEffect(() => {
+    if (!showEditor) return;
+    const term = termRef.current;
+    if (!term) return;
+    const reposition = () => captureRef.current?.();
+    const d1 = term.onScroll?.(reposition);
+    const d2 = term.onResize?.(reposition);
+    return () => { d1?.dispose?.(); d2?.dispose?.(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showEditor]);
+
   return (
     <div
+      ref={wrapperRef}
       style={{
         position: "absolute",
         inset: 0,
@@ -1364,6 +1454,20 @@ export default function TerminalPane({
       }}
     >
       <div ref={containerRef} onContextMenu={onTermContextMenu} style={{ width: "100%", height: "100%", padding: 6, boxSizing: "border-box" }} />
+      {promptEditor && (
+        <PromptEditor
+          visible={showEditor}
+          top={peRect.top}
+          left={peRect.left}
+          width={peRect.width}
+          height={peRect.height}
+          theme={xtermTheme}
+          onSubmit={submitPrompt}
+          onEscape={promptEscape}
+          onCtrlC={promptCtrlC}
+          onClear={promptClear}
+        />
+      )}
       {stickyBlock && (
         <div style={{
           position: "absolute", top: 6, left: 6, right: 6, zIndex: 15, height: 22,

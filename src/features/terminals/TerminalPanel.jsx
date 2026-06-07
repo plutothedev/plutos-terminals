@@ -121,6 +121,7 @@ function TerminalPanel({
   canClosePanel,
   tabActivities,
   xtermTheme,
+  promptEditor,
   tabAutoApprove,
   tabProjectNames,
   homeApi,
@@ -535,6 +536,7 @@ function TerminalPanel({
                       startCommands={isRoot ? (tab.startCommands || null) : null}
                       systemPrompt={isRoot ? (tab.systemPrompt || null) : null}
                       xtermTheme={xtermTheme}
+                      promptEditor={promptEditor}
                       tabId={node.id}
                       projectName={isRoot ? (tabProjectNames?.[tab.id] || null) : null}
                       autoApprove={isRoot ? (tabAutoApprove?.[tab.id] || false) : false}

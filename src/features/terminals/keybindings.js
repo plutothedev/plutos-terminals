@@ -18,6 +18,7 @@ export const KEY_ACTIONS = [
   { id: "history",        label: "Command history search", category: "General",    default: "Ctrl+R",       fn: "openHistory" },
   { id: "settings",       label: "Settings",               category: "General",    default: "Ctrl+,",       fn: "openSettings" },
   { id: "find",           label: "Find in terminal",       category: "Terminal",   default: "Ctrl+F",       fn: "openFind" },
+  { id: "togglePromptEditor", label: "Toggle prompt editor (beta)", category: "Terminal", default: "", fn: "togglePromptEditor" },
   { id: "askAi",          label: "Ask AI",                 category: "AI",         default: "Ctrl+I",       fn: "openAskAi" },
   { id: "agentMode",      label: "Agent Mode",             category: "AI",         default: "Ctrl+Shift+A", fn: "openAgent" },
   { id: "newTab",         label: "New tab",                category: "Tabs",       default: "Ctrl+Shift+T", fn: "addTab" },

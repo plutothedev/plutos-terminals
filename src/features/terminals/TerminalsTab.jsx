@@ -646,6 +646,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     switchPanel: (idx) => {
       if (state.panels[idx]) setActivePanel(state.panels[idx].id);
     },
+    togglePromptEditor: () => save({ ...st, promptEditor: !st?.promptEditor }),
   };
   // Keep the dispatcher's binding map (and the shared cache TerminalPane reads
   // for find-in-terminal) in sync with the user's remaps.
@@ -892,6 +893,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               canClosePanel={canClosePanel}
               tabActivities={tabActivities}
               xtermTheme={xtermTheme}
+              promptEditor={!!st?.promptEditor}
               tabAutoApprove={tabAutoApprove}
               tabProjectNames={tabProjectNames}
               homeApi={homeApi}

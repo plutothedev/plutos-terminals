@@ -24,7 +24,9 @@ Ships **opt-in, default off**, behind a Settings toggle + a remappable keybindin
 The editor is a DOM overlay (`PromptEditor`) absolutely positioned over the active pane's prompt input area. While at a prompt it holds DOM focus, so keystrokes go to CodeMirror and **never reach xterm** — no need to intercept `term.onData` or `attachCustomKeyEventHandler`. When we leave prompt state, we blur/hide the overlay and refocus xterm, restoring today's raw passthrough.
 
 ### Prompt-state machine (OSC-133)
-The shell integration in `TerminalPane.jsx` (`promptSetup`) currently emits `133;A` (prompt start) and `133;D;<exit>` (command done), plus `1337;PlutoCmd=<b64>` at preexec. It does **not** emit `133;B` (input start). We add `133;B`:
+> **Implementation note (slice 1, shipped):** rather than adding a `133;B` marker (which needs fragile per-shell `PS1`/`%{%}` escaping), slice 1 drives `atPrompt` off the **existing `133;A` marker + a ~70ms cursor-settle**: on `A`, after the prompt finishes printing and the cursor stops, we capture `cursorX/cursorY` (via the `.xterm-screen` rect ÷ cols/rows) as the input origin and show the editor. Shell-agnostic, zero shell-integration risk. A deterministic `133;B` remains a possible future refinement if positioning proves flaky. The `B` design below is retained for reference.
+
+The shell integration in `TerminalPane.jsx` (`promptSetup`) currently emits `133;A` (prompt start) and `133;D;<exit>` (command done), plus `1337;PlutoCmd=<b64>` at preexec. It does **not** emit `133;B` (input start). The original plan added `133;B`:
 
 - **PowerShell:** the prompt function already builds `…]133;D;<code>…]133;A…`; append `…]133;B` to the end of the returned prompt string (after the visible prompt text).
 - **bash/zsh:** append `\033]133;B\007` to the end of `PS1`/`PROMPT` (after the powerline segments).
