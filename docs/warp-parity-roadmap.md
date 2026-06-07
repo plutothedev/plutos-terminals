@@ -19,7 +19,7 @@ Plus no **Warp Drive** (sync/notebooks/workflows/secrets).
 
 ## Build order (weighted to his picks)
 
-_Status as of v0.3.3 (branch `001-remote-sessions-parity`): Milestones 1, 3, 4, 5 essentially done; Milestone 2 is the only one with a big rock left — the decoupled input editor + inline syntax highlighting._
+_Status (branch `001-remote-sessions-parity`): All 5 milestones essentially done — including Milestone 2's decoupled input editor (opt-in beta). Remaining is polish/P2 (Vim mode, cwd-aware path completion) + Warp Drive cloud sync (needs a backend)._
 
 **Milestone 1 — Blocks ✅ DONE (v0.3.1)**
 - [x] P0/L — Blocks UI: OSC-133 command+output as discrete units (xterm decorations: exit-status bar/wash)
@@ -28,11 +28,11 @@ _Status as of v0.3.3 (branch `001-remote-sessions-parity`): Milestones 1, 3, 4, 
 - [x] P1/M — Sticky command header (pins running command on scroll)
 - [x] P1/S — Block Find (Ctrl+F) · Alt+↑/↓ jump between blocks (bookmark/jump)
 
-**Milestone 2 — Input editor + autocomplete (PARTIAL — the remaining frontier)**
-- [ ] P0/L — Modern input editor decoupled from xterm (multiline, click-to-place, soft-wrap) ← **the big lift left**
-- [x] P0/L — Autosuggestions (PSReadLine PredictionSource inline ghost text on pwsh 7)
-- [x] P0/L — Tab completions (PSReadLine MenuComplete on pwsh 7)
-- [ ] P1/M — Syntax + error highlighting in input (needs the input editor) · [ ] P2/M — Vim mode
+**Milestone 2 — Input editor + autocomplete ✅ DONE (core; v0.3.4-dev)**
+- [x] P0/L — Modern input editor decoupled from xterm: CodeMirror overlay owns the prompt (OSC-133-gated), multiline (Shift+Enter), soft-wrap, click-to-place; opt-in beta
+- [x] P0/L — Autosuggestions: app ghost-text from history (→/End/Tab) **and** PSReadLine inline prediction on pwsh 7
+- [x] P0/L — Tab completions: in-editor fuzzy menu (commands + history) **and** PSReadLine MenuComplete on pwsh 7
+- [x] P1/M — Syntax highlighting in input (CodeMirror shell mode) · [ ] P2/M — Vim mode · [ ] P2 — cwd-aware path/flag completion
 
 **Milestone 3 — Warp Drive (his pick) — mostly done**
 - [x] P1/M — Workflows: Snippets → named parameterized workflows (defaults/desc, Warp-YAML import/export)
