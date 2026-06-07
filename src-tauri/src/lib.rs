@@ -228,6 +228,7 @@ pub fn run() {
             sysstats::system_stats,
             commands::list_directory,
             llm::llm_complete,
+            llm::llm_stream,
             sshconfig::parse_ssh_config,
             sshconfig::ssh_keys_list,
             sshconfig::ssh_key_generate,

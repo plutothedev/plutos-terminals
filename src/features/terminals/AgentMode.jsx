@@ -5,12 +5,12 @@
 // step (history stuffed into the prompt), so no new backend. Auto-runs with a
 // Stop and a hard step cap; the user watches it work.
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Textarea } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { runAndCapture } from "./ptyBridge.js";
+import { llmStream } from "./llmStream.js";
 
 const MAX_STEPS = 14;
 
@@ -37,6 +37,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
   const [autoRun, setAutoRun] = useState(false); // off = approve each command before it runs
   const [pending, setPending] = useState(null);   // command awaiting approval { command }
   const [pendingCmd, setPendingCmd] = useState(""); // editable text of the pending command
+  const [thinking, setThinking] = useState(null); // live-streamed reply for the current step (null = not streaming)
   const stopRef = useRef(false);
   const autoRunRef = useRef(false);
   const approveRef = useRef(null); // resolver for the current approval gate
@@ -47,11 +48,11 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
   useEffect(() => {
     if (open) {
       setGoal(""); setSteps([]); setRunning(false); stopRef.current = false;
-      setPending(null); approveRef.current = null;
+      setPending(null); approveRef.current = null; setThinking(null);
       setTimeout(() => goalRef.current?.focus(), 30);
     }
   }, [open]);
-  useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [steps]);
+  useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [steps, thinking]);
 
   const os = navigator.userAgent.includes("Windows") ? "Windows"
     : navigator.userAgent.includes("Mac") ? "macOS" : "Linux";
@@ -82,10 +83,14 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
         + `\nWhat is your next action?`;
       let reply;
       try {
-        reply = await invoke("llm_complete", {
-          kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model, system, prompt,
-        });
-      } catch (e) { push({ type: "error", text: String(e) }); break; }
+        setThinking(""); // open the live area; tokens stream in below
+        let acc = "";
+        reply = await llmStream(
+          { kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model, system, prompt },
+          (piece) => { if (!stopRef.current) { acc += piece; setThinking(acc); } }
+        );
+      } catch (e) { setThinking(null); push({ type: "error", text: String(e) }); break; }
+      setThinking(null);
       if (stopRef.current) { push({ type: "done", text: "Stopped by you." }); break; }
       const action = parseAction(reply);
       if (action.type === "DONE") { push({ type: "done", text: action.content || "Done." }); break; }
@@ -177,7 +182,13 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
             )}
           </div>
         ))}
-        {running && <div style={{ fontSize: 11, color: "var(--phn-text-dim)" }}>thinking…</div>}
+        {thinking !== null && (
+          thinking
+            ? <div style={{ borderLeft: "2px solid #4D8FE0", paddingLeft: 9 }}>
+                <pre style={{ margin: 0, fontSize: 11.5, color: "var(--phn-text-dim)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{thinking}<span className="phn-agent-caret">▍</span></pre>
+              </div>
+            : <div style={{ fontSize: 11, color: "var(--phn-text-dim)" }}>thinking…</div>
+        )}
       </div>
 
       <p style={{ fontSize: "var(--phn-fs-xs)", color: "var(--phn-text-dim)", marginTop: "var(--phn-sp-3)", lineHeight: "var(--phn-lh)" }}>
