@@ -9,10 +9,12 @@
 import { useEffect, useRef } from "react";
 import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
+import { insertNewlineAndIndent } from "@codemirror/commands";
 import { StreamLanguage, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { tags as t } from "@lezer/highlight";
 import { getCommandHistory } from "./ptyBridge.js";
+import { MONO_STACK } from "./fonts.js";
 
 // Build a highlight style from the active xterm theme so the prompt matches the
 // terminal's colors (and any custom theme).
@@ -32,13 +34,13 @@ function highlightFor(theme) {
 function editorTheme(theme) {
   const c = theme || {};
   return EditorView.theme({
-    "&": { backgroundColor: "transparent", color: c.foreground || "#d0d0d0", fontSize: "inherit" },
+    "&": { backgroundColor: "transparent", color: c.foreground || "#d0d0d0", fontSize: "13px" },
     "&.cm-focused": { outline: "none" },
-    ".cm-content": { padding: 0, fontFamily: "inherit", caretColor: c.cursor || c.foreground || "#d0d0d0" },
+    ".cm-content": { padding: 0, fontFamily: MONO_STACK, caretColor: c.cursor || c.foreground || "#d0d0d0" },
     ".cm-line": { padding: 0 },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: c.cursor || c.foreground || "#d0d0d0" },
     "&.cm-editor": { backgroundColor: "transparent" },
-    ".cm-scroller": { fontFamily: "inherit", lineHeight: "inherit", overflow: "hidden" },
+    ".cm-scroller": { fontFamily: MONO_STACK, lineHeight: "inherit", overflow: "hidden" },
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: c.selectionBackground || "rgba(120,140,200,0.35)" },
   }, { dark: true });
 }
@@ -63,25 +65,21 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
   useEffect(() => {
     if (!hostRef.current || viewRef.current) return;
 
-    const singleLine = EditorState.transactionFilter.of((tr) => {
-      if (!tr.docChanged) return tr;
-      const next = tr.newDoc.toString();
-      if (next.includes("\n")) {
-        const flat = next.replace(/\n+/g, " ");
-        return { changes: { from: 0, to: tr.startState.doc.length, insert: flat }, selection: { anchor: flat.length } };
-      }
-      return tr;
-    });
-
+    // ArrowUp/Down walk history only at the first/last line; otherwise they move
+    // the caret between lines (multiline composing).
     const histPrev = (v) => {
+      const { state } = v;
+      if (state.doc.lineAt(state.selection.main.head).number !== 1) return false;
       const h = histRef.current;
-      if (h.pos === -1) h.draft = v.state.doc.toString();
+      if (h.pos === -1) h.draft = state.doc.toString();
       if (h.pos + 1 >= h.list.length) return true;
       h.pos += 1;
       setDoc(h.list[h.pos] || "");
       return true;
     };
     const histNext = (v) => {
+      const { state } = v;
+      if (state.doc.lineAt(state.selection.main.head).number !== state.doc.lines) return false;
       const h = histRef.current;
       if (h.pos <= -1) return true;
       h.pos -= 1;
@@ -91,6 +89,7 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
 
     const km = keymap.of([
       { key: "Enter", run: (v) => { cbRef.current.onSubmit?.(v.state.doc.toString()); return true; } },
+      { key: "Shift-Enter", run: insertNewlineAndIndent },
       { key: "ArrowUp", run: histPrev },
       { key: "ArrowDown", run: histNext },
       { key: "Escape", run: () => { cbRef.current.onEscape?.(); return true; } },
@@ -102,7 +101,6 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
       doc: "",
       extensions: [
         km,
-        singleLine,
         StreamLanguage.define(shell),
         themeComp.current.of([editorTheme(theme), syntaxHighlighting(highlightFor(theme))]),
         EditorView.lineWrapping,

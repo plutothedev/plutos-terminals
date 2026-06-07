@@ -14,6 +14,7 @@ import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import { actionForEvent } from "./keybindings.js";
 import PromptEditor from "./PromptEditor.jsx";
+import { MONO_STACK } from "./fonts.js";
 import {
   registerPtyWriter,
   unregisterPty,
@@ -472,9 +473,10 @@ export default function TerminalPane({
     const term = new Terminal({
       theme: xtermThemeRef.current,
       fontSize: 13,
-      // MesloLGS NF first so the MobaXterm-style prompt's powerline arrows ()
-      // render; falls back to JetBrains Mono / Menlo if the bundled font fails.
-      fontFamily: "'MesloLGS NF', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace",
+      // Shared mono stack (Cascadia Code → MesloLGS NF for powerline glyphs) so
+      // the terminal matches the app-owned prompt editor exactly — no font swap
+      // when a typed command is echoed by the shell.
+      fontFamily: MONO_STACK,
       cursorBlink: true,
       cursorStyle: "bar",
       // v0.1.32: bumped from 5000 to 10000 lines so restored scrollback from
@@ -708,7 +710,7 @@ export default function TerminalPane({
       document.fonts.ready.then(() => {
         if (!alive) return;
         try {
-          term.options.fontFamily = "'MesloLGS NF', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace";
+          term.options.fontFamily = MONO_STACK;
           safeFit();
           if (opened) term.refresh(0, term.rows - 1);
         } catch {}
