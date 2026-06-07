@@ -73,7 +73,9 @@ import {
   getActiveXtermTheme,
   applyActiveTheme,
   findCustomTheme,
+  effectiveSkinValue,
 } from "./headerSkins";
+import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds, getPtyId, onDimsChange } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
@@ -163,23 +165,27 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Active skin value, honoring OS light/dark sync when enabled.
+  const osDark = useOsDark();
+  const activeSkin = effectiveSkinValue(st, userSt, osDark);
   // Effective base built-in skin (custom themes ride on moba/moba-light).
-  const headerSkinId = resolveBaseSkinId(st?.headerSkin, userSt?.customThemes);
-  const customThemeActive = !!findCustomTheme(st?.headerSkin, userSt?.customThemes);
+  const headerSkinId = resolveBaseSkinId(activeSkin, userSt?.customThemes);
+  const customThemeActive = !!findCustomTheme(activeSkin, userSt?.customThemes);
 
   // Apply the active theme globally on <html> so portaled/sibling elements
   // (toasts, modals via Provider tree) inherit the theme's CSS vars. Custom
   // themes also inject their --phn-* overrides here.
   useEffect(() => {
-    applyActiveTheme(st?.headerSkin, userSt?.customThemes);
-  }, [st?.headerSkin, userSt?.customThemes]);
+    applyActiveTheme(activeSkin, userSt?.customThemes);
+  }, [activeSkin, userSt?.customThemes]);
 
-  // Dark ⇄ Light chrome toggle (toolbar button + Ctrl+\). Flips the only two
-  // skins; the terminal stays black either way.
+  // Dark ⇄ Light chrome toggle (toolbar button + Ctrl+\). Flips the two base
+  // skins; a manual flip turns OFF OS sync so the choice sticks.
   const toggleTheme = useCallback(() => {
     const next = headerSkinId === "moba-light" ? "moba" : "moba-light";
+    if (userSt?.themeFollowOS) saveUser({ ...userSt, themeFollowOS: false });
     save({ ...st, headerSkin: next });
-  }, [headerSkinId, st, save]);
+  }, [headerSkinId, st, save, userSt, saveUser]);
 
   // Keyboard shortcuts (v0.1.16). Window-level capture so they fire even
   // when xterm has focus. Uses Ctrl+Shift+ for tab/window ops to avoid
@@ -232,8 +238,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, []);
   const pureBlackTerminal = !!st?.pureBlackTerminal;
   const xtermTheme = useMemo(
-    () => getActiveXtermTheme(st?.headerSkin, userSt?.customThemes, { pureBlackTerminal }),
-    [st?.headerSkin, userSt?.customThemes, pureBlackTerminal]
+    () => getActiveXtermTheme(activeSkin, userSt?.customThemes, { pureBlackTerminal }),
+    [activeSkin, userSt?.customThemes, pureBlackTerminal]
   );
 
   // Shell name (basename of the shell new tabs spawn) — shown in the status bar.

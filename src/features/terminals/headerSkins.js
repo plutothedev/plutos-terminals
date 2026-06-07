@@ -1401,6 +1401,16 @@ export function applyGlobalSkin(skinId) {
 
 export const CUSTOM_PREFIX = "custom:";
 
+// The skin value to actually apply. When the user enables OS sync, the live
+// prefers-color-scheme picks their chosen dark vs light theme; otherwise the
+// explicit per-window selection (st.headerSkin) wins.
+export function effectiveSkinValue(st, userSt, osDark) {
+  if (userSt?.themeFollowOS) {
+    return osDark ? (userSt.themeDark || "moba") : (userSt.themeLight || "moba-light");
+  }
+  return st?.headerSkin;
+}
+
 export function findCustomTheme(stored, customThemes) {
   if (typeof stored !== "string" || !stored.startsWith(CUSTOM_PREFIX)) return null;
   const id = stored.slice(CUSTOM_PREFIX.length);

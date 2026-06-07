@@ -9,7 +9,8 @@ import { useState } from "react";
 import { Button, Textarea, Field } from "../../components/ui.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
-import { CUSTOM_PREFIX } from "./headerSkins.js";
+import { CUSTOM_PREFIX, HEADER_SKINS } from "./headerSkins.js";
+import { useOsDark } from "./hooks/useOsDark.js";
 import { warpYamlToThemes, themeToWarpYaml, EXAMPLE_WARP_YAML } from "./customThemes.js";
 
 function Swatch({ theme }) {
@@ -29,8 +30,20 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
   const toast = useToast();
   const confirm = useConfirm();
 
+  const osDark = useOsDark();
   const themes = Array.isArray(userSt?.customThemes) ? userSt.customThemes : [];
-  const active = st?.headerSkin;
+  const followOS = !!userSt?.themeFollowOS;
+  const themeDark = userSt?.themeDark || "moba";
+  const themeLight = userSt?.themeLight || "moba-light";
+  // The selection actually showing right now (OS sync overrides the per-window pick).
+  const active = followOS ? (osDark ? themeDark : themeLight) : st?.headerSkin;
+
+  const skinOptions = [
+    ...HEADER_SKINS.map((s) => ({ value: s.id, label: s.label })),
+    ...themes.map((t) => ({ value: CUSTOM_PREFIX + t.id, label: `${t.name} (custom)` })),
+  ];
+  const setFollow = (on) => saveUser({ ...userSt, themeFollowOS: on });
+  const setSlot = (key, val) => saveUser({ ...userSt, [key]: val });
 
   const doImport = () => {
     const src = text.trim();
@@ -42,14 +55,17 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
       toast.error(`Import failed: ${err.message || err}`);
       return;
     }
-    saveUser({ ...userSt, customThemes: [...themes, ...parsed] });
+    // Importing applies the first theme; that's a manual pick, so drop OS sync.
+    saveUser({ ...userSt, customThemes: [...themes, ...parsed], themeFollowOS: false });
     setText("");
-    // Apply the first imported theme immediately so the effect is visible.
     save({ ...st, headerSkin: CUSTOM_PREFIX + parsed[0].id });
     toast.success(parsed.length === 1 ? `Imported & applied “${parsed[0].name}”.` : `Imported ${parsed.length} themes.`);
   };
 
-  const applyTheme = (id) => save({ ...st, headerSkin: CUSTOM_PREFIX + id });
+  const applyTheme = (id) => {
+    if (followOS) saveUser({ ...userSt, themeFollowOS: false });
+    save({ ...st, headerSkin: CUSTOM_PREFIX + id });
+  };
 
   const exportTheme = async (theme) => {
     try {
@@ -72,8 +88,38 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
     toast.success(`Deleted “${theme.name}”.`);
   };
 
+  const selectStyle = {
+    flex: 1, marginTop: 3, padding: "4px 6px", fontSize: 12,
+    background: "var(--phn-elevated-bg, #1a1a1a)", color: "var(--phn-text-fg, #ddd)",
+    border: "1px solid var(--phn-surface-border, #333)", borderRadius: 4,
+  };
+
   return (
     <div>
+      <div style={{ marginBottom: "var(--phn-sp-3)" }}>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+          <input type="checkbox" checked={followOS} onChange={(e) => setFollow(e.target.checked)} />
+          Sync with OS light / dark
+          <span style={{ opacity: 0.5, fontSize: 11 }}>· OS is currently {osDark ? "dark" : "light"}</span>
+        </label>
+        {followOS && (
+          <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginTop: 6 }}>
+            <label style={{ flex: 1, fontSize: 11, opacity: 0.7 }}>
+              When OS is dark
+              <select value={themeDark} onChange={(e) => setSlot("themeDark", e.target.value)} style={selectStyle}>
+                {skinOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+            <label style={{ flex: 1, fontSize: 11, opacity: 0.7 }}>
+              When OS is light
+              <select value={themeLight} onChange={(e) => setSlot("themeLight", e.target.value)} style={selectStyle}>
+                {skinOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
+      </div>
+
       {themes.length > 0 && (
         <div style={{ marginBottom: "var(--phn-sp-3)" }}>
           {themes.map((theme) => {

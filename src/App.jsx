@@ -13,9 +13,11 @@ import {
   injectHeaderSkinsCss,
   applyGlobalSkin,
   applyActiveTheme,
+  effectiveSkinValue,
   applyGlobalButtonStyle,
   applyGlobalLayout,
 } from "./features/terminals/headerSkins.js";
+import { useOsDark } from "./features/terminals/hooks/useOsDark.js";
 
 // Per-window state key (default window = bare key; secondary ?w=<id> windows =
 // suffixed for independent panels/skin). Resolver + keys live in storageKeys.js
@@ -198,9 +200,10 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const skinId = getSkinId(st.headerSkin);
+  const osDark = useOsDark();
+  const activeSkin = effectiveSkinValue(st, userSt, osDark);
   const layoutId = getLayoutId(st.headerLayout);
-  useEffect(() => { applyActiveTheme(st.headerSkin, userSt.customThemes); }, [st.headerSkin, userSt.customThemes]);
+  useEffect(() => { applyActiveTheme(activeSkin, userSt.customThemes); }, [activeSkin, userSt.customThemes]);
   useEffect(() => { applyGlobalButtonStyle("bracket"); }, []);
   useEffect(() => { applyGlobalLayout(layoutId); }, [layoutId]);
 
