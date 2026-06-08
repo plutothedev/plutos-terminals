@@ -5,6 +5,15 @@
 **Method:** 68-agent static audit. 30 finder agents (26 subsystem units covering every file once + 4 adversarial security lenses), each applying 8 lenses (correctness, security, resource/concurrency, cleanup, altitude); one adversarial verifier per unit (REFUTED dropped); 4 fresh gap-sweep agents over the highest-risk clusters, also verified. No code was run — pure static review.  
 **Result:** 185 findings — **2 critical, 22 high, 58 medium, 103 low**. By category: 64 security, 30 resource, 51 correctness, 5 altitude, 17 concurrency, 18 quality.
 
+## Remediation status (as of 2026-06-08, commits ec8f85b…1d5b467)
+
+**CRITICAL — both CLOSED.** #1 open_path command injection (explorer.exe launch + control-char reject + link-regex metachar exclusion). #2 agent auto-run RCE (non-bypassable DANGEROUS_PATTERNS approval gate).
+
+**HIGH — 19 of 22 CLOSED.** Done: #1 SFTP atomic save · #2/#18 CSP set · #4 auto-approve anchored to "Do you want…?" · #5 companion push gated to primary window · #6 runAndCapture command↔block correlation · #7 detachTab lost-update (stateRef) · #8/#9 theme color validation + injection sanitize · #10 macro recording tab-scoped + warning · #11 RemoteEditor save snapshot · #12/#20 master password PBKDF2-salted + constant-time + min-8 · #15 MCP filesystem dir prompt · #16 totalCost prune · #17/#21 companion list_directory $HOME-jailed · #19 provider keys → OS keychain (secretVault) · #22 companion dist/ ServeDir disclosure removed (404 fallback) + constant-time token + loopback bind.
+Deferred (architectural): **#3** signed auto-updater (needs tauri-plugin-updater + minisign + CI signing; today the app only links to GitHub releases). **#13/#14** the app-lock is still a client-side gate — the hash is now strong (PBKDF2) and keys moved to the keychain, but real enforcement needs a backend-verified unlock gating Tauri commands; documented as defense-in-depth only.
+
+**MEDIUM / LOW — not yet triaged** (58 + 103: resource leaks, more correctness/concurrency, quality). Tracked here for a later pass.
+
 > **Verdict.** The app is feature-complete and the core terminal/PTY/SSH machinery is sound. The weak spot is **security posture**, not functionality — and it clusters in four places: (1) two RCE-class command-injection paths, (2) secrets stored in plaintext `localStorage` while the code/docs claim they live only in the OS keychain, (3) a disabled Content-Security-Policy that amplifies every other web-surface bug, and (4) the phone companion server. None of these block daily use as a personal tool, but they should be closed before this is shipped to "the Pluto community" as a download. Correctness debt is concentrated in resource leaks (handles/threads/listeners never cleaned up) and React stale-state/effect races.
 
 ## Cross-cutting themes (fix the root, not the leaf)
