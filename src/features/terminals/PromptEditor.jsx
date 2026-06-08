@@ -14,35 +14,81 @@ import { StreamLanguage, syntaxHighlighting, HighlightStyle } from "@codemirror/
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { autocompletion, completionKeymap, startCompletion, acceptCompletion, completionStatus } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
+import { invoke } from "@backend";
 import { getCommandHistory } from "./ptyBridge.js";
 import { KNOWN_CMDS } from "./inputClassify.js";
 import { MONO_STACK } from "./fonts.js";
 
-// ── Tab completions (fuzzy menu) ─────────────────────────────────────────────
-// First token → command names (known binaries + history first-words). With args
-// already typed → full prior commands from history that extend the line. Driven
-// by Tab (typing is covered by ghost text), so the menu never nags.
+// ── Tab completions ──────────────────────────────────────────────────────────
+// First token → command names (your history first-words, then known binaries).
+// Args with a path-ish token → real files/folders in the pane's live cwd (via
+// the list_directory backend command). Driven by Tab (ghost text covers typing).
 const SORTED_CMDS = [...KNOWN_CMDS].sort();
-function completionSource(context) {
-  const before = context.state.sliceDoc(0, context.pos);
-  const hist = getCommandHistory();
-  if (!/\s/.test(before)) {
-    // typing the command name
+
+function commandCompletions(context) {
+  const word = context.matchBefore(/\S*/);
+  const from = word ? word.from : context.pos;
+  const seen = new Set();
+  const options = [];
+  const add = (label, type) => { if (label && !seen.has(label)) { seen.add(label); options.push({ label, type }); } };
+  for (const h of getCommandHistory()) add(h.split(/\s+/)[0], "history");
+  for (const c of SORTED_CMDS) add(c, "keyword");
+  return options.length ? { from, options, validFor: /^\S*$/ } : null;
+}
+
+function isAbsPath(p) { return /^([a-zA-Z]:[\\/]|[\\/]|~[\\/])/.test(p); }
+
+// Resolve the directory to list + the prefix being typed, from a path token.
+function splitPathToken(token, cwd) {
+  const idx = Math.max(token.lastIndexOf("/"), token.lastIndexOf("\\"));
+  const dirPart = idx >= 0 ? token.slice(0, idx + 1) : "";
+  const prefix = idx >= 0 ? token.slice(idx + 1) : token;
+  let listPath;
+  if (isAbsPath(dirPart || token)) listPath = dirPart || token;
+  else if (cwd) listPath = cwd.replace(/[\\/]+$/, "") + "/" + dirPart;
+  else return null;
+  return { listPath, prefix };
+}
+
+async function pathCompletions(context, token, cwd) {
+  const split = splitPathToken(token, cwd);
+  if (!split) return null;
+  let entries;
+  try {
+    const res = await invoke("list_directory", { path: split.listPath });
+    entries = Array.isArray(res) ? res[1] : (res?.entries || res);
+  } catch { return null; }
+  if (!Array.isArray(entries)) return null;
+  const pl = split.prefix.toLowerCase();
+  const matches = entries.filter((e) => e.name.toLowerCase().startsWith(pl));
+  if (!matches.length) return null;
+  matches.sort((a, b) => (b.is_dir - a.is_dir) || a.name.localeCompare(b.name));
+  const from = context.pos - split.prefix.length;
+  const quote = (n) => (/\s/.test(n) ? `"${n}"` : n);
+  return {
+    from,
+    options: matches.map((e) => ({
+      label: e.name + (e.is_dir ? "/" : ""),
+      type: e.is_dir ? "folder" : "file",
+      apply: quote(e.name) + (e.is_dir ? "/" : ""),
+    })),
+    validFor: /^[^\s/\\]*$/,
+  };
+}
+
+function makeCompletionSource(cwdRef) {
+  return async (context) => {
+    const before = context.state.sliceDoc(0, context.pos);
+    if (!/\s/.test(before)) return commandCompletions(context); // first token = command
     const word = context.matchBefore(/\S*/);
-    const from = word ? word.from : context.pos;
-    const seen = new Set();
-    const options = [];
-    const add = (label, type) => { if (label && !seen.has(label)) { seen.add(label); options.push({ label, type }); } };
-    for (const h of hist) add(h.split(/\s+/)[0], "history"); // your commands first
-    for (const c of SORTED_CMDS) add(c, "keyword");
-    return options.length ? { from, options, validFor: /^\S*$/ } : null;
-  }
-  // args present → complete the whole line from history
-  const line = before;
-  const matches = hist.filter((h) => h.length > line.length && h.startsWith(line));
-  const pool = matches.length ? matches : (context.explicit ? hist.filter((h) => h.includes(line.trim())) : []);
-  if (!pool.length) return null;
-  return { from: 0, options: pool.map((h) => ({ label: h, type: "history" })), filter: false };
+    const token = word ? word.text : "";
+    const looksPath = /[\\/]/.test(token) || cwdRef.current;
+    if (looksPath) {
+      const res = await pathCompletions(context, token, cwdRef.current);
+      if (res) return res;
+    }
+    return null;
+  };
 }
 
 // ── Ghost-text autosuggest (fish/Warp style) ────────────────────────────────
@@ -133,10 +179,12 @@ function editorTheme(theme) {
   }, { dark: true });
 }
 
-export default function PromptEditor({ visible, top, left, width, height, theme, onSubmit, onEscape, onCtrlC, onClear }) {
+export default function PromptEditor({ visible, top, left, width, height, theme, cwd, onSubmit, onEscape, onCtrlC, onClear }) {
   const hostRef = useRef(null);
   const viewRef = useRef(null);
   const themeComp = useRef(new Compartment());
+  const cwdRef = useRef(cwd);
+  cwdRef.current = cwd;
   // History navigation state (snapshotted when the editor is shown).
   const histRef = useRef({ list: [], pos: -1, draft: "" });
   // Latest callbacks, read by the stable keymap without re-creating the view.
@@ -201,7 +249,7 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
         Prec.high(keymap.of(completionKeymap)),
         km,
         ghostPlugin,
-        autocompletion({ override: [completionSource], activateOnTyping: false, icons: false, defaultKeymap: false }),
+        autocompletion({ override: [makeCompletionSource(cwdRef)], activateOnTyping: false, icons: false, defaultKeymap: false }),
         StreamLanguage.define(shell),
         themeComp.current.of([editorTheme(theme), syntaxHighlighting(highlightFor(theme))]),
         EditorView.lineWrapping,

@@ -216,6 +216,7 @@ export default function TerminalPane({
   // App-owned prompt editor state (gated by OSC-133 prompt state).
   const [atPrompt, setAtPrompt] = useState(false);
   const [altScreen, setAltScreen] = useState(false);
+  const [shellCwd, setShellCwd] = useState(cwd || null); // live cwd from OSC 1337 PlutoCwd
   const [peRect, setPeRect] = useState({ top: 0, left: 0, width: 0, height: 0 });
   const peEnabledRef = useRef(promptEditor);
   peEnabledRef.current = promptEditor;
@@ -635,6 +636,17 @@ export default function TerminalPane({
     // with each command it's about to run (1337 is iTerm2's namespace — we only
     // claim the PlutoCmd payload and pass anything else through).
     term.parser.registerOscHandler(1337, (data) => {
+      // Live cwd report (for the prompt editor's path completion).
+      if (data.startsWith("PlutoCwd=")) {
+        if (restoringScrollback) return true; // stale replayed dir
+        try {
+          const bin = atob(data.slice("PlutoCwd=".length));
+          const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+          const dir = new TextDecoder().decode(bytes);
+          if (dir) setShellCwd((prev) => (prev === dir ? prev : dir));
+        } catch { /* ignore */ }
+        return true;
+      }
       if (!data.startsWith("PlutoCmd=")) return false;
       if (restoringScrollback) return true; // don't re-record replayed scrollback
       try {
@@ -1150,8 +1162,8 @@ export default function TerminalPane({
           // prepending to PROMPT_COMMAND (both preserve the user's own hooks).
           // $? is read FIRST so the real exit code survives.
           const osc133 =
-            `__plt133z(){ printf '\\033]133;D;%s\\007\\033]133;A\\007' "$?"; }; ` +
-            `__plt133b(){ local __e=$?; printf '\\033]133;D;%s\\007\\033]133;A\\007' "$__e"; }; ` +
+            `__plt133z(){ local __e=$?; printf '\\033]133;D;%s\\007\\033]133;A\\007\\033]1337;PlutoCwd=%s\\007' "$__e" "$(printf '%s' "$PWD" | base64 2>/dev/null | tr -d '\\n')"; }; ` +
+            `__plt133b(){ local __e=$?; printf '\\033]133;D;%s\\007\\033]133;A\\007\\033]1337;PlutoCwd=%s\\007' "$__e" "$(printf '%s' "$PWD" | base64 2>/dev/null | tr -d '\\n')"; }; ` +
             `if [ -n "$ZSH_VERSION" ]; then autoload -Uz add-zsh-hook 2>/dev/null; add-zsh-hook precmd __plt133z 2>/dev/null; ` +
             `elif [ -n "$BASH_VERSION" ]; then PROMPT_COMMAND="__plt133b\${PROMPT_COMMAND:+; $PROMPT_COMMAND}"; fi`;
           const promptSetup = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; ${osc133}`;
@@ -1191,7 +1203,7 @@ export default function TerminalPane({
               `function prompt { ` +
               `$c = if ($?) { 0 } elseif ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 }; ` +
               `$e = [char]27; $b = [char]7; $a = [char]0xE0B0; ` +
-              `$o = "$e]133;D;$c$b$e]133;A$b"; ` +
+              `$o = "$e]133;D;$c$b$e]133;A$b$e]1337;PlutoCwd=$([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($PWD.Path)))$b"; ` +
               `$d = Get-Date -Format 'dd/MM/yyyy'; $t = Get-Date -Format 'HH:mm:ss'; ` +
               `$p = $PWD.Path; if ($HOME -and $p.StartsWith($HOME)) { $p = '~' + $p.Substring($HOME.Length) }; ` +
               `"$o$e[42;30m $d $e[32;46m$a$e[30;46m $t $e[36;43m$a$e[30;43m $p $e[0;33m$a$e[0m " }`;
@@ -1464,6 +1476,7 @@ export default function TerminalPane({
           width={peRect.width}
           height={peRect.height}
           theme={xtermTheme}
+          cwd={shellCwd}
           onSubmit={submitPrompt}
           onEscape={promptEscape}
           onCtrlC={promptCtrlC}
