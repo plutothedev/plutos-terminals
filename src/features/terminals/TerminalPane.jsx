@@ -531,7 +531,11 @@ export default function TerminalPane({
         const lineObj = term.buffer.active.getLine(y - 1);
         if (!lineObj) { cb(undefined); return; }
         const text = lineObj.translateToString(true);
-        const re = /(?:~|\/)[^\s'"()<>:]{2,}(?::\d+(?::\d+)?)?/g;
+        // Exclude shell metacharacters (& | ^ % ; $ ` \) from linkified paths so an
+        // attacker-influenced terminal line (malicious MOTD, crafted file, git log)
+        // can't surface a clickable `/tmp/x&calc`-style token. The backend open_path
+        // also refuses metacharacter reparsing — this is the matching front-line guard.
+        const re = /(?:~|\/)[^\s'"()<>:&|^%;$`\\]{2,}(?::\d+(?::\d+)?)?/g;
         const links = [];
         let m;
         while ((m = re.exec(text)) !== null) {

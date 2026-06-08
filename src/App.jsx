@@ -5,6 +5,12 @@ import UpdateBanner from "./components/UpdateBanner.jsx";
 import LockScreen from "./features/terminals/LockScreen.jsx";
 import { isUnlockedThisSession } from "./features/terminals/masterPassword.js";
 import { USER_STORAGE_KEY, getWindowStorageKey } from "./features/terminals/storageKeys.js";
+import {
+  migrateAndLoad,
+  saveSecretKeys,
+  getCachedSecretKeys,
+  keychainAvailable,
+} from "./features/terminals/secretVault.js";
 import { ToastProvider } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
 import {
@@ -40,10 +46,23 @@ function readUserState() {
   }
 }
 
+// API keys (provider keys + the legacy Anthropic key) are secrets — they are
+// mirrored to the OS keychain (secretVault) and stripped from the plaintext
+// localStorage blob. Stripping only happens once a keychain write has been
+// confirmed (keychainAvailable), so a keychain failure keeps the local copy
+// rather than losing the user's keys.
+const SECRET_FIELDS = ["providerKeys", "anthropicKey"];
+
 function writeUserState(next) {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(next));
+    saveSecretKeys(next.providerKeys, next.anthropicKey);
+    let safe = next;
+    if (keychainAvailable()) {
+      safe = { ...next };
+      for (const f of SECRET_FIELDS) delete safe[f];
+    }
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(safe));
   } catch (err) {
     console.warn("Pluto's Terminals: user-state localStorage write failed", err);
   }
@@ -166,6 +185,27 @@ function AppInner() {
         providerKeys: { ...(userSt.providerKeys || {}), anthropic: userSt.anthropicKey },
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Move provider API keys from plaintext localStorage into the OS keychain
+  // (secretVault) on boot, then re-persist: writeUserState now strips the keys
+  // from localStorage (keychain confirmed), and readUserSt overlays the keychain
+  // cache so spawn/AI paths still resolve them. Best-effort: if the keychain is
+  // unavailable the keys simply stay in localStorage.
+  useEffect(() => {
+    migrateAndLoad(userSt.providerKeys, userSt.anthropicKey)
+      .then(() => {
+        const s = getCachedSecretKeys();
+        const merged = {
+          ...userSt,
+          providerKeys: { ...(userSt.providerKeys || {}), ...s.providerKeys },
+          anthropicKey: s.anthropicKey || userSt.anthropicKey || "",
+        };
+        setUserSt(merged);
+        writeUserState(merged); // keychainAvailable() now true → secrets pruned from localStorage
+      })
+      .catch(() => { /* keychain unavailable — keep localStorage copy */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

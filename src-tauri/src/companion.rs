@@ -2,17 +2,21 @@
 // Phone/web companion — local HTTP + WebSocket server for the remote-control
 // feature (docs/phone-companion-design.md).
 //
-// Phase 1b (this file): the server scaffold. It static-serves the built frontend
-// (dist/) and exposes a token-authed WebSocket at /ws. The real command-RPC +
-// PTY event relay land in Phase 1c; for now the socket authenticates then echoes,
-// proving the transport + auth loop end-to-end.
+// This file: the server. It serves the self-contained companion page (the
+// embedded `companion-web/index.html`, sw.js, manifest) and exposes a token-authed
+// WebSocket at /ws for command-RPC + PTY event relay. It does NOT serve the
+// desktop React bundle (dist/) — the phone page is self-contained, and serving the
+// desktop source over the network was a disclosure hazard, so there is no
+// ServeDir fallback.
 //
-// Reachability: binds 0.0.0.0:<port> so the user can reach it over their
-// Tailscale tailnet (no relay to host, nothing exposed publicly — the tailnet is
-// private). Off by default; started explicitly from the desktop UI.
+// Reachability: binds 127.0.0.1:<port> only; Tailscale Serve fronts TLS on the
+// MagicDNS name and proxies the tailnet to loopback (a secure context for the
+// service worker + web push). Off by default; started explicitly from the UI.
+// (Do NOT restore an 0.0.0.0 bind — that would expose the socket to the whole LAN.)
 //
-// Security: a random device token gates the WebSocket. A leaked token = shell
-// access, so the token is opt-in and revocable (stop/restart mints a fresh one).
+// Security: a random 40-char token gates the WebSocket (compared in constant time).
+// A leaked token = shell access, so the token is opt-in and revocable (stop/restart
+// mints a fresh one). Filesystem RPCs (list_directory) are jailed to the user's home.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -21,7 +25,7 @@ use std::sync::Mutex;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
-use axum::http::header;
+use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::Router;
@@ -29,7 +33,20 @@ use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use tauri::{Emitter, Listener, Manager};
-use tower_http::services::ServeDir;
+
+/// Constant-time byte comparison for the auth token — a plain `==` short-circuits
+/// on the first differing byte, leaking how many leading bytes matched (a timing
+/// oracle on the sole gate to shell access). Token length is fixed/non-secret.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
 
 /// Live-server handle: the bound port, the auth token, and a graceful-shutdown
 /// trigger (firing it ends `axum::serve`).
@@ -227,18 +244,6 @@ fn random_token() -> String {
         .collect()
 }
 
-/// Resolve the built frontend directory (dist/). Bundled resource first (prod),
-/// then the dev project root (src-tauri/../dist). Best-effort for the scaffold.
-fn dist_dir(app: &tauri::AppHandle) -> PathBuf {
-    if let Ok(res) = app.path().resource_dir() {
-        let d = res.join("dist");
-        if d.is_dir() {
-            return d;
-        }
-    }
-    PathBuf::from("../dist")
-}
-
 async fn ws_handler(ws: WebSocketUpgrade, State(ctx): State<WsCtx>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, ctx))
 }
@@ -271,7 +276,7 @@ async fn handle_socket(socket: WebSocket, ctx: WsCtx) {
 
     // First frame must be the auth token; anything else drops the connection.
     match ws_rx.next().await {
-        Some(Ok(Message::Text(t))) if t.as_str().trim() == ctx.token => {}
+        Some(Ok(Message::Text(t))) if ct_eq(t.as_str().trim().as_bytes(), ctx.token.as_bytes()) => {}
         _ => return,
     }
 
@@ -410,12 +415,22 @@ fn dispatch(
         ),
         "default_shell" => Ok(serde_json::Value::String(crate::pty::default_shell())),
         // Read-only local file browser. Returns [resolvedPath, [entries…]].
+        // CONFINED to the user's home tree: unlike the desktop-local Tauri command,
+        // a leaked token must not enumerate the entire filesystem (.ssh recon,
+        // Downloads/*.pem, kubeconfig, etc.). Reject anything that resolves outside
+        // $HOME after canonicalization.
         "list_directory" => {
-            let path = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            crate::commands::list_directory(path)
+            let home = crate::commands::local_home();
+            let requested = match args.get("path").and_then(|v| v.as_str()) {
+                Some(p) if !p.trim().is_empty() => PathBuf::from(p),
+                _ => home.clone(),
+            };
+            let canon = std::fs::canonicalize(&requested).unwrap_or(requested);
+            let home_canon = std::fs::canonicalize(&home).unwrap_or(home);
+            if !canon.starts_with(&home_canon) {
+                return Err("path outside the allowed home directory".into());
+            }
+            crate::commands::list_directory(Some(canon.to_string_lossy().into_owned()))
                 .and_then(|t| serde_json::to_value(t).map_err(|e| e.to_string()))
         }
         // Ask the desktop to open a new session. The phone can't spawn a PTY
@@ -513,7 +528,10 @@ pub fn start(
         .route("/ws", get(ws_handler))
         .route("/sw.js", get(sw_js))
         .route("/manifest.webmanifest", get(manifest))
-        .fallback_service(ServeDir::new(dist_dir(&app)))
+        // No ServeDir fallback: the companion page is the self-contained embedded
+        // index.html. Serving the desktop React bundle (dist/) here would disclose
+        // the full client source to anyone who can reach the port. Unknown paths 404.
+        .fallback(|| async { (StatusCode::NOT_FOUND, "not found") })
         .with_state(ctx);
 
     // Phase 5: bind loopback only — Tailscale Serve fronts TLS and proxies the

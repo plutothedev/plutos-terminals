@@ -115,12 +115,22 @@ pub fn open_path(path: String) -> Result<(), String> {
     } else if p == "~" {
         p = local_home().to_string_lossy().to_string();
     }
+    // Reject control characters (newlines, NUL, …) — never valid in a real path or
+    // URL and a classic way to smuggle a second command past a launcher.
+    if p.is_empty() || p.chars().any(|c| c.is_control()) {
+        return Err("refusing to open a path with control characters".into());
+    }
     #[cfg(target_os = "macos")]
     let spawned = std::process::Command::new("open").arg(&p).spawn();
+    // Windows: launch via explorer.exe, NOT `cmd /C start`. explorer receives the
+    // path/URL as a single CreateProcess argument, so cmd metacharacters
+    // (& | < > ^ %) are taken literally instead of reparsed as command separators
+    // / env-expansion. This closes the clickable-link / update-link command-
+    // injection vector: a malicious MOTD/file printing e.g. `/tmp/x&calc` that the
+    // user clicks no longer runs `calc`. explorer's exit code is unreliable, so we
+    // only assert it spawned.
     #[cfg(target_os = "windows")]
-    let spawned = std::process::Command::new("cmd")
-        .args(["/C", "start", "", &p])
-        .spawn();
+    let spawned = std::process::Command::new("explorer").arg(&p).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
     let spawned = std::process::Command::new("xdg-open").arg(&p).spawn();
     spawned.map(|_| ()).map_err(|e| e.to_string())

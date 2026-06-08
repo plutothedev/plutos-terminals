@@ -6,6 +6,8 @@
 // detached/secondary window's env + provider overrides were silently dropped at
 // PTY spawn. Centralizing the keys here fixes that drift.
 
+import { getCachedSecretKeys } from "./secretVault.js";
+
 const STATE_VERSION = "v0";
 
 // Per-window UI/workspace state. The default window uses the bare prefix
@@ -28,11 +30,22 @@ export function getWindowStorageKey(winId = currentWindowId()) {
 
 // Shared, fault-tolerant reader for the user-level prefs blob (welcomeDone,
 // providerKeys, activeModel, …). Used by the AI widgets and PTY spawn.
+//
+// API keys (providerKeys / anthropicKey) are stripped from localStorage once
+// mirrored to the OS keychain (secretVault), so overlay the in-memory keychain
+// cache here — that's the single read path every spawn/AI-widget consumer uses.
 export function readUserSt() {
   if (typeof window === "undefined") return {};
+  let base = {};
   try {
-    return JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || "{}");
+    base = JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || "{}");
   } catch {
-    return {};
+    base = {};
   }
+  const secrets = getCachedSecretKeys();
+  return {
+    ...base,
+    providerKeys: { ...(base.providerKeys || {}), ...(secrets.providerKeys || {}) },
+    anthropicKey: secrets.anthropicKey || base.anthropicKey || "",
+  };
 }

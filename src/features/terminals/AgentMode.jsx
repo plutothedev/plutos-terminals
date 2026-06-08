@@ -30,6 +30,32 @@ function parseAction(reply) {
   return { type, content };
 }
 
+// Non-bypassable safety guard: even with Auto-run ON, a command matching one of
+// these destructive / remote-code-execution patterns is forced back through the
+// per-command approval gate so a human confirms it. The system-prompt's "never
+// run destructive commands" is NOT a security control — each command's OUTPUT is
+// fed verbatim into the next prompt, so attacker-influenced output (a crafted
+// file the agent `cat`s, an SSH MOTD, a `curl` response) could otherwise inject a
+// directive that auto-executes here. Keep this list in code, not the prompt.
+const DANGEROUS_PATTERNS = [
+  /\brm\s+(?:-[a-z]*\s+)*-[a-z]*[rf]/i,                 // rm -rf / -fr / -r -f
+  /\brmdir\s+\/s/i, /\bdel\s+\/[a-z]/i,                  // Windows recursive delete
+  /\bRemove-Item\b[\s\S]*-Recurse/i,
+  /\b(?:mkfs\w*|diskpart)\b/i, /\bformat\s+[a-z]:/i,     // filesystem / disk format
+  /\bdd\b[^|]*\bof=/i,                                   // dd of=…
+  />\s*\/dev\/(?:sd|nvme|disk|hd)/i,                     // overwrite a block device
+  /\b(?:shutdown|reboot|halt|poweroff)\b/i,
+  /:\(\)\s*\{[\s\S]*\|[\s\S]*&\s*\}/,                    // bash fork bomb
+  /\b(?:curl|wget|iwr|Invoke-WebRequest)\b[\s\S]*\|\s*(?:sh|bash|zsh|python\d?|node|pwsh|powershell|iex|Invoke-Expression)\b/i, // pipe download → shell
+  /\b(?:iex|Invoke-Expression)\b/i,
+  /\bsudo\b/i,                                           // privilege escalation
+  /\b(?:chmod|chown)\s+-R\b/i,
+  /\bgit\b[\s\S]*\bpush\b[\s\S]*--force/i,
+];
+function isDangerousCommand(cmd) {
+  return DANGEROUS_PATTERNS.some((re) => re.test(String(cmd || "")));
+}
+
 export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
   const [goal, setGoal] = useState("");
   const [steps, setSteps] = useState([]);
@@ -97,12 +123,15 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
       if (action.type === "ASK") { push({ type: "ask", text: action.content }); break; }
       let cmd = action.content;
       if (!cmd) { push({ type: "error", text: "Model returned an empty command." }); break; }
-      if (!autoRunRef.current) {
+      // Auto-run is bypassed (a human must approve) when the command is off OR the
+      // command matches a destructive/RCE pattern — the latter is non-negotiable.
+      const risky = isDangerousCommand(cmd);
+      if (!autoRunRef.current || risky) {
         // Approval gate: show the proposed command and wait for Approve / Skip
         // (the command is editable before approving).
         const decision = await new Promise((resolve) => {
           setPendingCmd(cmd);
-          setPending({ command: cmd });
+          setPending({ command: cmd, risky: risky && autoRunRef.current });
           approveRef.current = resolve;
         });
         setPending(null); approveRef.current = null;
@@ -152,6 +181,11 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
           <div style={{ fontSize: 10.5, color: "#E0A04F", textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600, marginBottom: 4 }}>
             Approve command — edit if you like
           </div>
+          {pending.risky && (
+            <div style={{ fontSize: 11, color: "#E05B5B", fontWeight: 600, marginBottom: 6 }}>
+              ⚠ This command matches a destructive / remote-code pattern — approval is required even with Auto-run on.
+            </div>
+          )}
           <Textarea
             value={pendingCmd}
             onChange={(e) => setPendingCmd(e.target.value)}
