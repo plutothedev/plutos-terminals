@@ -965,7 +965,7 @@ export default function TerminalPane({
         term.onData((data) => {
           if (!alive || !ptyId) return;
           userHasTypedRef.current = true;
-          recordInput(data); // macro recording (no-op unless armed)
+          recordInput(tabId, data); // macro recording (no-op unless armed for this tab)
           // Clear the auto-approve match buffer when the user types — they
           // intend to answer the prompt themselves.
           recentOutRef.current = "";

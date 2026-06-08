@@ -15,7 +15,7 @@ import {
 const ACCENT = "var(--phn-link, #4aa8c0)";
 const DIM = "var(--phn-text-dim, #888)";
 
-export default function MacrosModal({ open, onClose, onReplay, canReplay }) {
+export default function MacrosModal({ open, onClose, onReplay, canReplay, activeTabId }) {
   const toast = useToast();
   const [macros, setMacros] = useState([]);
   const [recording, setRecording] = useState(isMacroRecording());
@@ -27,8 +27,9 @@ export default function MacrosModal({ open, onClose, onReplay, canReplay }) {
   const persist = (list) => { setMacros(list); saveMacros(list); };
 
   const startRec = () => {
-    startMacroRecording();
-    toast.info("Recording — type in any terminal, then click Stop & save.");
+    if (!activeTabId) { toast.error("Open/focus a terminal to record into first."); return; }
+    startMacroRecording(activeTabId);
+    toast.info("Recording the active terminal — avoid typing passwords (they'd be saved). Click Stop & save when done.");
   };
 
   const stopRec = () => {
@@ -53,7 +54,7 @@ export default function MacrosModal({ open, onClose, onReplay, canReplay }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", borderRadius: 6, border: `1px solid ${recording ? "#ff6b6b" : "var(--phn-surface-border, #2a2a2a)"}`, background: "var(--phn-page-bg, #1c1c1c)" }}>
         {recording ? (
           <>
-            <span style={{ color: "#ff6b6b", fontSize: 12 }}>● recording — type in any terminal</span>
+            <span style={{ color: "#ff6b6b", fontSize: 12 }}>● recording the active terminal — no passwords</span>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name this macro" style={input} />
             <button onClick={stopRec} style={primaryBtn}>Stop &amp; save</button>
             <button onClick={() => cancelMacroRecording()} style={ghostBtn}>Cancel</button>

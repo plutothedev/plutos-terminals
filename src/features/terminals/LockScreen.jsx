@@ -2,15 +2,14 @@
 // Master-password unlock screen. Shown by App before the terminal grid when a
 // master password is set and this launch hasn't been unlocked yet.
 import { useState } from "react";
-import { hashPassword, markUnlocked } from "./masterPassword.js";
+import { verifyPassword, markUnlocked } from "./masterPassword.js";
 
 export default function LockScreen({ expectedHash, onUnlock }) {
   const [pw, setPw] = useState("");
   const [error, setError] = useState(false);
 
   const tryUnlock = async () => {
-    const h = await hashPassword(pw);
-    if (h === expectedHash) { markUnlocked(); onUnlock(); }
+    if (await verifyPassword(pw, expectedHash)) { markUnlocked(); onUnlock(); }
     else { setError(true); setPw(""); }
   };
 

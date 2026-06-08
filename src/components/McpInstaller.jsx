@@ -18,7 +18,7 @@ const MCPS = [
     description: "Read + write files in a specific root directory. Lets Claude inspect / edit project files directly.",
     command: 'claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem ${PWD}',
     docs: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
-    notes: "Replace ${PWD} with the absolute path of the directory you want to expose. Restrict scope — Claude inherits whatever access this directory has.",
+    notes: "On install you'll be asked to pick the directory to expose. Restrict scope — Claude inherits read+write to whatever directory you choose.",
   },
   {
     id: "github",
@@ -80,10 +80,17 @@ export default function McpInstaller({ open, onClose }) {
 
   const onInstall = async (mcp) => {
     // Pass an explicit argv vector (no shell runs backend-side). The catalog
-    // command is a fixed, space-separated template; the ${PWD} placeholder for
-    // the filesystem MCP root is resolved to the user's home dir by the Rust
-    // side (it can't shell-expand without a shell).
-    const argv = mcp.command.split(/\s+/).filter(Boolean);
+    // command is a fixed, space-separated template.
+    let argv = mcp.command.split(/\s+/).filter(Boolean);
+    // A ${PWD} placeholder (the filesystem MCP root) must be an explicit,
+    // user-chosen directory — never silently expanded to $HOME, which would grant
+    // Claude read+write across the whole home tree (.ssh, .aws, .env, …). Prompt.
+    if (argv.includes("${PWD}")) {
+      let dir = null;
+      try { dir = await invoke("pick_directory"); } catch { dir = null; }
+      if (!dir) { toast.info("Install cancelled — pick the directory to expose."); return; }
+      argv = argv.map((a) => (a === "${PWD}" ? dir : a));
+    }
     setInstallState((s) => ({ ...s, [mcp.id]: "installing" }));
     try {
       const result = await invoke("mcp_install", { argv });

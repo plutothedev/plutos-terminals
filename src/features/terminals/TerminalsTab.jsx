@@ -1115,6 +1115,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <MacrosModal
         open={macrosOpen}
         canReplay={!!activeTabId}
+        activeTabId={activeTabId}
         onReplay={(data) => activeTabId && writeToTab(activeTabId, data)}
         onClose={() => setMacrosOpen(false)}
       />

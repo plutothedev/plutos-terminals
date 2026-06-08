@@ -4,7 +4,7 @@
 import { useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
-import { hashPassword } from "./masterPassword.js";
+import { hashPassword, verifyPassword } from "./masterPassword.js";
 
 export default function MasterPasswordModal({ open, userSt, saveUser, onClose }) {
   const toast = useToast();
@@ -15,11 +15,11 @@ export default function MasterPasswordModal({ open, userSt, saveUser, onClose })
 
   const reset = () => { setCurrent(""); setNext(""); setConfirm(""); };
 
-  const verifyCurrent = async () => !isSet || (await hashPassword(current)) === userSt.masterPasswordHash;
+  const verifyCurrent = async () => !isSet || (await verifyPassword(current, userSt.masterPasswordHash));
 
   const apply = async () => {
     if (!(await verifyCurrent())) { toast.error("Current password is incorrect."); return; }
-    if (next.length < 4) { toast.error("Use at least 4 characters."); return; }
+    if (next.length < 8) { toast.error("Use at least 8 characters."); return; }
     if (next !== confirm) { toast.error("New passwords don't match."); return; }
     const hash = await hashPassword(next);
     saveUser({ ...userSt, masterPasswordHash: hash });
