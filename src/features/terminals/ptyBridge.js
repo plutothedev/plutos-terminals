@@ -207,7 +207,17 @@ const pendingCapture = new Map(); // tabId -> { resolve, command }
 
 export function reportBlockDone(tabId, block) {
   const p = pendingCapture.get(tabId);
-  if (p) { pendingCapture.delete(tabId); p.resolve(block); }
+  if (!p) return;
+  // Correlate the block to the command we actually wrote. A foreign block-done
+  // (a startCommand finishing, a command the user typed, a background prompt)
+  // would otherwise resolve the agent's capture with the WRONG output. When the
+  // block carries no command (no OSC PlutoCmd), we can't correlate — fall back to
+  // resolving so the agent never hangs waiting for a marker that won't come.
+  const want = (p.command || "").trim();
+  const got = ((block && block.command) || "").trim();
+  if (want && got && want !== got) return; // not our command — keep waiting
+  pendingCapture.delete(tabId);
+  p.resolve(block);
 }
 
 export function runAndCapture(tabId, command, timeoutMs = 120000) {

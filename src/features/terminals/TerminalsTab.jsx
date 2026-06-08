@@ -420,6 +420,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.panels, state.activePanelId, bridgeTick]);
   useEffect(() => {
+    // Only the primary window owns the companion's session mirror. Secondary
+    // (?w=) windows have their own per-window layout; if they pushed too, the two
+    // would race on the single shared CompanionState and the phone would flap
+    // between / write to the wrong window's terminals (matches the listener gates).
+    if (new URLSearchParams(window.location.search).get("w")) return;
     invoke("companion_set_sessions", { sessions: sessionListJson }).catch(() => {});
   }, [sessionListJson]);
 
@@ -429,6 +434,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // webview localStorage). String identity short-circuits redundant pushes.
   const snippetsJson = useMemo(() => JSON.stringify(snippets || []), [snippets]);
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("w")) return; // primary window owns the mirror
     invoke("companion_set_snippets", { snippets: snippetsJson }).catch(() => {});
   }, [snippetsJson]);
 
@@ -447,6 +453,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     return JSON.stringify({ active: userSt?.activeModel || null, providers });
   }, [userSt]);
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("w")) return; // primary window owns the mirror
     invoke("companion_set_models", { models: modelsJson }).catch(() => {});
   }, [modelsJson]);
 

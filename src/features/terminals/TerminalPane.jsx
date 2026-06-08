@@ -371,12 +371,16 @@ export default function TerminalPane({
       recentOutRef.current = recentOutRef.current.slice(-AUTO_APPROVE_BUFFER_BYTES);
     }
     const text = stripAnsi(recentOutRef.current);
-    // Heuristic: a Claude permission prompt has the arrow on option 1, the
-    // word "Yes" nearby, and an "(esc)" hint. All three must appear.
+    // Heuristic: a Claude permission prompt has the arrow on option 1, a "Yes"
+    // option, an "(esc)" hint, AND the "Do you want …?" question. Requiring the
+    // question anchors the match to Claude's real permission framing so arbitrary
+    // attacker-influenced output that merely echoes "❯ 1." / "Yes" / "(esc)"
+    // can't forge an auto-confirmation (defense-in-depth atop the away-gate).
     const hasArrow = /❯\s*1[.)]/.test(text);
     const hasYes = /\bYes\b/.test(text);
     const hasEsc = /\(esc\)/i.test(text) || /\[esc\]/i.test(text);
-    if (!(hasArrow && hasYes && hasEsc)) return;
+    const hasProceed = /Do you want\b/i.test(text);
+    if (!(hasArrow && hasYes && hasEsc && hasProceed)) return;
     // Invariant #7 (CLAUDE.md): only act on a permission prompt when the tab is
     // backgrounded/unfocused. A foregrounded tab is being supervised — never
     // auto-confirm there, so the watching user can intervene before a
