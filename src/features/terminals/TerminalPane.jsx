@@ -207,6 +207,7 @@ export default function TerminalPane({
   onActivityChange,
   onCostUpdate,
   promptEditor = false, // opt-in app-owned prompt editor (Milestone 2, slice 1)
+  promptEditorVim = false, // vim keybindings inside the prompt editor
 }) {
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -1477,6 +1478,7 @@ export default function TerminalPane({
           height={peRect.height}
           theme={xtermTheme}
           cwd={shellCwd}
+          vimMode={promptEditorVim}
           onSubmit={submitPrompt}
           onEscape={promptEscape}
           onCtrlC={promptCtrlC}

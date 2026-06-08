@@ -13,6 +13,7 @@ import { insertNewlineAndIndent } from "@codemirror/commands";
 import { StreamLanguage, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { autocompletion, completionKeymap, startCompletion, acceptCompletion, completionStatus } from "@codemirror/autocomplete";
+import { vim } from "@replit/codemirror-vim";
 import { tags as t } from "@lezer/highlight";
 import { invoke } from "@backend";
 import { getCommandHistory } from "./ptyBridge.js";
@@ -179,12 +180,15 @@ function editorTheme(theme) {
   }, { dark: true });
 }
 
-export default function PromptEditor({ visible, top, left, width, height, theme, cwd, onSubmit, onEscape, onCtrlC, onClear }) {
+export default function PromptEditor({ visible, top, left, width, height, theme, cwd, vimMode, onSubmit, onEscape, onCtrlC, onClear }) {
   const hostRef = useRef(null);
   const viewRef = useRef(null);
   const themeComp = useRef(new Compartment());
+  const vimComp = useRef(new Compartment());
   const cwdRef = useRef(cwd);
   cwdRef.current = cwd;
+  const vimRef = useRef(vimMode);
+  vimRef.current = vimMode;
   // History navigation state (snapshotted when the editor is shown).
   const histRef = useRef({ list: [], pos: -1, draft: "" });
   // Latest callbacks, read by the stable keymap without re-creating the view.
@@ -235,7 +239,7 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
       { key: "End", run: acceptGhost },
       { key: "ArrowUp", run: histPrev },
       { key: "ArrowDown", run: histNext },
-      { key: "Escape", run: () => { cbRef.current.onEscape?.(); return true; } },
+      { key: "Escape", run: () => { if (vimRef.current) return false; cbRef.current.onEscape?.(); return true; } }, // vim on → let vim go to normal mode
       { key: "Ctrl-c", run: (v) => { if (!v.state.selection.main.empty) return false; cbRef.current.onCtrlC?.(); return true; } },
       { key: "Ctrl-l", run: () => { cbRef.current.onClear?.(); return true; } },
     ]);
@@ -250,6 +254,9 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
         km,
         ghostPlugin,
         autocompletion({ override: [makeCompletionSource(cwdRef)], activateOnTyping: false, icons: false, defaultKeymap: false }),
+        // Vim last = lowest precedence: our Enter/Tab/Esc/ghost bindings win;
+        // vim handles every motion/operator key we don't bind.
+        vimComp.current.of(vimMode ? [vim()] : []),
         StreamLanguage.define(shell),
         themeComp.current.of([editorTheme(theme), syntaxHighlighting(highlightFor(theme))]),
         EditorView.lineWrapping,
@@ -266,6 +273,13 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
     if (!v) return;
     v.dispatch({ effects: themeComp.current.reconfigure([editorTheme(theme), syntaxHighlighting(highlightFor(theme))]) });
   }, [theme]);
+
+  // Toggle vim mode live.
+  useEffect(() => {
+    const v = viewRef.current;
+    if (!v) return;
+    v.dispatch({ effects: vimComp.current.reconfigure(vimMode ? [vim()] : []) });
+  }, [vimMode]);
 
   // On show: snapshot history, clear the draft, focus.
   useEffect(() => {

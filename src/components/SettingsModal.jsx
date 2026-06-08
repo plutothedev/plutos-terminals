@@ -83,6 +83,12 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
           <input type="checkbox" checked={!!st.promptEditor} onChange={(e) => save({ ...st, promptEditor: e.target.checked })} />
           Enable the app-owned prompt editor
         </label>
+        {st.promptEditor && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", marginTop: 6, marginLeft: 22 }}>
+            <input type="checkbox" checked={!!st.promptEditorVim} onChange={(e) => save({ ...st, promptEditorVim: e.target.checked })} />
+            Vim keybindings (Esc → normal mode)
+          </label>
+        )}
       </Field>
 
       {saveUser && (

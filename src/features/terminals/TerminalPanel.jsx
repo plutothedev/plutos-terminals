@@ -122,6 +122,7 @@ function TerminalPanel({
   tabActivities,
   xtermTheme,
   promptEditor,
+  promptEditorVim,
   tabAutoApprove,
   tabProjectNames,
   homeApi,
@@ -537,6 +538,7 @@ function TerminalPanel({
                       systemPrompt={isRoot ? (tab.systemPrompt || null) : null}
                       xtermTheme={xtermTheme}
                       promptEditor={promptEditor}
+                      promptEditorVim={promptEditorVim}
                       tabId={node.id}
                       projectName={isRoot ? (tabProjectNames?.[tab.id] || null) : null}
                       autoApprove={isRoot ? (tabAutoApprove?.[tab.id] || false) : false}

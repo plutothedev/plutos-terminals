@@ -894,6 +894,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               tabActivities={tabActivities}
               xtermTheme={xtermTheme}
               promptEditor={!!st?.promptEditor}
+              promptEditorVim={!!st?.promptEditorVim}
               tabAutoApprove={tabAutoApprove}
               tabProjectNames={tabProjectNames}
               homeApi={homeApi}
