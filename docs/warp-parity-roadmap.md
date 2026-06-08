@@ -32,7 +32,7 @@ _Status (branch `001-remote-sessions-parity`): All 5 milestones essentially done
 - [x] P0/L — Modern input editor decoupled from xterm: CodeMirror overlay owns the prompt (OSC-133-gated), multiline (Shift+Enter), soft-wrap, click-to-place; opt-in beta
 - [x] P0/L — Autosuggestions: app ghost-text from history (→/End/Tab) **and** PSReadLine inline prediction on pwsh 7
 - [x] P0/L — Tab completions: in-editor fuzzy menu (commands + history) **and** PSReadLine MenuComplete on pwsh 7
-- [x] P1/M — Syntax highlighting in input (CodeMirror shell mode) · [ ] P2/M — Vim mode · [ ] P2 — cwd-aware path/flag completion
+- [x] P1/M — Syntax highlighting in input (CodeMirror shell mode) · [x] P2/M — Vim mode · [x] P2 — cwd-aware path completion (live cwd via OSC PlutoCwd)
 
 **Milestone 3 — Warp Drive (his pick) — mostly done**
 - [x] P1/M — Workflows: Snippets → named parameterized workflows (defaults/desc, Warp-YAML import/export)
