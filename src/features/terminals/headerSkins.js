@@ -1450,9 +1450,16 @@ function customThemeStyleEl() {
   }
   return el;
 }
+// Defense-in-depth against CSS injection: this <style> is built by string
+// concatenation, so a value like `#000;} body{...}` would break out of the rule.
+// Themes are validated at import (customThemes.parseColor), but sanitize again
+// here — only emit declarations whose key is a --phn-* custom property and whose
+// value is a plain color/number token (no `;`, `{`, `}`, `:`, url(), etc.).
+const SAFE_CSS_VALUE = /^(#[0-9a-fA-F]{3,8}|rgba?\([\d.,\s%]+\)|hsla?\([\d.,\s%]+\)|[a-zA-Z]+|[\d.]+(px|em|rem|%)?)$/;
 function setCustomThemeCss(chrome) {
   const decls = Object.entries(chrome || {})
-    .map(([k, v]) => `  ${k}: ${v};`)
+    .filter(([k, v]) => /^--phn-[a-z0-9-]+$/.test(k) && typeof v === "string" && SAFE_CSS_VALUE.test(v.trim()))
+    .map(([k, v]) => `  ${k}: ${v.trim()};`)
     .join("\n");
   customThemeStyleEl().textContent = `[data-phn-theme="custom"]{\n${decls}\n}`;
 }

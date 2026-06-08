@@ -19,6 +19,12 @@
 import yaml from "js-yaml";
 
 // ── color helpers ──────────────────────────────────────────────────────────
+// Strict hex check (#rgb / #rrggbb / #rrggbbaa). We reject anything else at
+// import (named colors, rgb()/var()) so unvalidated strings can't reach the
+// injected CSS or the xterm palette — see the audit's theme-injection finding.
+function isHexColor(s) {
+  return typeof s === "string" && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s.trim());
+}
 function hexToRgb(hex) {
   let h = String(hex || "").trim().replace(/^#/, "");
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
@@ -109,6 +115,19 @@ function warpDocToTheme(w) {
   if (!w || typeof w !== "object" || !w.background || !w.foreground) {
     throw new Error("Not a Warp theme — needs at least `background` and `foreground`.");
   }
+  // Validate every color is a real hex value before it flows into the CSS sink
+  // (deriveChrome) or the xterm palette. Reject the whole theme on any bad color.
+  const checks = [["background", w.background], ["foreground", w.foreground]];
+  if (w.accent != null) checks.push(["accent", w.accent]);
+  for (const grp of ["normal", "bright"]) {
+    const c = w.terminal_colors && w.terminal_colors[grp];
+    if (c && typeof c === "object") {
+      for (const [k, v] of Object.entries(c)) if (v != null) checks.push([`${grp}.${k}`, v]);
+    }
+  }
+  const bad = checks.find(([, v]) => !isHexColor(v));
+  if (bad) throw new Error(`Invalid color for "${bad[0]}": ${bad[1]} — use #rgb / #rrggbb hex.`);
+
   const dark = luminance(w.background) < 0.45;
   const name = (typeof w.name === "string" && w.name.trim()) || "Imported theme";
   return {
