@@ -144,11 +144,29 @@ fn do_read_text(sftp: &ssh2::Sftp, remote: &str) -> Result<String, String> {
 }
 
 fn do_write_text(sftp: &ssh2::Sftp, remote: &str, content: &str) -> Result<(), String> {
-    let mut rf = sftp
-        .create(Path::new(remote))
-        .map_err(|e| format!("create remote: {e}"))?;
-    rf.write_all(content.as_bytes())
-        .map_err(|e| format!("write remote: {e}"))?;
+    // Atomic save: write to a sibling temp file, then rename it over the original.
+    // A plain create() is O_CREAT|O_TRUNC — it zeroes the existing file BEFORE the
+    // write, so a mid-write failure (dropped link, full disk, libssh2 timeout) would
+    // leave the user's file empty/half-written. Temp+rename keeps the original intact
+    // until the full payload is durably written.
+    let tmp = format!("{remote}.plutotmp~");
+    {
+        let mut rf = sftp
+            .create(Path::new(&tmp))
+            .map_err(|e| format!("create temp: {e}"))?;
+        rf.write_all(content.as_bytes())
+            .map_err(|e| format!("write temp: {e}"))?;
+        rf.flush().map_err(|e| format!("flush temp: {e}"))?;
+    } // rf dropped here → the remote handle is closed before the rename
+    sftp.rename(
+        Path::new(&tmp),
+        Path::new(remote),
+        Some(ssh2::RenameFlags::OVERWRITE | ssh2::RenameFlags::ATOMIC | ssh2::RenameFlags::NATIVE),
+    )
+    .map_err(|e| {
+        let _ = sftp.unlink(Path::new(&tmp)); // best-effort cleanup
+        format!("rename temp→remote: {e}")
+    })?;
     Ok(())
 }
 

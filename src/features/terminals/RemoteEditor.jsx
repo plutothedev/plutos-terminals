@@ -66,9 +66,12 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
   const save = async () => {
     if (saving || !sessionId || !path) return;
     setSaving(true);
+    // Snapshot the buffer at call time; re-reading textRef AFTER the await would
+    // mark keystrokes typed during a slow save as already-saved and lose them.
+    const snapshot = textRef.current;
     try {
-      await invoke("sftp_write_file", { id: sessionId, path, content: textRef.current });
-      setOrig(textRef.current);
+      await invoke("sftp_write_file", { id: sessionId, path, content: snapshot });
+      setOrig(snapshot);
       toast.success(`Saved ${name}`);
     } catch (e) {
       toast.error(`Save failed: ${e}`);

@@ -58,16 +58,31 @@ export function useTabTelemetry({ state, projects }) {
     return { tabAutoApprove: ap, tabProjectNames: names };
   }, [state.panels, projects]);
 
-  // Aggregate cost across all open tabs. Each tab's value is Claude's
-  // cumulative session cost, so summing gives the total live spend.
+  // Aggregate cost across all CURRENTLY-OPEN tabs/panes. tabCosts is never pruned
+  // on close, so summing it raw keeps counting finished sessions (and double-counts
+  // on reopen). Collect every live id from the panel/tab/pane tree and only sum
+  // entries still present — a superset collect (any `id`) is safe: it can only
+  // exclude truly-gone tabs, never drop a live one.
   const totalCost = useMemo(() => {
+    const live = new Set();
+    const collect = (node) => {
+      if (!node || typeof node !== "object") return;
+      if (typeof node.id === "string") live.add(node.id);
+      for (const k in node) {
+        const v = node[k];
+        if (Array.isArray(v)) v.forEach(collect);
+        else if (v && typeof v === "object") collect(v);
+      }
+    };
+    state.panels.forEach(collect);
     let cost = 0, tokens = 0;
-    for (const v of Object.values(tabCosts)) {
+    for (const [id, v] of Object.entries(tabCosts)) {
+      if (!live.has(id)) continue;
       cost += v.cost || 0;
       tokens += v.tokens || 0;
     }
     return { cost, tokens };
-  }, [tabCosts]);
+  }, [tabCosts, state.panels]);
 
   // Per-project activity: aggregate of any open tab tied to this project.
   // 'active' wins over 'done' wins over 'idle'.
