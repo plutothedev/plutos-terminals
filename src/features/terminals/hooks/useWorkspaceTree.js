@@ -24,6 +24,13 @@ export function useWorkspaceTree({ state, persist, toast }) {
   // on-disk file under its id survived).
   const recentlyClosedRef = useRef([]);
 
+  // Latest state, read by mutations that may run AFTER an await (detachTab spawns
+  // a window, then closes the source tab). Reading captured `state` there would
+  // persist a pre-await snapshot and silently revert any change that landed during
+  // the spawn (lost update). Ref = always current.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   // ── Panel / tab mutations ──────────────────────────────────────────
 
   const setActivePanel = useCallback((panelId) => {
@@ -41,17 +48,18 @@ export function useWorkspaceTree({ state, persist, toast }) {
     // Drop any transient SSH passwords for the tabs leaving with this panel.
     // Gated on real removal (not pane unmount) so moveTab — which unmounts +
     // respawns the same tab id in another panel — keeps its password.
-    const closing = state.panels.find(p => p.id === panelId);
+    const st = stateRef.current;
+    const closing = st.panels.find(p => p.id === panelId);
     if (closing) closing.tabs.forEach(t => clearTabPassword(t.id));
-    const panels = state.panels.filter(p => p.id !== panelId);
+    const panels = st.panels.filter(p => p.id !== panelId);
     if (panels.length === 0) {
       const panel = defaultPanel();
-      persist({ ...state, panels: [panel], activePanelId: panel.id });
+      persist({ ...st, panels: [panel], activePanelId: panel.id });
       return;
     }
-    const activePanelId = state.activePanelId === panelId ? panels[0].id : state.activePanelId;
-    persist({ ...state, panels, activePanelId });
-  }, [state, persist]);
+    const activePanelId = st.activePanelId === panelId ? panels[0].id : st.activePanelId;
+    persist({ ...st, panels, activePanelId });
+  }, [persist]);
 
   const addTab = useCallback((panelId) => {
     const panels = state.panels.map(p => {
@@ -109,7 +117,8 @@ export function useWorkspaceTree({ state, persist, toast }) {
   }, [state, persist]);
 
   const closeTab = useCallback((panelId, tabId) => {
-    const target = state.panels.find(p => p.id === panelId);
+    const st = stateRef.current;
+    const target = st.panels.find(p => p.id === panelId);
     if (!target) return;
     if (target.tabs.length === 1) {
       closePanel(panelId);
@@ -122,7 +131,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
       if (recentlyClosedRef.current.length > 12) recentlyClosedRef.current.shift();
     }
     clearTabPassword(tabId); // tab genuinely leaving; closePanel handles the 1-tab case
-    const panels = state.panels.map(p => {
+    const panels = st.panels.map(p => {
       if (p.id !== panelId) return p;
       const tabs = renumberDefaultLabels(p.tabs.filter(t => t.id !== tabId));
       let activeTabId = p.activeTabId;
@@ -133,8 +142,8 @@ export function useWorkspaceTree({ state, persist, toast }) {
       }
       return { ...p, tabs, activeTabId };
     });
-    persist({ ...state, panels });
-  }, [state, persist, closePanel]);
+    persist({ ...st, panels });
+  }, [persist, closePanel]);
 
   // Reopen the most recently closed tab (Ctrl+Shift+T) into its original panel if
   // it still exists, else the active panel. A fresh PTY spawns; scrollback replays
