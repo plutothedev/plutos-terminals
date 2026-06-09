@@ -217,7 +217,16 @@ function AppInner() {
     const onStorage = (e) => {
       if (e.key === USER_STORAGE_KEY && e.newValue) {
         try {
-          setUserSt(JSON.parse(e.newValue));
+          // The persisted blob has secrets stripped (they live in the keychain),
+          // so overlay the in-memory keychain cache or this window would lose its
+          // provider keys on any cross-window user-state update.
+          const parsed = JSON.parse(e.newValue);
+          const s = getCachedSecretKeys();
+          setUserSt({
+            ...parsed,
+            providerKeys: { ...(parsed.providerKeys || {}), ...(s.providerKeys || {}) },
+            anthropicKey: s.anthropicKey || parsed.anthropicKey || "",
+          });
         } catch { /* ignore */ }
       }
     };

@@ -2,7 +2,7 @@
 // Multi-LLM model picker (Hermes-style). Pick a provider + model and enter that
 // provider's API key; the choice is persisted to user-state and injected as env
 // vars into every new shell (see envForModel + TerminalPane spawn), so `claude`
-// / `codex` route to it automatically. Keys never leave localStorage.
+// / `codex` route to it automatically. API keys are stored in the OS keychain (not plaintext localStorage).
 import { useEffect, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
@@ -173,7 +173,7 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
           Each row shows what it routes: <strong>Claude Code</strong> (Anthropic-style) or{" "}
           <strong>Codex / OpenAI tools</strong> (OpenAI-style). Pick a chip or type any model id;
           the <em>Custom</em> row points at any OpenAI-compatible endpoint. Open a new tab after
-          picking — env is set at shell spawn. Keys never leave localStorage.
+          picking — env is set at shell spawn. API keys are stored in the OS keychain (not plaintext localStorage).
         </p>
       </div>
     </Modal>
