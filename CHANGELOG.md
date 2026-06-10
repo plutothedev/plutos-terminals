@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.1 — Clean terminal boot (2026-06-10)
+
+### Fixed
+- New/restored local panes no longer flash the echoed shell-integration setup
+  ("wall of code") before the welcome box: the PTY stream is concealed until a
+  boot marker emitted right before the clear, with a 4s/64KB flush failsafe.
+  Setup noise is also kept out of saved scrollback and transcripts.
+
 ## v0.4.0 — Refined-dark reskin + stability overhaul (2026-06-10)
 
 ### Changed

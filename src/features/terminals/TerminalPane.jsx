@@ -291,6 +291,15 @@ export default function TerminalPane({
   const recentOutRef = useRef("");
   const lastApproveAtRef = useRef(0);
 
+  // Boot-conceal gate: while set ({ buf, timer }), incoming PTY chunks are
+  // buffered instead of rendered, hiding the echoed shell-integration setup
+  // (prompt function, OSC-133 hooks, PSReadLine config) that otherwise flashes
+  // as a wall of code before Clear-Host paints the welcome box. Released when
+  // the boot marker (emitted right before the clear) arrives — or by a 4s
+  // timeout / 64KB cap that flushes everything, so an unexpected shell can
+  // never leave the pane blank.
+  const concealRef = useRef(null);
+
   // Cost tracker state — only emit when the latest seen value changes.
   const lastCostRef = useRef({ tokens: 0, cost: 0 });
   // Sticky model family detected from the welcome banner. Held across
@@ -912,9 +921,11 @@ export default function TerminalPane({
         });
         try { setTabDims(tabId, term.cols, term.rows); } catch {}
 
-        unlistenData = await listen(`pty://${id}`, (e) => {
-          if (!alive) return;
-          const payload = e.payload || "";
+        // Everything a live PTY chunk feeds: xterm, the recorder, the analysis
+        // buffers, and activity tracking. Factored out of the listener so the
+        // boot-conceal gate below can replay buffered bytes through the same
+        // path once the marker (or the flush fallback) releases them.
+        const handleChunk = (payload) => {
           term.write(payload);
 
           // v0.1.18: feed the asciinema recorder if this tab is being recorded.
@@ -948,6 +959,42 @@ export default function TerminalPane({
               if (alive && !visibleRef.current) setActivity("done");
             }, DONE_TIMEOUT_MS);
           }
+        };
+        // Raw byte sequence the display command emits right before its clear.
+        // Only ever present in OUTPUT (the typed setup source builds it from
+        // [char]27 / \033 pieces, so the echo never contains the real ESC byte
+        // and can't false-trigger the scan).
+        const BOOT_MARKER = "\x1b]1337;PlutoBoot=1\x07";
+        const flushConceal = () => {
+          const c = concealRef.current;
+          if (!c) return;
+          clearTimeout(c.timer);
+          concealRef.current = null;
+          if (c.buf && alive) handleChunk(c.buf);
+        };
+
+        unlistenData = await listen(`pty://${id}`, (e) => {
+          if (!alive) return;
+          const payload = e.payload || "";
+          const c = concealRef.current;
+          if (c) {
+            c.buf += payload;
+            const idx = c.buf.indexOf(BOOT_MARKER);
+            if (idx >= 0) {
+              // Marker found: drop the setup noise (everything up to and
+              // including the marker), render from the clear onward.
+              clearTimeout(c.timer);
+              concealRef.current = null;
+              const rest = c.buf.slice(idx + BOOT_MARKER.length);
+              if (rest) handleChunk(rest);
+            } else if (c.buf.length > 65536) {
+              // Something is flooding output before setup finished (not the
+              // scenario this gate is for) — stop hiding it.
+              flushConceal();
+            }
+            return;
+          }
+          handleChunk(payload);
         });
         // If the pane unmounted while listen() was in flight, cleanup already
         // ran (and saw unlistenData undefined) — detach immediately or it leaks.
@@ -1059,6 +1106,12 @@ export default function TerminalPane({
         // Detects zsh/bash at runtime. Windows shells keep their default.
         const isWindowsUA = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
         if (!connection && !serial && cmdsAtSpawn.length === 0 && alive && ptyId) {
+          // Arm the boot-conceal gate BEFORE the shell's first output: the pane
+          // stays clean (restored tabs: just the replayed scrollback) instead of
+          // flashing the startup banner + the echoed wall of setup code. The
+          // display command below emits BOOT_MARKER right before its clear,
+          // which releases the gate; the 4s timer is the can't-go-blank fallback.
+          concealRef.current = { buf: "", timer: setTimeout(flushConceal, 4000) };
           // Let the shell render its first prompt before we send the (now short)
           // welcome line so the colours/box land cleanly.
           await new Promise(r => setTimeout(r, 450));
@@ -1096,27 +1149,35 @@ export default function TerminalPane({
               // Fresh tab: clear + welcome box. Restored tab: scrollback was replayed,
               // so a scrollback-PRESERVING clear (ESC[2J, not Clear-Host) hides the
               // echoed setup without wiping the history.
+              // Each variant emits BOOT_MARKER first (assembled from [char]27
+              // so the echoed source can't contain the real escape sequence),
+              // releasing the conceal gate exactly at the clear.
+              const psMarker = `[Console]::Write([char]27 + ']1337;PlutoBoot=1' + [char]7)`;
               let winDisplay;
               if (restored) {
-                winDisplay = `[Console]::Write([char]27 + '[2J' + [char]27 + '[H')`;
+                winDisplay = `${psMarker}; [Console]::Write([char]27 + '[2J' + [char]27 + '[H')`;
               } else {
-                winDisplay = "Clear-Host";
+                winDisplay = `${psMarker}; Clear-Host`;
                 try {
                   const p = await invoke("write_welcome_file", { content: boxRaw });
-                  if (p) winDisplay = `Clear-Host; Get-Content -Raw -Encoding utf8 -LiteralPath '${String(p).replace(/'/g, "''")}'`;
+                  if (p) winDisplay = `${psMarker}; Clear-Host; Get-Content -Raw -Encoding utf8 -LiteralPath '${String(p).replace(/'/g, "''")}'`;
                 } catch { /* no file → just clear */ }
               }
               try { await invoke("pty_write", { id: ptyId, data: winDisplay + "\r" }); } catch {}
             }
           } else {
+            // Same marker idea as the PowerShell path: the echoed source only
+            // contains the literal text "\033]1337;…" (no real ESC byte), so
+            // the gate releases on the OUTPUT of this printf, not its echo.
+            const shMarker = `printf '\\033]1337;PlutoBoot=1\\007'`;
             let display;
             if (restored) {
-              display = `printf '\\033[2J\\033[H'`;
+              display = `${shMarker}; printf '\\033[2J\\033[H'`;
             } else {
-              display = "clear";
+              display = `${shMarker}; clear`;
               try {
                 const p = await invoke("write_welcome_file", { content: boxRaw });
-                if (p) display = `clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
+                if (p) display = `${shMarker}; clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
               } catch { /* no file → just clear */ }
             }
             if (alive && ptyId) {
@@ -1156,6 +1217,10 @@ export default function TerminalPane({
       vis.disconnect();
       ro.disconnect();
       clearDoneTimer();
+      if (concealRef.current) {
+        clearTimeout(concealRef.current.timer);
+        concealRef.current = null;
+      }
       if (costRafRef.current) {
         cancelAnimationFrame(costRafRef.current);
         costRafRef.current = 0;
