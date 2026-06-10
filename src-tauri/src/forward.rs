@@ -344,7 +344,7 @@ fn socks_worker(sess: ssh2::Session, listener: TcpListener, stop_rx: mpsc::Recei
 /// connection to remote_host:remote_port through a dedicated SSH connection.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub fn port_forward_start(
+pub async fn port_forward_start(
     state: State<'_, ForwardRegistry>,
     host: String,
     port: u16,
@@ -375,7 +375,7 @@ pub fn port_forward_start(
 /// dedicated SSH connection (`ssh -D`). Point a browser/app at it as a SOCKS5
 /// proxy and its traffic exits via the SSH host.
 #[tauri::command]
-pub fn socks_forward_start(
+pub async fn socks_forward_start(
     state: State<'_, ForwardRegistry>,
     host: String,
     port: u16,
@@ -413,7 +413,7 @@ pub struct JumpForward {
 /// ssh2::Channel can't be used directly as the inner transport.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub fn jump_forward_start(
+pub async fn jump_forward_start(
     state: State<'_, ForwardRegistry>,
     bastion_host: String,
     bastion_port: u16,

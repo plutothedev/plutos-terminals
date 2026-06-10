@@ -6,8 +6,9 @@ import { useEffect, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
+import { SKey } from "./toolbarIcons.jsx";
 
-const ACCENT = "var(--phn-link, #4aa8c0)";
+const ACCENT = "var(--phn-link, #7c9cf5)";
 const DIM = "var(--phn-text-dim, #888)";
 
 export default function SshKeysModal({ open, onClose }) {
@@ -86,7 +87,7 @@ export default function SshKeysModal({ open, onClose }) {
           keys.map((k) => (
             <div key={k.private_path} style={{ border: "1px solid var(--phn-surface-border, #2a2a2a)", borderRadius: 6, padding: "8px 12px", background: "var(--phn-surface-bg, #242424)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--phn-text-fg, #d4d4d4)" }}>🔑 {k.name}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--phn-text-fg, #d4d4d4)", display: "inline-flex", alignItems: "center", gap: 5 }}><SKey size={12} /> {k.name}</span>
                 <span style={{ fontSize: 10, color: ACCENT }}>{k.key_type}</span>
                 {k.comment && <span style={{ fontSize: 10, color: DIM }}>{k.comment}</span>}
                 <span style={{ flex: 1 }} />

@@ -10,6 +10,7 @@ import { getSkinId } from "../features/terminals/headerSkins.js";
 import { USER_STORAGE_KEY, STATE_KEY_PREFIX } from "../features/terminals/storageKeys.js";
 import KeybindingsSection from "../features/terminals/KeybindingsSection.jsx";
 import ThemesSection from "../features/terminals/ThemesSection.jsx";
+import { SMoon, SSun } from "../features/terminals/toolbarIcons.jsx";
 
 export default function SettingsModal({ open, st, save, userSt, saveUser, onClose }) {
   const [headerSkin, setHeaderSkin] = useState(getSkinId(st.headerSkin));
@@ -70,8 +71,8 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
         hint="Switches the whole app chrome between dark and light. The terminal itself stays black either way."
       >
         <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
-          <Button variant={isLight ? "ghost" : "primary"} onClick={() => setTheme("moba")} style={{ flex: 1 }}>🌙&nbsp; Dark</Button>
-          <Button variant={isLight ? "primary" : "ghost"} onClick={() => setTheme("moba-light")} style={{ flex: 1 }}>☀️&nbsp; Light</Button>
+          <Button variant={isLight ? "ghost" : "primary"} onClick={() => setTheme("moba")} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SMoon size={13} /> Dark</span></Button>
+          <Button variant={isLight ? "primary" : "ghost"} onClick={() => setTheme("moba-light")} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SSun size={13} /> Light</span></Button>
         </div>
       </Field>
 

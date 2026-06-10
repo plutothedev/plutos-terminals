@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<!-- (C) design mockup 17 — Agent Cockpit — cmux-pattern layout, Linear-lineage visual -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pluto's Terminals — Agent Cockpit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,100..900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ============ Void Precision tokens ============ */
+  :root {
+    --canvas: #08090a;
+    --surface: #0f1011;
+    --elevated: #16171a;
+    --hover: #1c1d21;
+    --border: rgba(255,255,255,.06);
+    --border-strong: rgba(255,255,255,.10);
+    --text-1: #f7f8f8;
+    --text-2: #d0d6e0;
+    --text-3: #8a8f98;
+    --text-4: #62666d;
+    --accent: #5e6ad2;
+    --accent-interactive: #7170ff;
+    --accent-hover: #828fff;
+    --amber: #e0a93c;
+    --green: #27a644;
+    --red: #e25d5d;
+    --r-control: 6px;
+    --r-card: 8px;
+    --r-float: 12px;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: "Inter", system-ui, sans-serif;
+    font-feature-settings: "cv01", "ss03";
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-2);
+    background: var(--canvas);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  svg { flex-shrink: 0; }
+
+  /* ============ TOP BAR (36px) ============ */
+  .topbar {
+    height: 36px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 10px 0 14px;
+    background: var(--canvas);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+  .topbar > * { -webkit-app-region: no-drag; }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent-interactive);
+    box-shadow: 0 0 8px rgba(113,112,255,.45);
+  }
+  .brand-name {
+    font-size: 12px;
+    font-weight: 510;
+    color: var(--text-1);
+    letter-spacing: .01em;
+    white-space: nowrap;
+  }
+
+  .workspace-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 9px;
+    background: var(--elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-control);
+    font-size: 11.5px;
+    color: var(--text-3);
+    cursor: pointer;
+    transition: background 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
+    white-space: nowrap;
+  }
+  .workspace-chip:hover { background: var(--hover); border-color: var(--border-strong); color: var(--text-2); }
+  .workspace-chip .ws-val { color: var(--text-2); font-weight: 510; }
+  .workspace-chip .caret { color: var(--text-4); font-size: 9px; }
+
+  .topbar-center {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    min-width: 0;
+  }
+  .palette-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 480px;
+    height: 26px;
+    padding: 0 11px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-control);
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--text-4);
+    cursor: pointer;
+    transition: background 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .palette-btn:hover { background: var(--elevated); border-color: var(--border-strong); color: var(--text-3); }
+  .palette-btn:focus-visible { outline: none; border-color: var(--accent-interactive); box-shadow: 0 0 0 2px rgba(113,112,255,.22); }
+  .palette-btn .kbd {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-3);
+    background: var(--elevated);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    line-height: 1.3;
+  }
+  .palette-btn .hint { overflow: hidden; text-overflow: ellipsis; }
+
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .attention-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 9px;
+    background: rgba(224,169,60,.08);
+    border: 1px solid rgba(224,169,60,.25);
+    border-radius: var(--r-control);
+    font-size: 11.5px;
+    font-weight: 510;
+    color: var(--amber);
+    cursor: pointer;
+    transition: background 140ms ease-out;
+    white-space: nowrap;
+  }
+  .attention-badge:hover { background: rgba(224,169,60,.14); }
+  .pulse-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--amber);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(224,169,60,.45); opacity: 1; }
+    50%       { box-shadow: 0 0 0 5px rgba(224,169,60,0);  opacity: .65; }
+  }
+
+  .cost-total {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    padding: 0 4px;
+    white-space: nowrap;
+  }
+
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px; height: 26px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--r-control);
+    color: var(--text-3);
+    cursor: pointer;
+    transition: background 140ms ease-out, color 140ms ease-out, border-color 140ms ease-out;
+  }
+  .icon-btn:hover { background: var(--hover); color: var(--text-2); }
+  .icon-btn:focus-visible { outline: none; border-color: var(--accent-interactive); box-shadow: 0 0 0 2px rgba(113,112,255,.22); }
+
+  .split-btn {
+    display: flex;
+    align-items: stretch;
+    height: 26px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-control);
+    overflow: hidden;
+    background: var(--elevated);
+  }
+  .split-btn button {
+    display: flex; align-items: center; gap: 6px;
+    background: transparent;
+    border: none;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 510;
+    color: var(--text-2);
+    padding: 0 9px;
+    cursor: pointer;
+    transition: background 140ms ease-out;
+  }
+  .split-btn button:hover { background: var(--hover); }
+  .split-btn .split-caret {
+    padding: 0 6px;
+    border-left: 1px solid var(--border);
+    color: var(--text-4);
+    font-size: 9px;
+  }
+
+  .win-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 4px;
+  }
+  .win-controls .icon-btn { width: 30px; }
+  .win-controls .win-close:hover { background: rgba(226,93,93,.18); color: #ffb4b4; }
+
+  /* ============ MAIN ============ */
+  .main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  /* ============ SESSION RAIL (280px) ============ */
+  .rail {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    min-height: 0;
+  }
+
+  .rail-top { padding: 10px 10px 6px; }
+  .filter-wrap {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 28px;
+    padding: 0 9px;
+    background: var(--canvas);
+    border: 1px solid var(--border);
+    border-radius: var(--r-control);
+    transition: border-color 140ms ease-out;
+  }
+  .filter-wrap:focus-within { border-color: var(--accent-interactive); box-shadow: 0 0 0 2px rgba(113,112,255,.18); }
+  .filter-wrap svg { color: var(--text-4); }
+  .filter-wrap input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--text-1);
+  }
+  .filter-wrap input::placeholder { color: var(--text-4); }
+
+  .rail-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+  }
+  .rail-scroll::-webkit-scrollbar { width: 8px; }
+  .rail-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.07); border-radius: 4px; }
+
+  /* ---- session cards: the hero ---- */
+  .session-card {
+    border-radius: var(--r-card);
+    background: var(--elevated);
+    border: 1px solid var(--border);
+    padding: 10px;
+    cursor: pointer;
+    transition: background 140ms ease-out, border-color 140ms ease-out;
+    position: relative;
+  }
+  .session-card:hover { background: var(--hover); border-color: var(--border-strong); }
+  .session-card:focus-visible {
+    outline: none;
+    border-color: var(--accent-interactive);
+    box-shadow: 0 0 0 2px rgba(113,112,255,.22);
+  }
+  .session-card.is-hover { background: var(--hover); border-color: var(--border-strong); }
+  .session-card.is-active {
+    border-color: rgba(113,112,255,.45);
+    background: var(--elevated);
+  }
+  .session-card.is-active::before {
+    content: "";
+    position: absolute;
+    left: -1px; top: 9px; bottom: 9px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent-interactive);
+  }
+  .session-card.is-waiting {
+    border-color: rgba(224,169,60,.40);
+    box-shadow: 0 0 0 1px rgba(224,169,60,.14);
+  }
+  .session-card.is-dim { opacity: .55; }
+  .session-card.is-dim:hover { opacity: .85; }
+
+  .card-row1 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-running {
+    background: var(--accent-interactive);
+    animation: pulse-indigo 2s ease-in-out infinite;
+  }
+  @keyframes pulse-indigo {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(113,112,255,.40); opacity: 1; }
+    50%       { box-shadow: 0 0 0 5px rgba(113,112,255,0);  opacity: .7; }
+  }
+  .dot-waiting { background: var(--amber); animation: pulse 2s ease-in-out infinite; }
+  .dot-done { background: var(--green); }
+  .dot-neutral { background: var(--text-4); }
+  .dot-idle { background: rgba(255,255,255,.14); }
+
+  .card-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 510;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-cost {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+
+  .card-row2 {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 5px;
+    padding-left: 15px;
+    color: var(--text-4);
+    min-width: 0;
+  }
+  .card-row2 svg { color: var(--text-4); }
+  .card-branch {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+  .card-path {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-4);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  .card-row3 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding-left: 15px;
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-row3 svg { flex-shrink: 0; }
+  .row3-ok svg { color: var(--green); }
+  .row3-warn { color: var(--amber); font-weight: 510; }
+  .row3-warn svg { color: var(--amber); }
+  .row3-muted { color: var(--text-4); }
+  .row3 .time { color: var(--text-4); }
+  .card-row3 .time { color: var(--text-4); font-weight: 400; }
+
+  /* ---- rail bottom ---- */
+  .rail-bottom {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px 10px;
+    border-top: 1px solid var(--border);
+  }
+  .ghost-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 30px;
+    background: transparent;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--r-control);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 510;
+    color: var(--text-3);
+    cursor: pointer;
+    transition: background 140ms ease-out, color 140ms ease-out, border-color 140ms ease-out;
+  }
+  .ghost-btn:hover { background: var(--hover); color: var(--text-1); border-color: rgba(255,255,255,.16); }
+  .ghost-btn:focus-visible { outline: none; border-color: var(--accent-interactive); box-shadow: 0 0 0 2px rgba(113,112,255,.22); }
+  .decks-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 30px;
+    padding: 0 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r-control);
+    font-family: inherit;
+    font-size: 11.5px;
+    color: var(--text-4);
+    cursor: pointer;
+    transition: background 140ms ease-out, color 140ms ease-out, border-color 140ms ease-out;
+  }
+  .decks-btn:hover { background: var(--hover); color: var(--text-2); border-color: var(--border-strong); }
+
+  /* ============ CENTER GRID ============ */
+  .grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 8px;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-card);
+    overflow: hidden;
+    min-width: 0;
+    min-height: 0;
+    transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
+  }
+  .panel.ring-amber {
+    border-color: rgba(224,169,60,.45);
+    box-shadow: 0 0 0 1px rgba(224,169,60,.18), 0 0 22px -8px rgba(224,169,60,.22);
+  }
+  .panel.ring-indigo {
+    border-color: rgba(113,112,255,.50);
+    box-shadow: 0 0 0 1px rgba(113,112,255,.20);
+  }
+
+  .panel-header {
+    height: 26px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 6px 0 10px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,.012);
+    min-width: 0;
+  }
+  .panel-title {
+    font-size: 12px;
+    font-weight: 510;
+    color: var(--text-1);
+    white-space: nowrap;
+  }
+  .panel-cwd {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-4);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .panel-header .icon-btn { width: 22px; height: 22px; }
+  .panel-state-chip {
+    font-size: 10.5px;
+    font-weight: 510;
+    padding: 1px 7px;
+    border-radius: 999px;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .chip-waiting { color: var(--amber); background: rgba(224,169,60,.10); border: 1px solid rgba(224,169,60,.25); }
+  .chip-running { color: var(--accent-hover); background: rgba(113,112,255,.10); border: 1px solid rgba(113,112,255,.28); }
+
+  /* ---- terminal content ---- */
+  .term {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-2);
+    min-height: 0;
+  }
+  .term::-webkit-scrollbar { width: 8px; }
+  .term::-webkit-scrollbar-thumb { background: rgba(255,255,255,.07); border-radius: 4px; }
+
+  .t-muted { color: var(--text-4); }
+  .t-dim { color: var(--text-3); }
+  .t-bright { color: var(--text-1); }
+  .t-indigo { color: var(--accent-hover); }
+  .t-amber { color: var(--amber); }
+  .t-green { color: #4ec46a; }
+  .t-red { color: var(--red); }
+  .t-line { white-space: pre-wrap; word-break: break-word; }
+  .t-gap { height: 10px; }
+
+  .tool-block {
+    margin: 6px 0;
+    border-left: 2px solid rgba(255,255,255,.10);
+    padding-left: 10px;
+  }
+  .tool-block.tb-indigo { border-left-color: rgba(113,112,255,.45); }
+
+  .diff-add { color: #4ec46a; background: rgba(39,166,68,.07); display: block; }
+  .diff-del { color: var(--red); background: rgba(226,93,93,.06); display: block; }
+
+  .perm-box {
+    margin: 10px 0 4px;
+    border: 1px solid rgba(224,169,60,.40);
+    background: rgba(224,169,60,.05);
+    border-radius: var(--r-control);
+    padding: 10px 12px;
+  }
+  .perm-box .perm-title {
+    color: var(--amber);
+    font-weight: 500;
+  }
+  .perm-box .perm-cmd {
+    margin: 7px 0;
+    padding: 6px 9px;
+    background: rgba(0,0,0,.35);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-1);
+    font-size: 12.5px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .perm-opt { color: var(--text-2); }
+  .perm-opt .num { color: var(--amber); }
+  .perm-opt.sel { color: var(--text-1); }
+  .perm-opt.sel .num { color: var(--amber); }
+
+  .cursor {
+    display: inline-block;
+    width: 7px;
+    height: 15px;
+    background: var(--text-1);
+    vertical-align: text-bottom;
+    animation: blink 1.1s steps(1) infinite;
+  }
+  .cursor.c-amber { background: var(--amber); }
+  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+  /* ============ STATUS BAR (24px) ============ */
+  .statusbar {
+    height: 24px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    background: var(--canvas);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-4);
+    user-select: none;
+  }
+  .statusbar .sb-left, .statusbar .sb-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  .statusbar .sb-waiting { color: var(--amber); }
+  .statusbar .sb-kbd {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-4);
+  }
+  .statusbar .sb-mono { font-family: var(--mono); font-size: 10.5px; }
+  .statusbar .sb-glyph {
+    display: flex; align-items: center;
+    color: var(--text-4);
+    cursor: pointer;
+    transition: color 140ms ease-out;
+  }
+  .statusbar .sb-glyph:hover { color: var(--text-2); }
+  .sb-sep { width: 1px; height: 11px; background: var(--border-strong); }
+
+  /* ============ TOAST ============ */
+  .toast {
+    position: fixed;
+    right: 16px;
+    bottom: 40px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 12px 11px 14px;
+    background: var(--elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-float);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.55), 0 8px 24px -6px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.35);
+    z-index: 50;
+    animation: toast-in 240ms ease-out;
+  }
+  @keyframes toast-in {
+    from { transform: translateY(8px); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+  .toast .toast-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--amber);
+    animation: pulse 2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .toast .toast-body { display: flex; flex-direction: column; gap: 2px; }
+  .toast .toast-title { font-size: 12.5px; font-weight: 510; color: var(--text-1); }
+  .toast .toast-sub { font-size: 11px; color: var(--text-3); }
+  .toast .toast-jump {
+    height: 26px;
+    padding: 0 12px;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--r-control);
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 510;
+    color: #fff;
+    cursor: pointer;
+    transition: background 140ms ease-out;
+  }
+  .toast .toast-jump:hover { background: var(--accent-hover); }
+  .toast .toast-dismiss {
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px;
+    background: transparent;
+    border: none;
+    border-radius: var(--r-control);
+    color: var(--text-4);
+    cursor: pointer;
+    transition: background 140ms ease-out, color 140ms ease-out;
+  }
+  .toast .toast-dismiss:hover { background: var(--hover); color: var(--text-2); }
+
+  /* ============ LEGEND (bottom-left) ============ */
+  .legend {
+    position: fixed;
+    left: 16px;
+    bottom: 40px;
+    padding: 10px 12px;
+    background: var(--elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-float);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.55), 0 8px 24px -6px rgba(0,0,0,.5);
+    z-index: 40;
+    font-size: 10.5px;
+    color: var(--text-3);
+    user-select: none;
+  }
+  .legend .legend-title {
+    font-size: 10.5px;
+    font-weight: 510;
+    color: var(--text-2);
+    margin-bottom: 7px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .legend .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+  }
+  .legend .swatch {
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    border: 1px solid var(--border-strong);
+    flex-shrink: 0;
+  }
+  .legend .legend-foot {
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid var(--border);
+    color: var(--text-4);
+    font-family: var(--mono);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= TOP BAR ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span class="brand-name">Pluto's Terminals</span>
+    </div>
+
+    <button class="workspace-chip">
+      <span>workspace:</span><span class="ws-val">trading-nq</span><span class="caret">▾</span>
+    </button>
+
+    <div class="topbar-center">
+      <button class="palette-btn">
+        <span class="kbd">⌘K</span>
+        <span class="hint">search sessions, run commands, load decks…</span>
+      </button>
+    </div>
+
+    <div class="topbar-right">
+      <button class="attention-badge">
+        <span class="pulse-dot"></span>
+        <span>2 waiting</span>
+      </button>
+
+      <span class="cost-total">$4.12</span>
+
+      <div class="split-btn">
+        <button>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><line x1="8" y1="2.5" x2="8" y2="13.5"/></svg>
+          Split
+        </button>
+        <button class="split-caret">▾</button>
+      </div>
+
+      <button class="icon-btn" aria-label="Settings">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1"/></svg>
+      </button>
+
+      <div class="win-controls">
+        <button class="icon-btn" aria-label="Minimize">
+          <svg width="11" height="11" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.2"><line x1="2" y1="6" x2="10" y2="6"/></svg>
+        </button>
+        <button class="icon-btn" aria-label="Maximize">
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="7" height="7" rx="1"/></svg>
+        </button>
+        <button class="icon-btn win-close" aria-label="Close">
+          <svg width="11" height="11" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><line x1="3" y1="3" x2="9" y2="9"/><line x1="9" y1="3" x2="3" y2="9"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= MAIN ================= -->
+  <div class="main">
+
+    <!-- ===== SESSION RAIL ===== -->
+    <aside class="rail">
+      <div class="rail-top">
+        <div class="filter-wrap">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><line x1="10.5" y1="10.5" x2="14" y2="14"/></svg>
+          <input type="text" placeholder="filter sessions…">
+        </div>
+      </div>
+
+      <div class="rail-scroll">
+
+        <!-- 1. claude: terminals — RUNNING, active -->
+        <div class="session-card is-active" tabindex="0">
+          <div class="card-row1">
+            <span class="status-dot dot-running"></span>
+            <span class="card-name">claude: terminals</span>
+            <span class="card-cost">$1.87</span>
+          </div>
+          <div class="card-row2">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="4" r="1.8"/><circle cx="5" cy="12" r="1.8"/><circle cx="11" cy="8" r="1.8"/><path d="M5 5.8v4.4M6.7 11.1c2.4-.6 2.8-1.7 2.6-2.4"/></svg>
+            <span class="card-branch">main</span>
+            <span class="card-path">~/plutos-terminals</span>
+          </div>
+          <div class="card-row3 row3-ok">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 4.5"/></svg>
+            <span>edited src/pty.rs</span><span class="time">· 2m</span>
+          </div>
+        </div>
+
+        <!-- 2. claude: trading-nq — WAITING -->
+        <div class="session-card is-waiting" tabindex="0">
+          <div class="card-row1">
+            <span class="status-dot dot-waiting"></span>
+            <span class="card-name">claude: trading-nq</span>
+            <span class="card-cost">$2.25</span>
+          </div>
+          <div class="card-row2">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="4" r="1.8"/><circle cx="5" cy="12" r="1.8"/><circle cx="11" cy="8" r="1.8"/><path d="M5 5.8v4.4M6.7 11.1c2.4-.6 2.8-1.7 2.6-2.4"/></svg>
+            <span class="card-branch">main</span>
+            <span class="card-path">~/Documents/pluto-mind/03 Projects/trading-nq</span>
+          </div>
+          <div class="card-row3 row3-warn">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13h13L8 2z"/><line x1="8" y1="6.4" x2="8" y2="9.4"/><circle cx="8" cy="11.4" r=".4" fill="currentColor"/></svg>
+            <span>waiting for approval</span><span class="time">· 4m</span>
+          </div>
+        </div>
+
+        <!-- 3. build watcher — done -->
+        <div class="session-card" tabindex="0">
+          <div class="card-row1">
+            <span class="status-dot dot-done"></span>
+            <span class="card-name">build watcher</span>
+            <span class="card-cost">—</span>
+          </div>
+          <div class="card-row2">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="4" r="1.8"/><circle cx="5" cy="12" r="1.8"/><circle cx="11" cy="8" r="1.8"/><path d="M5 5.8v4.4M6.7 11.1c2.4-.6 2.8-1.7 2.6-2.4"/></svg>
+            <span class="card-branch">main</span>
+            <span class="card-path">~/plutos-terminals</span>
+          </div>
+          <div class="card-row3 row3-ok">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 4.5"/></svg>
+            <span>cargo build finished, 0 warnings</span><span class="time">· 11m</span>
+          </div>
+        </div>
+
+        <!-- 4. ssh: prod-api — neutral connected, hover state -->
+        <div class="session-card is-hover" tabindex="0">
+          <div class="card-row1">
+            <span class="status-dot dot-neutral"></span>
+            <span class="card-name">ssh: prod-api</span>
+            <span class="card-cost">—</span>
+          </div>
+          <div class="card-row2">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.8" y="3" width="12.4" height="10" rx="1.5"/><path d="M4.5 6.5L7 8.5l-2.5 2"/><line x1="8.5" y1="10.5" x2="11.5" y2="10.5"/></svg>
+            <span class="card-branch">root@</span>
+            <span class="card-path">dial-labs-prod-01:/opt/switch</span>
+          </div>
+          <div class="card-row3 row3-muted">
+            <span>connected, idle</span><span class="time">· 38m</span>
+          </div>
+        </div>
+
+        <!-- 5. ssh: homelab — neutral -->
+        <div class="session-card" tabindex="0">
+          <div class="card-row1">
+            <span class="status-dot dot-neutral"></span>
+            <span class="card-name">ssh: homelab</span>
+            <span class="card-cost">—</span>
+          </div>
+          <div class="card-row2">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.8" y="3" width="12.4" height="10" rx="1.5"/><path d="M4.5 6.5L7 8.5l-2.5 2"/><line x1="8.5" y1="10.5" x2="11.5" y2="10.5"/></svg>
+            <span class="card-branch">pluto@</span>
+            <span class="card-path">homelab:~/docker</span>
+          </div>
+          <div class="card-row3 row3-muted">
+            <span>connected, idle</span><span class="time">· 1h</span>
+          </div>
+        </div>
+
+        <!-- 6. scratch — dim -->
+        <div class="session-card is-dim" tabindex="0">
+          <div class="card-row1">
+            <span class="status-dot dot-idle"></span>
+            <span class="card-name">scratch</span>
+            <span class="card-cost">—</span>
+          </div>
+          <div class="card-row2">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.5h7l3 3v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M10 2.5v3h3"/></svg>
+            <span class="card-branch">pwsh</span>
+            <span class="card-path">~/</span>
+          </div>
+          <div class="card-row3 row3-muted">
+            <span>no activity</span><span class="time">· 3h</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="rail-bottom">
+        <button class="ghost-btn">
+          <svg width="12" height="12" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
+          new session
+        </button>
+        <button class="decks-btn">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="11" height="7" rx="1.2"/><path d="M4 6.5V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1.5M5.5 4V3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1"/></svg>
+          decks
+        </button>
+      </div>
+    </aside>
+
+    <!-- ===== TERMINAL GRID 2×1 ===== -->
+    <main class="grid">
+
+      <!-- PANEL 1 — waiting claude session -->
+      <section class="panel ring-amber">
+        <div class="panel-header">
+          <span class="panel-title">claude: trading-nq</span>
+          <span class="panel-cwd">~/Documents/pluto-mind/03 Projects/trading-nq</span>
+          <span class="panel-state-chip chip-waiting">waiting</span>
+          <button class="icon-btn" aria-label="Zoom panel">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 6.5L13.5 2.5M13.5 2.5h-3.4M13.5 2.5v3.4M6.5 9.5l-4 4M2.5 13.5h3.4M2.5 13.5v-3.4"/></svg>
+          </button>
+          <button class="icon-btn" aria-label="Close panel">
+            <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><line x1="3" y1="3" x2="9" y2="9"/><line x1="9" y1="3" x2="3" y2="9"/></svg>
+          </button>
+        </div>
+        <div class="term">
+          <div class="t-line t-muted">&gt; run the phase-6 gate checks against the forward-test log and</div>
+          <div class="t-line t-muted">  summarize anything that fails</div>
+          <div class="t-gap"></div>
+          <div class="t-line"><span class="t-indigo">●</span> <span class="t-bright">I'll run the gate checks. First, let me look at the forward-test</span></div>
+          <div class="t-line t-bright">  log structure.</div>
+          <div class="t-gap"></div>
+          <div class="tool-block tb-indigo">
+            <div class="t-line"><span class="t-indigo">Read</span><span class="t-dim">(backtest/forward-test-log.csv)</span></div>
+            <div class="t-line t-muted">  ⎿ Read 412 lines</div>
+          </div>
+          <div class="tool-block tb-indigo">
+            <div class="t-line"><span class="t-indigo">Read</span><span class="t-dim">(skills/trade-management/gates.md)</span></div>
+            <div class="t-line t-muted">  ⎿ Read 88 lines</div>
+          </div>
+          <div class="t-gap"></div>
+          <div class="t-line"><span class="t-indigo">●</span> <span class="t-bright">Gates 1–4 pass on the log as recorded. Gate 5 (max daily</span></div>
+          <div class="t-line t-bright">  drawdown) needs the per-day aggregation script. Running it now.</div>
+          <div class="t-gap"></div>
+          <div class="perm-box">
+            <div class="t-line perm-title">Allow Bash command?</div>
+            <div class="perm-cmd">python scripts/aggregate_daily_dd.py --input backtest/forward-test-log.csv --out state/dd-summary.json</div>
+            <div class="t-line perm-opt sel"><span class="num">❯ 1.</span> Yes</div>
+            <div class="t-line perm-opt"><span class="num">  2.</span> Yes, and don't ask again for python commands</div>
+            <div class="t-line perm-opt"><span class="num">  3.</span> No, and tell Claude what to do differently</div>
+          </div>
+          <div class="t-line"><span class="t-amber">waiting for approval · 4m</span> <span class="cursor c-amber"></span></div>
+        </div>
+      </section>
+
+      <!-- PANEL 2 — running claude session -->
+      <section class="panel ring-indigo">
+        <div class="panel-header">
+          <span class="panel-title">claude: terminals</span>
+          <span class="panel-cwd">~/plutos-terminals</span>
+          <span class="panel-state-chip chip-running">running</span>
+          <button class="icon-btn" aria-label="Zoom panel">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 6.5L13.5 2.5M13.5 2.5h-3.4M13.5 2.5v3.4M6.5 9.5l-4 4M2.5 13.5h3.4M2.5 13.5v-3.4"/></svg>
+          </button>
+          <button class="icon-btn" aria-label="Close panel">
+            <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><line x1="3" y1="3" x2="9" y2="9"/><line x1="9" y1="3" x2="3" y2="9"/></svg>
+          </button>
+        </div>
+        <div class="term">
+          <div class="t-line t-muted">&gt; the pty resize event drops when a panel is zoomed — fix the</div>
+          <div class="t-line t-muted">  debounce in pty.rs</div>
+          <div class="t-gap"></div>
+          <div class="t-line"><span class="t-indigo">●</span> <span class="t-bright">Found it. The resize debounce timer resets on every event but</span></div>
+          <div class="t-line t-bright">  never fires while a zoom animation streams events. I'll switch</div>
+          <div class="t-line t-bright">  it to a trailing-edge debounce with a max-wait.</div>
+          <div class="t-gap"></div>
+          <div class="tool-block tb-indigo">
+            <div class="t-line"><span class="t-indigo">Update</span><span class="t-dim">(src-tauri/src/pty.rs)</span></div>
+            <div class="t-line t-muted">  ⎿ Updated src-tauri/src/pty.rs with 4 additions and 2 removals</div>
+            <div class="t-line t-muted">     214    fn schedule_resize(&amp;self, cols: u16, rows: u16) {</div>
+            <span class="diff-del">     215 -      self.resize_timer.reset(RESIZE_DEBOUNCE_MS);</span>
+            <span class="diff-del">     216 -      self.pending = Some((cols, rows));</span>
+            <span class="diff-add">     215 +      self.pending = Some((cols, rows));</span>
+            <span class="diff-add">     216 +      if self.first_event_at.is_none() {</span>
+            <span class="diff-add">     217 +          self.first_event_at = Some(Instant::now());</span>
+            <span class="diff-add">     218 +      }</span>
+            <div class="t-line t-muted">     219        // trailing edge fires at debounce OR max_wait</div>
+          </div>
+          <div class="t-gap"></div>
+          <div class="tool-block tb-indigo">
+            <div class="t-line"><span class="t-indigo">Bash</span><span class="t-dim">(cargo check)</span></div>
+            <div class="t-line t-muted">  ⎿ Checking plutos-terminals v0.4.0</div>
+            <div class="t-line t-muted">     Finished `dev` profile in 3.41s</div>
+          </div>
+          <div class="t-gap"></div>
+          <div class="t-line"><span class="t-indigo">●</span> <span class="t-bright">cargo check passes. Now wiring the max-wait constant into the</span></div>
+          <div class="t-line t-bright">  zoom handler so the trailing flush always lands</div>
+          <div class="t-line"><span class="t-dim">  Hatching… (esc to interrupt)</span> <span class="cursor"></span></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ================= STATUS BAR ================= -->
+  <footer class="statusbar">
+    <div class="sb-left">
+      <span>6 sessions · 2 agents running · <span class="sb-waiting">1 waiting</span> <span class="sb-kbd">(⌘⇧U to jump)</span></span>
+    </div>
+    <div class="sb-right">
+      <span class="sb-mono">$4.12 today</span>
+      <span class="sb-sep"></span>
+      <span class="sb-mono">claude · sonnet</span>
+      <span class="sb-sep"></span>
+      <span class="sb-mono">v0.4.0</span>
+      <span class="sb-sep"></span>
+      <span class="sb-glyph" title="GitHub">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 .8a7.2 7.2 0 0 0-2.28 14.03c.36.07.49-.16.49-.35v-1.22c-2 .43-2.42-.97-2.42-.97-.33-.83-.8-1.05-.8-1.05-.65-.45.05-.44.05-.44.72.05 1.1.74 1.1.74.64 1.1 1.68.78 2.09.6.06-.47.25-.78.45-.96-1.6-.18-3.28-.8-3.28-3.56 0-.79.28-1.43.74-1.93-.07-.18-.32-.92.07-1.91 0 0 .6-.2 1.98.74a6.9 6.9 0 0 1 3.6 0c1.38-.93 1.98-.74 1.98-.74.4 1 .15 1.73.07 1.91.46.5.74 1.14.74 1.93 0 2.77-1.69 3.38-3.3 3.56.26.22.49.66.49 1.33v1.97c0 .19.13.42.5.35A7.2 7.2 0 0 0 8 .8z"/></svg>
+      </span>
+      <span class="sb-glyph" title="Discord">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.2 3.3a12.5 12.5 0 0 0-3.1-1l-.15.3a11.5 11.5 0 0 0-3.9 0L5.9 2.3a12.5 12.5 0 0 0-3.1 1A13.2 13.2 0 0 0 .6 12.2a12.6 12.6 0 0 0 3.8 1.95l.31-.5a8 8 0 0 1-1.23-.6l.3-.23a9 9 0 0 0 8.44 0l.3.23c-.39.24-.8.44-1.23.6l.3.5a12.6 12.6 0 0 0 3.81-1.94 13.2 13.2 0 0 0-2.2-8.9zM5.6 10.4c-.74 0-1.35-.69-1.35-1.53 0-.85.6-1.54 1.35-1.54s1.36.7 1.35 1.54c0 .84-.6 1.53-1.35 1.53zm4.8 0c-.74 0-1.35-.69-1.35-1.53 0-.85.6-1.54 1.35-1.54s1.36.7 1.35 1.54c0 .84-.6 1.53-1.35 1.53z"/></svg>
+      </span>
+    </div>
+  </footer>
+
+</div>
+
+<!-- ================= TOAST ================= -->
+<div class="toast" role="alert">
+  <span class="toast-dot"></span>
+  <div class="toast-body">
+    <span class="toast-title">claude: trading-nq needs approval</span>
+    <span class="toast-sub">Bash command waiting · 4m</span>
+  </div>
+  <button class="toast-jump">Jump</button>
+  <button class="toast-dismiss" aria-label="Dismiss">
+    <svg width="11" height="11" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><line x1="3" y1="3" x2="9" y2="9"/><line x1="9" y1="3" x2="3" y2="9"/></svg>
+  </button>
+</div>
+
+<!-- ================= LEGEND ================= -->
+<div class="legend">
+  <div class="legend-title">Void Precision</div>
+  <div class="legend-row"><span class="swatch" style="background:#08090a"></span> canvas #08090a</div>
+  <div class="legend-row"><span class="swatch" style="background:#16171a"></span> elevated #16171a</div>
+  <div class="legend-row"><span class="swatch" style="background:#5e6ad2"></span> accent #5e6ad2</div>
+  <div class="legend-row"><span class="swatch" style="background:#e0a93c"></span> attention #e0a93c</div>
+  <div class="legend-row"><span class="swatch" style="background:#27a644"></span> done #27a644</div>
+  <div class="legend-foot">layout: agent cockpit</div>
+</div>
+
+</body>
+</html>

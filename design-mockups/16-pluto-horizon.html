@@ -1,0 +1,813 @@
+<!-- (C) design mockup 16 — Pluto Horizon — branded -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pluto's Terminals — Pluto Horizon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   PLUTO HORIZON — design tokens
+   ============================================================ */
+:root{
+  --chrome:        #0C0D14;   /* bars, toolbars */
+  --dock:          #0A0B11;   /* side docks */
+  --well:          #060710;   /* terminal wells */
+  --heart:         #FF7A59;   /* signature accent — Tombaugh Regio coral */
+  --kuiper:        #7DA2FF;   /* cold accent — links / info ONLY */
+  --txt-1:         #ECEDF4;
+  --txt-2:         #A0A4B8;
+  --txt-3:         #6C7186;
+  --line:          rgba(160,164,184,.10);
+  --line-soft:     rgba(160,164,184,.06);
+  --hover:         rgba(255,122,89,.08);
+  --r:             6px;
+  --horizon:       linear-gradient(90deg, #FF7A59 0%, #8B6CF0 55%, transparent 100%);
+  --green:         #5DD49A;
+  --yellow:        #E8C56B;
+  --red:           #F06B6B;
+  --font-ui:       'Inter', -apple-system, sans-serif;
+  --font-brand:    'Space Grotesk', sans-serif;
+  --font-mono:     'JetBrains Mono', monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  font-family:var(--font-ui);
+  background:var(--well);
+  color:var(--txt-1);
+  font-size:12px;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;}
+svg{display:block;flex:none;}
+
+/* ---- noise texture for chrome surfaces ---- */
+.noise{position:relative;}
+.noise::before{
+  content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+  opacity:.015;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.noise>*{position:relative;z-index:1;}
+
+/* ============================================================
+   APP FRAME
+   ============================================================ */
+.app{height:100vh;display:flex;flex-direction:column;}
+
+/* ============================================================
+   1. MENU BAR
+   ============================================================ */
+.menubar{
+  height:30px;flex:none;background:var(--chrome);
+  display:flex;align-items:center;padding:0 8px 0 10px;gap:2px;
+}
+.brand{display:flex;align-items:center;gap:7px;margin-right:10px;}
+.brand .name{
+  font-family:var(--font-brand);font-weight:600;font-size:12.5px;
+  letter-spacing:.02em;color:var(--txt-1);white-space:nowrap;
+}
+.menu-item{
+  position:relative;padding:4px 9px;border-radius:var(--r);
+  font-size:11.5px;color:var(--txt-2);
+}
+.menu-item:hover{background:var(--hover);color:var(--txt-1);}
+.menu-item.open{background:var(--hover);color:var(--txt-1);}
+.menubar .right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.size-readout{font-family:var(--font-mono);font-size:10.5px;color:var(--txt-3);}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:2.5px 9px;border:1px solid var(--line);border-radius:999px;
+  font-size:10.5px;color:var(--txt-2);background:rgba(255,255,255,.015);
+}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--heart);box-shadow:0 0 6px rgba(255,122,89,.5);}
+.chip .mono{font-family:var(--font-mono);}
+.icon-btn{
+  width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;
+  border-radius:var(--r);color:var(--txt-3);
+}
+.icon-btn:hover{background:var(--hover);color:var(--txt-1);}
+.icon-btn:focus-visible{outline:2px solid var(--heart);outline-offset:1px;}
+.win-controls{display:flex;align-items:center;gap:2px;margin-left:4px;}
+.win-controls .icon-btn.close:hover{background:rgba(240,107,107,.15);color:var(--red);}
+
+/* horizon divider — brand signature use #1 */
+.horizon-divider{
+  height:2px;flex:none;
+  background:var(--horizon);
+  box-shadow:0 0 10px rgba(255,122,89,.30), 0 1px 6px rgba(139,108,240,.18);
+}
+
+/* open dropdown */
+.dropdown{
+  position:absolute;top:calc(100% + 5px);left:0;min-width:228px;
+  background:#11121B;border:1px solid var(--line);border-radius:8px;
+  padding:5px;z-index:60;
+  box-shadow:0 12px 32px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.4);
+}
+.dd-row{
+  display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:var(--r);
+  font-size:11.5px;color:var(--txt-1);white-space:nowrap;
+}
+.dd-row:hover{background:var(--hover);}
+.dd-row svg{color:var(--txt-3);}
+.dd-row .sc{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--txt-3);padding-left:22px;}
+.dd-sep{height:1px;background:var(--line-soft);margin:4px 6px;}
+
+/* ============================================================
+   2. ICON TOOLBAR
+   ============================================================ */
+.toolbar{
+  height:56px;flex:none;background:var(--chrome);
+  border-bottom:1px solid var(--line-soft);
+  display:flex;align-items:stretch;padding:0 10px;gap:4px;
+}
+.tb-group{display:flex;flex-direction:column;justify-content:center;padding:5px 4px 4px;}
+.tb-items{display:flex;gap:2px;}
+.tb-btn{
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:4px 9px 3px;border-radius:var(--r);color:var(--txt-2);min-width:48px;
+}
+.tb-btn span{font-size:10px;letter-spacing:.01em;}
+.tb-btn:hover{background:var(--hover);color:var(--txt-1);}
+.tb-btn:focus-visible{outline:2px solid var(--heart);outline-offset:1px;}
+.tb-btn.accent{color:var(--heart);}
+.tb-btn.accent:hover{color:#FF9377;}
+.tb-caption{
+  font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--txt-3);
+  text-align:center;margin-top:1px;font-family:var(--font-brand);
+}
+.tb-sep{width:1px;background:var(--line-soft);margin:9px 5px;}
+.toolbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+.cost-chip{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:4px 11px;border:1px solid rgba(255,122,89,.25);border-radius:999px;
+  background:rgba(255,122,89,.06);
+  font-family:var(--font-mono);font-size:10.5px;color:var(--heart);
+}
+.quick-connect{
+  display:flex;align-items:center;gap:7px;width:230px;
+  padding:5.5px 11px;border:1px solid var(--line);border-radius:var(--r);
+  background:var(--well);color:var(--txt-3);font-size:11px;
+}
+.quick-connect:hover{border-color:rgba(255,122,89,.30);}
+.quick-connect .mono{font-family:var(--font-mono);font-size:10.5px;}
+
+/* ============================================================
+   3. BODY ROW
+   ============================================================ */
+.body-row{flex:1;display:flex;min-height:0;}
+
+/* ---------- left dock: Sessions ---------- */
+.dock-left{
+  width:240px;flex:none;background:var(--dock);
+  border-right:1px solid var(--line-soft);
+  display:flex;flex-direction:column;min-height:0;
+  position:relative;
+}
+/* starfield — docks only, barely visible */
+.starfield{position:absolute;inset:0;pointer-events:none;z-index:0;}
+.star{position:absolute;width:2px;height:2px;border-radius:50%;background:var(--txt-2);opacity:.10;}
+.dock-left>*:not(.starfield),.dock-right>*:not(.starfield){position:relative;z-index:1;}
+
+.dock-header{
+  flex:none;padding:11px 12px 7px;
+  font-family:var(--font-brand);font-size:10px;font-weight:600;
+  letter-spacing:.14em;color:var(--txt-3);text-transform:uppercase;
+  display:flex;align-items:center;gap:7px;
+}
+.search-field{
+  margin:0 10px 9px;flex:none;
+  display:flex;align-items:center;gap:7px;
+  padding:5.5px 9px;border:1px solid var(--line);border-radius:var(--r);
+  background:var(--well);color:var(--txt-3);font-size:11px;
+}
+.tree{flex:1;overflow:hidden;padding:0 6px;}
+.tree-folder{
+  display:flex;align-items:center;gap:6px;
+  padding:5px 7px;border-radius:var(--r);
+  font-size:11px;font-weight:600;color:var(--txt-2);
+}
+.tree-folder .count{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--txt-3);}
+.tree-folder svg.chev{color:var(--txt-3);}
+.tree-row{
+  position:relative;display:flex;align-items:center;gap:8px;
+  padding:5.5px 8px 5.5px 24px;border-radius:var(--r);
+  font-size:11.5px;color:var(--txt-2);
+}
+.tree-row svg{color:var(--txt-3);}
+.tree-row .lat{
+  margin-left:auto;font-family:var(--font-mono);font-size:10px;
+  padding:1px 6px;border-radius:999px;
+  background:rgba(93,212,154,.10);color:var(--green);
+}
+.tree-row .lat.warn{background:rgba(232,197,107,.10);color:var(--yellow);}
+.tree-row:hover{background:var(--hover);color:var(--txt-1);}
+.tree-row.hovered{background:var(--hover);color:var(--txt-1);}
+.tree-row.active{
+  background:rgba(255,122,89,.07);color:var(--txt-1);
+}
+.tree-row.active::before{
+  content:"";position:absolute;left:0;top:4px;bottom:4px;width:2px;border-radius:2px;
+  background:linear-gradient(180deg,#FF7A59 0%,#8B6CF0 75%,transparent 100%);
+}
+.tree-row.active .sess-dot{background:var(--heart);box-shadow:0 0 6px rgba(255,122,89,.55);}
+.sess-dot{width:6px;height:6px;border-radius:50%;background:transparent;flex:none;margin-left:-14px;margin-right:0;}
+
+/* ---------- center: terminal panels ---------- */
+.center{flex:1;display:flex;gap:8px;padding:8px;min-width:0;background:transparent;}
+.panel{
+  flex:1;display:flex;flex-direction:column;min-width:0;
+  background:var(--well);
+  border:1px solid var(--line-soft);border-radius:8px;overflow:hidden;
+}
+.panel.focused{
+  border-color:rgba(255,122,89,.35);
+  box-shadow:0 0 0 1px rgba(255,122,89,.18), 0 0 22px rgba(255,122,89,.05);
+}
+.tabstrip{
+  flex:none;height:34px;display:flex;align-items:stretch;
+  background:var(--chrome);border-bottom:1px solid var(--line-soft);
+  padding:0 4px;
+}
+.tab{
+  position:relative;display:flex;align-items:center;gap:7px;
+  padding:0 13px;font-size:11px;color:var(--txt-3);
+  border-right:1px solid var(--line-soft);
+}
+.tab:hover{background:var(--hover);color:var(--txt-2);}
+.tab.on{color:var(--txt-1);background:var(--well);}
+/* horizon gradient — brand signature use #2: active tab indicator */
+.tab.on::after{
+  content:"";position:absolute;left:0;right:0;top:0;height:2px;
+  background:var(--horizon);
+  box-shadow:0 1px 6px rgba(255,122,89,.35);
+}
+.tab .t-dot{width:6px;height:6px;border-radius:50%;flex:none;}
+.t-dot.run{background:var(--heart);animation:pulse 2s ease-in-out infinite;}
+.t-dot.done{background:var(--green);}
+@keyframes pulse{
+  0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(255,122,89,.45);}
+  50%{opacity:.55;box-shadow:0 0 0 4px rgba(255,122,89,0);}
+}
+.tab-add{
+  display:flex;align-items:center;justify-content:center;width:30px;
+  color:var(--txt-3);
+}
+.tab-add:hover{background:var(--hover);color:var(--txt-1);border-radius:var(--r);}
+.term{
+  flex:1;overflow:hidden;padding:11px 14px;
+  font-family:var(--font-mono);font-size:13px;line-height:1.62;
+  color:var(--txt-2);white-space:pre;
+}
+.term .p{color:var(--heart);}     /* prompt / brand */
+.term .k{color:var(--kuiper);}    /* links/info */
+.term .g{color:var(--green);}
+.term .y{color:var(--yellow);}
+.term .r{color:var(--red);}
+.term .w{color:var(--txt-1);}
+.term .d{color:var(--txt-3);}
+.term .add{color:var(--green);background:rgba(93,212,154,.07);display:inline-block;width:100%;}
+.term .del{color:var(--red);background:rgba(240,107,107,.07);display:inline-block;width:100%;}
+.term .cursor{
+  display:inline-block;width:7px;height:14px;vertical-align:-2px;
+  background:var(--heart);opacity:.85;
+}
+
+/* ---------- right dock: SFTP / Assistant / Monitor ---------- */
+.dock-right{
+  width:300px;flex:none;background:var(--dock);
+  border-left:1px solid var(--line-soft);
+  display:flex;flex-direction:column;min-height:0;position:relative;
+}
+.dock-tabs{
+  flex:none;display:flex;align-items:stretch;height:34px;
+  border-bottom:1px solid var(--line-soft);padding:0 6px;
+}
+.dock-tab{
+  position:relative;flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+  font-size:11px;color:var(--txt-3);
+}
+.dock-tab:hover{color:var(--txt-2);background:var(--hover);}
+.dock-tab.on{color:var(--txt-1);}
+.dock-tab.on::after{
+  content:"";position:absolute;left:14px;right:14px;bottom:0;height:2px;border-radius:2px;
+  background:var(--heart);
+}
+.sftp-icons{
+  flex:none;display:flex;align-items:center;gap:2px;padding:7px 9px 3px;
+}
+.sftp-icons .spacer{flex:1;}
+.breadcrumb{
+  flex:none;margin:5px 10px 8px;
+  display:flex;align-items:center;gap:6px;
+  padding:5px 10px;border:1px solid var(--line);border-radius:var(--r);
+  background:var(--well);
+  font-family:var(--font-mono);font-size:10.5px;color:var(--txt-2);
+  white-space:nowrap;overflow:hidden;
+}
+.breadcrumb .sep{color:var(--txt-3);}
+.col-head{
+  flex:none;display:flex;align-items:center;
+  padding:3px 14px 5px;border-bottom:1px solid var(--line-soft);
+  font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--txt-3);
+  font-family:var(--font-brand);
+}
+.col-head .c-name{flex:1;}
+.col-head .c-size{width:52px;text-align:right;}
+.col-head .c-mod{width:62px;text-align:right;}
+.files{flex:1;overflow:hidden;padding:4px 6px;}
+.f-row{
+  display:flex;align-items:center;gap:8px;
+  padding:5.5px 8px;border-radius:var(--r);font-size:11.5px;color:var(--txt-2);
+}
+.f-row svg{color:var(--txt-3);}
+.f-row .f-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.f-row .f-size{width:52px;text-align:right;font-family:var(--font-mono);font-size:10px;color:var(--txt-3);}
+.f-row .f-mod{width:62px;text-align:right;font-family:var(--font-mono);font-size:10px;color:var(--txt-3);}
+.f-row:hover{background:var(--hover);color:var(--txt-1);}
+.f-row.folder svg{color:var(--kuiper);}
+.f-row.hovered{background:var(--hover);color:var(--txt-1);}
+.f-row .f-actions{display:none;align-items:center;gap:2px;}
+.f-row.hovered .f-actions{display:flex;}
+.f-row.hovered .f-size,.f-row.hovered .f-mod{display:none;}
+.f-act{
+  width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;
+  border-radius:4px;color:var(--txt-3);
+}
+.f-act:hover{background:rgba(255,122,89,.14);color:var(--heart);}
+
+/* ============================================================
+   4. STATUS BAR
+   ============================================================ */
+.statusbar{
+  height:26px;flex:none;background:var(--chrome);
+  border-top:1px solid var(--line-soft);
+  display:flex;align-items:center;padding:0 10px;gap:14px;
+  font-size:10.5px;color:var(--txt-3);
+}
+.statusbar .mono{font-family:var(--font-mono);font-size:10px;}
+.sb-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:2px 9px;border-radius:999px;border:1px solid var(--line);
+  color:var(--txt-2);
+}
+.sb-chip .dot{width:5px;height:5px;border-radius:50%;background:var(--green);}
+.statusbar .right{margin-left:auto;display:flex;align-items:center;gap:14px;}
+.sb-link{display:inline-flex;align-items:center;gap:5px;color:var(--txt-3);text-decoration:none;}
+.sb-link:hover{color:var(--kuiper);}
+.sb-cost{color:var(--heart);font-family:var(--font-mono);font-size:10px;}
+
+/* ============================================================
+   5. F-KEY BAR
+   ============================================================ */
+.fkeybar{
+  height:24px;flex:none;background:var(--dock);
+  border-top:1px solid var(--line-soft);
+  display:flex;align-items:center;justify-content:center;gap:3px;
+  font-size:10px;color:var(--txt-3);
+}
+.fkey{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:2px 9px;border-radius:4px;
+}
+.fkey:hover{background:var(--hover);color:var(--txt-2);}
+.fkey b{
+  font-family:var(--font-mono);font-weight:500;font-size:10px;color:var(--txt-2);
+  background:rgba(255,255,255,.04);border:1px solid var(--line);
+  border-radius:3px;padding:0 4px;line-height:14px;
+}
+.fkey:hover b{color:var(--heart);border-color:rgba(255,122,89,.3);}
+.fkey-sep{color:var(--line);}
+
+/* ============================================================
+   LEGEND CARD
+   ============================================================ */
+.legend{
+  position:fixed;right:14px;bottom:62px;z-index:90;
+  width:178px;background:#11121B;border:1px solid var(--line);
+  border-radius:8px;padding:11px 12px;
+  box-shadow:0 14px 36px rgba(0,0,0,.55);
+}
+.legend h4{
+  font-family:var(--font-brand);font-size:10px;font-weight:600;
+  letter-spacing:.14em;color:var(--txt-3);text-transform:uppercase;margin-bottom:8px;
+}
+.lg-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.lg-row:last-child{margin-bottom:0;}
+.lg-sw{width:13px;height:13px;border-radius:4px;border:1px solid var(--line);flex:none;}
+.lg-row .n{font-size:10px;color:var(--txt-2);}
+.lg-row .v{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--txt-3);}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ 1. MENU BAR ============ -->
+  <header class="menubar noise">
+    <div class="brand">
+      <!-- brand mark: Pluto disc with heart-shaped lighter region -->
+      <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" fill="none" stroke="#FF7A59" stroke-width="1.6"/>
+        <path d="M12 17.2c-2.6-1.9-4.6-3.6-4.6-5.7 0-1.4 1.1-2.5 2.4-2.5 .9 0 1.7.5 2.2 1.3 .5-.8 1.3-1.3 2.2-1.3 1.3 0 2.4 1.1 2.4 2.5 0 2.1-2 3.8-4.6 5.7z" fill="#FF7A59" opacity=".85"/>
+      </svg>
+      <span class="name">Pluto's Terminals</span>
+    </div>
+
+    <button class="menu-item">Terminal</button>
+    <button class="menu-item">Sessions</button>
+    <button class="menu-item">Tools</button>
+    <button class="menu-item open">View
+      <!-- open dropdown -->
+      <div class="dropdown">
+        <div class="dd-row">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+          Toggle tools panel <span class="sc">⌘B</span>
+        </div>
+        <div class="dd-row">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          Workspaces <span class="sc">⌘W</span>
+        </div>
+        <div class="dd-sep"></div>
+        <div class="dd-row">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18c.9 0 1.4-.7 1.1-1.5-.4-1 .2-2 1.3-2H17a4 4 0 0 0 4-4c0-5.8-4-10.5-9-10.5z"/></svg>
+          Skins &amp; appearance <span class="sc">⌘,</span>
+        </div>
+      </div>
+    </button>
+    <button class="menu-item">Settings</button>
+    <button class="menu-item">Help</button>
+
+    <div class="right">
+      <span class="size-readout">120×32</span>
+      <span class="chip"><span class="dot"></span><span class="mono">claude · sonnet</span></span>
+      <button class="icon-btn" title="Theme">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
+      </button>
+      <div class="win-controls">
+        <button class="icon-btn" title="Minimize"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <button class="icon-btn" title="Maximize"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg></button>
+        <button class="icon-btn close" title="Close"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- horizon divider — brand signature -->
+  <div class="horizon-divider"></div>
+
+  <!-- ============ 2. ICON TOOLBAR ============ -->
+  <div class="toolbar noise">
+    <div class="tb-group">
+      <div class="tb-items">
+        <button class="tb-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><polyline points="7 9 10 11.5 7 14"/><line x1="12.5" y1="14" x2="16.5" y2="14"/></svg>
+          <span>Local</span>
+        </button>
+        <button class="tb-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="15" r="1.2"/></svg>
+          <span>SSH</span>
+        </button>
+        <button class="tb-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16M4 15h10"/><circle cx="19" cy="15" r="2"/><circle cx="6" cy="9" r="2" fill="none"/></svg>
+          <span>Serial</span>
+        </button>
+      </div>
+      <div class="tb-caption">CONNECT</div>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
+      <div class="tb-items">
+        <button class="tb-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          <span>Split</span>
+        </button>
+        <button class="tb-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
+          <span>MultiExec</span>
+        </button>
+        <button class="tb-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M4 12v5a2 2 0 0 0 2 2h2v-7H4zM20 12v5a2 2 0 0 1-2 2h-2v-7h4z"/></svg>
+          <span>Tunnel</span>
+        </button>
+      </div>
+      <div class="tb-caption">WORKSPACE</div>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
+      <div class="tb-items">
+        <button class="tb-btn accent">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.2 0-2.4-.25-3.4-.7L4 21l1.7-5.1A8.5 8.5 0 1 1 21 11.5z"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="9" y1="13.5" x2="13" y2="13.5"/></svg>
+          <span>Ask AI</span>
+        </button>
+        <button class="tb-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/><circle cx="18.5" cy="5.5" r="2.5"/></svg>
+          <span>Agent</span>
+        </button>
+        <button class="tb-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v6a6 6 0 0 0 12 0V3"/><line x1="6" y1="3" x2="6" y2="3.01"/><path d="M12 15v6"/><circle cx="12" cy="21" r="0.01"/></svg>
+          <span>Models</span>
+        </button>
+        <button class="tb-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h7a2 2 0 0 1 2 2v5"/><polyline points="16 12 18 14 20 12"/></svg>
+          <span>Workflows</span>
+        </button>
+      </div>
+      <div class="tb-caption">AI TOOLS</div>
+    </div>
+
+    <div class="right">
+      <span class="cost-chip">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 6.5c-1-1.5-2.8-2-5-2-2.8 0-5 1.3-5 3.5s2 3 5 3.5 5 1.3 5 3.5-2.2 3.5-5 3.5c-2.2 0-4-.5-5-2"/></svg>
+        $2.41 · 38k tok
+      </span>
+      <div class="quick-connect">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 7 10 12 5 17"/><line x1="13" y1="17" x2="19" y2="17"/></svg>
+        <span class="mono">user@host — quick connect</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 3. BODY ROW ============ -->
+  <div class="body-row">
+
+    <!-- LEFT DOCK — Sessions -->
+    <aside class="dock-left noise">
+      <div class="starfield">
+        <span class="star" style="top:72%;left:18%"></span>
+        <span class="star" style="top:81%;left:64%"></span>
+        <span class="star" style="top:91%;left:38%"></span>
+        <span class="star" style="top:86%;left:84%"></span>
+      </div>
+
+      <div class="dock-header">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><polyline points="7 9 10 11.5 7 14"/></svg>
+        Sessions
+      </div>
+
+      <div class="search-field">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.5" y2="16.5"/></svg>
+        Search sessions…
+      </div>
+
+      <div class="tree">
+        <!-- folder: production -->
+        <div class="tree-folder">
+          <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+          production <span class="count">4</span>
+        </div>
+        <div class="tree-row active">
+          <span class="sess-dot"></span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="6" rx="1.5"/><rect x="2" y="15" width="20" height="6" rx="1.5"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          prod-api <span class="lat">14ms</span>
+        </div>
+        <div class="tree-row">
+          <span class="sess-dot"></span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="6" rx="1.5"/><rect x="2" y="15" width="20" height="6" rx="1.5"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          prod-worker <span class="lat">16ms</span>
+        </div>
+        <div class="tree-row hovered">
+          <span class="sess-dot"></span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="8" ry="2.5"/><path d="M4 5.5v13c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-13"/><path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5"/></svg>
+          prod-db <span class="lat">21ms</span>
+        </div>
+        <div class="tree-row">
+          <span class="sess-dot"></span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
+          edge-proxy <span class="lat warn">48ms</span>
+        </div>
+
+        <!-- folder: homelab -->
+        <div class="tree-folder" style="margin-top:5px;">
+          <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+          homelab <span class="count">3</span>
+        </div>
+        <div class="tree-row">
+          <span class="sess-dot"></span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-7 9 7"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/></svg>
+          pi-cluster <span class="lat">3ms</span>
+        </div>
+        <div class="tree-row">
+          <span class="sess-dot"></span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="7" y1="9" x2="7.01" y2="9"/><line x1="7" y1="12" x2="7.01" y2="12"/><line x1="7" y1="15" x2="7.01" y2="15"/><line x1="11" y1="9" x2="17" y2="9"/><line x1="11" y1="12" x2="17" y2="12"/><line x1="11" y1="15" x2="17" y2="15"/></svg>
+          nas <span class="lat">2ms</span>
+        </div>
+        <div class="tree-row">
+          <span class="sess-dot"></span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+          vpn-gateway <span class="lat">9ms</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER — two terminal panels -->
+    <main class="center">
+
+      <!-- panel 1: claude code -->
+      <section class="panel">
+        <div class="tabstrip">
+          <div class="tab on">
+            <span class="t-dot run"></span> claude code
+          </div>
+          <div class="tab">
+            <span class="t-dot done"></span> build
+          </div>
+          <button class="tab-add" title="New tab">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+        </div>
+        <div class="term"><span class="p">●</span> <span class="w">Refactoring the PTY session registry…</span>
+
+<span class="d">  ⎿</span> <span class="k">Read</span> <span class="d">src-tauri/src/pty.rs (412 lines)</span>
+<span class="d">  ⎿</span> <span class="k">Edit</span> <span class="d">src-tauri/src/pty.rs</span>
+
+<span class="d">       @@ -88,7 +88,9 @@ impl SessionRegistry {</span>
+<span class="del">     -     let pair = pty.openpty(size)?;</span>
+<span class="add">     +     let pair = pty.openpty(size)</span>
+<span class="add">     +         .map_err(|e| Error::Spawn(e))?;</span>
+<span class="add">     +     self.audit.record(&amp;id, "spawn");</span>
+<span class="d">           sessions.insert(id.clone(), pair);</span>
+
+<span class="d">  ⎿</span> <span class="g">✓ cargo check — 0 errors, 1 warning</span>
+<span class="d">  ⎿</span> <span class="y">⚠ unused variable `cols` at pty.rs:131</span>
+
+<span class="p">●</span> <span class="w">Fixed the unwrap on openpty and added an audit</span>
+<span class="w">  record on spawn. Running the test suite next.</span>
+
+<span class="d">  total cost: $0.84 · 12.3k tokens</span>
+
+<span class="p">›</span> <span class="cursor"></span></div>
+      </section>
+
+      <!-- panel 2: ssh prod-api (focused / active pane) -->
+      <section class="panel focused">
+        <div class="tabstrip">
+          <div class="tab on">ssh: prod-api</div>
+          <div class="tab">logs</div>
+          <button class="tab-add" title="New tab">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+        </div>
+        <div class="term"><span class="d">Last login: Tue Jun  9 04:12:08 2026 from 10.8.0.3</span>
+<span class="k">Ubuntu 24.04.2 LTS · prod-api · 4 vCPU / 16 GB</span>
+<span class="d">  Load: 0.42 · Mem: 38% · Disk /srv: 61%</span>
+
+<span class="g">pluto@prod-api</span><span class="d">:</span><span class="k">/srv/api</span><span class="w">$</span> tail -f logs/app.log
+<span class="d">04:31:02</span> <span class="g">INFO </span> <span class="w">request</span> <span class="d">GET /v1/health 200 3ms</span>
+<span class="d">04:31:04</span> <span class="g">INFO </span> <span class="w">deploy</span>  <span class="d">release</span> <span class="k">v0.3.6</span> <span class="d">active</span>
+<span class="d">04:31:09</span> <span class="y">WARN </span> <span class="w">queue</span>   <span class="d">depth 1,204 &gt; soft limit</span>
+<span class="d">04:31:11</span> <span class="g">INFO </span> <span class="w">worker</span>  <span class="d">drained 800 jobs in 1.9s</span>
+<span class="d">04:31:15</span> <span class="r">ERROR</span> <span class="w">redis</span>   <span class="d">timeout</span> <span class="r">conn pool exhausted</span>
+<span class="d">04:31:15</span> <span class="g">INFO </span> <span class="w">redis</span>   <span class="d">reconnected · pool 24/64</span>
+<span class="d">04:31:20</span> <span class="g">INFO </span> <span class="w">request</span> <span class="d">POST /v1/orders 201 41ms</span>
+<span class="d">04:31:23</span> <span class="g">INFO </span> <span class="w">request</span> <span class="d">GET /v1/me 200 7ms</span>
+<span class="cursor"></span></div>
+      </section>
+    </main>
+
+    <!-- RIGHT DOCK — SFTP / Assistant / Monitor -->
+    <aside class="dock-right noise">
+      <div class="starfield">
+        <span class="star" style="top:88%;left:22%"></span>
+        <span class="star" style="top:94%;left:70%"></span>
+        <span class="star" style="top:82%;left:48%"></span>
+      </div>
+
+      <div class="dock-tabs">
+        <div class="dock-tab on">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+          SFTP
+        </div>
+        <div class="dock-tab">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1z"/></svg>
+          Assistant
+        </div>
+        <div class="dock-tab">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 13 8 13 10.5 7 13.5 18 16 13 21 13"/></svg>
+          Monitor
+        </div>
+      </div>
+
+      <div class="sftp-icons">
+        <button class="icon-btn" title="Home">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-7 9 7"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/></svg>
+        </button>
+        <button class="icon-btn" title="Up one level">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="6 11 12 5 18 11"/></svg>
+        </button>
+        <button class="icon-btn" title="Refresh">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><polyline points="20 3 20 8 15 8"/></svg>
+        </button>
+        <button class="icon-btn" title="Reveal in terminal">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </button>
+        <span class="spacer"></span>
+        <button class="icon-btn" title="Upload">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3"/><polyline points="7 8 12 3 17 8"/><line x1="12" y1="3" x2="12" y2="14"/></svg>
+        </button>
+      </div>
+
+      <div class="breadcrumb">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+        <span class="d">/</span>srv <span class="sep">/</span> api <span class="sep">/</span> <span style="color:var(--txt-1)">releases</span>
+      </div>
+
+      <div class="col-head">
+        <span class="c-name">NAME</span><span class="c-size">SIZE</span><span class="c-mod">MOD</span>
+      </div>
+
+      <div class="files">
+        <div class="f-row folder">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+          <span class="f-name">v0.3.6</span>
+          <span class="f-size">—</span><span class="f-mod">04:31</span>
+        </div>
+        <div class="f-row folder">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+          <span class="f-name">v0.3.5</span>
+          <span class="f-size">—</span><span class="f-mod">Jun 02</span>
+        </div>
+        <div class="f-row hovered">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><polyline points="14 3 14 8 19 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+          <span class="f-name">deploy.log</span>
+          <span class="f-size">182 KB</span><span class="f-mod">04:31</span>
+          <span class="f-actions">
+            <button class="f-act" title="Download"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+            <button class="f-act" title="Edit"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4L8 20l-5 1 1-5L17 3z"/></svg></button>
+            <button class="f-act" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>
+          </span>
+        </div>
+        <div class="f-row">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><polyline points="14 3 14 8 19 8"/><polyline points="9.5 12 8 13.8 9.5 15.6"/><polyline points="14.5 12 16 13.8 14.5 15.6"/></svg>
+          <span class="f-name">manifest.json</span>
+          <span class="f-size">2.1 KB</span><span class="f-mod">04:31</span>
+        </div>
+        <div class="f-row">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v8a2 2 0 0 1-1 1.7l-6 3.6a2 2 0 0 1-2 0l-6-3.6A2 2 0 0 1 5 16V8a2 2 0 0 1 1-1.7l6-3.6a2 2 0 0 1 2 0l6 3.6A2 2 0 0 1 21 8z"/><path d="M5.3 7L13 11.5 20.7 7M13 11.5V21"/></svg>
+          <span class="f-name">api-v0.3.6.tar.gz</span>
+          <span class="f-size">14.8 MB</span><span class="f-mod">04:29</span>
+        </div>
+        <div class="f-row">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <span class="f-name">release.sig</span>
+          <span class="f-size">566 B</span><span class="f-mod">04:29</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ============ 4. STATUS BAR ============ -->
+  <footer class="statusbar noise">
+    <span class="sb-chip"><span class="dot"></span><span class="mono">ssh: prod-api · 120×32</span></span>
+    <span class="mono">zsh · UTF-8</span>
+    <div class="right">
+      <span class="sb-cost">$2.41</span>
+      <span class="mono">claude</span>
+      <span class="mono">v0.3.6</span>
+      <a class="sb-link" href="#">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
+        github
+      </a>
+      <a class="sb-link" href="#">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 17c-3 0-4.5-2-4.5-2 .5-3.5 1.6-6.6 3.3-9.2 0 0 1.7-.8 3.2-.8l.5 1a12 12 0 0 1 4 0l.5-1c1.5 0 3.2.8 3.2.8 1.7 2.6 2.8 5.7 3.3 9.2 0 0-1.5 2-4.5 2l-.9-1.4"/><circle cx="9.3" cy="12.3" r="1.1"/><circle cx="14.7" cy="12.3" r="1.1"/></svg>
+        discord
+      </a>
+    </div>
+  </footer>
+
+  <!-- ============ 5. F-KEY BAR ============ -->
+  <nav class="fkeybar">
+    <span class="fkey"><b>F1</b> Help</span><span class="fkey-sep">·</span>
+    <span class="fkey"><b>F2</b> Tab</span><span class="fkey-sep">·</span>
+    <span class="fkey"><b>F3</b> Split</span><span class="fkey-sep">·</span>
+    <span class="fkey"><b>F4</b> SFTP</span><span class="fkey-sep">·</span>
+    <span class="fkey"><b>⌘K</b> Palette</span><span class="fkey-sep">·</span>
+    <span class="fkey"><b>⌘I</b> Ask AI</span><span class="fkey-sep">·</span>
+    <span class="fkey"><b>⌘R</b> History</span><span class="fkey-sep">·</span>
+    <span class="fkey"><b>⌘M</b> Models</span><span class="fkey-sep">·</span>
+    <span class="fkey"><b>F9</b> Macro</span>
+  </nav>
+</div>
+
+<!-- ============ TOKEN LEGEND ============ -->
+<div class="legend">
+  <h4>Pluto Horizon</h4>
+  <div class="lg-row"><span class="lg-sw" style="background:#FF7A59"></span><span class="n">heart coral</span><span class="v">#FF7A59</span></div>
+  <div class="lg-row"><span class="lg-sw" style="background:#7DA2FF"></span><span class="n">kuiper blue</span><span class="v">#7DA2FF</span></div>
+  <div class="lg-row"><span class="lg-sw" style="background:#0C0D14"></span><span class="n">chrome</span><span class="v">#0C0D14</span></div>
+  <div class="lg-row"><span class="lg-sw" style="background:#060710"></span><span class="n">well</span><span class="v">#060710</span></div>
+  <div class="lg-row"><span class="lg-sw" style="background:#ECEDF4"></span><span class="n">text</span><span class="v">#ECEDF4</span></div>
+</div>
+
+</body>
+</html>

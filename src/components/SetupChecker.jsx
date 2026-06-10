@@ -14,8 +14,8 @@ import { useToast } from "./Toast.jsx";
 import { openExternal } from "../appMeta.js";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
-const PLUTO_MAGENTA = "#FF0080";
-const GREEN = "#34D399";
+const PLUTO_MAGENTA = "#e08784";
+const GREEN = "#7fbf8a";
 const YELLOW = "#FBBF24";
 
 const CLAUDE_INSTALL_CMD = "npm install -g @anthropic-ai/claude-code";
@@ -75,7 +75,7 @@ export default function SetupChecker({ open, onClose }) {
     <Modal open={open} title="Setup Check" onClose={onClose} width={620}>
       <p style={{ color: FG, fontSize: 12, lineHeight: 1.7, marginBottom: 18 }}>
         Pluto's Terminal is a terminal app — it expects a few things on your machine.
-        Run through this once and you're set. Re-open anytime via the <strong style={{ color: ACCENT }}>🚀 setup</strong> button in the header.
+        Run through this once and you're set. Re-open anytime via the <strong style={{ color: ACCENT }}>setup</strong> button in the header.
       </p>
 
       <Check

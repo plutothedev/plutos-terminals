@@ -372,7 +372,7 @@ function Welcome({ discordUrl, onContinue }) {
           First time? You'll also need <strong style={{ color: "var(--phn-text-fg)" }}>Node.js</strong> + the{" "}
           <strong style={{ color: "var(--phn-text-fg)" }}>Claude Code CLI</strong> for{" "}
           <code style={{ background: "var(--phn-surface-bg)", padding: "1px 5px", borderRadius: "var(--phn-r-sm)", fontFamily: "var(--phn-mono-font)", fontSize: "var(--phn-fs-2xs)" }}>claude</code>{" "}
-          to run in a tab — the header's <strong style={{ color: "var(--phn-text-fg)" }}>🚀 setup</strong> has a guided checklist.
+          to run in a tab — the header's <strong style={{ color: "var(--phn-text-fg)" }}>setup</strong> has a guided checklist.
         </div>
 
         <div style={{ color: "var(--phn-text-faint)", fontSize: "var(--phn-fs-2xs)", fontFamily: "var(--phn-mono-font)" }}>

@@ -169,34 +169,34 @@ export const HEADER_SKINS = [
   {
     id: "moba",
     label: "Dark",
-    description: "Near-black chrome, blood-orange accent, pure-black terminal.",
+    description: "Refined dark chrome, hairline borders, periwinkle accent (mockup 23).",
     xterm: {
-      background: "#000000",
-      foreground: "#d0d0d0",
-      cursor: "#d8dee9",
-      selectionBackground: "rgba(94,129,172,0.45)",
-      black: "#2e3436", red: "#ff5f5f", green: "#5fd75f", yellow: "#e5e510",
-      blue: "#5f87ff", magenta: "#d75fd7", cyan: "#5fd7d7", white: "#d0d0d0",
-      brightBlack: "#6a6a6a", brightRed: "#ff8787", brightGreen: "#87ff87",
-      brightYellow: "#ffff5f", brightBlue: "#87afff", brightMagenta: "#ff87ff",
-      brightCyan: "#87ffff", brightWhite: "#ffffff",
+      background: "#0c0d0e",
+      foreground: "#c6c8cc",
+      cursor: "#c6c8cc",
+      selectionBackground: "rgba(124,156,245,0.30)",
+      black: "#26282b", red: "#e08784", green: "#7fbf8a", yellow: "#d2b36b",
+      blue: "#7c9cf5", magenta: "#c49ad1", cyan: "#6fbcc9", white: "#c6c8cc",
+      brightBlack: "#67696e", brightRed: "#eda3a0", brightGreen: "#9bd3a5",
+      brightYellow: "#e3ca8e", brightBlue: "#9cb5f7", brightMagenta: "#d7b3e2",
+      brightCyan: "#8fd0db", brightWhite: "#eceef0",
     },
   },
   {
     id: "moba-light",
     label: "Light",
-    description: "Light Windows-grey chrome, pure-black terminal (same as Dark).",
+    description: "Light grey chrome, same dark terminal as Dark.",
     // Same terminal palette as Dark — the toggle only changes the chrome.
     xterm: {
-      background: "#000000",
-      foreground: "#d0d0d0",
-      cursor: "#d8dee9",
-      selectionBackground: "rgba(94,129,172,0.45)",
-      black: "#2e3436", red: "#ff5f5f", green: "#5fd75f", yellow: "#e5e510",
-      blue: "#5f87ff", magenta: "#d75fd7", cyan: "#5fd7d7", white: "#d0d0d0",
-      brightBlack: "#6a6a6a", brightRed: "#ff8787", brightGreen: "#87ff87",
-      brightYellow: "#ffff5f", brightBlue: "#87afff", brightMagenta: "#ff87ff",
-      brightCyan: "#87ffff", brightWhite: "#ffffff",
+      background: "#0c0d0e",
+      foreground: "#c6c8cc",
+      cursor: "#c6c8cc",
+      selectionBackground: "rgba(124,156,245,0.30)",
+      black: "#26282b", red: "#e08784", green: "#7fbf8a", yellow: "#d2b36b",
+      blue: "#7c9cf5", magenta: "#c49ad1", cyan: "#6fbcc9", white: "#c6c8cc",
+      brightBlack: "#67696e", brightRed: "#eda3a0", brightGreen: "#9bd3a5",
+      brightYellow: "#e3ca8e", brightBlue: "#9cb5f7", brightMagenta: "#d7b3e2",
+      brightCyan: "#8fd0db", brightWhite: "#eceef0",
     },
   },
 ];
@@ -982,34 +982,34 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
 [data-phn-skin="pro"] .phn-muted { color: #62666d !important; }
 [data-phn-skin="pro"] option { background: #0f1011; color: #b4b8c0; }
 
-/* ── moba — near-black chrome, blood-orange accent, Chrome tabs ───────── */
+/* ── moba — refined dark chrome (mockup 23), hairlines, pill controls ──── */
 [data-phn-skin="moba"] .phn-header {
-  background: #0d0d0d;
-  border-bottom: 1px solid #000000;
+  background: #101113;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 [data-phn-skin="moba"] .phn-title {
-  color: #ffffff;
+  color: #eceef0;
   font-weight: 600;
   letter-spacing: 0.02em;
   font-size: 12px;
 }
-[data-phn-skin="moba"] .phn-meta { color: #9a9a9a; }
-[data-phn-skin="moba"] .phn-cost { color: #5fd75f; }
+[data-phn-skin="moba"] .phn-meta { color: #9a9da3; }
+[data-phn-skin="moba"] .phn-cost { color: #9a9da3; }
 [data-phn-skin="moba"] .phn-btn,
 [data-phn-skin="moba"] .phn-select {
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
-  color: #d4d4d4;
-  border-radius: 3px;
+  background: #1b1c1f;
+  border: 1px solid rgba(255,255,255,0.07);
+  color: #d6d8dc;
+  border-radius: 6px;
 }
 [data-phn-skin="moba"] .phn-btn:hover:not(:disabled),
 [data-phn-skin="moba"] .phn-select:hover {
-  background: #1f1f1f;
-  border-color: #E04A1F;
-  color: #ffffff;
+  background: #222327;
+  border-color: rgba(255,255,255,0.12);
+  color: #eceef0;
 }
-[data-phn-skin="moba"] .phn-muted { color: #888888 !important; }
-[data-phn-skin="moba"] option { background: #383838; color: #d4d4d4; }
+[data-phn-skin="moba"] .phn-muted { color: #67696e !important; }
+[data-phn-skin="moba"] option { background: #1b1c1f; color: #d6d8dc; }
 
 /* ── moba-light — light Windows chrome (the Light toggle state) ───────── */
 [data-phn-skin="moba-light"] .phn-header {
@@ -1165,34 +1165,34 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
 }
 
 [data-phn-skin="moba"] {
-  /* Near-black workstation chrome (page < sidebar < bars < raised, all close to
-     black) over a pure-black terminal, hairline dividers, one blood-orange
-     accent (#E04A1F). Colour otherwise lives in the terminal + toolbox icons. */
-  --phn-page-bg: #000000;        /* behind panels; terminal itself is pure black */
-  --phn-surface-bg: #0d0d0d;     /* menu / toolbar / status — barely lifted off black */
-  --phn-surface-alt-bg: #080808; /* sidebar / docked tree + SFTP */
-  --phn-elevated-bg: #1a1a1a;    /* modals / popovers / raised */
-  --phn-surface-border: #242424; /* hairline dividers between surfaces */
-  --phn-text-fg: #D3D7DD;        /* body */
-  --phn-text-active: #F2F4F7;    /* headings / emphasis */
-  --phn-text-dim: #8A909A;       /* secondary / captions */
-  --phn-text-faint: #586068;     /* placeholder / disabled */
-  --phn-link: #E04A1F;           /* blood-orange accent */
-  --phn-accent-hover: #F0633A;
-  --phn-accent-subtle: rgba(224,74,31,0.18);
-  --phn-accent-fg: #1a0800;      /* text on the accent fill */
-  --phn-success: #5FB87A;
-  --phn-warning: #E0A93C;
-  --phn-danger: #E0655E;
-  --phn-focus-ring: rgba(224,74,31,0.50);
+  /* Refined dark (mockup 23): luminance-ladder chrome over a near-black
+     terminal well, alpha-white hairline dividers, one restrained periwinkle
+     accent (#7c9cf5). Pill tabs; selection = white-alpha wash + accent bar. */
+  --phn-page-bg: #101113;        /* chrome behind panels */
+  --phn-surface-bg: #101113;     /* menu / toolbar / status */
+  --phn-surface-alt-bg: #141517; /* sidebar / docked tree + SFTP — slightly lifted */
+  --phn-elevated-bg: #1b1c1f;    /* modals / popovers / inputs / raised */
+  --phn-surface-border: rgba(255,255,255,0.07); /* hairline dividers */
+  --phn-text-fg: #d6d8dc;        /* body */
+  --phn-text-active: #eceef0;    /* headings / emphasis */
+  --phn-text-dim: #9a9da3;       /* secondary / captions */
+  --phn-text-faint: #67696e;     /* placeholder / disabled */
+  --phn-link: #7c9cf5;           /* periwinkle accent */
+  --phn-accent-hover: #93aff7;
+  --phn-accent-subtle: rgba(124,156,245,0.16);
+  --phn-accent-fg: #0e1018;      /* text on the accent fill */
+  --phn-success: #7fbf8a;
+  --phn-warning: #d2b36b;
+  --phn-danger: #e08784;
+  --phn-focus-ring: rgba(124,156,245,0.50);
   --phn-hover-bg: rgba(255,255,255,0.05);
-  --phn-tabstrip-bg: #000000;    /* strip behind the tabs (matches the terminal) */
-  /* Chrome-style tab slab colours (see .moba-tab) */
-  --phn-tab-bg: #1E2125;
-  --phn-tab-bg-hover: #2A2E34;
-  --phn-tab-bg-active: #16181C;  /* active tab meets the page/terminal */
-  --phn-tab-fg: #8A909A;
-  --phn-tab-fg-active: #F2F4F7;
+  --phn-tabstrip-bg: #101113;    /* strip matches the chrome; tabs are pills */
+  /* Pill tabs (see .moba-tab): inactive transparent, active elevated */
+  --phn-tab-bg: transparent;
+  --phn-tab-bg-hover: rgba(255,255,255,0.04);
+  --phn-tab-bg-active: #1b1c1f;
+  --phn-tab-fg: #9a9da3;
+  --phn-tab-fg-active: #eceef0;
 }
 
 /* Light CHROME — the toggle's other state. Everything but the terminal turns

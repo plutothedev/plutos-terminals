@@ -62,7 +62,7 @@ const input = {
   outline: "none", fontFamily: "var(--phn-ui-font)",
 };
 const primaryBtn = {
-  background: "var(--phn-link, #4aa8c0)", border: "none", color: "#06223a", borderRadius: 5,
+  background: "var(--phn-link, #7c9cf5)", border: "none", color: "#06223a", borderRadius: 5,
   padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--phn-ui-font)",
 };
 const dangerBtn = {

@@ -60,21 +60,33 @@ export default function VncView({ host, port, tabId, visible }) {
         const ctx = canvas.getContext("2d");
         setStatus(null);
 
-        unlisten.push(await listen(`vnc-frame://${id}`, (e) => {
+        // Each listen() is awaited — if the view unmounts mid-await, cleanup
+        // has already run with a partially-filled unlisten[], so detach the
+        // late-resolved handle immediately or it leaks. Handlers also bail on
+        // !alive so frames stop decoding into a disposed canvas.
+        const unFrame = await listen(`vnc-frame://${id}`, (e) => {
+          if (!alive) return;
           const { x, y, w: rw, h: rh, data } = e.payload;
           try {
             const img = new ImageData(new Uint8ClampedArray(b64ToBytes(data)), rw, rh);
             ctx.putImageData(img, x, y);
           } catch { /* malformed rect — skip */ }
-        }));
-        unlisten.push(await listen(`vnc-resize://${id}`, (e) => {
+        });
+        if (!alive) { unFrame(); return; }
+        unlisten.push(unFrame);
+        const unResize = await listen(`vnc-resize://${id}`, (e) => {
+          if (!alive) return;
           const { w: nw, h: nh } = e.payload;
           canvas.width = nw; canvas.height = nh;
           sizeRef.current = { w: nw, h: nh };
-        }));
-        unlisten.push(await listen(`vnc-exit://${id}`, () => {
+        });
+        if (!alive) { unResize(); return; }
+        unlisten.push(unResize);
+        const unExit = await listen(`vnc-exit://${id}`, () => {
           if (alive) setStatus("Disconnected.");
-        }));
+        });
+        if (!alive) { unExit(); return; }
+        unlisten.push(unExit);
       } catch (err) {
         if (alive) setStatus(`Connection failed: ${err}`);
       }

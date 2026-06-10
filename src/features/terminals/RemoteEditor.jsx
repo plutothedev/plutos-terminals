@@ -101,8 +101,8 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
           onClick={save}
           disabled={saving || !dirty || loading || !!error}
           style={{
-            background: saving || !dirty ? "transparent" : "var(--phn-link, #4aa8c0)",
-            border: "1px solid var(--phn-link, #4aa8c0)",
+            background: saving || !dirty ? "transparent" : "var(--phn-link, #7c9cf5)",
+            border: "1px solid var(--phn-link, #7c9cf5)",
             color: saving || !dirty ? "var(--phn-text-dim, #888)" : "#06223a",
             padding: "4px 14px", borderRadius: 4, fontSize: 12, fontWeight: 600,
             cursor: saving || !dirty ? "default" : "pointer", fontFamily: "var(--phn-ui-font)",

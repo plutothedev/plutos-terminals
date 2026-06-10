@@ -13,7 +13,7 @@ const REPO_NAME = "plutos-terminals";
 const GITHUB_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 const RELEASES_URL = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases`;
 
-const PLUTO_MAGENTA = "#FF0080";
+const PLUTO_MAGENTA = "#7c9cf5"; // legacy name; now the refined accent
 const FG_ACTIVE = "#E6E6E6";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 

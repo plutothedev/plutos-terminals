@@ -9,6 +9,7 @@
 // the built-in starter set, so it still works before persistence is wired.
 import { useMemo, useState } from "react";
 import yaml from "js-yaml";
+import { SSnips } from "./toolbarIcons.jsx";
 
 // Map between our workflow shape and Warp's workflow YAML schema (name, command,
 // description, tags, arguments[{name, description, default_value}]) — so Warp's
@@ -182,7 +183,7 @@ export default function SnippetsDrawer({
       aria-hidden={!docked && !open}
     >
       <div className="phn-snippets-header">
-        <span>📋 Workflows</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><SSnips size={13} /> Workflows</span>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {editable && (
             <button
@@ -368,7 +369,7 @@ export default function SnippetsDrawer({
                     cursor: "pointer",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.color = "#f44";
+                    e.currentTarget.style.color = "var(--phn-danger, #e08784)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.color = "var(--phn-text-dim, #888)";

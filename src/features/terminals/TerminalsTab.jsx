@@ -32,7 +32,10 @@ import {
   IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
   IconHelp, IconMoon, IconSun, IconExit, IconModels, IconAsk, IconFolder,
 } from "./icons.jsx";
-import { SLocal, SSsh, SSerial, SSplit, SSplitRow, SSplitCol, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch, SPulse } from "./toolbarIcons.jsx";
+import {
+  SLocal, SSsh, SSerial, SSplit, SSplitRow, SSplitCol, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch, SPulse,
+  SMouse, SWindows, SFolder, SLock, SKey, SRocket, SGear, SBot, SDoc, SClock, SLayout, SBroadcast, STarget, SPlug, SPhone, SRecord, SStop, SReset,
+} from "./toolbarIcons.jsx";
 import LocalFileBrowser from "./LocalFileBrowser";
 import DockAssistant from "./DockAssistant";
 import DockMonitor from "./DockMonitor";
@@ -524,7 +527,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // "Games" toolbar button — MobaXterm has built-in games; we keep it honest
   // with a wink toward the palette.
   const playGames = useCallback(() => {
-    toast.info("🎮 No games bundled — but Ctrl+K opens the command palette.");
+    toast.info("No games bundled — but Ctrl+K opens the command palette.");
   }, [toast]);
 
   // "Exit" toolbar button — truly quit (kills every PTY). Needs the quit_app
@@ -599,7 +602,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       height: 24,
       label: activeTab?.label || "tab",
     });
-    toast.success(`🎬 Recording "${activeTab?.label || "tab"}" — pick "Stop & save" when done.`);
+    toast.success(`Recording "${activeTab?.label || "tab"}" — pick "Stop & save" when done.`);
   }, [activeTabId, activeTab, toast]);
 
   const stopAndSaveRecording = useCallback(async () => {
@@ -777,30 +780,30 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           {
             caption: "Connect",
             items: [
-              { id: "local", icon: <SLocal />, color: "#5B9BE0", label: "Local", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
-              { id: "ssh", icon: <SSsh />, color: "#3FC7C7", label: "SSH", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
-              { id: "serial", icon: <SSerial />, color: "#E0863C", label: "Serial", title: "Serial console session", onClick: () => setSerialOpen(true) },
+              { id: "local", icon: <SLocal />, label: "Local", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
+              { id: "ssh", icon: <SSsh />, label: "SSH", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
+              { id: "serial", icon: <SSerial />, label: "Serial", title: "Serial console session", onClick: () => setSerialOpen(true) },
             ],
           },
           {
             caption: "Workspace",
             items: [
-              { id: "split", icon: <SSplit />, color: "#6FB85C", label: "Split", title: "Split the active pane", disabled: !activeTabId, menu: [
+              { id: "split", icon: <SSplit />, label: "Split", title: "Split the active pane", disabled: !activeTabId, menu: [
                 { id: "split-row", icon: <SSplitRow size={15} />, label: "Side by side", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
                 { id: "split-col", icon: <SSplitCol size={15} />, label: "Stacked", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
               ] },
-              { id: "multiexec", icon: <SMultiX />, color: "#B07CE0", label: "MultiX", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
-              { id: "tunnel", icon: <STunnel />, color: "#4FB8E6", label: "Tunnel", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+              { id: "multiexec", icon: <SMultiX />, label: "MultiX", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
+              { id: "tunnel", icon: <STunnel />, label: "Tunnel", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
             ],
           },
           {
             caption: "AI · Tools",
             items: [
-              { id: "ask", icon: <SAsk />, color: "#D982D9", label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
-              { id: "agent", icon: <SAgents />, color: "#6FB85C", label: "Agent", title: "Agent Mode — give a goal in plain English; it runs commands to do it (Ctrl+Shift+A)", onClick: () => setAgentOpen(true) },
-              { id: "models", icon: <SModels />, color: "#E06C9B", label: "Models", title: "Pick your LLM provider + model and enter its API key", onClick: () => setModelsOpen(true) },
-              { id: "snips", icon: <SSnips />, color: "#5B9BE0", label: "Workflows", title: "Workflows — saved parameterized commands; click to run", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-              { id: "agents", icon: <SAgents />, color: "#6FB85C", label: "Agents", title: "Agent mission control", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
+              { id: "ask", icon: <SAsk />, label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
+              { id: "agent", icon: <SAgents />, label: "Agent", title: "Agent Mode — give a goal in plain English; it runs commands to do it (Ctrl+Shift+A)", onClick: () => setAgentOpen(true) },
+              { id: "models", icon: <SModels />, label: "Models", title: "Pick your LLM provider + model and enter its API key", onClick: () => setModelsOpen(true) },
+              { id: "snips", icon: <SSnips />, label: "Workflows", title: "Workflows — saved parameterized commands; click to run", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+              { id: "agents", icon: <SAgents />, label: "Agents", title: "Agent mission control", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
             ],
           },
         ]}
@@ -939,9 +942,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             <div className="moba-rightdock" style={{ width: dockWidth }}>
               <div className="moba-rd-tabs">
                 {[
-                  { id: "files", label: "SFTP", icon: <IconFolder size={13} />, color: "#E0C04F" },
-                  { id: "assistant", label: "Assistant", icon: <SAsk size={13} />, color: "#D982D9" },
-                  { id: "monitor", label: "Monitor", icon: <SPulse size={13} />, color: "#4FB8E6" },
+                  { id: "files", label: "SFTP", icon: <SFolder size={13} /> },
+                  { id: "assistant", label: "Assistant", icon: <SAsk size={13} /> },
+                  { id: "monitor", label: "Monitor", icon: <SPulse size={13} /> },
                 ].map((t) => (
                   <span
                     key={t.id}
@@ -949,7 +952,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                     onClick={() => setDockTab(t.id)}
                     title={t.label}
                   >
-                    <span style={{ color: t.color, display: "inline-flex" }}>{t.icon}</span> {t.label}
+                    <span style={{ display: "inline-flex" }}>{t.icon}</span> {t.label}
                   </span>
                 ))}
                 <button className="moba-rd-collapse" onClick={() => collapseDock(true)} title="Collapse panel">›</button>
@@ -1141,52 +1144,52 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         open={commandPaletteOpen}
         commands={[
           { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: scOf("newTab"), action: () => addTab(state.activePanelId) },
-          { id: "new-session", icon: "🌐", label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
-          { id: "import-ssh", icon: "🔑", label: "Import ~/.ssh/config", hint: "Add every SSH host from your OpenSSH config to the Sessions tree", action: () => importSshConfig() },
-          { id: "ssh-keys", icon: "🗝️", label: "SSH keys", hint: "List / generate SSH keypairs; copy a public key to a server", action: () => setSshKeysOpen(true) },
-          { id: "macros", icon: "⏺", label: "Keystroke macros", hint: "Record what you type and replay it into the active terminal", action: () => setMacrosOpen(true) },
-          { id: "master-pw", icon: "🔒", label: "Master password", hint: "Lock the app behind a password on launch", action: () => setMasterPwOpen(true) },
-          { id: "split-right", icon: "⬌", label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-          { id: "split-down", icon: "⬍", label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+          { id: "new-session", icon: <SSsh size={14} />, label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
+          { id: "import-ssh", icon: <SKey size={14} />, label: "Import ~/.ssh/config", hint: "Add every SSH host from your OpenSSH config to the Sessions tree", action: () => importSshConfig() },
+          { id: "ssh-keys", icon: <SKey size={14} />, label: "SSH keys", hint: "List / generate SSH keypairs; copy a public key to a server", action: () => setSshKeysOpen(true) },
+          { id: "macros", icon: <SRecord size={14} />, label: "Keystroke macros", hint: "Record what you type and replay it into the active terminal", action: () => setMacrosOpen(true) },
+          { id: "master-pw", icon: <SLock size={14} />, label: "Master password", hint: "Lock the app behind a password on launch", action: () => setMasterPwOpen(true) },
+          { id: "split-right", icon: <SSplitRow size={14} />, label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+          { id: "split-down", icon: <SSplitCol size={14} />, label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
           { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
-          { id: "ask", icon: "✨", label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
-          { id: "agent", icon: "🤖", label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal", shortcut: scOf("agentMode"), action: () => setAgentOpen(true) },
-          { id: "summarize", icon: "📝", label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
-          { id: "history", icon: "🕘", label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs", shortcut: scOf("history"), action: () => setHistoryOpen(true) },
-          { id: "workspaces", icon: "🗂", label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
-          { id: "models", icon: "🧠", label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
-          { id: "snippets", icon: "📋", label: "Workflows panel", hint: "Saved parameterized commands — click to run", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-          { id: "files", icon: "📁", label: "File browser (SFTP) — focus right dock", hint: "Local files, or remote SFTP for an SSH tab, in the right dock (F4)", action: () => focusFilesDock() },
-          { id: "tunnels", icon: "⇄", label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
-          { id: "serial", icon: "⎓", label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
-          { id: "vnc", icon: "🖥", label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
-          { id: "rdp", icon: "🪟", label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
-          { id: "remote-control", icon: "📱", label: "Remote control (phone)", hint: "Run a private server so your phone can view + type into your terminals over Tailscale", action: () => setRemoteOpen(true) },
-          { id: "broadcast", icon: "📡", label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
-          { id: "broadcast-group", icon: "🎯", label: "Broadcast targets… (choose terminals)", hint: "Pick a subset of terminals for MultiExec instead of all visible", action: () => setBroadcastGroupOpen(true) },
-          { id: "nettools", icon: "🌐", label: "Network tools", hint: "Ping, traceroute, TCP port scan, and DNS lookup", action: () => setNetToolsOpen(true) },
-          { id: "toggle-sidebar", icon: "◧", label: ribbon ? "Hide tools panel" : "Show snippets panel", hint: "Show or hide the Snippets / Agents panel beside the session tree", action: () => selectRibbon(ribbon ? null : "snippets") },
-          { id: "mcps", icon: "🔌", label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
-          { id: "setup", icon: "🚀", label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
-          { id: "settings", icon: "⚙️", label: "Open settings", hint: "Appearance, keyboard shortcuts, factory reset", shortcut: scOf("settings"), action: () => setSettingsOpen(true) },
+          { id: "ask", icon: <SAsk size={14} />, label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
+          { id: "agent", icon: <SBot size={14} />, label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal", shortcut: scOf("agentMode"), action: () => setAgentOpen(true) },
+          { id: "summarize", icon: <SDoc size={14} />, label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
+          { id: "history", icon: <SClock size={14} />, label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs", shortcut: scOf("history"), action: () => setHistoryOpen(true) },
+          { id: "workspaces", icon: <SLayout size={14} />, label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
+          { id: "models", icon: <SModels size={14} />, label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
+          { id: "snippets", icon: <SSnips size={14} />, label: "Workflows panel", hint: "Saved parameterized commands — click to run", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
+          { id: "files", icon: <SFolder size={14} />, label: "File browser (SFTP) — focus right dock", hint: "Local files, or remote SFTP for an SSH tab, in the right dock (F4)", action: () => focusFilesDock() },
+          { id: "tunnels", icon: <STunnel size={14} />, label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+          { id: "serial", icon: <SSerial size={14} />, label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
+          { id: "vnc", icon: <SMouse size={14} />, label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
+          { id: "rdp", icon: <SWindows size={14} />, label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
+          { id: "remote-control", icon: <SPhone size={14} />, label: "Remote control (phone)", hint: "Run a private server so your phone can view + type into your terminals over Tailscale", action: () => setRemoteOpen(true) },
+          { id: "broadcast", icon: <SBroadcast size={14} />, label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
+          { id: "broadcast-group", icon: <STarget size={14} />, label: "Broadcast targets… (choose terminals)", hint: "Pick a subset of terminals for MultiExec instead of all visible", action: () => setBroadcastGroupOpen(true) },
+          { id: "nettools", icon: <SSsh size={14} />, label: "Network tools", hint: "Ping, traceroute, TCP port scan, and DNS lookup", action: () => setNetToolsOpen(true) },
+          { id: "toggle-sidebar", icon: <SSplit size={14} />, label: ribbon ? "Hide tools panel" : "Show snippets panel", hint: "Show or hide the Snippets / Agents panel beside the session tree", action: () => selectRibbon(ribbon ? null : "snippets") },
+          { id: "mcps", icon: <SPlug size={14} />, label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
+          { id: "setup", icon: <SRocket size={14} />, label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
+          { id: "settings", icon: <SGear size={14} />, label: "Open settings", hint: "Appearance, keyboard shortcuts, factory reset", shortcut: scOf("settings"), action: () => setSettingsOpen(true) },
           activeTabRecording
             ? {
                 id: "stop-recording",
-                icon: "⏹",
+                icon: <SStop size={14} />,
                 label: "Stop & save recording",
                 hint: `Save .cast file for the active tab (${activeTab?.label || "tab"})`,
                 action: () => stopAndSaveRecording(),
               }
             : {
                 id: "start-recording",
-                icon: "🎬",
+                icon: <SRecord size={14} />,
                 label: "Start recording active tab",
                 hint: `Record terminal output of "${activeTab?.label || "tab"}" as an asciinema .cast file`,
                 action: () => startRecordingActive(),
               },
           {
             id: "new-window",
-            icon: "🪟",
+            icon: <SWindows size={14} />,
             label: "Open new window",
             hint: "Spawns a fresh window with its own independent panel layout, skin, and sessions",
             action: async () => {
@@ -1201,7 +1204,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           },
           {
             id: "reset-workspace",
-            icon: "♻️",
+            icon: <SReset size={14} />,
             label: "Reset workspace",
             hint: "Clear all panels and tabs (keeps API key, skin, projects)",
             action: async () => {
@@ -1256,10 +1259,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         {broadcast && (
           <button
             onClick={() => setBroadcastGroupOpen(true)}
-            style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", color: "var(--phn-warning)", fontSize: 11, fontWeight: 600 }}
+            style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", color: "var(--phn-warning)", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}
             title="Broadcast (MultiExec) is on. Click to choose target terminals; the MultiExec button toggles it off."
           >
-            📡 broadcast: {bcastTargets ? `${bcastTargets.length} tab${bcastTargets.length === 1 ? "" : "s"}` : "all visible"}
+            <SBroadcast size={12} /> broadcast: {bcastTargets ? `${bcastTargets.length} tab${bcastTargets.length === 1 ? "" : "s"}` : "all visible"}
           </button>
         )}
         {recordingTabIds.length > 0 && (
@@ -1298,8 +1301,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           </span>
         )}
         {(userSt?.activeModel?.model || claudeAvailable) && (
-          <span className="phn-statusbar-active" title="Active model (Models picker)">
-            ✦ {userSt?.activeModel?.model || "claude"}
+          <span className="phn-statusbar-active" title="Active model (Models picker)" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <SAsk size={11} /> {userSt?.activeModel?.model || "claude"}
           </span>
         )}
         <span style={{ opacity: 0.45 }}>v{APP_VERSION}</span>
@@ -1314,7 +1317,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         <span className="phn-statusbar-divider">·</span>
         <button
           onClick={() => openExternal(DISCORD_URL)}
-          style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", color: "#FF0080", font: "inherit" }}
+          style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", color: "var(--phn-text-dim, #9a9da3)", font: "inherit" }}
           title="Join the Pluto Discord"
         >
           discord

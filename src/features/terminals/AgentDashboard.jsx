@@ -5,6 +5,7 @@
 // Filter by status. The parallel-AI "mission control" (Conductor-style).
 import { useState } from "react";
 import { getLayout, leafIds } from "./splitTree";
+import { SBot, SAgents, SLink, SSerial, SWindows, SLocal, SAsk } from "./toolbarIcons.jsx";
 import "./terminals.css";
 
 // A tab's status = the loudest of its panes (active > done > idle). Mirrors
@@ -57,8 +58,8 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
       onClick={() => setFilter(id)}
       style={{
         background: filter === id ? "var(--phn-accent-subtle, rgba(74,168,192,0.18))" : "transparent",
-        border: `1px solid ${filter === id ? "var(--phn-link, #4aa8c0)" : "var(--phn-surface-border, #2a2a2a)"}`,
-        color: filter === id ? "var(--phn-link, #4aa8c0)" : "var(--phn-text-dim, #888)",
+        border: `1px solid ${filter === id ? "var(--phn-link, #7c9cf5)" : "var(--phn-surface-border, #2a2a2a)"}`,
+        color: filter === id ? "var(--phn-link, #7c9cf5)" : "var(--phn-text-dim, #888)",
         borderRadius: 4, padding: "1px 7px", fontSize: 9.5, cursor: "pointer",
         fontFamily: "var(--phn-ui-font)",
       }}
@@ -70,7 +71,7 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
   return (
     <div className="moba-dock-panel">
       <div className="phn-snippets-header">
-        <span>🤖 Agents</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><SBot size={13} /> Agents</span>
         <span style={{ fontSize: 10, color: "var(--phn-text-dim, #888)", fontWeight: 400 }}>
           {rows.length} · {working} running
         </span>
@@ -97,7 +98,7 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
                 className="moba-agent-dot"
                 style={{ background: DOT[status], boxShadow: status === "active" ? `0 0 6px ${DOT.active}` : status === "done" ? `0 0 6px ${DOT.done}` : "none" }}
               />
-              <span className="moba-agent-icon">{tab.worktree ? "🌿" : tab.connection ? "🔗" : tab.serial ? "⎓" : tab.rdp ? "🪟" : tab.vnc ? "🖥" : "❯"}</span>
+              <span className="moba-agent-icon" style={{ display: "inline-flex", alignItems: "center" }}>{tab.worktree ? <SAgents size={11} /> : tab.connection ? <SLink size={11} /> : tab.serial ? <SSerial size={11} /> : tab.rdp ? <SWindows size={11} /> : tab.vnc ? <SLocal size={11} /> : "❯"}</span>
               <span className="moba-agent-name">{tab.worktree ? tab.worktree.branch : tab.label}</span>
               {tokens > 0 && <span className="moba-agent-cost" title={`${tokens.toLocaleString()} tokens`} style={{ opacity: 0.7 }}>{fmtTokens(tokens)}t</span>}
               {cost > 0 && <span className="moba-agent-cost">${cost.toFixed(2)}</span>}
@@ -107,7 +108,7 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
                   onClick={(e) => { e.stopPropagation(); onSummarize(tab.id); }}
                   title="AI-summarize this session"
                 >
-                  ✨
+                  <SAsk size={12} />
                 </button>
               )}
               {tab.worktree && onReviewDiff && (

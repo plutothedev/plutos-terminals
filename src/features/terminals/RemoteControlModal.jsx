@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@backend";
 import QRCode from "qrcode";
+import { SPhone } from "./toolbarIcons.jsx";
 
 const overlay = {
   position: "fixed", inset: 0, zIndex: 1000, display: "flex",
@@ -75,7 +76,7 @@ export default function RemoteControlModal({ open, onClose }) {
     <div onClick={onClose} style={overlay}>
       <div onClick={(e) => e.stopPropagation()} style={card}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>📱 Remote control</h2>
+          <h2 style={{ margin: 0, fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}><SPhone size={15} /> Remote control</h2>
           <button onClick={onClose} style={xBtn} title="Close">✕</button>
         </div>
 

@@ -154,10 +154,10 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
     setRunning(false);
   };
 
-  const color = (t) => t === "error" ? "#E05B5B" : t === "done" ? "#6FB85C" : t === "ask" ? "#E0A04F" : t === "skip" ? "#888" : "#4D8FE0";
+  const color = (t) => t === "error" ? "#E05B5B" : t === "done" ? "#6FB85C" : t === "ask" ? "#E0A04F" : t === "skip" ? "#888" : "#7c9cf5";
 
   return (
-    <Modal open={open} title="🤖 Agent Mode" onClose={onClose} width={700}>
+    <Modal open={open} title="Agent Mode" onClose={onClose} width={700}>
       <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
         <Input
           ref={goalRef}
@@ -218,7 +218,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
         ))}
         {thinking !== null && (
           thinking
-            ? <div style={{ borderLeft: "2px solid #4D8FE0", paddingLeft: 9 }}>
+            ? <div style={{ borderLeft: "2px solid #7c9cf5", paddingLeft: 9 }}>
                 <pre style={{ margin: 0, fontSize: 11.5, color: "var(--phn-text-dim)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{thinking}<span className="phn-agent-caret">▍</span></pre>
               </div>
             : <div style={{ fontSize: 11, color: "var(--phn-text-dim)" }}>thinking…</div>

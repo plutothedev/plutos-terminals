@@ -9,6 +9,7 @@ import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { FileIcon } from "./LocalFileBrowser.jsx";
 import { IconHome, IconUp, IconRefresh, IconUpload, IconNewFolder } from "./icons.jsx";
+import { SFolder, STrash } from "./toolbarIcons.jsx";
 import RemoteEditor from "./RemoteEditor.jsx";
 import "./terminals.css";
 
@@ -153,7 +154,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
       aria-hidden={!docked && !open}
     >
       <div className="phn-snippets-header">
-        <span>📁 Remote files</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><SFolder size={13} /> Remote files</span>
         {!docked && (
           <button className="phn-snippets-close" onClick={onClose} title="Close (Esc)">✕</button>
         )}
@@ -231,7 +232,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
                   <button onClick={(ev) => { ev.stopPropagation(); onDownload(e); }} title="Download">⬇</button>
                 )}
                 <button onClick={(ev) => { ev.stopPropagation(); onRename(e); }} title="Rename">↳</button>
-                <button onClick={(ev) => { ev.stopPropagation(); onDelete(e); }} title="Delete">🗑</button>
+                <button onClick={(ev) => { ev.stopPropagation(); onDelete(e); }} title="Delete"><STrash size={12} /></button>
               </span>
             </div>
           ))

@@ -16,23 +16,11 @@
   to { --tg-angle: 360deg; }
 }
 
+/* v6 (mockup 23): the focused panel gets a quiet 1px accent ring — no
+   animation, no glow. Class name kept so callers don't change. */
 .tg-panel-rainbow {
-  background:
-    linear-gradient(#0a0a0a, #0a0a0a) padding-box,
-    conic-gradient(
-      from var(--tg-angle, 0deg),
-      #ff6b6b,
-      #ffd43b,
-      #51cf66,
-      #66d9e8,
-      #748ffc,
-      #da77f2,
-      #ff8a80,
-      #ff6b6b
-    ) border-box !important;
-  border: 2px solid transparent !important;
-  animation: tg-spin 4s linear infinite;
-  box-shadow: 0 0 14px rgba(160, 200, 255, 0.18) !important;
+  border: 1px solid var(--phn-link, #7c9cf5) !important;
+  animation: none;
 }
 
 /* Fallback for browsers without @property: gradient stays static, no spin. */
@@ -66,8 +54,8 @@
 
 /* ── Header button "toggled on" state (snippets drawer open, etc.) ────── */
 .phn-btn-on {
-  color: var(--phn-link, #4daafc) !important;
-  border-color: var(--phn-link, #4daafc) !important;
+  color: var(--phn-link, #7c9cf5) !important;
+  border-color: var(--phn-link, #7c9cf5) !important;
   background: var(--phn-accent-subtle, rgba(94, 106, 210, 0.15)) !important;
 }
 
@@ -90,7 +78,7 @@
   transition: border-color 0.15s ease;
 }
 .phn-sidebar-search:focus {
-  border-color: var(--phn-link, #4daafc);
+  border-color: var(--phn-link, #7c9cf5);
 }
 .phn-sidebar-search::placeholder {
   color: var(--phn-text-dim, #666);
@@ -155,7 +143,7 @@
 /* ── Sidebar: active project row gets a left accent rail ──────────────── */
 .phn-sidebar-item-active {
   background: var(--phn-surface-bg, rgba(255, 255, 255, 0.05)) !important;
-  box-shadow: inset 2px 0 0 var(--phn-link, #4daafc);
+  box-shadow: inset 2px 0 0 var(--phn-link, #7c9cf5);
 }
 
 /* ── Sidebar: collapse toggle + collapsed rail ────────────────────────── */
@@ -306,26 +294,24 @@
   transition: border-color 0.12s ease;
 }
 .moba-qc-input::placeholder { color: var(--phn-text-dim, #8a8a8a); }
-.moba-qc-input:focus { border-color: var(--phn-link, #4aa8c0); }
+.moba-qc-input:focus { border-color: var(--phn-link, #7c9cf5); }
 
-/* ── Flat workstation tabs (mockup 12) ──────────────────────────────────
-   Flat, full-height tabs separated by thin dividers. The active tab adopts
-   the terminal background (so it merges into the terminal below) and grows a
-   2px blue top border; inactive tabs are dim text on the chrome rail. No
-   rounded corners, no house button, no numbering — a single status dot +
-   name + ×, exactly like the mockup. */
+/* ── Pill tabs (mockup 23) ──────────────────────────────────────────────
+   Rounded pill tabs floating on the chrome rail: inactive = transparent with
+   dim text, hover = faint white wash, active = elevated fill + bright text.
+   No top border, no per-tab divider — separation comes from spacing. */
 .moba-tab {
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 30px;
+  height: 24px;
   box-sizing: border-box;
-  padding: 0 13px;
-  border-right: 1px solid var(--phn-surface-border, #34383F);
-  border-top: 2px solid transparent;
-  color: var(--phn-text-dim, #8A909A);
-  background: transparent;
+  margin: 3px 1px;
+  padding: 0 11px;
+  border-radius: 6px;
+  color: var(--phn-tab-fg, #9a9da3);
+  background: var(--phn-tab-bg, transparent);
   font-family: var(--phn-ui-font);
   font-size: 12px;
   white-space: nowrap;
@@ -335,11 +321,10 @@
 }
 .moba-tab > .moba-tab-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .moba-tab.active {
-  background: var(--phn-tab-bg-active, #16181C);
-  color: var(--phn-text-bright, #F2F4F7);
-  border-top-color: var(--phn-link, #4D8FE0);
+  background: var(--phn-tab-bg-active, #1b1c1f);
+  color: var(--phn-tab-fg-active, #eceef0);
 }
-.moba-tab:not(.active):hover { background: var(--phn-tab-bg-hover, rgba(255,255,255,0.035)); color: var(--phn-text, #D3D7DD); }
+.moba-tab:not(.active):hover { background: var(--phn-tab-bg-hover, rgba(255,255,255,0.04)); color: var(--phn-text-fg, #d6d8dc); }
 .moba-tab-x {
   color: var(--phn-text-faint, #586068);
   cursor: pointer;
@@ -355,8 +340,8 @@
 .moba-tabstrip { scrollbar-width: none; }
 .moba-tabstrip::-webkit-scrollbar { width: 0; height: 0; }
 /* Drag-to-reorder: insertion bar on the target tab's leading/trailing edge. */
-.moba-tab.tab-drop-before { box-shadow: inset 2px 0 0 var(--phn-link, #4D8FE0); }
-.moba-tab.tab-drop-after { box-shadow: inset -2px 0 0 var(--phn-link, #4D8FE0); }
+.moba-tab.tab-drop-before { box-shadow: inset 2px 0 0 var(--phn-link, #7c9cf5); }
+.moba-tab.tab-drop-after { box-shadow: inset -2px 0 0 var(--phn-link, #7c9cf5); }
 
 /* ── MobaXterm grouped icon toolbar (big icon-over-label buttons) ────── */
 .moba-toolbar {
@@ -393,10 +378,10 @@
 .moba-tool-group:last-of-type { border-right: none; }
 .moba-tool-btns { display: flex; align-items: stretch; gap: 2px; flex: 1; }
 .moba-tool-caption {
-  font-size: 8px;
+  font-size: 10px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: var(--phn-text-dim, #888);
+  color: var(--phn-text-faint, #67696e);
   margin-top: 1px;
   white-space: nowrap;
 }
@@ -405,31 +390,31 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  min-width: 38px;
-  padding: 2px 5px;
+  gap: 4px;
+  min-width: 46px;
+  padding: 4px 7px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 3px;
-  color: var(--phn-text-fg, #c8c8c8);
+  border-radius: 6px;
+  color: var(--phn-text-dim, #9a9da3);
   cursor: pointer;
   font-family: inherit;
   white-space: nowrap;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 .moba-tool-btn:hover:not(:disabled) {
-  background: var(--phn-hover-bg, rgba(255, 255, 255, 0.06));
-  border-color: var(--phn-surface-border, #1a1a1a);
-  color: var(--phn-text-active, #fff);
+  background: var(--phn-hover-bg, rgba(255, 255, 255, 0.05));
+  border-color: transparent;
+  color: var(--phn-text-active, #eceef0);
 }
 .moba-tool-btn:disabled { opacity: 0.35; cursor: default; }
 .moba-tool-btn.active {
-  color: var(--phn-link, #4f9fd6);
-  background: var(--phn-accent-subtle, rgba(79, 159, 214, 0.16));
-  border-color: var(--phn-link, #4f9fd6);
+  color: var(--phn-text-active, #eceef0);
+  background: var(--phn-elevated-bg, #1b1c1f);
+  border-color: transparent;
 }
 .moba-tool-icon { font-size: 15px; line-height: 1; }
-.moba-tool-label { font-size: 8px; letter-spacing: 0.2px; line-height: 1; }
+.moba-tool-label { font-size: 10.5px; letter-spacing: 0.2px; line-height: 1; }
 /* inline quick-connect in the toolbar's right cluster */
 .moba-qc-inline {
   display: flex; align-items: center; gap: 7px; align-self: center;
@@ -474,7 +459,7 @@
   padding: 0 14px 0 12px; font-weight: 700; letter-spacing: -.01em;
   color: var(--phn-text-active, #F2F4F7); -webkit-app-region: no-drag;
 }
-.moba-brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--phn-link, #4D8FE0); }
+.moba-brand-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--phn-link, #7c9cf5); }
 .moba-menubar-right {
   margin-left: auto; display: flex; align-items: center; gap: 12px;
   padding: 0 12px; color: var(--phn-text-dim, #8A909A); font-size: 11px; -webkit-app-region: no-drag;
@@ -504,7 +489,7 @@
   min-width: 220px;
   background: var(--phn-surface-bg, #2b2d31);
   border: 1px solid var(--phn-surface-border, #1c1d20);
-  border-radius: 0 0 6px 6px;
+  border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   padding: 4px;
   z-index: 200;
@@ -527,12 +512,12 @@
   white-space: nowrap;
 }
 .moba-menu-item:hover:not(:disabled) {
-  background: var(--phn-link, #5fd7a7);
-  color: var(--phn-accent-fg, #06231a);
+  background: var(--phn-hover-bg, rgba(255,255,255,0.05));
+  color: var(--phn-text-active, #eceef0);
 }
 .moba-menu-item:disabled { opacity: 0.4; cursor: default; }
 .moba-menu-shortcut { color: var(--phn-text-dim, #8a9099); font-size: 11px; }
-.moba-menu-item:hover:not(:disabled) .moba-menu-shortcut { color: #06231a; }
+.moba-menu-item:hover:not(:disabled) .moba-menu-shortcut { color: var(--phn-text-dim, #9a9da3); }
 .moba-menu-divider { height: 1px; background: var(--phn-surface-border, #1c1d20); margin: 4px 0; }
 
 /* ── MobaXterm layout: vertical ribbon + docked left panel ───────────── */
@@ -561,9 +546,9 @@
 }
 .moba-ribbon-tab:hover { color: var(--phn-text-active, #fff); background: rgba(255, 255, 255, 0.04); }
 .moba-ribbon-tab.active {
-  color: var(--phn-link, #5fd7a7);
+  color: var(--phn-link, #7c9cf5);
   background: var(--phn-surface-bg, #2b2d31);
-  border-left-color: var(--phn-link, #5fd7a7);
+  border-left-color: var(--phn-link, #7c9cf5);
 }
 .moba-ribbon-icon { font-size: 14px; line-height: 1; }
 .moba-ribbon-label { writing-mode: vertical-rl; letter-spacing: 0.5px; }
@@ -612,7 +597,7 @@
 .moba-agent-row:hover { background: rgba(255, 255, 255, 0.05); }
 .moba-agent-row.active {
   background: var(--phn-accent-subtle, rgba(74, 168, 192, 0.16));
-  border-left-color: var(--phn-link, #4aa8c0);
+  border-left-color: var(--phn-link, #7c9cf5);
 }
 .moba-agent-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; transition: background 0.2s, box-shadow 0.2s; }
 .moba-agent-icon { font-size: 11px; flex-shrink: 0; opacity: 0.9; }
@@ -631,7 +616,7 @@
   flex-shrink: 0;
   background: transparent;
   border: 1px solid var(--phn-surface-border, #151515);
-  color: var(--phn-link, #4aa8c0);
+  color: var(--phn-link, #7c9cf5);
   border-radius: 3px;
   font-size: 9px;
   padding: 2px 6px;
@@ -758,7 +743,7 @@
 /* clickable breadcrumb path */
 .phn-sftp-crumb { flex-wrap: wrap; gap: 3px; }
 .phn-sftp-crumb .seg { cursor: pointer; color: var(--phn-text-dim, #8A909A); }
-.phn-sftp-crumb .seg:hover { color: var(--phn-link, #4D8FE0); }
+.phn-sftp-crumb .seg:hover { color: var(--phn-link, #7c9cf5); }
 .phn-sftp-crumb .crumb-part:last-child .seg { color: var(--phn-text-active, #F2F4F7); }
 .phn-sftp-crumb .sl { color: var(--phn-text-faint, #586068); margin: 0 1px; }
 /* column header */
@@ -815,7 +800,7 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  background: var(--phn-link, #4f9fd6);
+  background: var(--phn-link, #7c9cf5);
   color: var(--phn-page-bg, #06223a);
   border: none;
   border-radius: 6px;
@@ -844,7 +829,7 @@
   font-family: inherit;
   transition: border-color 0.12s ease, background 0.12s ease;
 }
-.moba-home-card:hover { border-color: var(--phn-link, #4f9fd6); background: var(--phn-surface-alt-bg, #262626); }
+.moba-home-card:hover { border-color: var(--phn-link, #7c9cf5); background: var(--phn-surface-alt-bg, #262626); }
 .moba-home-card-icon { font-size: 22px; line-height: 1; }
 .moba-home-card-label { font-size: 12px; font-weight: 600; color: var(--phn-text-active, #fff); }
 .moba-home-card-desc { font-size: 9px; color: var(--phn-text-dim, #888); text-align: center; }
@@ -874,7 +859,7 @@
   text-align: left;
   transition: border-color 0.12s ease;
 }
-.moba-home-session:hover { border-color: var(--phn-link, #4f9fd6); }
+.moba-home-session:hover { border-color: var(--phn-link, #7c9cf5); }
 .moba-home-session-icon { font-size: 14px; flex-shrink: 0; }
 .moba-home-session-name {
   flex: 1;
@@ -917,23 +902,23 @@
 .phn-msg { max-width: 100%; font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; }
 .phn-msg-body { white-space: pre-wrap; word-break: break-word; padding: 7px 9px; border-radius: 7px; }
 .phn-msg.user { align-items: flex-end; }
-.phn-msg.user .phn-msg-body { background: var(--phn-accent-subtle, rgba(77,143,224,0.18)); color: var(--phn-text-bright, #F2F4F7); }
+.phn-msg.user .phn-msg-body { background: var(--phn-accent-subtle, rgba(124,156,245,0.18)); color: var(--phn-text-bright, #F2F4F7); }
 .phn-msg.assistant .phn-msg-body { background: var(--phn-surface-alt-bg, #1E2125); color: var(--phn-text, #D3D7DD); }
 .phn-msg-thinking { opacity: 0.6; font-style: italic; }
 .phn-msg-actions { display: flex; gap: 6px; margin-top: 4px; }
 .phn-msg-actions button { background: var(--phn-surface-elevated-bg, #2C3037); border: 1px solid var(--phn-surface-border, #34383F); color: var(--phn-text, #D3D7DD); font: inherit; font-size: 10.5px; padding: 2px 8px; border-radius: 5px; cursor: pointer; }
-.phn-msg-actions button:hover { border-color: var(--phn-link, #4D8FE0); color: var(--phn-text-bright, #F2F4F7); }
+.phn-msg-actions button:hover { border-color: var(--phn-link, #7c9cf5); color: var(--phn-text-bright, #F2F4F7); }
 .phn-assistant-error { color: var(--phn-danger, #E0574A); font-size: 11px; padding: 4px 10px; }
 .phn-assistant-input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--phn-surface-border, #34383F); }
 .phn-assistant-input textarea { flex: 1; resize: none; background: var(--phn-surface-alt-bg, #1E2125); border: 1px solid var(--phn-surface-border, #34383F); border-radius: 6px; color: var(--phn-text-bright, #F2F4F7); font-family: var(--phn-ui-font); font-size: 12px; padding: 6px 8px; outline: none; }
-.phn-assistant-input textarea:focus { border-color: var(--phn-link, #4D8FE0); }
-.phn-assistant-input button { flex-shrink: 0; width: 34px; background: var(--phn-link, #4D8FE0); border: none; border-radius: 6px; color: #fff; font-size: 14px; cursor: pointer; }
+.phn-assistant-input textarea:focus { border-color: var(--phn-link, #7c9cf5); }
+.phn-assistant-input button { flex-shrink: 0; width: 34px; background: var(--phn-link, #7c9cf5); border: none; border-radius: 6px; color: #fff; font-size: 14px; cursor: pointer; }
 .phn-assistant-input button:disabled { opacity: 0.4; cursor: default; }
 .phn-assistant-input .phn-assistant-clear {
   width: auto; background: transparent; border: 1px solid var(--phn-surface-border, #34383F);
   color: var(--phn-text-dim, #8A909A); font-size: 10.5px; padding: 0 8px; border-radius: 6px;
 }
-.phn-assistant-input .phn-assistant-clear:hover { color: var(--phn-text-bright, #F2F4F7); border-color: var(--phn-link, #4D8FE0); }
+.phn-assistant-input .phn-assistant-clear:hover { color: var(--phn-text-bright, #F2F4F7); border-color: var(--phn-link, #7c9cf5); }
 
 /* ── Right-dock system Monitor ───────────────────────────────────────── */
 .phn-monitor { height: 100%; overflow-y: auto; padding: 10px; }

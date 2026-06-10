@@ -2,13 +2,14 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import "./terminals.css";
+import { SLocal, SSsh, SWindows, SServer, SBox, SBot, SModels, SFolder, SAgents } from "./toolbarIcons.jsx";
 
 const SIDEBAR_BG = "var(--phn-surface-alt-bg, #0d0d0d)";
 const HEADER_BG = "var(--phn-surface-bg, #181818)";
 const FG = "var(--phn-text-fg, #CCCCCC)";
 const FG_DIM = "var(--phn-text-dim, #9D9D9D)";
 const FG_FAINT = "var(--phn-text-dim, #555555)";
-const ACCENT = "var(--phn-link, #4DAAFC)";
+const ACCENT = "var(--phn-link, #7c9cf5)";
 const BORDER = "var(--phn-surface-border, #2B2B2B)";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
@@ -29,18 +30,18 @@ const colorHex = (id) => COLOR_PALETTE.find(c => c.id === id)?.hex || FG_FAINT;
 const isSsh = (p) => p?.type === "ssh" || (!!p?.connection && !p?.path);
 
 // MobaXterm-style platform icons: infer the OS/platform from the session name,
-// folder, host, or path so the tree reads like MobaXterm's categorised list
-// (penguin / Apple / Windows / …). Falls back to a generic host/computer icon.
+// folder, host, or path so the tree reads like MobaXterm's categorised list.
+// Monochrome stroke glyphs (reskin) — falls back to a generic host/computer icon.
 function platformGlyph(p) {
   const hay = `${p?.name || ""} ${p?.folder || ""} ${p?.connection?.host || ""} ${p?.path || ""}`.toLowerCase();
-  if (/(ubuntu|debian|linux|fedora|centos|arch|alpine|redhat|rhel|kali|suse)/.test(hay)) return "🐧";
-  if (/(windows|win10|win11|wsl|\bwin\b)/.test(hay)) return "🪟";
-  if (/(macos|macbook|apple|osx|darwin|\bmac\b)/.test(hay)) return "🍎";
-  if (/(android)/.test(hay)) return "🤖";
-  if (/(raspberry|\brpi\b)/.test(hay)) return "🍓";
-  if (/(aix|solaris|\bunix\b|\bbsd\b)/.test(hay)) return "🖧";
-  if (/(docker|container|k8s|kube)/.test(hay)) return "🐳";
-  return isSsh(p) ? "🌐" : "💻";
+  if (/(ubuntu|debian|linux|fedora|centos|arch|alpine|redhat|rhel|kali|suse)/.test(hay)) return <SServer size={13} />;
+  if (/(windows|win10|win11|wsl|\bwin\b)/.test(hay)) return <SWindows size={13} />;
+  if (/(macos|macbook|apple|osx|darwin|\bmac\b)/.test(hay)) return <SLocal size={13} />;
+  if (/(android)/.test(hay)) return <SBot size={13} />;
+  if (/(raspberry|\brpi\b)/.test(hay)) return <SModels size={13} />;
+  if (/(aix|solaris|\bunix\b|\bbsd\b)/.test(hay)) return <SServer size={13} />;
+  if (/(docker|container|k8s|kube)/.test(hay)) return <SBox size={13} />;
+  return isSsh(p) ? <SSsh size={13} /> : <SLocal size={13} />;
 }
 const typeGlyph = (p) => platformGlyph(p);
 
@@ -73,15 +74,16 @@ function OsIcon({ p, size = 13 }) {
 }
 
 // Folder icon by name keyword (mirrors MobaXterm's per-category folder icons).
+// Monochrome stroke glyphs (reskin).
 function folderGlyph(name) {
   const n = (name || "").toLowerCase();
-  if (/(ubuntu|debian|linux|fedora|centos|arch|alpine|redhat|rhel|kali|suse)/.test(n)) return "🐧";
-  if (/(windows|win10|win11|wsl|\bwin\b)/.test(n)) return "🪟";
-  if (/(macos|macbook|apple|osx|darwin|\bmac\b)/.test(n)) return "🍎";
-  if (/(prod|production|server)/.test(n)) return "🖧";
-  if (/(docker|container|k8s|kube)/.test(n)) return "🐳";
-  if (/(local|dev|project)/.test(n)) return "💻";
-  return "📂";
+  if (/(ubuntu|debian|linux|fedora|centos|arch|alpine|redhat|rhel|kali|suse)/.test(n)) return <SServer size={12} />;
+  if (/(windows|win10|win11|wsl|\bwin\b)/.test(n)) return <SWindows size={12} />;
+  if (/(macos|macbook|apple|osx|darwin|\bmac\b)/.test(n)) return <SLocal size={12} />;
+  if (/(prod|production|server)/.test(n)) return <SServer size={12} />;
+  if (/(docker|container|k8s|kube)/.test(n)) return <SBox size={12} />;
+  if (/(local|dev|project)/.test(n)) return <SLocal size={12} />;
+  return <SFolder size={12} />;
 }
 
 // Spawn a floating drag preview that follows the cursor.
@@ -431,7 +433,7 @@ export default function ProjectSidebar({
         {projects.length === 0 ? (
           collapsed ? null : (
           <div style={{ padding: "28px 16px", color: FG_FAINT, textAlign: "center", fontSize: 11, lineHeight: 1.5 }}>
-            <div style={{ fontSize: 24, marginBottom: 12, opacity: 0.6 }}>📁</div>
+            <div style={{ marginBottom: 12, opacity: 0.6, display: "flex", justifyContent: "center" }}><SFolder size={24} /></div>
             <div style={{ marginBottom: 14, color: FG_DIM }}>
               No sessions yet.<br />Add a local folder or an SSH host.
             </div>
@@ -447,7 +449,7 @@ export default function ProjectSidebar({
                 fontSize: 11,
                 cursor: "pointer",
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(77,170,252,0.1)"; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(124,156,245,0.1)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
               + Add session
@@ -637,7 +639,7 @@ export default function ProjectSidebar({
                       padding: "0 2px",
                       lineHeight: 1,
                     }}
-                    onMouseOver={(e) => (e.currentTarget.style.color = "#f44")}
+                    onMouseOver={(e) => (e.currentTarget.style.color = "var(--phn-danger, #e08784)")}
                     onMouseOut={(e) => (e.currentTarget.style.color = FG_FAINT)}
                   >
                     ×
@@ -753,10 +755,10 @@ export default function ProjectSidebar({
               {!isSsh(project) && project.path && onNewWorktreeAgent && (
                 <button
                   onClick={() => { onNewWorktreeAgent(project.id); closeCtx(); }}
-                  style={{ ...ctxBtnStyle(), color: "#5fd75f" }}
+                  style={{ ...ctxBtnStyle(), color: "#7fbf8a" }}
                   title="Spawn an agent in a fresh git worktree (isolated branch + dir) for parallel work"
                 >
-                  🌿 New agent (git worktree)
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><SAgents size={12} /> New agent (git worktree)</span>
                 </button>
               )}
 
@@ -808,7 +810,7 @@ export default function ProjectSidebar({
                       style={ctxBtnStyle()}
                       title={`Move "${project.name}" into the "${f}" folder`}
                     >
-                      {project.folder === f ? "✓ " : "📂 "}{f}
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{project.folder === f ? "✓" : <SFolder size={12} />} {f}</span>
                     </button>
                   ))}
                   {project.folder && (

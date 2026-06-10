@@ -181,11 +181,11 @@ export default function McpInstaller({ open, onClose }) {
                   style={{
                     background:
                       installState[mcp.id] === "ok" ? "#34D399"
-                      : installState[mcp.id] === "error" ? "#FF0080"
+                      : installState[mcp.id] === "error" ? "#e08784"
                       : ACCENT,
                     border: `1px solid ${
                       installState[mcp.id] === "ok" ? "#34D399"
-                      : installState[mcp.id] === "error" ? "#FF0080"
+                      : installState[mcp.id] === "error" ? "#e08784"
                       : ACCENT
                     }`,
                     color:

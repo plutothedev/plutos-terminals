@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@backend";
 import { IconHome, IconUp, IconRefresh, IconReveal, IconCd } from "./icons.jsx";
+import { SFolder } from "./toolbarIcons.jsx";
 import "./terminals.css";
 
 function fmtSize(n) {
@@ -113,7 +114,7 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
   return (
     <div className="moba-dock-panel">
       <div className="phn-snippets-header">
-        <span>📁 Files</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><SFolder size={13} /> Files</span>
       </div>
 
       {/* Button toolbar (MobaXterm-style row above the breadcrumb). */}

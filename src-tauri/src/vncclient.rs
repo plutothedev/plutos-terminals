@@ -103,7 +103,7 @@ fn to_rgba(pixels: &[u8], fmt: &vnc::PixelFormat) -> Vec<u8> {
 }
 
 #[tauri::command]
-pub fn vnc_connect(
+pub async fn vnc_connect(
     app: AppHandle,
     state: State<'_, VncRegistry>,
     host: String,

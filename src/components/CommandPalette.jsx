@@ -80,7 +80,7 @@ export default function CommandPalette({ open, commands, onClose }) {
                 padding: "10px 12px",
                 borderRadius: 4,
                 cursor: "pointer",
-                background: i === highlight ? "rgba(77,170,252,0.12)" : "transparent",
+                background: i === highlight ? "rgba(124,156,245,0.12)" : "transparent",
                 border: `1px solid ${i === highlight ? ACCENT : "transparent"}`,
                 marginBottom: 4,
                 display: "flex",

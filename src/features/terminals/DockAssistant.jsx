@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
+import { SSend } from "./toolbarIcons.jsx";
 
 // First fenced code block in an assistant reply, if any (so we can offer run/insert).
 function extractCmd(text) {
@@ -109,7 +110,7 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd }) {
           rows={2}
           spellCheck={false}
         />
-        <button onClick={send} disabled={loading || !input.trim()} title="Send (Enter)">➤</button>
+        <button onClick={send} disabled={loading || !input.trim()} title="Send (Enter)"><SSend size={14} /></button>
       </div>
     </div>
   );

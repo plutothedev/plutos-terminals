@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
+import { SLink } from "./toolbarIcons.jsx";
 
 const DIM = "var(--phn-text-dim, #888)";
 
@@ -58,11 +59,11 @@ export default function BroadcastGroupModal({ open, panels, liveTabIds, current,
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 {g.tabs.map((t, ti) => (
                   <label key={t.id} style={rowStyle}>
-                    <input type="checkbox" checked={sel.has(t.id)} onChange={() => toggle(t.id)} style={{ accentColor: "var(--phn-link, #4aa8c0)" }} />
+                    <input type="checkbox" checked={sel.has(t.id)} onChange={() => toggle(t.id)} style={{ accentColor: "var(--phn-link, #7c9cf5)" }} />
                     <span style={{ fontSize: "var(--phn-fs-sm)", color: "var(--phn-text-fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {ti + 1}. {t.label || "shell"}
                     </span>
-                    {t.connection && <span style={{ fontSize: "var(--phn-fs-2xs)", color: DIM }}>🔗 {t.connection.host}</span>}
+                    {t.connection && <span style={{ fontSize: "var(--phn-fs-2xs)", color: DIM, display: "inline-flex", alignItems: "center", gap: 4 }}><SLink size={10} /> {t.connection.host}</span>}
                   </label>
                 ))}
               </div>

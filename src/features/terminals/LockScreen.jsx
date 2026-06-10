@@ -3,6 +3,7 @@
 // master password is set and this launch hasn't been unlocked yet.
 import { useState } from "react";
 import { verifyPassword, markUnlocked } from "./masterPassword.js";
+import { SLock } from "./toolbarIcons.jsx";
 
 export default function LockScreen({ expectedHash, onUnlock }) {
   const [pw, setPw] = useState("");
@@ -16,7 +17,7 @@ export default function LockScreen({ expectedHash, onUnlock }) {
   return (
     <div style={{ height: "100vh", background: "#0b0c0e", color: "#d4d4d4", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--phn-ui-font, system-ui)" }}>
       <div style={{ width: 320, textAlign: "center" }}>
-        <div style={{ fontSize: 30, marginBottom: 10 }}>🔒</div>
+        <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", opacity: 0.85 }}><SLock size={30} /></div>
         <div style={{ fontSize: 17, letterSpacing: 1, marginBottom: 4 }}>Pluto's Terminal</div>
         <div style={{ fontSize: 12, color: "#888", marginBottom: 20 }}>Enter your master password</div>
         <input
@@ -34,7 +35,7 @@ export default function LockScreen({ expectedHash, onUnlock }) {
         {error && <div style={{ color: "#ff6b6b", fontSize: 11, marginTop: 8 }}>Incorrect password.</div>}
         <button
           onClick={tryUnlock}
-          style={{ marginTop: 14, width: "100%", background: "#4aa8c0", border: "none", color: "#06223a", borderRadius: 6, padding: "9px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          style={{ marginTop: 14, width: "100%", background: "#7c9cf5", border: "none", color: "#06223a", borderRadius: 6, padding: "9px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
         >
           Unlock
         </button>

@@ -110,7 +110,7 @@ impl sspi::network_client::NetworkClient for NoNetworkClient {
 }
 
 #[tauri::command]
-pub fn rdp_connect(
+pub async fn rdp_connect(
     app: AppHandle,
     state: State<'_, RdpRegistry>,
     host: String,

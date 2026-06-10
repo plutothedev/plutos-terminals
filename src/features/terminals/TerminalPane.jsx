@@ -9,7 +9,7 @@ import { ImageAddon } from "@xterm/addon-image";
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
-import { USER_STORAGE_KEY, getWindowStorageKey } from "./storageKeys.js";
+import { readUserSt, getWindowStorageKey } from "./storageKeys.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import { actionForEvent } from "./keybindings.js";
@@ -783,10 +783,13 @@ export default function TerminalPane({
           // so multi-window users don't re-enter it per window. Fall back
           // to legacy window-state location for migration safety.
           const env = {};
-          let userRaw = null;
-          try { userRaw = localStorage.getItem(USER_STORAGE_KEY); } catch (_) { /* ignore */ }
-          if (userRaw) {
-            const userPersisted = JSON.parse(userRaw);
+          // readUserSt() overlays the in-memory keychain cache on the
+          // localStorage blob — App.jsx strips providerKeys/anthropicKey from
+          // localStorage once keychain migration completes, so a raw
+          // localStorage read here would spawn shells with NO keys.
+          let userPersisted = null;
+          try { userPersisted = readUserSt(); } catch (_) { /* ignore */ }
+          if (userPersisted) {
             const keys = (userPersisted && userPersisted.providerKeys) || {};
             const baseUrls = (userPersisted && userPersisted.providerBaseUrls) || {};
             // Default Claude key now lives in the Models section as
@@ -947,12 +950,17 @@ export default function TerminalPane({
             }, DONE_TIMEOUT_MS);
           }
         });
+        // If the pane unmounted while listen() was in flight, cleanup already
+        // ran (and saw unlistenData undefined) — detach immediately or it leaks.
+        if (!alive) { try { unlistenData(); } catch {} return; }
 
         unlistenExit = await listen(`pty-exit://${id}`, () => {
           if (!alive) return;
           const msg = serial ? "[serial port closed]" : connection ? "[ssh disconnected]" : "[process exited]";
           term.writeln(`\r\n\x1b[90m${msg}\x1b[0m`);
         });
+        // Same late-resolution guard as unlistenData above.
+        if (!alive) { try { unlistenExit(); } catch {} return; }
 
         // Both listeners are live — tell the backend it may begin streaming.
         // EVERY transport (local, SSH, serial) now gates its first emit on this
@@ -1362,7 +1370,7 @@ export default function TerminalPane({
   const SEARCH_OPTS = {
     decorations: {
       matchBackground: "#4a5a2a",
-      matchOverviewRuler: "#5fd75f",
+      matchOverviewRuler: "#7fbf8a",
       activeMatchBackground: "#b58900",
       activeMatchColorOverviewRuler: "#ffd700",
     },
@@ -1598,12 +1606,12 @@ export default function TerminalPane({
           <button
             onClick={() => { setExplainBlock(failedBlock); setFailedBlock(null); }}
             style={{
-              background: "var(--phn-link, #4aa8c0)", border: "none", color: "#06223a",
+              background: "var(--phn-link, #7c9cf5)", border: "none", color: "#06223a",
               borderRadius: 5, padding: "3px 10px", fontSize: 12, fontWeight: 600,
               cursor: "pointer", fontFamily: "var(--phn-ui-font)",
             }}
           >
-            Explain ✨
+            Explain
           </button>
           <span
             onClick={() => setFailedBlock(null)}

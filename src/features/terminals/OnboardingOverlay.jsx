@@ -4,10 +4,11 @@
 // to st.terminalsOnboarded so it never reappears.
 
 import { useState } from "react";
+import { SLocal, SPalette, SBook, SKeyboard } from "./toolbarIcons.jsx";
 
 const STEPS = [
   {
-    icon: "🖥",
+    icon: <SLocal size={28} />,
     title: "Terminals + Projects",
     body: (FG, ACCENT) => (
       <>
@@ -21,12 +22,12 @@ const STEPS = [
     ),
   },
   {
-    icon: "🎨",
+    icon: <SPalette size={28} />,
     title: "Skins paint the whole app",
     body: (FG, ACCENT) => (
       <>
         <p style={{ marginBottom: 12 }}>
-          Open <strong style={{ color: ACCENT }}>⚙️ settings</strong> in the top-right. <strong>10 skins</strong> change every surface — header, sidebar, status bar, terminal background.
+          Open <strong style={{ color: ACCENT }}>settings</strong> in the top-right. <strong>10 skins</strong> change every surface — header, sidebar, status bar, terminal background.
         </p>
         <p style={{ marginBottom: 12 }}>
           Try <strong style={{ color: ACCENT }}>Synthwave Sunset</strong> for chromatic vibes, <strong style={{ color: ACCENT }}>Brutalist Mono</strong> for ruthless black/white, or <strong style={{ color: ACCENT }}>Daylight</strong> for a real light theme. <strong>6 button styles</strong> and <strong>3 densities</strong> stack on top — 180 distinct looks total.
@@ -35,7 +36,7 @@ const STEPS = [
     ),
   },
   {
-    icon: "📚",
+    icon: <SBook size={28} />,
     title: "Prompt packs",
     body: (FG, ACCENT) => (
       <>
@@ -43,7 +44,7 @@ const STEPS = [
           A <code style={{ color: ACCENT, padding: "1px 4px", borderRadius: 2, background: "var(--phn-page-bg, #0a0a0a)" }}>.deck.json</code> pack describes a multi-panel terminal layout. Loading one replaces your current panels with the pack's setup.
         </p>
         <p style={{ marginBottom: 12 }}>
-          <strong>11 packs ship</strong>: claude-code-basic, dual-claude-pair, codebase-explorer, writing-helper, debug-session, language-learning, interview-prep, content-script-writer, rubber-duck, trading-workflow (Pluto Style), example. Click <strong style={{ color: ACCENT }}>📚 packs…</strong> or <strong style={{ color: ACCENT }}>🔍 find</strong> in the header to browse.
+          <strong>11 packs ship</strong>: claude-code-basic, dual-claude-pair, codebase-explorer, writing-helper, debug-session, language-learning, interview-prep, content-script-writer, rubber-duck, trading-workflow (Pluto Style), example. Click <strong style={{ color: ACCENT }}>packs…</strong> or <strong style={{ color: ACCENT }}>find</strong> in the header to browse.
         </p>
         <p style={{ marginBottom: 0 }}>
           Each pack ships a <strong>systemPrompt</strong> that auto-types into Claude 2 seconds after spawn — real role-priming, not just labels.
@@ -52,7 +53,7 @@ const STEPS = [
     ),
   },
   {
-    icon: "⌨",
+    icon: <SKeyboard size={28} />,
     title: "Power features",
     body: (FG, ACCENT) => (
       <>
@@ -68,7 +69,7 @@ const STEPS = [
           <code style={kbdStyle}>Ctrl+1–8</code><span>Switch to panel N</span>
         </div>
         <p style={{ marginBottom: 0 }}>
-          You're set. Click <strong style={{ color: ACCENT }}>🚀 setup</strong> if you haven't installed Claude CLI yet — it walks you through any missing pieces.
+          You're set. Click <strong style={{ color: ACCENT }}>setup</strong> if you haven't installed Claude CLI yet — it walks you through any missing pieces.
         </p>
       </>
     ),
@@ -95,7 +96,7 @@ export default function OnboardingOverlay({ onDismiss }) {
   const FG = "var(--phn-text-fg, #CCCCCC)";
   const FG_ACTIVE = "var(--phn-text-active, #E6E6E6)";
   const FG_DIM = "var(--phn-text-dim, #9D9D9D)";
-  const ACCENT = "var(--phn-link, #4DAAFC)";
+  const ACCENT = "var(--phn-link, #7c9cf5)";
   const BORDER = "var(--phn-surface-border, #2B2B2B)";
   const BG = "var(--phn-surface-bg, #181818)";
   const M = "'JetBrains Mono', Menlo, Monaco, monospace";
@@ -150,7 +151,7 @@ export default function OnboardingOverlay({ onDismiss }) {
           ))}
         </div>
 
-        <div style={{ fontSize: 32, marginBottom: 6, lineHeight: 1 }}>{current.icon}</div>
+        <div style={{ marginBottom: 8, lineHeight: 1, display: "flex", color: ACCENT }}>{current.icon}</div>
         <div style={{ fontSize: 18, color: FG_ACTIVE, marginBottom: 14, letterSpacing: 0.3 }}>
           {current.title}
         </div>

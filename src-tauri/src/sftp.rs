@@ -301,7 +301,7 @@ fn dispatch<T>(
 /// Open a dedicated SFTP connection (separate from any shell session) and
 /// return its id. Reuses the same auth + host-key path as the shell.
 #[tauri::command]
-pub fn sftp_connect(
+pub async fn sftp_connect(
     state: State<'_, SftpRegistry>,
     host: String,
     port: u16,
@@ -322,7 +322,7 @@ pub fn sftp_connect(
 
 /// Absolute path of the login home directory (resolve ".").
 #[tauri::command]
-pub fn sftp_home(state: State<'_, SftpRegistry>, id: String) -> Result<String, String> {
+pub async fn sftp_home(state: State<'_, SftpRegistry>, id: String) -> Result<String, String> {
     dispatch(&state, &id, |reply| SftpReq::Realpath {
         path: ".".into(),
         reply,
@@ -330,7 +330,7 @@ pub fn sftp_home(state: State<'_, SftpRegistry>, id: String) -> Result<String, S
 }
 
 #[tauri::command]
-pub fn sftp_list(
+pub async fn sftp_list(
     state: State<'_, SftpRegistry>,
     id: String,
     path: String,
@@ -394,12 +394,12 @@ pub fn sftp_upload(
 }
 
 #[tauri::command]
-pub fn sftp_mkdir(state: State<'_, SftpRegistry>, id: String, path: String) -> Result<(), String> {
+pub async fn sftp_mkdir(state: State<'_, SftpRegistry>, id: String, path: String) -> Result<(), String> {
     dispatch(&state, &id, |reply| SftpReq::Mkdir { path, reply })
 }
 
 #[tauri::command]
-pub fn sftp_remove(
+pub async fn sftp_remove(
     state: State<'_, SftpRegistry>,
     id: String,
     path: String,
@@ -413,7 +413,7 @@ pub fn sftp_remove(
 }
 
 #[tauri::command]
-pub fn sftp_rename(
+pub async fn sftp_rename(
     state: State<'_, SftpRegistry>,
     id: String,
     from: String,
@@ -424,7 +424,7 @@ pub fn sftp_rename(
 
 /// Read a remote text file into a string (for the in-app Monaco editor).
 #[tauri::command]
-pub fn sftp_read_file(
+pub async fn sftp_read_file(
     state: State<'_, SftpRegistry>,
     id: String,
     path: String,
@@ -437,7 +437,7 @@ pub fn sftp_read_file(
 
 /// Write a string back to a remote file (save from the in-app editor).
 #[tauri::command]
-pub fn sftp_write_file(
+pub async fn sftp_write_file(
     state: State<'_, SftpRegistry>,
     id: String,
     path: String,

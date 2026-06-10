@@ -56,13 +56,22 @@ export default function RdpView({ host, port, username, domain, tabId, visible }
         canvas.width = w; canvas.height = h;
         const ctx = canvas.getContext("2d");
         setStatus(null);
-        unlisten.push(await listen(`rdp-frame://${id}`, (e) => {
+        // Each listen() is awaited — if the view unmounts mid-await, cleanup
+        // has already run with a partially-filled unlisten[], so detach the
+        // late-resolved handle immediately or it leaks. Frame handler also
+        // bails on !alive so it stops decoding into a disposed canvas.
+        const unFrame = await listen(`rdp-frame://${id}`, (e) => {
+          if (!alive) return;
           const { x, y, w: rw, h: rh, data } = e.payload;
           try {
             ctx.putImageData(new ImageData(new Uint8ClampedArray(b64ToBytes(data)), rw, rh), x, y);
           } catch { /* skip malformed rect */ }
-        }));
-        unlisten.push(await listen(`rdp-exit://${id}`, () => { if (alive) setStatus("Disconnected."); }));
+        });
+        if (!alive) { unFrame(); return; }
+        unlisten.push(unFrame);
+        const unExit = await listen(`rdp-exit://${id}`, () => { if (alive) setStatus("Disconnected."); });
+        if (!alive) { unExit(); return; }
+        unlisten.push(unExit);
       } catch (err) {
         if (alive) setStatus(`Connection failed: ${err}`);
       }

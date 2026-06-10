@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
+import { SAsk } from "./toolbarIcons.jsx";
 
 const SYSTEM =
   "You are a senior engineer pair-debugging in a terminal. A shell command just " +
@@ -66,14 +67,14 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
         position: "absolute", left: 12, right: 12, bottom: 12, zIndex: 30,
         maxHeight: "55%", display: "flex", flexDirection: "column",
         background: "var(--phn-surface-bg, #242424)",
-        border: "1px solid var(--phn-link, #4aa8c0)",
+        border: "1px solid var(--phn-link, #7c9cf5)",
         borderRadius: 8, boxShadow: "0 8px 26px rgba(0,0,0,0.6)",
         fontFamily: "var(--phn-ui-font)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--phn-surface-border, #151515)" }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--phn-text-fg, #d4d4d4)" }}>
-          ✨ Explain error <span style={{ color: "#ff6b6b" }}>· exit {block.exitCode}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--phn-text-fg, #d4d4d4)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <SAsk size={13} /> Explain error <span style={{ color: "#ff6b6b" }}>· exit {block.exitCode}</span>
         </span>
         {modelLabel && <span style={{ fontSize: 10, color: "var(--phn-text-dim, #888)" }}>via {modelLabel}</span>}
         <span style={{ flex: 1 }} />
@@ -81,7 +82,7 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
           <button
             onClick={() => { onRun(fixCmd); onClose(); }}
             title={`Run the suggested fix: ${fixCmd}`}
-            style={{ ...btn, background: "var(--phn-link, #4aa8c0)", color: "#06223a", border: "1px solid var(--phn-link, #4aa8c0)", fontWeight: 600 }}
+            style={{ ...btn, background: "var(--phn-link, #7c9cf5)", color: "#06223a", border: "1px solid var(--phn-link, #7c9cf5)", fontWeight: 600 }}
           >
             run fix ▶
           </button>

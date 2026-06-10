@@ -468,7 +468,17 @@ enum WriteTarget {
 }
 
 #[tauri::command]
-pub fn pty_write(
+pub async fn pty_write(
+    state: State<'_, SessionRegistry>,
+    id: String,
+    data: String,
+) -> Result<(), String> {
+    pty_write_sync(state, id, data)
+}
+
+/// Sync body of `pty_write` — also called directly by the companion-server
+/// dispatcher (`companion.rs`), which runs outside Tauri's IPC layer.
+pub fn pty_write_sync(
     state: State<'_, SessionRegistry>,
     id: String,
     data: String,
@@ -513,7 +523,18 @@ pub fn pty_write(
 }
 
 #[tauri::command]
-pub fn pty_resize(
+pub async fn pty_resize(
+    state: State<'_, SessionRegistry>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    pty_resize_sync(state, id, cols, rows)
+}
+
+/// Sync body of `pty_resize` — also called directly by the companion-server
+/// dispatcher (`companion.rs`), which runs outside Tauri's IPC layer.
+pub fn pty_resize_sync(
     state: State<'_, SessionRegistry>,
     id: String,
     cols: u16,
@@ -788,7 +809,7 @@ pub fn connect_session(
 /// reader thread; `pty_write`/`pty_resize` reach it via mpsc channels.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub fn ssh_spawn(
+pub async fn ssh_spawn(
     app: AppHandle,
     state: State<'_, SessionRegistry>,
     host: String,
@@ -957,7 +978,7 @@ pub fn serial_list() -> Vec<String> {
 /// device. The reader uses a short read timeout so `pty_kill` (which flips
 /// `alive`) stops it promptly even when the device is silent.
 #[tauri::command]
-pub fn serial_spawn(
+pub async fn serial_spawn(
     app: AppHandle,
     state: State<'_, SessionRegistry>,
     path: String,

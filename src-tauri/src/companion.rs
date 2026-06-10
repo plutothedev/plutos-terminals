@@ -489,7 +489,7 @@ fn dispatch(
         "system_stats" => {
             serde_json::to_value(crate::sysstats::system_stats()).map_err(|e| e.to_string())
         }
-        "pty_write" => crate::pty::pty_write(app.state(), s("id")?, s("data")?)
+        "pty_write" => crate::pty::pty_write_sync(app.state(), s("id")?, s("data")?)
             .map(|_| serde_json::Value::Null),
         "pty_resize" => {
             let cols = args
@@ -500,7 +500,7 @@ fn dispatch(
                 .get("rows")
                 .and_then(|v| v.as_u64())
                 .ok_or("missing arg 'rows'")? as u16;
-            crate::pty::pty_resize(app.state(), s("id")?, cols, rows)
+            crate::pty::pty_resize_sync(app.state(), s("id")?, cols, rows)
                 .map(|_| serde_json::Value::Null)
         }
         other => Err(format!("unsupported command: {other}")),

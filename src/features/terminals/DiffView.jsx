@@ -10,9 +10,9 @@ import { openExternal } from "../../appMeta.js";
 
 function lineColor(l) {
   if (l.startsWith("+++") || l.startsWith("---")) return "#9aa0a6";
-  if (l.startsWith("@@")) return "#4aa8c0";
+  if (l.startsWith("@@")) return "#7c9cf5";
   if (l.startsWith("diff ") || l.startsWith("index ")) return "#9aa0a6";
-  if (l.startsWith("+")) return "#5fd75f";
+  if (l.startsWith("+")) return "#7fbf8a";
   if (l.startsWith("-")) return "#ff6b6b";
   return "var(--phn-text-fg, #d4d4d4)";
 }
@@ -62,8 +62,8 @@ export default function DiffView({ open, worktree, onClose }) {
           onClick={createPr}
           disabled={creating || !diff}
           style={{
-            background: creating || !diff ? "transparent" : "var(--phn-link, #4aa8c0)",
-            border: "1px solid var(--phn-link, #4aa8c0)",
+            background: creating || !diff ? "transparent" : "var(--phn-link, #7c9cf5)",
+            border: "1px solid var(--phn-link, #7c9cf5)",
             color: creating || !diff ? "var(--phn-text-dim, #888)" : "#06223a",
             padding: "5px 14px", borderRadius: 4, fontSize: 12, fontWeight: 600,
             cursor: creating || !diff ? "default" : "pointer", fontFamily: "var(--phn-ui-font)",

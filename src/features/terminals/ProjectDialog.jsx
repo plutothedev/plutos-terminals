@@ -1,13 +1,14 @@
 // (C)
 import { useEffect, useState } from "react";
 import { invoke } from "@backend";
+import { SLocal, SSsh, SWindows, SMouse } from "./toolbarIcons.jsx";
 
 const BG = "var(--phn-surface-bg, #181818)";
 const PAGE = "var(--phn-page-bg, #0a0a0a)";
 const FG = "var(--phn-text-fg, #CCCCCC)";
 const FG_DIM = "var(--phn-text-dim, #9D9D9D)";
 const BORDER = "var(--phn-surface-border, #2B2B2B)";
-const ACCENT = "var(--phn-link, #4DAAFC)";
+const ACCENT = "var(--phn-link, #7c9cf5)";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 const inputStyle = {
@@ -292,10 +293,10 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
 
         {/* Type selector */}
         <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-          {typeTab("local", "🖥  Local")}
-          {typeTab("ssh", "🌐  SSH")}
-          {typeTab("rdp", "🪟  RDP")}
-          {typeTab("vnc", "🖱  VNC")}
+          {typeTab("local", <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SLocal size={13} /> Local</span>)}
+          {typeTab("ssh", <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SSsh size={13} /> SSH</span>)}
+          {typeTab("rdp", <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SWindows size={13} /> RDP</span>)}
+          {typeTab("vnc", <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SMouse size={13} /> VNC</span>)}
         </div>
 
         {type === "ssh" && (

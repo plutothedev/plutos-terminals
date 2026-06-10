@@ -5,13 +5,14 @@
 // sessions. All actions are delegated through the `api` object passed down from
 // TerminalsTab (start a shell in-place, open a saved session, open a modal).
 import "./terminals.css";
+import { SLocal, SSsh, SMouse, SWindows, SSerial } from "./toolbarIcons.jsx";
 
 const QUICK = [
-  { id: "local", icon: "🖥", label: "Local shell", desc: "Start a shell here" },
-  { id: "ssh", icon: "🌐", label: "SSH", desc: "Connect to a host" },
-  { id: "vnc", icon: "🖱", label: "VNC", desc: "Remote desktop" },
-  { id: "rdp", icon: "🪟", label: "RDP", desc: "Windows desktop" },
-  { id: "serial", icon: "⎓", label: "Serial", desc: "USB / UART console" },
+  { id: "local", icon: <SLocal size={22} />, label: "Local shell", desc: "Start a shell here" },
+  { id: "ssh", icon: <SSsh size={22} />, label: "SSH", desc: "Connect to a host" },
+  { id: "vnc", icon: <SMouse size={22} />, label: "VNC", desc: "Remote desktop" },
+  { id: "rdp", icon: <SWindows size={22} />, label: "RDP", desc: "Windows desktop" },
+  { id: "serial", icon: <SSerial size={22} />, label: "Serial", desc: "USB / UART console" },
 ];
 
 export default function MobaHomeScreen({ panelId, tabId, api }) {
@@ -56,7 +57,7 @@ export default function MobaHomeScreen({ panelId, tabId, api }) {
                 const isVnc = p.type === "vnc" || !!p.vnc;
                 const ssh = p.type === "ssh" || (p.connection && !p.path && !isRdp && !isVnc);
                 const a = acts[p.id];
-                const icon = isRdp ? "🪟" : isVnc ? "🖱" : ssh ? "🌐" : "🖥";
+                const icon = isRdp ? <SWindows size={14} /> : isVnc ? <SMouse size={14} /> : ssh ? <SSsh size={14} /> : <SLocal size={14} />;
                 const title = isRdp ? `RDP ${p.rdp?.host || ""}:${p.rdp?.port || 3389}`
                   : isVnc ? `VNC ${p.vnc?.host || ""}:${p.vnc?.port || 5900}`
                   : ssh ? `${p.connection?.user || ""}@${p.connection?.host || ""}:${p.connection?.port || 22}`

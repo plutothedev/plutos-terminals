@@ -8,7 +8,7 @@ import { createContext, useCallback, useContext, useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 
 const { FG, FG_ACTIVE, ACCENT, BORDER, M } = MODAL_COLORS;
-const PLUTO_MAGENTA = "#FF0080";
+const PLUTO_MAGENTA = "#e08784";
 
 const ConfirmContext = createContext(null);
 

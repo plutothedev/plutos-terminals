@@ -15,8 +15,8 @@ const STRIP_BG = "var(--phn-surface-bg, rgba(17,17,17,0.95))";
 const BORDER_DIM = "var(--phn-surface-border, rgba(255,255,255,0.08))";
 const TAB_FG = "var(--phn-text-fg, #9D9D9D)";
 const TAB_FG_ACTIVE = "var(--phn-text-active, #E6E6E6)";
-const ACCENT = "var(--phn-link, #4DAAFC)";
-const ACCENT_FALLBACK = "#4DAAFC"; // for drag ghost (DOM-built outside React)
+const ACCENT = "var(--phn-link, #7c9cf5)";
+const ACCENT_FALLBACK = "#7c9cf5"; // for drag ghost (DOM-built outside React)
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 // Activity colors mirror Moon Dev: yellow while running, green when finished.
@@ -311,7 +311,7 @@ function TerminalPanel({
   let borderColor = "var(--phn-surface-border, #34383F)";
   const boxShadow = "none";
   if (isActive && canClosePanel) {
-    borderColor = "var(--phn-link, #4D8FE0)";
+    borderColor = "var(--phn-link, #7c9cf5)";
   } else if (!isActive && panelState === "active") {
     borderColor = GLOW_ACTIVE;
   } else if (!isActive && panelState === "done") {
@@ -432,7 +432,7 @@ function TerminalPanel({
                   <span
                     className="moba-tab-x"
                     onClick={(e) => { e.stopPropagation(); h.closeTab(tab.id); }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = "#f44"; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-danger, #e08784)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.color = ""; }}
                   >
                     ×
@@ -472,7 +472,7 @@ function TerminalPanel({
               userSelect: "none",
             }}
             title="Close this panel"
-            onMouseEnter={(e) => { e.currentTarget.style.color = "#f44"; }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-danger, #e08784)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "#555"; }}
           >
             ✕
@@ -578,7 +578,7 @@ function TerminalPanel({
                             borderRadius: 2,
                             background: "rgba(0,0,0,0.35)",
                           }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = "#f44"; }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-danger, #e08784)"; }}
                           onMouseLeave={(e) => { e.currentTarget.style.color = "#777"; }}
                         >
                           ×
@@ -616,7 +616,7 @@ function TerminalPanel({
                             width: `${d.container.width}%`,
                           }),
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(77,170,252,0.35)"; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(124,156,245,0.35)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   />
                 );

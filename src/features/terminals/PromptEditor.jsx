@@ -143,7 +143,7 @@ function highlightFor(theme) {
   const c = theme || {};
   return HighlightStyle.define([
     { tag: [t.keyword, t.controlKeyword, t.operatorKeyword], color: c.brightBlue || c.blue || "#5f87ff" },
-    { tag: [t.string, t.special(t.string)], color: c.green || "#5fd75f" },
+    { tag: [t.string, t.special(t.string)], color: c.green || "#7fbf8a" },
     { tag: t.comment, color: c.brightBlack || "#777", fontStyle: "italic" },
     { tag: [t.number, t.atom, t.bool], color: c.yellow || "#e5e510" },
     { tag: [t.variableName, t.propertyName], color: c.cyan || "#5fd7d7" },

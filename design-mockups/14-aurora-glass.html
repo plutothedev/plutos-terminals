@@ -1,0 +1,622 @@
+<!-- (C) design mockup 14 — Aurora Glass — translucent -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pluto's Terminals — Aurora Glass</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-0:#07080D;
+    --bg-1:#0B0E16;
+    --glass:rgba(18,20,28,.62);
+    --glass-hi:rgba(18,20,28,.55);
+    --glass-deep:rgba(8,9,14,.82);
+    --hairline:rgba(255,255,255,.08);
+    --hairline-soft:rgba(255,255,255,.05);
+    --teal:#5EEAD4;
+    --teal-dim:rgba(94,234,212,.14);
+    --teal-glow:rgba(94,234,212,.35);
+    --violet:#A78BFA;
+    --violet-dim:rgba(167,139,250,.13);
+    --txt-1:#EDF0F7;
+    --txt-2:#A7AEBE;
+    --txt-3:#717A8C;
+    --mono:'JetBrains Mono',Consolas,monospace;
+    --ui:'Sora','Inter',system-ui,sans-serif;
+    --r:11px;
+    --shadow:0 18px 44px rgba(0,0,0,.5), 0 2px 10px rgba(0,0,0,.35);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--ui);
+    color:var(--txt-1);
+    background:
+      radial-gradient(900px 600px at 18% -10%, rgba(94,234,212,.075), transparent 60%),
+      radial-gradient(1000px 700px at 88% 108%, rgba(167,139,250,.08), transparent 60%),
+      linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 100%);
+    overflow:hidden;
+    font-size:12px;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* aurora blobs */
+  .aurora{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;}
+  .aurora .blob{position:absolute;border-radius:50%;filter:blur(110px);}
+  .aurora .b1{width:560px;height:420px;left:-8%;top:-14%;background:rgba(94,234,212,.10);}
+  .aurora .b2{width:640px;height:480px;right:-10%;bottom:-18%;background:rgba(167,139,250,.10);}
+
+  .app{position:relative;z-index:1;height:100vh;display:flex;flex-direction:column;padding:8px;gap:6px;}
+
+  /* ============ shared glass ============ */
+  .glass{
+    background:var(--glass);
+    backdrop-filter:blur(18px) saturate(1.4);
+    -webkit-backdrop-filter:blur(18px) saturate(1.4);
+    border:1px solid var(--hairline);
+    border-radius:var(--r);
+    box-shadow:var(--shadow);
+  }
+  svg.ic{width:15px;height:15px;flex:none;stroke:currentColor;stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+
+  /* ============ 1. MENU BAR ============ */
+  .menubar{
+    height:34px;flex:none;display:flex;align-items:center;gap:2px;
+    padding:0 8px;position:relative;
+  }
+  .brand{display:flex;align-items:center;gap:8px;padding:0 10px 0 4px;}
+  .brandmark{
+    width:18px;height:18px;border-radius:6px;flex:none;
+    background:linear-gradient(135deg, rgba(94,234,212,.9), rgba(94,234,212,.35));
+    box-shadow:0 0 12px var(--teal-glow);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .brandmark svg{width:11px;height:11px;stroke:#06241F;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+  .brand span{font-size:12px;font-weight:600;letter-spacing:.2px;}
+  .menu{
+    font-size:11.5px;color:var(--txt-2);padding:4px 9px;border-radius:7px;cursor:default;
+  }
+  .menu:hover{background:rgba(255,255,255,.07);color:var(--txt-1);}
+  .menu.open{background:rgba(255,255,255,.09);color:var(--txt-1);}
+  .menubar .spacer{flex:1;}
+  .mb-right{display:flex;align-items:center;gap:8px;}
+  .dims{font-family:var(--mono);font-size:10.5px;color:var(--txt-3);}
+  .chip{
+    display:flex;align-items:center;gap:6px;height:21px;padding:0 9px;border-radius:99px;
+    background:rgba(255,255,255,.05);border:1px solid var(--hairline-soft);
+    font-size:10.5px;color:var(--txt-2);font-family:var(--mono);
+  }
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 8px var(--teal-glow), 0 0 3px var(--teal);}
+  .iconbtn{
+    width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    color:var(--txt-3);cursor:default;
+  }
+  .iconbtn:hover{background:rgba(255,255,255,.07);color:var(--txt-1);}
+  .winctl{display:flex;align-items:center;gap:2px;margin-left:4px;}
+  .winctl .iconbtn svg{width:12px;height:12px;}
+  .winctl .close:hover{background:rgba(255,99,99,.18);color:#ffb4b4;}
+
+  /* dropdown */
+  .dropdown{
+    position:absolute;top:36px;left:308px;width:248px;z-index:50;
+    background:rgba(20,22,31,.78);
+    backdrop-filter:blur(22px) saturate(1.5);
+    -webkit-backdrop-filter:blur(22px) saturate(1.5);
+    border:1px solid var(--hairline);border-radius:12px;
+    box-shadow:0 24px 60px rgba(0,0,0,.6), 0 4px 16px rgba(0,0,0,.4);
+    padding:5px;
+  }
+  .dd-item{
+    display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:8px;
+    font-size:11.5px;color:var(--txt-2);cursor:default;
+  }
+  .dd-item:hover{background:rgba(255,255,255,.08);color:var(--txt-1);}
+  .dd-item.ai{color:var(--violet);}
+  .dd-item.ai:hover{background:var(--violet-dim);color:#C4B0FF;}
+  .dd-item .kbd{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--txt-3);}
+  .dd-sep{height:1px;background:var(--hairline-soft);margin:4px 8px;}
+
+  /* ============ 2. ICON TOOLBAR ============ */
+  .toolbar{
+    height:58px;flex:none;display:flex;align-items:center;gap:14px;padding:0 12px;
+  }
+  .tgroup{display:flex;flex-direction:column;gap:3px;height:100%;justify-content:center;}
+  .tgroup-row{display:flex;align-items:center;gap:3px;}
+  .tgroup-cap{font-size:10px;font-weight:600;letter-spacing:1.2px;color:var(--txt-3);padding-left:3px;}
+  .tbtn{
+    display:flex;flex-direction:row;align-items:center;gap:6px;
+    height:30px;padding:0 10px;border-radius:8px;font-size:11px;color:var(--txt-2);cursor:default;
+    border:1px solid transparent;
+  }
+  .tbtn:hover{background:rgba(255,255,255,.07);color:var(--txt-1);border-color:var(--hairline-soft);}
+  .tbtn.ai{color:var(--violet);}
+  .tbtn.ai:hover{background:var(--violet-dim);color:#C4B0FF;border-color:rgba(167,139,250,.22);}
+  .tsep{width:1px;height:32px;background:var(--hairline-soft);flex:none;}
+  .toolbar .spacer{flex:1;}
+  .cost-chip{
+    display:flex;align-items:center;gap:7px;height:28px;padding:0 12px;border-radius:99px;
+    background:rgba(255,255,255,.05);border:1px solid var(--hairline-soft);
+    font-family:var(--mono);font-size:11px;color:var(--txt-2);flex:none;
+  }
+  .cost-chip b{color:var(--teal);font-weight:600;}
+  .quick{
+    display:flex;align-items:center;gap:8px;height:32px;width:240px;padding:0 11px;
+    border-radius:9px;background:rgba(8,9,14,.5);border:1px solid var(--hairline);
+    color:var(--txt-3);font-size:11px;flex:none;cursor:text;
+  }
+  .quick:hover{border-color:rgba(94,234,212,.3);box-shadow:0 0 0 3px rgba(94,234,212,.08);}
+  .quick .caret{width:1px;height:13px;background:var(--teal);box-shadow:0 0 5px var(--teal-glow);}
+
+  /* ============ 3. BODY ROW ============ */
+  .body{flex:1;display:flex;gap:6px;min-height:0;}
+
+  /* --- left dock --- */
+  .dock-l{width:240px;flex:none;display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+  .dock-head{
+    display:flex;align-items:center;gap:8px;padding:10px 12px 8px;flex:none;
+    font-size:11px;font-weight:600;letter-spacing:.6px;color:var(--txt-2);text-transform:uppercase;
+  }
+  .dock-head .count{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--txt-3);font-weight:400;}
+  .search{
+    margin:0 10px 8px;height:28px;display:flex;align-items:center;gap:7px;padding:0 9px;
+    border-radius:8px;background:rgba(8,9,14,.5);border:1px solid var(--hairline-soft);
+    color:var(--txt-3);font-size:11px;flex:none;
+  }
+  .search:hover{border-color:rgba(94,234,212,.3);}
+  .tree{flex:1;overflow:hidden;padding:0 6px 8px;}
+  .tfolder{
+    display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:7px;
+    font-size:11px;font-weight:600;color:var(--txt-2);cursor:default;
+  }
+  .tfolder:hover{background:rgba(255,255,255,.05);}
+  .tfolder .n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--txt-3);font-weight:400;}
+  .trow{
+    position:relative;display:flex;align-items:center;gap:8px;
+    padding:6px 8px 6px 20px;border-radius:7px;font-size:11.5px;color:var(--txt-2);cursor:default;
+  }
+  .trow:hover{background:rgba(255,255,255,.06);color:var(--txt-1);}
+  .trow.hovered{background:rgba(255,255,255,.07);color:var(--txt-1);}
+  .trow.active{
+    background:var(--teal-dim);color:var(--txt-1);
+    box-shadow:0 0 14px rgba(94,234,212,.10) inset;
+  }
+  .trow.active::before{
+    content:"";position:absolute;left:4px;top:6px;bottom:6px;width:2.5px;border-radius:3px;
+    background:var(--teal);box-shadow:0 0 8px var(--teal-glow);
+  }
+  .trow .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lat{
+    font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:99px;flex:none;
+    background:rgba(255,255,255,.05);border:1px solid var(--hairline-soft);color:var(--txt-3);
+  }
+  .lat.good{color:var(--teal);border-color:rgba(94,234,212,.2);}
+  .lat.warn{color:#F2CC8F;border-color:rgba(242,204,143,.2);}
+
+  /* --- center --- */
+  .center{flex:1;display:flex;gap:6px;min-width:0;min-height:0;}
+  .tpanel{
+    flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;
+    background:var(--glass-deep);
+    backdrop-filter:blur(18px) saturate(1.4);
+    -webkit-backdrop-filter:blur(18px) saturate(1.4);
+    border:1px solid var(--hairline);border-radius:var(--r);box-shadow:var(--shadow);
+  }
+  .tpanel.focused{
+    border-color:rgba(94,234,212,.4);
+    box-shadow:0 0 0 1px rgba(94,234,212,.25), 0 0 24px rgba(94,234,212,.12), var(--shadow);
+  }
+  .tabs{
+    flex:none;display:flex;align-items:center;gap:4px;padding:6px 8px;
+    background:rgba(255,255,255,.025);border-bottom:1px solid var(--hairline-soft);
+  }
+  .tab{
+    display:flex;align-items:center;gap:7px;height:26px;padding:0 11px;border-radius:8px;
+    font-size:11px;color:var(--txt-3);cursor:default;border:1px solid transparent;
+  }
+  .tab:hover{background:rgba(255,255,255,.06);color:var(--txt-2);}
+  .tab.on{
+    background:rgba(255,255,255,.07);color:var(--txt-1);border-color:var(--hairline-soft);
+  }
+  .tab .tdot{width:6px;height:6px;border-radius:50%;flex:none;}
+  .tdot.run{background:var(--teal);box-shadow:0 0 7px var(--teal-glow);animation:pulse 1.6s ease-in-out infinite;}
+  .tdot.done{background:var(--txt-3);}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+  .tab.add{padding:0 8px;font-size:13px;color:var(--txt-3);}
+  .tab.add:hover{color:var(--teal);}
+  .pane{
+    flex:1;overflow:hidden;padding:12px 14px;
+    font-family:var(--mono);font-size:13px;line-height:1.55;
+    color:var(--txt-2);white-space:pre-wrap;word-break:break-word;
+  }
+  .pane .p{color:var(--teal);}
+  .pane .vio{color:var(--violet);}
+  .pane .dim{color:var(--txt-3);}
+  .pane .wht{color:var(--txt-1);}
+  .pane .add{color:#7BE0A8;}
+  .pane .del{color:#F08C8C;}
+  .pane .yel{color:#F2CC8F;}
+  .pane .blu{color:#7FB4F2;}
+  .pane .red{color:#F08C8C;}
+  .cursor{
+    display:inline-block;width:7px;height:14px;vertical-align:-2px;
+    background:var(--teal);box-shadow:0 0 7px var(--teal-glow);animation:pulse 1.1s steps(2) infinite;
+  }
+
+  /* --- right dock --- */
+  .dock-r{width:300px;flex:none;display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+  .rtabs{flex:none;display:flex;gap:4px;padding:8px 10px 0;}
+  .rtab{
+    flex:1;height:28px;display:flex;align-items:center;justify-content:center;gap:6px;
+    border-radius:8px;font-size:11px;color:var(--txt-3);cursor:default;border:1px solid transparent;
+  }
+  .rtab:hover{background:rgba(255,255,255,.05);color:var(--txt-2);}
+  .rtab.on{
+    background:var(--violet-dim);color:var(--violet);border-color:rgba(167,139,250,.25);
+    box-shadow:0 0 14px rgba(167,139,250,.10);
+  }
+  .chat{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:10px;padding:12px 12px 8px;min-height:0;}
+  .bubble{
+    max-width:88%;padding:9px 11px;border-radius:11px;font-size:11.5px;line-height:1.5;color:var(--txt-1);
+    border:1px solid var(--hairline-soft);
+  }
+  .bubble.user{
+    align-self:flex-end;background:rgba(255,255,255,.07);border-bottom-right-radius:4px;
+  }
+  .bubble.ai{
+    align-self:flex-start;background:rgba(167,139,250,.08);border-color:rgba(167,139,250,.18);
+    border-bottom-left-radius:4px;
+  }
+  .bubble .who{font-size:10px;font-weight:600;letter-spacing:.5px;color:var(--txt-3);margin-bottom:4px;text-transform:uppercase;}
+  .bubble.ai .who{color:var(--violet);}
+  .fence{
+    margin:7px 0 6px;padding:8px 10px;border-radius:8px;
+    background:rgba(8,9,14,.7);border:1px solid var(--hairline-soft);
+    font-family:var(--mono);font-size:11px;color:var(--txt-1);white-space:pre;overflow:hidden;
+  }
+  .fence .p{color:var(--teal);}
+  .micro{display:flex;gap:6px;}
+  .mbtn{
+    height:21px;padding:0 9px;display:flex;align-items:center;gap:5px;border-radius:6px;
+    font-size:10px;color:var(--txt-2);background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline-soft);cursor:default;font-family:var(--mono);
+  }
+  .mbtn:hover{background:rgba(167,139,250,.14);color:#C4B0FF;border-color:rgba(167,139,250,.3);}
+  .chat-input{
+    flex:none;margin:0 10px 10px;height:34px;display:flex;align-items:center;gap:8px;padding:0 6px 0 11px;
+    border-radius:9px;background:rgba(8,9,14,.5);border:1px solid var(--hairline-soft);
+    color:var(--txt-3);font-size:11px;
+  }
+  .chat-input:hover{border-color:rgba(167,139,250,.32);box-shadow:0 0 0 3px rgba(167,139,250,.07);}
+  .send{
+    margin-left:auto;width:24px;height:24px;border-radius:7px;flex:none;
+    background:rgba(167,139,250,.16);color:var(--violet);
+    display:flex;align-items:center;justify-content:center;cursor:default;
+  }
+  .send:hover{background:rgba(167,139,250,.28);}
+  .send svg{width:12px;height:12px;}
+
+  /* ============ 4. STATUS BAR ============ */
+  .statusbar{
+    height:27px;flex:none;display:flex;align-items:center;gap:4px;padding:0 10px;
+    font-size:10.5px;color:var(--txt-3);
+  }
+  .seg{display:flex;align-items:center;gap:6px;padding:0 9px;height:19px;border-radius:99px;font-family:var(--mono);}
+  .seg:hover{background:rgba(255,255,255,.05);color:var(--txt-2);}
+  .seg.live{color:var(--txt-2);}
+  .statusbar .spacer{flex:1;}
+  .seg b{color:var(--teal);font-weight:600;}
+  .seg .ic{width:12px;height:12px;}
+  .ssep{width:1px;height:11px;background:var(--hairline-soft);}
+
+  /* ============ 5. F-KEY BAR ============ */
+  .fbar{
+    height:25px;flex:none;display:flex;align-items:center;justify-content:center;gap:3px;
+    font-size:10px;color:var(--txt-3);
+  }
+  .fkey{display:flex;align-items:center;gap:5px;padding:2px 8px;border-radius:6px;cursor:default;}
+  .fkey:hover{background:rgba(255,255,255,.06);color:var(--txt-1);}
+  .fkey b{
+    font-family:var(--mono);font-weight:500;color:var(--txt-2);font-size:10px;
+    padding:0 4px;border-radius:4px;background:rgba(255,255,255,.06);border:1px solid var(--hairline-soft);
+  }
+  .fkey.ai{color:rgba(167,139,250,.8);}
+  .fkey.ai b{color:var(--violet);border-color:rgba(167,139,250,.22);}
+  .fdiv{width:1px;height:10px;background:var(--hairline-soft);margin:0 2px;}
+
+  /* ============ legend ============ */
+  .legend{
+    position:fixed;right:14px;bottom:62px;z-index:80;width:178px;
+    background:rgba(20,22,31,.8);backdrop-filter:blur(22px) saturate(1.5);
+    -webkit-backdrop-filter:blur(22px) saturate(1.5);
+    border:1px solid var(--hairline);border-radius:12px;padding:10px 12px;
+    box-shadow:0 18px 44px rgba(0,0,0,.55);
+  }
+  .legend h4{font-size:10px;font-weight:600;letter-spacing:1px;color:var(--txt-3);text-transform:uppercase;margin-bottom:8px;}
+  .lg-row{display:flex;align-items:center;gap:8px;margin-bottom:5px;font-family:var(--mono);font-size:10px;color:var(--txt-2);}
+  .lg-row:last-child{margin-bottom:0;}
+  .sw{width:13px;height:13px;border-radius:4px;flex:none;border:1px solid var(--hairline);}
+</style>
+</head>
+<body>
+
+<div class="aurora"><div class="blob b1"></div><div class="blob b2"></div></div>
+
+<div class="app">
+
+  <!-- ================= 1. MENU BAR ================= -->
+  <div class="menubar glass">
+    <div class="brand">
+      <div class="brandmark"><svg viewBox="0 0 24 24"><polyline points="5 7 11 12 5 17"/><line x1="13" y1="17" x2="19" y2="17"/></svg></div>
+      <span>Pluto's Terminals</span>
+    </div>
+    <div class="menu">Terminal</div>
+    <div class="menu">Sessions</div>
+    <div class="menu open">Tools</div>
+    <div class="menu">View</div>
+    <div class="menu">Settings</div>
+    <div class="menu">Help</div>
+    <div class="spacer"></div>
+    <div class="mb-right">
+      <span class="dims">120×32</span>
+      <div class="chip"><span class="dot"></span>claude · sonnet</div>
+      <div class="iconbtn" title="Theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8z"/></svg></div>
+      <div class="winctl">
+        <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/></svg></div>
+        <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></div>
+        <div class="iconbtn close"><svg class="ic" viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></div>
+      </div>
+    </div>
+
+    <!-- open dropdown under Tools -->
+    <div class="dropdown">
+      <div class="dd-item"><svg class="ic" viewBox="0 0 24 24"><path d="M8 4h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8"/><polyline points="11 8 7 12 11 16"/></svg>Snippets<span class="kbd">⌘⇧S</span></div>
+      <div class="dd-item"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><polyline points="12 8 12 12 15 14"/></svg>Macros<span class="kbd">F9</span></div>
+      <div class="dd-sep"></div>
+      <div class="dd-item ai"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>Ask AI<span class="kbd">⌘I</span></div>
+      <div class="dd-item ai"><svg class="ic" viewBox="0 0 24 24"><path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10"/><line x1="2" y1="17" x2="22" y2="17"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/></svg>Summarize session<span class="kbd">⌘⇧U</span></div>
+      <div class="dd-sep"></div>
+      <div class="dd-item"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><line x1="20" y1="20" x2="15.5" y2="15.5"/></svg>History search<span class="kbd">⌘R</span></div>
+      <div class="dd-item ai"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="10" r="1.2"/><circle cx="15" cy="10" r="1.2"/><path d="M9 14.5h6"/></svg>Models<span class="kbd">⌘M</span></div>
+      <div class="dd-item"><svg class="ic" viewBox="0 0 24 24"><path d="M5 5a14 14 0 0 1 0 14"/><path d="M9 8a8 8 0 0 1 0 8"/><circle cx="16" cy="12" r="2"/></svg>Broadcast<span class="kbd">⌘B</span></div>
+      <div class="dd-item"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><circle cx="7" cy="7" r=".8"/><circle cx="7" cy="17" r=".8"/></svg>MCP servers</div>
+      <div class="dd-sep"></div>
+      <div class="dd-item"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><polyline points="7 9 10 12 7 15"/><line x1="12" y1="15" x2="17" y2="15"/></svg>Command palette<span class="kbd">⌘K</span></div>
+    </div>
+  </div>
+
+  <!-- ================= 2. ICON TOOLBAR ================= -->
+  <div class="toolbar glass">
+    <div class="tgroup">
+      <div class="tgroup-row">
+        <div class="tbtn"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><polyline points="7 9 10 12 7 15"/><line x1="12" y1="15" x2="16" y2="15"/></svg>Local</div>
+        <div class="tbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M16 3h5v5"/><path d="M21 3l-7 7"/></svg>SSH</div>
+        <div class="tbtn"><svg class="ic" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="12" r="2.5"/><line x1="8.5" y1="12" x2="15.5" y2="12"/></svg>Serial</div>
+      </div>
+      <div class="tgroup-cap">CONNECT</div>
+    </div>
+    <div class="tsep"></div>
+    <div class="tgroup">
+      <div class="tgroup-row">
+        <div class="tbtn"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><line x1="12" y1="4" x2="12" y2="20"/></svg>Split</div>
+        <div class="tbtn"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" rx="2"/><rect x="13" y="4" width="8" height="7" rx="2"/><rect x="3" y="13" width="8" height="7" rx="2"/><rect x="13" y="13" width="8" height="7" rx="2"/></svg>MultiExec</div>
+        <div class="tbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M4 12v5"/><path d="M20 12v5"/><circle cx="12" cy="12" r="2"/></svg>Tunnel</div>
+      </div>
+      <div class="tgroup-cap">WORKSPACE</div>
+    </div>
+    <div class="tsep"></div>
+    <div class="tgroup">
+      <div class="tgroup-row">
+        <div class="tbtn ai"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>Ask AI</div>
+        <div class="tbtn ai"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="11" rx="3"/><circle cx="9.5" cy="12" r="1.2"/><circle cx="14.5" cy="12" r="1.2"/><line x1="12" y1="7" x2="12" y2="4"/><circle cx="12" cy="3.2" r=".9"/></svg>Agent</div>
+        <div class="tbtn ai"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="6" r="2.5"/><circle cx="6" cy="17" r="2.5"/><circle cx="18" cy="17" r="2.5"/><line x1="10.8" y1="8.2" x2="7.2" y2="14.8"/><line x1="13.2" y1="8.2" x2="16.8" y2="14.8"/></svg>Models</div>
+        <div class="tbtn ai"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="2"/><rect x="14" y="13" width="7" height="7" rx="2"/><path d="M10 7.5h7a0 0 0 0 1 0 0v2"/><path d="M17 7.5v6"/><path d="M7 11v5.5a0 0 0 0 0 0 0h7"/></svg>Workflows</div>
+      </div>
+      <div class="tgroup-cap" style="color:rgba(167,139,250,.55);">AI TOOLS</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="cost-chip"><svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><line x1="12" y1="2.5" x2="12" y2="21.5"/><path d="M16.5 6.5h-6.2a2.8 2.8 0 1 0 0 5.6h3.4a2.8 2.8 0 1 1 0 5.6H6.8"/></svg><b>$2.41</b><span>· 38k tok</span></div>
+    <div class="quick">
+      <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><path d="M13 3L5 13.5h6L11 21l8-10.5h-6z"/></svg>
+      <span>user@host — quick connect</span>
+      <span class="caret"></span>
+    </div>
+  </div>
+
+  <!-- ================= 3. BODY ROW ================= -->
+  <div class="body">
+
+    <!-- left dock -->
+    <div class="dock-l glass">
+      <div class="dock-head">
+        <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><polyline points="7 9 10 12 7 15"/></svg>
+        Sessions <span class="count">7</span>
+      </div>
+      <div class="search">
+        <svg class="ic" style="width:12px;height:12px;" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><line x1="20" y1="20" x2="15.5" y2="15.5"/></svg>
+        Filter sessions…
+      </div>
+      <div class="tree">
+        <div class="tfolder">
+          <svg class="ic" style="width:12px;height:12px;" viewBox="0 0 24 24"><polyline points="8 10 12 14 16 10"/></svg>
+          <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          production <span class="n">4</span>
+        </div>
+        <div class="trow active">
+          <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M16 3h5v5"/><path d="M21 3l-7 7"/></svg>
+          <span class="name">prod-api</span><span class="lat good">12ms</span>
+        </div>
+        <div class="trow">
+          <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M16 3h5v5"/><path d="M21 3l-7 7"/></svg>
+          <span class="name">prod-web-01</span><span class="lat good">14ms</span>
+        </div>
+        <div class="trow hovered">
+          <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6"/><path d="M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6"/></svg>
+          <span class="name">prod-db</span><span class="lat warn">48ms</span>
+        </div>
+        <div class="trow">
+          <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M16 3h5v5"/><path d="M21 3l-7 7"/></svg>
+          <span class="name">prod-worker</span><span class="lat good">11ms</span>
+        </div>
+        <div class="tfolder" style="margin-top:6px;">
+          <svg class="ic" style="width:12px;height:12px;" viewBox="0 0 24 24"><polyline points="8 10 12 14 16 10"/></svg>
+          <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          homelab <span class="n">3</span>
+        </div>
+        <div class="trow">
+          <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><circle cx="8" cy="7" r=".8"/><circle cx="8" cy="17" r=".8"/></svg>
+          <span class="name">nas</span><span class="lat good">2ms</span>
+        </div>
+        <div class="trow">
+          <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><circle cx="8" cy="7" r=".8"/><circle cx="8" cy="17" r=".8"/></svg>
+          <span class="name">pi-cluster</span><span class="lat good">3ms</span>
+        </div>
+        <div class="trow">
+          <svg class="ic" style="width:13px;height:13px;" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="12" r="2.5"/><line x1="8.5" y1="12" x2="15.5" y2="12"/></svg>
+          <span class="name">switch-console</span><span class="lat">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- center: two terminal panels -->
+    <div class="center">
+
+      <!-- panel 1: claude code -->
+      <div class="tpanel">
+        <div class="tabs">
+          <div class="tab on"><span class="tdot run"></span>claude code</div>
+          <div class="tab"><span class="tdot done"></span>build</div>
+          <div class="tab add">+</div>
+        </div>
+        <div class="pane"><span class="dim">~/plutos-terminals</span> <span class="p">❯</span> <span class="wht">claude</span>
+
+<span class="vio">✻</span> <span class="wht">Refactor the PTY session registry to handle reconnects</span>
+
+<span class="dim">● Read(src-tauri/src/pty.rs)</span>
+<span class="dim">  └ 312 lines</span>
+
+<span class="dim">● Edit(src-tauri/src/pty.rs)</span>
+<span class="del">  -  pub fn kill(&amp;self, id: &amp;str) {</span>
+<span class="del">  -      self.sessions.remove(id);</span>
+<span class="add">  +  pub fn detach(&amp;self, id: &amp;str) -> Option&lt;Session&gt; {</span>
+<span class="add">  +      self.sessions.get_mut(id)</span>
+<span class="add">  +          .map(|s| s.mark_detached())</span>
+<span class="wht">  }</span>
+
+<span class="dim">● Bash(cargo check)</span>
+<span class="add">  ✓ Finished dev profile in 4.2s — 0 warnings</span>
+
+<span class="vio">✻</span> Registry now keeps detached sessions for 30s
+  so a dropped frontend can reattach without
+  losing the PTY. Run the smoke test?
+
+<span class="p">❯</span> <span class="cursor"></span></div>
+      </div>
+
+      <!-- panel 2: ssh prod-api (active) -->
+      <div class="tpanel focused">
+        <div class="tabs">
+          <div class="tab on"><span class="tdot run"></span>ssh: prod-api</div>
+          <div class="tab"><span class="tdot done"></span>logs</div>
+          <div class="tab add">+</div>
+        </div>
+        <div class="pane"><span class="dim">Welcome to Ubuntu 24.04.2 LTS (6.8.0-45-generic)</span>
+<span class="dim">Last login: Tue Jun 9 03:12:44 2026 from 10.0.4.18</span>
+
+<span class="p">pluto@prod-api</span><span class="dim">:</span><span class="blu">~</span><span class="wht">$</span> tail -f /var/log/api/app.log
+
+<span class="dim">03:14:02</span> <span class="add">INFO</span>  http  <span class="wht">GET /v1/sessions 200</span> <span class="dim">12ms</span>
+<span class="dim">03:14:02</span> <span class="add">INFO</span>  http  <span class="wht">POST /v1/auth/refresh 200</span> <span class="dim">31ms</span>
+<span class="dim">03:14:05</span> <span class="yel">WARN</span>  pool  <span class="wht">pg connections 18/20 — nearing cap</span>
+<span class="dim">03:14:06</span> <span class="add">INFO</span>  http  <span class="wht">GET /v1/decks/share/8fk2 200</span> <span class="dim">9ms</span>
+<span class="dim">03:14:09</span> <span class="red">ERROR</span> queue <span class="wht">job 4412 retry 2/5 — timeout 5000ms</span>
+<span class="dim">03:14:11</span> <span class="add">INFO</span>  queue <span class="wht">job 4412 ok</span> <span class="dim">412ms</span>
+<span class="dim">03:14:14</span> <span class="add">INFO</span>  http  <span class="wht">GET /healthz 200</span> <span class="dim">1ms</span>
+<span class="dim">03:14:18</span> <span class="add">INFO</span>  http  <span class="wht">POST /v1/packs/import 201</span> <span class="dim">88ms</span>
+<span class="dim">03:14:21</span> <span class="blu">DEBUG</span> cache <span class="wht">lru evict 240 keys</span> <span class="dim">3ms</span>
+<span class="dim">03:14:24</span> <span class="add">INFO</span>  http  <span class="wht">GET /v1/sessions 200</span> <span class="dim">10ms</span><span class="cursor"></span></div>
+      </div>
+    </div>
+
+    <!-- right dock -->
+    <div class="dock-r glass">
+      <div class="rtabs">
+        <div class="rtab"><svg class="ic" style="width:12px;height:12px;" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>SFTP</div>
+        <div class="rtab on"><svg class="ic" style="width:12px;height:12px;" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/></svg>Assistant</div>
+        <div class="rtab"><svg class="ic" style="width:12px;height:12px;" viewBox="0 0 24 24"><polyline points="3 13 8 13 10 7 14 17 16 13 21 13"/></svg>Monitor</div>
+      </div>
+
+      <div class="chat">
+        <div class="bubble user">
+          <div class="who">you</div>
+          postgres pool keeps hitting 18/20 on prod-api — what should I check first?
+        </div>
+        <div class="bubble ai">
+          <div class="who">assistant · sonnet</div>
+          Likely idle connections not being released. Check what's actually holding them before resizing the pool:
+          <div class="fence"><span class="p">$</span> psql -c "SELECT state, count(*)
+  FROM pg_stat_activity
+  GROUP BY state;"</div>
+          <div class="micro">
+            <div class="mbtn">run ↵</div>
+            <div class="mbtn">insert</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-input">
+        Ask about this session…
+        <div class="send"><svg class="ic" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="6 11 12 5 18 11"/></svg></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 4. STATUS BAR ================= -->
+  <div class="statusbar glass">
+    <div class="seg live"><span class="dot" style="width:5px;height:5px;"></span>ssh: prod-api · 120×32</div>
+    <div class="ssep"></div>
+    <div class="seg">zsh · UTF-8</div>
+    <div class="spacer"></div>
+    <div class="seg"><b>$2.41</b></div>
+    <div class="ssep"></div>
+    <div class="seg">claude</div>
+    <div class="ssep"></div>
+    <div class="seg">v0.3.6</div>
+    <div class="ssep"></div>
+    <div class="seg">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.4 1.1 3 .8.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5a3.9 3.9 0 0 1 1-2.7 3.6 3.6 0 0 1 .1-2.7s.9-.3 2.8 1a9.5 9.5 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1a3.6 3.6 0 0 1 .1 2.7 3.9 3.9 0 0 1 1 2.7c0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.8v2.7c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></svg>
+      <svg class="ic" viewBox="0 0 24 24"><path d="M8.5 17c-2 0-3.5-2-3.5-2 .3-2.9 1.2-5.6 2.7-8 0 0 1.6-1 3.6-1.2l.4.9a12 12 0 0 1 4.6 0l.4-.9c2 .2 3.6 1.2 3.6 1.2 1.5 2.4 2.4 5.1 2.7 8 0 0-1.5 2-3.5 2l-.9-1.4"/><circle cx="9.5" cy="12.5" r="1"/><circle cx="14.5" cy="12.5" r="1"/></svg>
+    </div>
+  </div>
+
+  <!-- ================= 5. F-KEY BAR ================= -->
+  <div class="fbar glass">
+    <div class="fkey"><b>F1</b>Help</div>
+    <div class="fkey"><b>F2</b>Tab</div>
+    <div class="fkey"><b>F3</b>Split</div>
+    <div class="fkey"><b>F4</b>SFTP</div>
+    <div class="fdiv"></div>
+    <div class="fkey"><b>⌘K</b>Palette</div>
+    <div class="fkey ai"><b>⌘I</b>Ask AI</div>
+    <div class="fkey"><b>⌘R</b>History</div>
+    <div class="fkey ai"><b>⌘M</b>Models</div>
+    <div class="fdiv"></div>
+    <div class="fkey"><b>F9</b>Macro</div>
+  </div>
+
+</div>
+
+<!-- legend -->
+<div class="legend">
+  <h4>Aurora Glass</h4>
+  <div class="lg-row"><span class="sw" style="background:#0B0E16;"></span>#0B0E16 backdrop</div>
+  <div class="lg-row"><span class="sw" style="background:rgba(18,20,28,.62);"></span>glass .62 + blur</div>
+  <div class="lg-row"><span class="sw" style="background:#5EEAD4;"></span>#5EEAD4 accent</div>
+  <div class="lg-row"><span class="sw" style="background:#A78BFA;"></span>#A78BFA ai only</div>
+  <div class="lg-row"><span class="sw" style="background:#EDF0F7;"></span>#EDF0F7 text</div>
+</div>
+
+</body>
+</html>

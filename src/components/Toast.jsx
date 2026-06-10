@@ -1,5 +1,5 @@
 // Branded toast notification system. Replaces window.alert across the app.
-// Three variants: success (green), error (Pluto-magenta), info (accent blue).
+// Three variants: success (green), error (danger red), info (accent).
 // Auto-dismiss after 4 seconds; click to dismiss early.
 //
 // Usage: import { useToast } from "./Toast.jsx" inside any component within
@@ -11,9 +11,9 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 const ToastContext = createContext(null);
 
 const COLORS = {
-  success: { bg: "rgba(52, 211, 153, 0.16)", border: "#34D399", fg: "#34D399" },
-  error:   { bg: "rgba(255, 0, 128, 0.18)",   border: "#FF0080", fg: "#FF0080" },
-  info:    { bg: "rgba(77, 170, 252, 0.16)",  border: "#4DAAFC", fg: "#4DAAFC" },
+  success: { bg: "rgba(127, 191, 138, 0.14)", border: "#7fbf8a", fg: "#7fbf8a" },
+  error:   { bg: "rgba(224, 135, 132, 0.14)", border: "#e08784", fg: "#e08784" },
+  info:    { bg: "rgba(124, 156, 245, 0.14)", border: "#7c9cf5", fg: "#7c9cf5" },
 };
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";

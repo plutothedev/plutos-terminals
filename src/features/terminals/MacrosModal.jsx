@@ -11,8 +11,9 @@ import {
   startMacroRecording, stopMacroRecording, cancelMacroRecording,
   isMacroRecording, onMacroStateChange,
 } from "./macros.js";
+import { STrash } from "./toolbarIcons.jsx";
 
-const ACCENT = "var(--phn-link, #4aa8c0)";
+const ACCENT = "var(--phn-link, #7c9cf5)";
 const DIM = "var(--phn-text-dim, #888)";
 
 export default function MacrosModal({ open, onClose, onReplay, canReplay, activeTabId }) {
@@ -76,7 +77,7 @@ export default function MacrosModal({ open, onClose, onReplay, canReplay, active
               <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--phn-text-fg, #d4d4d4)" }}>{m.name}</span>
               <span style={{ flex: 1, fontFamily: "'MesloLGS NF', monospace", fontSize: 10.5, color: DIM, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{previewMacro(m.data)}</span>
               <button onClick={() => replay(m)} style={ghostBtn} title="Send to the active terminal">▶ Replay</button>
-              <span onClick={() => remove(m.id)} title="Delete" style={{ cursor: "pointer", color: DIM, fontSize: 12, padding: "2px 5px" }}>🗑</span>
+              <span onClick={() => remove(m.id)} title="Delete" style={{ cursor: "pointer", color: DIM, padding: "2px 5px", display: "inline-flex", alignItems: "center" }}><STrash size={12} /></span>
             </div>
           ))
         )}

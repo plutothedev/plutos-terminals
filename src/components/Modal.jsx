@@ -49,7 +49,7 @@ export const MODAL_COLORS = {
   FG: "var(--phn-text-fg, #CCCCCC)",
   FG_ACTIVE: "var(--phn-text-active, #E6E6E6)",
   FG_DIM: "var(--phn-text-dim, #9D9D9D)",
-  ACCENT: "var(--phn-link, #4DAAFC)",
+  ACCENT: "var(--phn-link, #7c9cf5)",
   BORDER: "var(--phn-surface-border, #2B2B2B)",
   M: "'JetBrains Mono', Menlo, Monaco, monospace",
 };

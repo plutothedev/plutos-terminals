@@ -48,7 +48,7 @@ fn run_text(mut cmd: Command) -> Result<String, String> {
 
 /// ping the host a few times and return the raw output.
 #[tauri::command]
-pub fn net_ping(host: String) -> Result<String, String> {
+pub async fn net_ping(host: String) -> Result<String, String> {
     let host = host.trim();
     if !valid_host(host) {
         return Err("invalid host".into());
@@ -63,7 +63,7 @@ pub fn net_ping(host: String) -> Result<String, String> {
 
 /// traceroute / tracert to the host (capped hop count) and return the output.
 #[tauri::command]
-pub fn net_traceroute(host: String) -> Result<String, String> {
+pub async fn net_traceroute(host: String) -> Result<String, String> {
     let host = host.trim();
     if !valid_host(host) {
         return Err("invalid host".into());
@@ -116,7 +116,7 @@ fn parse_ports(spec: &str) -> Vec<u16> {
 /// `host` within a short timeout. Pure Rust (no external tool). Scans in
 /// parallel batches so a 256-port scan stays quick.
 #[tauri::command]
-pub fn net_port_scan(host: String, ports: String) -> Result<Vec<u16>, String> {
+pub async fn net_port_scan(host: String, ports: String) -> Result<Vec<u16>, String> {
     let host = host.trim().to_string();
     if !valid_host(&host) {
         return Err("invalid host".into());
@@ -161,7 +161,7 @@ pub fn net_port_scan(host: String, ports: String) -> Result<Vec<u16>, String> {
 /// and portable (no ICMP/ping-flag differences). Returns round-trip ms, or None
 /// if it times out / is refused. Used for the session-tree latency readout.
 #[tauri::command]
-pub fn net_latency(host: String, port: Option<u16>) -> Result<Option<u32>, String> {
+pub async fn net_latency(host: String, port: Option<u16>) -> Result<Option<u32>, String> {
     let host = host.trim().to_string();
     if !valid_host(&host) {
         return Err("invalid host".into());
@@ -182,7 +182,7 @@ pub fn net_latency(host: String, port: Option<u16>) -> Result<Option<u32>, Strin
 
 /// Resolve a hostname to its IP address(es). Pure Rust via the system resolver.
 #[tauri::command]
-pub fn net_dns(host: String) -> Result<Vec<String>, String> {
+pub async fn net_dns(host: String) -> Result<Vec<String>, String> {
     let host = host.trim();
     if !valid_host(host) {
         return Err("invalid host".into());

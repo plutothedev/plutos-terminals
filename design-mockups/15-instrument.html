@@ -1,0 +1,958 @@
+<!-- (C) design mockup 15 — Instrument — refined industrial -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pluto's Terminals — 15 Instrument</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   INSTRUMENT — refined industrial / precision power-tool
+   chrome #181A1D · dock #131518 · well #0B0C0E
+   hairline #26292E · signal amber #FFB454
+   ============================================================ */
+:root{
+  --chrome:   #181A1D;
+  --dock:     #131518;
+  --well:     #0B0C0E;
+  --hairline: #26292E;
+  --groove:   #0A0B0D;
+  --amber:    #FFB454;
+  --ok:       #7FD47F;
+  --bad:      #E8645A;
+  --t1:       #D7DAE0;
+  --t2:       #969CA6;
+  --t3:       #6E747E;
+  --wash:     rgba(255,255,255,0.06);
+  --sans: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  font-family:var(--sans);
+  font-size:12px;
+  color:var(--t1);
+  background:#060708;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+.app{
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  background:var(--chrome);
+}
+
+/* ---- shared primitives ------------------------------------ */
+.caps{
+  font-size:10px;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  font-weight:500;
+}
+.mono{font-family:var(--mono);}
+.led{
+  width:6px;height:6px;border-radius:50%;
+  flex:none;
+  background:var(--t3);
+}
+.led.amber{background:var(--amber);box-shadow:0 0 0 1px rgba(255,180,84,0.25);}
+.led.ok{background:var(--ok);box-shadow:0 0 0 1px rgba(127,212,127,0.22);}
+.led.bad{background:var(--bad);box-shadow:0 0 0 1px rgba(232,100,90,0.22);}
+.led.off{background:#3A3E45;}
+/* channel groove: 2px darker recess between major regions */
+.groove-v{
+  width:2px;flex:none;
+  background:var(--groove);
+  box-shadow:inset -1px 0 0 rgba(255,255,255,0.035);
+}
+.groove-h{
+  height:2px;flex:none;
+  background:var(--groove);
+  box-shadow:inset 0 -1px 0 rgba(255,255,255,0.035);
+}
+svg.ic{display:block;flex:none;}
+button{font:inherit;color:inherit;background:none;border:none;cursor:default;}
+:focus-visible{outline:1px solid var(--amber);outline-offset:-1px;}
+
+/* ============================================================
+   1. MENU BAR
+   ============================================================ */
+.menubar{
+  height:26px;flex:none;
+  background:var(--chrome);
+  display:flex;align-items:stretch;
+  border-bottom:1px solid var(--hairline);
+  position:relative;
+  z-index:50;
+}
+.brand{
+  display:flex;align-items:center;gap:7px;
+  padding:0 12px 0 10px;
+}
+.brand-dot{
+  width:8px;height:8px;border-radius:2px;
+  background:var(--amber);
+  flex:none;
+}
+.brand .caps{color:var(--t1);letter-spacing:0.16em;}
+.menus{display:flex;align-items:stretch;}
+.menu-item{
+  display:flex;align-items:center;
+  padding:0 10px;
+  color:var(--t2);
+  font-size:12px;
+  position:relative;
+}
+.menu-item:hover{background:var(--wash);color:var(--t1);}
+.menu-item.open{
+  background:var(--wash);
+  color:var(--t1);
+  box-shadow:inset 0 -2px 0 var(--amber);
+}
+/* dropdown */
+.dropdown{
+  position:absolute;
+  top:26px;left:0;
+  width:228px;
+  background:var(--dock);
+  border:1px solid var(--hairline);
+  border-radius:0 0 3px 3px;
+  box-shadow:0 8px 20px rgba(0,0,0,0.55);
+  padding:4px 0;
+  z-index:60;
+}
+.dd-row{
+  display:flex;align-items:center;
+  height:24px;
+  padding:0 10px;
+  color:var(--t1);
+  font-size:12px;
+}
+.dd-row:hover{background:var(--wash);}
+.dd-row.hot{background:var(--wash);box-shadow:inset 2px 0 0 var(--amber);}
+.dd-row .ic{margin-right:8px;color:var(--t3);}
+.dd-row:hover .ic{color:var(--t2);}
+.dd-key{
+  margin-left:auto;
+  font-family:var(--mono);
+  font-size:10px;
+  color:var(--t3);
+}
+.dd-sep{height:1px;background:var(--hairline);margin:4px 0;}
+.menubar-right{
+  margin-left:auto;
+  display:flex;align-items:stretch;
+}
+.mb-cell{
+  display:flex;align-items:center;gap:6px;
+  padding:0 10px;
+  border-left:1px solid var(--hairline);
+  color:var(--t2);
+}
+.mb-cell.mono{font-size:11px;}
+.mb-cell:hover{background:var(--wash);}
+.model-chip{
+  font-family:var(--mono);font-size:11px;color:var(--t1);
+}
+.win-controls{display:flex;align-items:stretch;border-left:1px solid var(--hairline);}
+.win-btn{
+  width:34px;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--t3);
+}
+.win-btn:hover{background:var(--wash);color:var(--t1);}
+.win-btn.close:hover{background:var(--bad);color:#0B0C0E;}
+
+/* ============================================================
+   2. ICON TOOLBAR
+   ============================================================ */
+.toolbar{
+  height:52px;flex:none;
+  background:var(--chrome);
+  display:flex;align-items:stretch;
+  border-bottom:1px solid var(--hairline);
+}
+.tb-group{
+  display:flex;flex-direction:column;
+  padding:4px 8px 3px;
+}
+.tb-group-label{
+  color:var(--t3);
+  text-align:left;
+  padding:0 2px;
+  margin-bottom:2px;
+}
+.tb-row{display:flex;gap:2px;}
+.tb-btn{
+  display:flex;flex-direction:row;align-items:center;gap:5px;
+  height:26px;
+  padding:0 8px;
+  border-radius:2px;
+  color:var(--t2);
+  font-size:11px;
+}
+.tb-btn .ic{color:var(--t3);}
+.tb-btn:hover{background:var(--wash);color:var(--t1);}
+.tb-btn:hover .ic{color:var(--t2);}
+.tb-btn.live{color:var(--t1);}
+.tb-btn.live .ic{color:var(--amber);}
+.toolbar-right{
+  margin-left:auto;
+  display:flex;align-items:center;gap:8px;
+  padding:0 10px;
+}
+/* recessed LCD-style cost cell */
+.lcd{
+  font-family:var(--mono);
+  font-size:11px;
+  letter-spacing:0.04em;
+  color:var(--amber);
+  background:var(--well);
+  border:1px solid var(--groove);
+  border-radius:2px;
+  padding:4px 10px;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.65), inset 0 0 0 1px rgba(255,255,255,0.02);
+}
+.lcd .dim{color:var(--t3);}
+.qc{
+  display:flex;align-items:center;gap:6px;
+  width:200px;height:26px;
+  background:var(--well);
+  border:1px solid var(--hairline);
+  border-radius:2px;
+  padding:0 8px;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);
+  color:var(--t3);
+}
+.qc input{
+  background:none;border:none;outline:none;
+  font-family:var(--mono);font-size:11px;
+  color:var(--t1);width:100%;
+}
+.qc input::placeholder{color:var(--t3);}
+
+/* ============================================================
+   3. BODY ROW
+   ============================================================ */
+.body-row{
+  flex:1;min-height:0;
+  display:flex;align-items:stretch;
+  background:var(--chrome);
+}
+
+/* ---- left dock -------------------------------------------- */
+.dock-left{
+  width:240px;flex:none;
+  background:var(--dock);
+  display:flex;flex-direction:column;
+  min-height:0;
+}
+.dock-header{
+  height:28px;flex:none;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 10px;
+  color:var(--t3);
+  border-bottom:1px solid var(--hairline);
+}
+.dock-header .ic{color:var(--t3);}
+.dock-header button:hover .ic{color:var(--t1);}
+.search{
+  margin:8px 8px 6px;
+  display:flex;align-items:center;gap:6px;
+  height:24px;
+  background:var(--well);
+  border:1px solid var(--hairline);
+  border-radius:2px;
+  padding:0 7px;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.55);
+  color:var(--t3);
+}
+.search input{
+  background:none;border:none;outline:none;
+  font-family:var(--sans);font-size:11px;
+  color:var(--t1);width:100%;
+}
+.search input::placeholder{color:var(--t3);}
+.tree{flex:1;overflow:hidden;padding:2px 0 8px;}
+.tree-folder{
+  display:flex;align-items:center;gap:6px;
+  height:24px;
+  padding:0 10px;
+  color:var(--t2);
+}
+.tree-folder:hover{background:var(--wash);}
+.tree-folder .count{
+  margin-left:auto;
+  font-family:var(--mono);font-size:10px;color:var(--t3);
+}
+.tree-folder .ic{color:var(--t3);}
+.tree-row{
+  display:flex;align-items:center;gap:7px;
+  height:24px;
+  padding:0 10px 0 24px;
+  color:var(--t2);
+  font-size:12px;
+  position:relative;
+}
+.tree-row .ic{color:var(--t3);}
+.tree-row .lat{
+  margin-left:auto;
+  font-family:var(--mono);font-size:10px;color:var(--t3);
+}
+.tree-row:hover, .tree-row.hover{background:var(--wash);color:var(--t1);}
+.tree-row:hover .ic, .tree-row.hover .ic{color:var(--t2);}
+.tree-row.active{
+  background:var(--wash);
+  color:var(--t1);
+  box-shadow:inset 2px 0 0 var(--amber);
+}
+.tree-row.active .ic{color:var(--t2);}
+.tree-row.active .lat{color:var(--t2);}
+.tree-row .led{width:5px;height:5px;margin-left:2px;}
+
+/* ---- center: terminal panels ------------------------------ */
+.center{
+  flex:1;min-width:0;
+  display:flex;
+  background:var(--chrome);
+  padding:6px;
+  gap:0;
+}
+.center-channel{
+  width:6px;flex:none;
+  display:flex;justify-content:center;
+}
+.center-channel::before{
+  content:"";
+  width:2px;
+  background:var(--groove);
+  box-shadow:inset -1px 0 0 rgba(255,255,255,0.035);
+}
+.panel{
+  flex:1;min-width:0;
+  display:flex;flex-direction:column;
+  border-radius:3px;
+  overflow:hidden;
+}
+.tabstrip{
+  height:28px;flex:none;
+  background:var(--chrome);
+  display:flex;align-items:stretch;
+  border-bottom:1px solid var(--hairline);
+}
+.tab{
+  display:flex;align-items:center;gap:7px;
+  padding:0 12px;
+  color:var(--t3);
+  font-family:var(--mono);
+  font-size:11px;
+  border-right:1px solid var(--hairline);
+  position:relative;
+}
+.tab:hover{background:var(--wash);color:var(--t2);}
+.tab.active{
+  background:var(--well);
+  color:var(--t1);
+  box-shadow:inset 0 2px 0 var(--amber);
+}
+.tab-plus{
+  width:28px;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--t3);
+  border-right:1px solid var(--hairline);
+}
+.tab-plus:hover{background:var(--wash);color:var(--t1);}
+/* inset terminal well — routed channel top shadow */
+.well{
+  flex:1;min-height:0;
+  background:var(--well);
+  box-shadow:inset 0 1px 0 rgba(0,0,0,0.85), inset 0 2px 4px rgba(0,0,0,0.45);
+  padding:10px 12px;
+  overflow:hidden;
+  font-family:var(--mono);
+  font-size:13px;
+  line-height:1.55;
+  color:var(--t1);
+}
+.panel.focused .well{
+  box-shadow:inset 0 0 0 1px var(--amber),
+             inset 0 1px 0 rgba(0,0,0,0.85),
+             inset 0 2px 4px rgba(0,0,0,0.45);
+}
+.well pre{
+  font:inherit;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+/* terminal content tints — content colors, kept calibrated */
+.c-dim{color:var(--t3);}
+.c-mut{color:var(--t2);}
+.c-amb{color:var(--amber);}
+.c-grn{color:var(--ok);}
+.c-red{color:var(--bad);}
+.c-cyn{color:#7FBFD4;}
+.c-blu{color:#8AA4D6;}
+.diff-add{color:var(--ok);background:rgba(127,212,127,0.07);}
+.diff-del{color:var(--bad);background:rgba(232,100,90,0.07);}
+.cursor{
+  display:inline-block;width:7px;height:14px;
+  background:var(--amber);
+  vertical-align:-2px;
+}
+
+/* ---- right dock ------------------------------------------- */
+.dock-right{
+  width:300px;flex:none;
+  background:var(--dock);
+  display:flex;flex-direction:column;
+  min-height:0;
+}
+.dock-tabs{
+  height:28px;flex:none;
+  display:flex;align-items:stretch;
+  border-bottom:1px solid var(--hairline);
+}
+.dock-tab{
+  flex:1;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--t3);
+  border-right:1px solid var(--hairline);
+}
+.dock-tab:last-child{border-right:none;}
+.dock-tab:hover{background:var(--wash);color:var(--t2);}
+.dock-tab.active{
+  color:var(--t1);
+  box-shadow:inset 0 -2px 0 var(--amber);
+}
+.dock-body{flex:1;min-height:0;overflow:hidden;padding:10px;}
+.gauge-block{margin-bottom:12px;}
+.gauge-head{
+  display:flex;align-items:baseline;justify-content:space-between;
+  margin-bottom:4px;
+}
+.gauge-head .caps{color:var(--t3);}
+.gauge-head .val{font-family:var(--mono);font-size:11px;color:var(--t2);}
+/* LED bargraph: segmented strip */
+.bargraph{
+  height:8px;
+  background:var(--well);
+  border:1px solid var(--groove);
+  border-radius:2px;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.6);
+  padding:1px;
+  display:flex;
+}
+.bargraph .fill{
+  height:100%;
+  border-radius:1px;
+  /* segmented look: 4px lit, 2px gap */
+  -webkit-mask:repeating-linear-gradient(90deg,#000 0 4px,transparent 4px 6px);
+          mask:repeating-linear-gradient(90deg,#000 0 4px,transparent 4px 6px);
+}
+.fill.g{background:var(--ok);}
+.fill.ga{background:linear-gradient(90deg,var(--ok) 0 62%,var(--amber) 62% 100%);}
+.fill.gar{background:linear-gradient(90deg,var(--ok) 0 52%,var(--amber) 52% 82%,var(--bad) 82% 100%);}
+.dock-sep{
+  height:2px;margin:10px -10px;
+  background:var(--groove);
+  box-shadow:inset 0 -1px 0 rgba(255,255,255,0.035);
+}
+.sess-head{
+  display:flex;align-items:center;justify-content:space-between;
+  color:var(--t3);
+  margin:2px 0 6px;
+}
+.sess-row{
+  display:flex;align-items:center;gap:8px;
+  height:26px;
+  padding:0 6px;
+  border-radius:2px;
+  font-size:11px;
+  color:var(--t2);
+}
+.sess-row:hover{background:var(--wash);color:var(--t1);}
+.sess-row .name{font-family:var(--mono);}
+.sess-row .stat{
+  margin-left:auto;
+  font-family:var(--mono);font-size:10px;color:var(--t3);
+}
+
+/* ============================================================
+   4. STATUS BAR — segmented
+   ============================================================ */
+.statusbar{
+  height:24px;flex:none;
+  background:var(--chrome);
+  border-top:1px solid var(--hairline);
+  display:flex;align-items:stretch;
+  font-size:11px;
+}
+.sb-seg{
+  display:flex;align-items:center;gap:6px;
+  padding:0 10px;
+  color:var(--t2);
+  position:relative;
+}
+.sb-seg:hover{background:var(--wash);color:var(--t1);}
+.sb-seg + .sb-seg::before{
+  content:"";
+  position:absolute;left:0;top:4px;bottom:4px;
+  width:2px;
+  background:var(--groove);
+  box-shadow:inset -1px 0 0 rgba(255,255,255,0.035);
+}
+.sb-seg.mono{font-family:var(--mono);font-size:10.5px;}
+.sb-seg .led{width:5px;height:5px;}
+.sb-right{margin-left:auto;display:flex;align-items:stretch;}
+.sb-seg .ic{color:var(--t3);}
+.sb-seg:hover .ic{color:var(--t1);}
+
+/* ============================================================
+   5. F-KEY BAR
+   ============================================================ */
+.fkeys{
+  height:22px;flex:none;
+  background:var(--dock);
+  border-top:1px solid var(--hairline);
+  display:flex;align-items:stretch;
+}
+.fkey{
+  flex:1;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  position:relative;
+  color:var(--t3);
+}
+.fkey + .fkey::before{
+  content:"";
+  position:absolute;left:0;top:4px;bottom:4px;
+  width:2px;
+  background:var(--groove);
+  box-shadow:inset -1px 0 0 rgba(255,255,255,0.035);
+}
+.fkey:hover{background:var(--wash);color:var(--t1);}
+.fkey .k{
+  font-family:var(--mono);font-size:10px;font-weight:600;
+  color:var(--t2);
+}
+.fkey:hover .k{color:var(--amber);}
+.fkey .lbl{
+  font-size:10px;letter-spacing:0.1em;text-transform:uppercase;
+}
+
+/* ============================================================
+   legend card
+   ============================================================ */
+.legend{
+  position:fixed;
+  right:12px;bottom:58px;
+  background:var(--dock);
+  border:1px solid var(--hairline);
+  border-radius:3px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.5);
+  padding:8px 10px;
+  z-index:100;
+  width:172px;
+}
+.legend .caps{color:var(--t3);margin-bottom:6px;display:block;}
+.legend-row{
+  display:flex;align-items:center;gap:8px;
+  height:18px;
+  font-family:var(--mono);font-size:10px;color:var(--t2);
+}
+.legend-row .sw{
+  width:12px;height:12px;border-radius:2px;flex:none;
+  border:1px solid var(--hairline);
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ======================= 1. MENU BAR ======================= -->
+  <div class="menubar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span class="caps">Pluto's Terminals</span>
+    </div>
+    <div class="menus">
+      <div class="menu-item open">Terminal
+        <!-- open dropdown -->
+        <div class="dropdown">
+          <div class="dd-row hot">
+            <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
+            New tab<span class="dd-key">Ctrl+T</span>
+          </div>
+          <div class="dd-row">
+            <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M5 7l2 2-2 2"/></svg>
+            Launch screen<span class="dd-key">Ctrl+L</span>
+          </div>
+          <div class="dd-row">
+            <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M2 6h12"/></svg>
+            New panel<span class="dd-key">Ctrl+Shift+N</span>
+          </div>
+          <div class="dd-sep"></div>
+          <div class="dd-row">
+            <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M8 2v12"/></svg>
+            Split right<span class="dd-key">Alt+Shift+→</span>
+          </div>
+          <div class="dd-row">
+            <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M2 8h12"/></svg>
+            Split down<span class="dd-key">Alt+Shift+↓</span>
+          </div>
+          <div class="dd-sep"></div>
+          <div class="dd-row">
+            <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+            Close tab<span class="dd-key">Ctrl+W</span>
+          </div>
+          <div class="dd-row">
+            <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="9" height="9" rx="1"/><path d="M6 4V2h8v8h-2"/></svg>
+            New window<span class="dd-key">Ctrl+Shift+W</span>
+          </div>
+        </div>
+      </div>
+      <div class="menu-item">Sessions</div>
+      <div class="menu-item">Tools</div>
+      <div class="menu-item">View</div>
+      <div class="menu-item">Settings</div>
+      <div class="menu-item">Help</div>
+    </div>
+    <div class="menubar-right">
+      <div class="mb-cell mono" style="font-family:var(--mono);color:var(--t3);">120×32</div>
+      <div class="mb-cell">
+        <span class="led amber"></span>
+        <span class="model-chip">claude · sonnet</span>
+      </div>
+      <div class="mb-cell" title="Theme">
+        <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5"/><path d="M8 3v10" /></svg>
+      </div>
+      <div class="win-controls">
+        <button class="win-btn"><svg class="ic" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8.5h8"/></svg></button>
+        <button class="win-btn"><svg class="ic" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="7" height="7"/></svg></button>
+        <button class="win-btn close"><svg class="ic" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================== 2. ICON TOOLBAR ===================== -->
+  <div class="toolbar">
+
+    <div class="tb-group">
+      <span class="tb-group-label caps">Connect</span>
+      <div class="tb-row">
+        <button class="tb-btn live">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M4.5 6l2 2-2 2M8.5 10.5h3"/></svg>
+          Local
+        </button>
+        <button class="tb-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2" width="13" height="5" rx="1"/><rect x="1.5" y="9" width="13" height="5" rx="1"/><circle cx="4.5" cy="4.5" r="0.5"/><circle cx="4.5" cy="11.5" r="0.5"/></svg>
+          SSH
+        </button>
+        <button class="tb-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 2v4M11 2v4M3.5 6h9v3a4.5 4.5 0 01-9 0V6zM8 13.5V14"/></svg>
+          Serial
+        </button>
+      </div>
+    </div>
+
+    <div class="groove-v" style="margin:6px 2px;"></div>
+
+    <div class="tb-group">
+      <span class="tb-group-label caps">Workspace</span>
+      <div class="tb-row">
+        <button class="tb-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M8 2.5v11"/></svg>
+          Split
+        </button>
+        <button class="tb-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="6" height="6" rx="1"/><rect x="8.5" y="1.5" width="6" height="6" rx="1"/><rect x="1.5" y="8.5" width="6" height="6" rx="1"/><rect x="8.5" y="8.5" width="6" height="6" rx="1"/></svg>
+          MultiExec
+        </button>
+        <button class="tb-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8c0-2.5 1.5-4.5 3-4.5S8 5.5 8 8s1.5 4.5 3 4.5S14 10.5 14 8"/><path d="M2 8h2M12 8h2"/></svg>
+          Tunnel
+        </button>
+      </div>
+    </div>
+
+    <div class="groove-v" style="margin:6px 2px;"></div>
+
+    <div class="tb-group">
+      <span class="tb-group-label caps">AI Tools</span>
+      <div class="tb-row">
+        <button class="tb-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l1.5 4 4 1.5-4 1.5L8 12.5 6.5 8.5l-4-1.5 4-1.5L8 1.5z"/></svg>
+          Ask AI
+        </button>
+        <button class="tb-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="2.5"/><path d="M3 13.5c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg>
+          Agent
+        </button>
+        <button class="tb-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="3.5" rx="1"/><rect x="2" y="7" width="12" height="3.5" rx="1" opacity="0.6"/><rect x="2" y="12" width="12" height="2.5" rx="1" opacity="0.35"/></svg>
+          Models
+        </button>
+        <button class="tb-btn">
+          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="3.5" cy="8" r="1.5"/><circle cx="12.5" cy="3.5" r="1.5"/><circle cx="12.5" cy="12.5" r="1.5"/><path d="M5 7.3l6-3M5 8.7l6 3"/></svg>
+          Workflows
+        </button>
+      </div>
+    </div>
+
+    <div class="toolbar-right">
+      <div class="lcd">$2.41 <span class="dim">·</span> 38K TOK</div>
+      <div class="qc">
+        <svg class="ic" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8h7M7 4.5L10.5 8 7 11.5"/></svg>
+        <input type="text" placeholder="user@host" aria-label="Quick connect">
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================== 3. BODY ROW ======================= -->
+  <div class="body-row">
+
+    <!-- ---- left dock: SESSIONS ---- -->
+    <div class="dock-left">
+      <div class="dock-header">
+        <span class="caps">Sessions</span>
+        <button title="New session"><svg class="ic" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg></button>
+      </div>
+      <div class="search">
+        <svg class="ic" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+        <input type="text" placeholder="Filter sessions…" aria-label="Filter sessions">
+      </div>
+      <div class="tree">
+
+        <div class="tree-folder">
+          <svg class="ic" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.5L5 6.5l2.5-3"/></svg>
+          <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 4.5a1 1 0 011-1h3.5l1.5 2h6a1 1 0 011 1v6a1 1 0 01-1 1h-11a1 1 0 01-1-1v-8z"/></svg>
+          <span class="caps">Production</span>
+          <span class="count">4</span>
+        </div>
+
+        <div class="tree-row active">
+          <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2" width="13" height="5" rx="1"/><rect x="1.5" y="9" width="13" height="5" rx="1"/><circle cx="4.5" cy="4.5" r="0.5"/><circle cx="4.5" cy="11.5" r="0.5"/></svg>
+          prod-api
+          <span class="led amber"></span>
+          <span class="lat">12ms</span>
+        </div>
+        <div class="tree-row">
+          <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2" width="13" height="5" rx="1"/><rect x="1.5" y="9" width="13" height="5" rx="1"/><circle cx="4.5" cy="4.5" r="0.5"/><circle cx="4.5" cy="11.5" r="0.5"/></svg>
+          prod-worker-1
+          <span class="lat">14ms</span>
+        </div>
+        <div class="tree-row hover">
+          <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="4" rx="5.5" ry="2"/><path d="M2.5 4v8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2V4"/><path d="M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2"/></svg>
+          prod-db
+          <span class="lat">18ms</span>
+        </div>
+        <div class="tree-row">
+          <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2" width="13" height="5" rx="1"/><rect x="1.5" y="9" width="13" height="5" rx="1"/><circle cx="4.5" cy="4.5" r="0.5"/><circle cx="4.5" cy="11.5" r="0.5"/></svg>
+          prod-cache
+          <span class="lat">11ms</span>
+        </div>
+
+        <div class="tree-folder" style="margin-top:6px;">
+          <svg class="ic" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.5L5 6.5l2.5-3"/></svg>
+          <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 4.5a1 1 0 011-1h3.5l1.5 2h6a1 1 0 011 1v6a1 1 0 01-1 1h-11a1 1 0 01-1-1v-8z"/></svg>
+          <span class="caps">Homelab</span>
+          <span class="count">3</span>
+        </div>
+
+        <div class="tree-row">
+          <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M4.5 6l2 2-2 2M8.5 10.5h3"/></svg>
+          proxmox-01
+          <span class="lat">2ms</span>
+        </div>
+        <div class="tree-row">
+          <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M5.5 5.5h5v5h-5z"/></svg>
+          nas
+          <span class="lat">3ms</span>
+        </div>
+        <div class="tree-row">
+          <svg class="ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 11h12M3.5 11V6.5h9V11M6 4h4"/><circle cx="5" cy="13" r="0.5"/><circle cx="11" cy="13" r="0.5"/></svg>
+          pi-gateway
+          <span class="lat">4ms</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="groove-v"></div>
+
+    <!-- ---- center: two terminal panels ---- -->
+    <div class="center">
+
+      <!-- panel 1: claude code -->
+      <div class="panel">
+        <div class="tabstrip">
+          <div class="tab active"><span class="led amber"></span>claude code</div>
+          <div class="tab"><span class="led ok"></span>build</div>
+          <div class="tab-plus"><svg class="ic" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg></div>
+        </div>
+        <div class="well">
+<pre><span class="c-dim">~/plutos-terminals</span> <span class="c-amb">❯</span> claude
+
+<span class="c-amb">●</span> <span class="c-mut">Reading</span> src/features/terminals/TerminalPane.jsx
+
+<span class="c-cyn">⏺ Update(src/features/terminals/TerminalPane.jsx)</span>
+<span class="c-dim">  ⎿  Updated TerminalPane.jsx with 3 additions, 1 removal</span>
+
+<span class="c-dim">  104</span>   <span class="diff-del">- const FLUSH_MS = 5000;</span>
+<span class="c-dim">  104</span>   <span class="diff-add">+ const FLUSH_MS = 5000;          // transcript cadence</span>
+<span class="c-dim">  105</span>   <span class="diff-add">+ const FLUSH_BYTES = 8 * 1024;   // or 8KB, whichever</span>
+<span class="c-dim">  106</span>   <span class="diff-add">+                                 // comes first</span>
+
+<span class="c-cyn">⏺ Bash(npm run tauri build -- --debug)</span>
+<span class="c-dim">  ⎿  </span><span class="c-grn">Compiling</span> <span class="c-mut">portable-pty v0.8.1</span>
+<span class="c-dim">  ⎿  </span><span class="c-grn">Compiling</span> <span class="c-mut">plutos-terminals v0.3.6</span>
+<span class="c-dim">  ⎿  </span><span class="c-grn">Finished</span> <span class="c-mut">dev profile in 41.2s</span>
+
+<span class="c-mut">Scrollback flush now honors both the 5s timer and the
+8KB high-water mark. Want me to add the same gate to
+the transcript writer?</span>
+
+<span class="c-dim">~/plutos-terminals</span> <span class="c-amb">❯</span> <span class="cursor"></span></pre>
+        </div>
+      </div>
+
+      <div class="center-channel"></div>
+
+      <!-- panel 2: ssh -->
+      <div class="panel focused">
+        <div class="tabstrip">
+          <div class="tab active">ssh: prod-api</div>
+          <div class="tab">logs</div>
+          <div class="tab-plus"><svg class="ic" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg></div>
+        </div>
+        <div class="well">
+<pre><span class="c-dim">Last login: Tue Jun  9 07:41:02 2026 from 10.0.4.18</span>
+<span class="c-mut">prod-api · Ubuntu 24.04.2 LTS · uptime 84d 11h</span>
+<span class="c-dim">────────────────────────────────────────────</span>
+<span class="c-grn">pluto@prod-api</span><span class="c-dim">:</span><span class="c-blu">/var/log/app</span><span class="c-amb">$</span> tail -f api.log
+
+<span class="c-dim">07:42:01</span> <span class="c-cyn">INFO</span>  worker-2 request id=9f31 <span class="c-mut">GET /v1/decks</span> 200 12ms
+<span class="c-dim">07:42:03</span> <span class="c-cyn">INFO</span>  worker-1 request id=9f32 <span class="c-mut">POST /v1/sessions</span> 201 34ms
+<span class="c-dim">07:42:04</span> <span class="c-amb">WARN</span>  pool size 18/20 — nearing cap
+<span class="c-dim">07:42:06</span> <span class="c-cyn">INFO</span>  worker-3 request id=9f33 <span class="c-mut">GET /v1/packs/example</span> 200 9ms
+<span class="c-dim">07:42:09</span> <span class="c-red">ERROR</span> worker-1 upstream timeout id=9f34 <span class="c-mut">retrying (1/3)</span>
+<span class="c-dim">07:42:09</span> <span class="c-cyn">INFO</span>  worker-1 retry ok id=9f34 <span class="c-mut">GET /v1/health</span> 200 118ms
+<span class="c-dim">07:42:12</span> <span class="c-cyn">INFO</span>  worker-2 request id=9f35 <span class="c-mut">GET /v1/decks</span> 200 11ms
+<span class="c-dim">07:42:15</span> <span class="c-grn">INFO</span>  autoscale steady · 3 workers · p95 41ms
+<span class="cursor"></span></pre>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="groove-v"></div>
+
+    <!-- ---- right dock: SFTP / ASSISTANT / MONITOR ---- -->
+    <div class="dock-right">
+      <div class="dock-tabs">
+        <div class="dock-tab caps">SFTP</div>
+        <div class="dock-tab caps">Assistant</div>
+        <div class="dock-tab caps active">Monitor</div>
+      </div>
+      <div class="dock-body">
+
+        <div class="gauge-block">
+          <div class="gauge-head"><span class="caps">CPU</span><span class="val">38%</span></div>
+          <div class="bargraph"><div class="fill g" style="width:38%;"></div></div>
+        </div>
+        <div class="gauge-block">
+          <div class="gauge-head"><span class="caps">MEM</span><span class="val">7.1 / 16 GB</span></div>
+          <div class="bargraph"><div class="fill ga" style="width:62%;"></div></div>
+        </div>
+        <div class="gauge-block">
+          <div class="gauge-head"><span class="caps">DISK</span><span class="val">412 / 512 GB</span></div>
+          <div class="bargraph"><div class="fill gar" style="width:84%;"></div></div>
+        </div>
+
+        <div class="dock-sep"></div>
+
+        <div class="sess-head">
+          <span class="caps">Active Sessions</span>
+          <span class="caps" style="font-weight:400;">5</span>
+        </div>
+
+        <div class="sess-row">
+          <span class="led amber"></span>
+          <span class="name">claude code</span>
+          <span class="stat">pty 1 · 38K tok</span>
+        </div>
+        <div class="sess-row">
+          <span class="led ok"></span>
+          <span class="name">build</span>
+          <span class="stat">exit 0 · 41s</span>
+        </div>
+        <div class="sess-row">
+          <span class="led amber"></span>
+          <span class="name">ssh: prod-api</span>
+          <span class="stat">12ms · zsh</span>
+        </div>
+        <div class="sess-row">
+          <span class="led off"></span>
+          <span class="name">logs</span>
+          <span class="stat">idle 4m</span>
+        </div>
+        <div class="sess-row">
+          <span class="led bad"></span>
+          <span class="name">tunnel :5432</span>
+          <span class="stat">dropped</span>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ======================= 4. STATUS BAR ====================== -->
+  <div class="statusbar">
+    <div class="sb-seg"><span class="led amber"></span><span class="mono" style="font-family:var(--mono);font-size:10.5px;">ssh: prod-api</span><span class="mono" style="font-family:var(--mono);font-size:10.5px;color:var(--t3);">120×32</span></div>
+    <div class="sb-seg mono">zsh · UTF-8 · LF</div>
+    <div class="sb-seg"><span class="caps" style="font-weight:400;">Bcast Off</span></div>
+    <div class="sb-right">
+      <div class="sb-seg mono" style="color:var(--amber);">$2.41</div>
+      <div class="sb-seg mono">claude</div>
+      <div class="sb-seg mono" style="color:var(--t3);">v0.3.6</div>
+      <div class="sb-seg" title="GitHub">
+        <svg class="ic" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.5 14v-2.2c0-.6-.2-1-.5-1.3 1.8-.2 3.5-.9 3.5-3.9 0-.9-.3-1.6-.8-2.1.1-.2.4-1-.1-2.1 0 0-.7-.2-2.2.8a7.5 7.5 0 00-4 0c-1.5-1-2.2-.8-2.2-.8-.5 1.1-.2 1.9-.1 2.1-.5.5-.8 1.2-.8 2.1 0 3 1.7 3.7 3.5 3.9-.3.3-.5.7-.5 1.3V14"/></svg>
+      </div>
+      <div class="sb-seg" title="Discord">
+        <svg class="ic" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 3.5C6.3 3.2 7.1 3 8 3s1.7.2 2.5.5c1.2.4 2 1 2.3 1.5.5 1 .9 3 .9 5 0 .5-1.3 1.6-2.7 2l-.6-1.2M5.5 3.5c-1.2.4-2 1-2.3 1.5-.5 1-.9 3-.9 5 0 .5 1.3 1.6 2.7 2l.6-1.2m0 0c.7.2 1.5.3 2.4.3s1.7-.1 2.4-.3"/><circle cx="6" cy="8.5" r="0.6"/><circle cx="10" cy="8.5" r="0.6"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================== 5. F-KEY BAR ====================== -->
+  <div class="fkeys">
+    <div class="fkey"><span class="k">F1</span><span class="lbl">Help</span></div>
+    <div class="fkey"><span class="k">F2</span><span class="lbl">Tab</span></div>
+    <div class="fkey"><span class="k">F3</span><span class="lbl">Split</span></div>
+    <div class="fkey"><span class="k">F4</span><span class="lbl">SFTP</span></div>
+    <div class="fkey"><span class="k">⌘K</span><span class="lbl">Palette</span></div>
+    <div class="fkey"><span class="k">⌘I</span><span class="lbl">Ask AI</span></div>
+    <div class="fkey"><span class="k">⌘R</span><span class="lbl">History</span></div>
+    <div class="fkey"><span class="k">⌘M</span><span class="lbl">Models</span></div>
+    <div class="fkey"><span class="k">F9</span><span class="lbl">Macro</span></div>
+  </div>
+
+</div>
+
+<!-- token legend -->
+<div class="legend">
+  <span class="caps">Instrument · Tokens</span>
+  <div class="legend-row"><span class="sw" style="background:#181A1D;"></span>chrome #181A1D</div>
+  <div class="legend-row"><span class="sw" style="background:#131518;"></span>dock #131518</div>
+  <div class="legend-row"><span class="sw" style="background:#0B0C0E;"></span>well #0B0C0E</div>
+  <div class="legend-row"><span class="sw" style="background:#26292E;"></span>hairline #26292E</div>
+  <div class="legend-row"><span class="sw" style="background:#FFB454;"></span>signal #FFB454</div>
+</div>
+
+</body>
+</html>

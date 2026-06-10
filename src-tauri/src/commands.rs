@@ -156,7 +156,7 @@ fn sanitize_branch(b: &str) -> String {
 }
 
 #[tauri::command]
-pub fn worktree_add(repo: String, branch: String) -> Result<String, String> {
+pub async fn worktree_add(repo: String, branch: String) -> Result<String, String> {
     let repo_path = PathBuf::from(&repo);
     if !repo_path.join(".git").exists() {
         return Err("Not a git repository (no .git found).".into());
@@ -190,7 +190,7 @@ pub fn worktree_add(repo: String, branch: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn worktree_remove(repo: String, path: String) -> Result<(), String> {
+pub async fn worktree_remove(repo: String, path: String) -> Result<(), String> {
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(&repo)
@@ -210,7 +210,7 @@ pub fn worktree_remove(repo: String, path: String) -> Result<(), String> {
 // so an agent's work is reviewable whether or not it committed. gh_pr_create
 // pushes the branch and opens a PR with gh (requires gh auth + a remote).
 #[tauri::command]
-pub fn git_diff(path: String) -> Result<String, String> {
+pub async fn git_diff(path: String) -> Result<String, String> {
     let run = |args: &[&str]| {
         std::process::Command::new("git")
             .arg("-C")
@@ -251,7 +251,7 @@ pub fn git_diff(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn gh_pr_create(path: String) -> Result<String, String> {
+pub async fn gh_pr_create(path: String) -> Result<String, String> {
     let push = std::process::Command::new("git")
         .current_dir(&path)
         .args(["push", "-u", "origin", "HEAD"])
@@ -406,7 +406,7 @@ pub struct McpInstallResult {
 }
 
 #[tauri::command]
-pub fn mcp_install(argv: Vec<String>) -> Result<McpInstallResult, String> {
+pub async fn mcp_install(argv: Vec<String>) -> Result<McpInstallResult, String> {
     if argv.first().map(String::as_str) != Some("claude") {
         return Err("Only `claude` invocations are allowed.".to_string());
     }
@@ -456,7 +456,7 @@ pub fn mcp_install(argv: Vec<String>) -> Result<McpInstallResult, String> {
 }
 
 #[tauri::command]
-pub fn check_command_version(name: String) -> Option<String> {
+pub async fn check_command_version(name: String) -> Option<String> {
     if name.is_empty() || name.contains(['/', '\\', '.', ' ']) {
         // Reject obviously-malformed inputs — only bare command names allowed.
         return None;
@@ -487,7 +487,7 @@ pub struct GitBranchStatus {
 }
 
 #[tauri::command]
-pub fn git_branch_status(cwd: String) -> Option<GitBranchStatus> {
+pub async fn git_branch_status(cwd: String) -> Option<GitBranchStatus> {
     let path = std::path::Path::new(&cwd);
     if !path.exists() || !path.is_dir() {
         return None;
@@ -631,7 +631,7 @@ pub fn transcript_append(
 // binaries, build artifacts.
 
 #[tauri::command]
-pub fn recent_files(cwd: String) -> Vec<String> {
+pub async fn recent_files(cwd: String) -> Vec<String> {
     let path = std::path::Path::new(&cwd);
     if !path.exists() || !path.is_dir() {
         return vec![];
