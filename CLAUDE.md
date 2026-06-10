@@ -1,93 +1,149 @@
 # Pluto's Terminals — Codebase
 
-Multi-terminal desktop app (Tauri 2 + React 18 + Vite + xterm.js) being built as a free community gift for the Pluto community (Discord, audience, social). v0 ships as a free MIT-licensed downloadable.
+Free (proprietary-licensed) desktop terminal workstation for the Pluto community.
+Tauri 2 + React 18 + Vite + xterm.js. One window holds a saved-session tree, a
+multi-panel/tab/split terminal grid, SSH/SFTP/serial/RDP/VNC, an AI assistant +
+agent mode against ~16 LLM providers, a Warp-style prompt editor (beta), and a
+phone companion server. Windows is the primary target; macOS/Linux build via CI.
 
-> **Vault meta lives at:** `C:\Users\pluto\Documents\pluto-mind\03 Projects\plutos-terminals\` (CLAUDE.md, roadmap.md, iteration-log.md). Read those first for the strategic context, kill-switch criteria, and v0/v1/v2 scope split.
+> **Vault meta lives at:** `C:\Users\pluto\Documents\pluto-mind\03 Projects\plutos-terminals\`
+> (CLAUDE.md, roadmap.md, iteration-log.md). Strategic context + project history
+> live there; this file is the codebase-level map.
 
-## Two-Claude protocol
+## Repo / distribution model
 
-Per the vault-root [[CLAUDE.md]] convention:
-- **Strategist Claude** runs in `C:\Users\pluto\` Claude Code terminal — generates design decisions, scopes, retrospectives. Reads the vault's project meta to stay aligned.
-- **Executor Claude** (this session, when spawned in the codebase) implements code, runs builds, debugs. Reads this file + the vault meta on session start.
+- `origin` = **github.com/plutothedev/plutos-terminals** (PUBLIC) — releases +
+  download surface. Source on the working branch is visible there; license is
+  proprietary (source-available, not open source). Versions ≤ v0.1.32 remain MIT.
+- `private` = **github.com/plutothedev/plutos-terminals-app** (PRIVATE) — mirror.
+  Push both remotes when shipping.
+- Working branch: **`001-remote-sessions-parity`** (long-running; `main` is the
+  stale v0.2.0-era branch kept for the public landing README).
+- **Release process:** bump version in `package.json` + `src-tauri/Cargo.toml` +
+  `src-tauri/tauri.conf.json` (must match; `src/appMeta.js` reads package.json) →
+  write `releases/vX.Y.Z.md` + `CHANGELOG.md` entry → commit → `git tag vX.Y.Z`
+  → push branch + tag → `.github/workflows/release.yml` builds macOS/Linux/Windows
+  on the tag and uploads to the GitHub release. The Windows MSI + portable exe
+  are also built locally (`npm run tauri build`) and uploaded with
+  `gh release create` when CI is flaky (v0.3.5's Windows leg failed in CI).
+  Release titles follow `Pluto's Terminal vX.Y.Z — <headline> (Windows)`.
+  Mark the new release **latest** explicitly (`--latest`).
 
-When pluto asks for a build change here, this Executor session handles it. When pluto asks for a strategic call (kill switch, v0 → v1 transition, scope cut), Strategist drives.
-
-## What the codebase does (v0)
-
-Lifts Lyfe's `src/features/terminals/` component as the foundation:
-- **Multi-panel terminal grid** — up to N panels visible at once (see `grid.js MAX_PANELS`); each panel has tabs; each tab is a PTY-backed shell.
-- **Project sidebar** — pin projects with cwd + start commands; click to open in active panel; drag to drop into a specific panel.
-- **PTY backend** in `src-tauri/src/pty.rs` (portable-pty: ConPTY on Windows, native PTYs elsewhere). Sessions registered in `pty::SessionRegistry` (Tauri-managed state). RunEvent::ExitRequested → `kill_all` so no orphan shells.
-- **Scrollback persistence** — tab unmount writes last 500 lines to `data/terminals/scrollback/<tab_id>.txt`. Replays on remount.
-- **Session transcripts** — ANSI-stripped output appended to `data/terminals/transcripts/<date>/<name>.md` every 5s (or 8KB).
-- **Claude /cost token tracking** — TerminalPane scans output for `total cost: $X` and aggregates across tabs.
-- **Auto-approve for Claude permission prompts** — opt-in per project; when the project tab is backgrounded and Claude pauses for tool-use confirmation, the app sends "1" (Yes).
-- **System tray + hide-on-close** — closing window hides; tray icon brings back; "Quit (kill all sessions)" tray item is the only path to actually exit.
-- **Themes** — multiple xterm color themes (`themes.js`); Pluto Dark is default.
-
-## What's NOT in v0 (per `roadmap.md`)
-
-- In-app prompt-pack browser + click-to-load (v1) — v0 has a sample pack at `prompt-packs/example.deck.json` and the schema spec but no UI to load packs; user opens manually.
-- Agent grid panel (v1) — Moon Dev's differentiator; pluto-terminals v0 is just the multi-terminal grid (matches Moon Dev table-stakes).
-- One-click Anthropic API key config / MCP installer (v1) — v0 welcome screen has an API key field but does NOT persist; user pastes it into shell sessions.
-- Drag-and-drop project organization across panels (lifted from Lyfe but may need v1 polish).
-- Signed installers, GitHub releases, downloadable distributables — happens AFTER `cargo tauri dev` proves the binary works.
-
-## Stack
-
-- **Frontend:** React 18, Vite 8, xterm.js 5.5 + addon-fit + addon-web-links
-- **Backend:** Rust 2021, Tauri 2.10.3, portable-pty 0.8, rfd 0.15 (folder picker), chrono 0.4
-- **Persistence:** localStorage (UI state) + filesystem via `commands::write_store`/`read_store` (scrollback, transcripts)
-- **Identifier:** `com.plutothedev.terminals`
-- **Dev URL:** `http://localhost:5310`
-
-## Get started
+## Dev commands
 
 ```powershell
 cd C:\Users\pluto\plutos-terminals
 npm install
-npm run tauri dev
+npm run tauri dev          # dev app (Vite on :5310 + cargo build)
+npm run build              # frontend-only compile check (fast)
+cd src-tauri; cargo check  # backend-only compile check
+npm run tauri build        # release MSI + portable exe (~minutes)
+scripts/clean-and-dev.bat  # kill stale processes + clean dev start
 ```
 
-First run shows the Pluto's Terminals welcome screen with the API key prompt. Click ENTER → terminal grid loads with one default panel + one tab running `pwsh.exe` (or PowerShell 5 fallback) on Windows.
+## Frontend architecture (`src/`)
 
-## Build issues to expect (first run)
+Two persistence layers, both localStorage-backed (see `storageKeys.js`):
+- **Per-window state `st`** (layout, panels/tabs, skin) — `App.jsx` owns it;
+  `save()` accepts a value **or functional updater** (always prefer
+  `save(prev => …)`; whole-blob `save({...st})` after an `await` is the
+  lost-update footgun that bit us repeatedly).
+- **User state `userSt`** (provider API keys, keybindings, custom themes,
+  snippets) — shared across windows; API keys mirror into the OS keychain and
+  are **stripped from localStorage** once mirrored. Anything that needs keys at
+  runtime must read via `readUserSt()` (keychain-overlaid), never raw
+  localStorage — a raw read silently sees no keys on a healthy system.
 
-- **Rust toolchain** — needs `rustup` + the MSVC toolchain on Windows. If `cargo build` fails with linker errors, install Visual Studio Build Tools.
-- **Tauri prereqs** — see https://tauri.app/start/prerequisites/ if `npm run tauri dev` errors on the Rust side.
-- **portable-pty 0.8** — should compile cleanly on Windows; if it breaks, the issue is usually `winapi-rs` version mismatch and `cargo update` may help.
-- **Icons** — `src-tauri/icons/` was copy-paste placeholders from Lyfe. Tauri build expects all 5 icon files; if any are missing, build fails with "icon path not found." Replace with Pluto-branded icons via `cargo tauri icon assets/pluto-icon.png` once a real source icon exists.
+Key files:
+- `App.jsx` (405 L) — window shell, st/userSt providers, lock screen, migrations.
+- `features/terminals/TerminalsTab.jsx` (1,404 L) — all chrome: menu bar,
+  toolbar, sidebar dock, tab strip, status bar, F-key bar, ~27 modals, command
+  palette. Menu/toolbar/palette arrays are `useMemo`'d and sidebar handlers are
+  `useCallback`-stable so the 2.5s sysstats poll + per-token cost telemetry
+  don't re-render the world. Keep new chrome arrays memoized.
+- `features/terminals/TerminalPane.jsx` (1,483 L) — one xterm instance: spawn
+  (local PTY / SSH / serial transports), OSC 133/1337 handling, scrollback
+  replay, command blocks, auto-approve, find, recording. Pure string builders
+  are extracted: `welcomeBanner.js`, `shellIntegration.js` (POSIX + PowerShell
+  prompt/OSC setup), `spawnEnv.js` (provider-key → env resolution).
+- `features/terminals/hooks/` — the workspace reducer (`useWorkspaceTree`, all
+  mutations go through `stateRef`), spawn/dispatch, telemetry (cost emission
+  throttled to 1 Hz/tab), tunnels, SFTP dock, snippets, workspaces, etc.
+- `features/terminals/ptyBridge.js` — singleton event bridge between Tauri PTY
+  events and panes (second state manager outside React; treat with care).
+- `splitTree.js` / `workspaceModel.js` — flat %-positioned split tree; panes
+  never remount on layout changes (PTYs survive splits/drags — invariant).
+- `providers.js` — LLM provider catalog + `envForModel()` env-var injection.
+- `keybindings.js` + `KeybindingsSection.jsx` — remappable shortcuts; resolved
+  map cached module-level (`setResolved`) — mutate only from effects, never
+  during render.
+- Component idioms: functional components, inline styles consuming `--phn-*`
+  CSS vars from `headerSkins.js` (refined-dark default since v0.4.0), `Toast`/
+  `ConfirmModal` instead of native dialogs, monochrome stroke icons from
+  `toolbarIcons.jsx` (no emoji in chrome).
 
-## Lifted from Lyfe
+## Backend architecture (`src-tauri/src/`)
 
-The terminals component is a near-verbatim lift from `C:\Users\pluto\Downloads\command-center\lyfe\src\features\terminals\` (active development on Lyfe is gated; lifting its terminals component into a separate codebase doesn't violate the gate). Rebrand sweep done: 7 "Lyfe" → "Pluto's Terminals" string replacements across TerminalPane.jsx, ProjectDialog.jsx, OnboardingOverlay.jsx, TerminalsTab.jsx, themes.js. Theme labels: "Lyfe Dark" → "Pluto Dark" / "Lyfe Light" → "Pluto Light".
+Worker-thread-per-session model: each transport spawns a thread (or tokio task)
+owning the connection; an mpsc channel receives writes; dropping the session
+struct tears it down. Sessions live in Tauri-managed registries. Output reaches
+the webview via `pty://…` events after a `pty_ready` handshake.
 
-If Lyfe ships terminal improvements during pluto-terminals v0/v1, decision gate: cherry-pick or diverge. Default cherry-pick for non-UX changes (PTY robustness, performance), diverge for UX (Pluto's Terminals has its own brand voice).
+- `pty.rs` (1,179 L) — local PTY (portable-pty/ConPTY) + SSH shell sessions
+  (libssh2), reader threads, scrollback persistence v3 (reader-thread-owned,
+  atomic truncation), kill+wait reaping, 4 MB outbound buffer cap, UTF-8
+  chunk-boundary carry (never split multibyte — applies to every reader loop).
+- `commands.rs` (887 L) — store (atomic tmp+rename), pickers, git status/diff,
+  npm scripts, scrollback/transcript IO, `mcp_install` (allowlist-guarded),
+  `check_command_version`, window spawning.
+- `companion.rs` (786 L) — phone companion HTTP/WS server (axum) + web-push;
+  Tailscale serve integration (torn down on stop); blocking IO via
+  `spawn_blocking`; subscribe dedup + cap.
+- `rdp.rs` / `vncclient.rs` — remote desktop sessions (IronRDP / vnc-rs); RDP
+  pins server certs SPKI trust-on-first-use (`rdp-known-hosts.txt`); VNC
+  validates PixelFormat + handshake timeouts.
+- `sftp.rs`, `forward.rs` (tunnels), `sshconfig.rs` (config import, keygen),
+  `netools.rs` (ping/traceroute/ports/DNS), `llm.rs` (chat completion proxy +
+  SSE streaming; check HTTP status before JSON), `sysstats.rs`, `vault.rs`
+  (OS keychain), `session.rs`, `lib.rs` (app entry, tray, command registration).
+- **Conventions:** new blocking commands must be `async fn` (UI freezes were the
+  #1 perceived-quality bug; only `rfd` dialog commands stay main-thread for
+  macOS). Secrets never touch argv or plaintext disk. File writes that matter
+  are tmp+rename. snake_case Rust / camelCase JS across the IPC boundary.
 
-## Rules & conventions
+## Cross-cutting invariants
 
-- **`(C)` marker** — Claude-authored files include `<!-- (C) -->` comment near top, or the equivalent `// (C)` in source files.
-- **No editing pluto's own writing** — per vault-root [[CLAUDE.md]] rule.
-- **v0-first** — no v1/v2 features here until v0 is a working dev binary on pluto's machine + pushed to GitHub.
-- **Brain/operations boundary** — operational state (PTY sessions, scrollback files) lives at `data/` next to `package.json` in dev, or `%APPDATA%/com.plutothedev.terminals/` in production. The vault project meta does NOT mirror code state.
+1. **PTYs survive React.** Layout changes must never remount a live pane.
+   (Known accepted gap: `moveTab` across panels kills + respawns — fixing it
+   needs a pane registry outside React; `ptyBridge` is most of the way there.)
+2. **`readUserSt()` for keys** — never raw localStorage (keychain stripping).
+3. **Functional `save()` updaters** — never spread a captured `st` after await.
+4. **Cancelled-flag around `await listen()`** in effects (see
+   `TerminalsTab.jsx` ~470) — a leaked listener pins a disposed xterm.
+5. **UTF-8 boundary carry** in any new byte-stream reader.
+6. **`(C)` marker** on Claude-authored files; comments explain *why*/invariants.
+7. Run `npm run build` + `cargo check` before claiming a change compiles; do a
+   dev-binary restart test after touching component top-level hook order (the
+   v0.1.3 TDZ blank-screen lesson).
 
-## Files of note
+## Docs index
 
-- `src/App.jsx` — entry shell + welcome screen + localStorage `{ st, save }` wrapper for `TerminalsTab`
-- `src/features/terminals/TerminalsTab.jsx` — main terminal grid (491 lines lifted from Lyfe)
-- `src/features/terminals/TerminalPane.jsx` — xterm + PTY IPC + Claude /cost tracking + auto-approve scanning
-- `src-tauri/src/lib.rs` — Tauri app entry, tray icon, hide-on-close, command registration
-- `src-tauri/src/pty.rs` — PTY session registry + spawn/write/resize/kill commands
-- `src-tauri/src/commands.rs` — store + folder picker + git status + npm scripts + scrollback + transcripts + recent files
-- `src-tauri/tauri.conf.json` — productName "Pluto's Terminals", identifier `com.plutothedev.terminals`, dev port 5310
+- `docs/full-audit-2026-06-09.md` — last full audit; P1/P2 fixed (commits
+  `ee805c1`, `45d63e6`), P3 items #24–#26 partially done, #16 (signed updater),
+  #27–#29 open by choice.
+- `docs/security-audit-2026-06-08.md` — security pass (criticals + 19/22 highs
+  closed in v0.3.6).
+- `specs/001-remote-sessions-parity/` — the SSH/remote-parity feature spec that
+  named the branch. `design/` + `design-mockups/` — reskin research; mockup 23
+  ("refined") is the shipped v0.4.0 look.
+- `prompt-packs/` — legacy `.deck.json` packs + schema (pre-workstation era,
+  still loadable).
+- `releases/vX.Y.Z.md` — per-release notes (source for GitHub release bodies).
 
-## Roadmap pointer
+## Known open items (deliberate, not forgotten)
 
-Don't start v1 features (agent grid, prompt-pack auto-loader, MCP installer) until v0's kill-switch criteria are measured. See `C:\Users\pluto\Documents\pluto-mind\03 Projects\plutos-terminals\roadmap.md`. The kill-switch is real — don't sunk-cost v1 if v0 doesn't pull community engagement.
-
-<!-- SPECKIT START -->
-Active feature plan: `specs/001-remote-sessions-parity/plan.md`
-(spec → `specs/001-remote-sessions-parity/spec.md`; constitution →
-`.specify/memory/constitution.md`). For technologies, project structure, and
-build commands for the in-flight feature, read the current plan.
-<!-- SPECKIT END -->
+- No signed updater channel (needs code-signing certs ~$400/yr; UpdateBanner
+  links to GitHub releases instead).
+- CSP still allows `unsafe-eval` (Monaco requirement); the webview is the
+  privilege boundary — keep new IPC commands narrow.
+- `main` branch / public README intentionally lag the working branch.

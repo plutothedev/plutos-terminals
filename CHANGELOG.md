@@ -1,5 +1,81 @@
 # Changelog
 
+## v0.4.0 — Refined-dark reskin + stability overhaul (2026-06-10)
+
+### Changed
+- **Refined-dark reskin** (design mockup 23): new default token set — luminance
+  ladder, hairline borders, a single periwinkle accent, pill tabs, monochrome
+  stroke icons. Emoji and the stale blue/magenta accent hexes swept from chrome.
+
+### Fixed (stability — full-audit P1/P2)
+- **Spawned shells get API keys again** after the keychain migration (the spawn
+  path read raw localStorage, which is key-stripped on healthy systems).
+- **29 blocking backend commands converted to async** — no more frozen UI on
+  slow SSH connects, large SFTP transfers, VNC/RDP connects, or network tools.
+- Tauri event-listener leaks on fast tab close/move (TerminalPane / VncView /
+  RdpView) fixed with the cancelled-flag pattern; xterm block decorations are
+  disposed on eviction.
+- Lost-update races: `save()`/`saveUser()` accept functional updaters; all
+  workspace-tree mutations read live state. SSH passwords survive tab
+  duplicate/reopen.
+- UTF-8 chunk-boundary carry in every PTY/SSH/LLM reader — no more `�`
+  corruption in output or persisted scrollback.
+- PTY sessions reaped on exit (no zombie children); SSH outbound buffering
+  capped at 4 MB; `store.json` written atomically.
+- **RDP server certificates pinned trust-on-first-use** (parity with SSH);
+  VNC handshake timeouts + PixelFormat validation.
+- Companion server hardening: blocking IO off the async runtime, subscribe
+  dedup + cap, Tailscale serve torn down and push subscriptions cleared on stop.
+- Windows fixes: SSH `Include` globs, status-bar disk stats; `ssh-keygen`
+  passphrase off argv (unix); LLM completions surface real HTTP errors;
+  git porcelain paths parsed correctly (unstaged + renames).
+- Factory reset now wipes all local state prefixes; cost telemetry throttled to
+  1 Hz/tab; menu/toolbar/palette arrays memoized + sidebar memoized (no more
+  whole-app re-render on the 2.5s stats poll); secondary windows covered by the
+  IPC capability; multi-window storage keys unified.
+
+### Internal
+- `TerminalPane` decomposition: welcome banner, shell-integration strings, and
+  spawn-env resolution extracted to pure modules (`welcomeBanner.js`,
+  `shellIntegration.js`, `spawnEnv.js`).
+- Codebase `CLAUDE.md` rewritten as an accurate architecture/onboarding doc;
+  README refreshed.
+
+## v0.3.6 — Security hardening (2026-06-08, unreleased)
+
+- Closed both criticals + 19/22 highs from `docs/security-audit-2026-06-08.md`
+  (keychain keys kept on cross-window sync, secrets/lock fixes, agent/terminal
+  correctness, companion hardening, `detachTab` race).
+
+## v0.3.5 — Path completion (2026-06-08)
+
+- cwd-aware Tab path completion in the prompt editor (live shell cwd; folders
+  first, spaces auto-quoted, relative/absolute prefixes).
+
+## v0.3.4 — App-owned prompt editor, beta (2026-06-07)
+
+- Warp-style input line: syntax highlighting, multiline, ghost-text
+  autosuggest, fuzzy completions, automatic passthrough for full-screen apps.
+- One shared monospace (Cascadia Code + MesloLGS NF fallback).
+
+## v0.3.3 — Custom themes + agent streaming (2026-06-07)
+
+- Warp-YAML theme import/export theming terminal + chrome, OS light/dark sync.
+- Agent Mode streams reasoning token-by-token; Ask AI auto-detects natural
+  language vs. a literal command.
+
+## v0.3.2 — Customizable keybindings (2026-06-04)
+
+- Remap/reset/disable every shortcut incl. the OS-level summon hotkey;
+  conflict detection; live palette chips. First public cut carrying the v0.3.0/1
+  work: command-block UI, PowerShell-7 autocomplete, Workflows (Warp Drive
+  import/export), native Agent Mode.
+
+## v0.2.2 — Maintenance (2026-05-30)
+
+- Post-overhaul fixes on the workstation layout; last multi-platform (macOS /
+  Linux / Windows) release until the v0.4.x CI builds.
+
 ## v0.2.1 — Panel polish + fixes (2026-05-29)
 
 ### Added

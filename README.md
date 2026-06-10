@@ -8,10 +8,10 @@
 [![Discord](https://img.shields.io/badge/discord-plutothedev-FF0080?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/3cZQVgKF)
 
 A free desktop workstation for developers who live in the terminal and run AI
-agents. One dense, industrial window holds a saved-session tree, a multi-tab
-terminal grid, a built-in AI assistant and ~40 LLM providers, an SFTP file
-browser, a live system monitor, SSH/serial sessions, port forwarding, and
-remote desktops (RDP/VNC) — all in the same place.
+agents. One dense window holds a saved-session tree, a multi-tab terminal grid,
+a built-in AI assistant and agent mode across 16+ LLM providers, a Warp-style
+prompt editor, an SFTP file browser, a live system monitor, SSH/serial sessions,
+port forwarding, and remote desktops (RDP/VNC) — all in the same place.
 
 **[⬇ Download the latest release](https://github.com/plutothedev/plutos-terminals/releases/latest)** — macOS `.dmg` · Windows `.msi`/`.exe` · Linux `.AppImage`/`.deb`
 
@@ -24,7 +24,8 @@ Code, Codex, and other shell-driven agents in parallel, connect to your servers
 over SSH, browse and edit remote files, and keep an eye on everything from one
 workstation. The layout is modeled on MobaXterm — a permanent session tree on
 the left, a tabbed terminal grid in the middle, and a docked tools panel on the
-right — re-skinned into a crisp industrial-navy theme.
+right — in a refined dark theme with a single accent, hairline borders, and
+monochrome stroke icons (plus importable custom themes).
 
 ## Highlights
 
@@ -44,12 +45,27 @@ right — re-skinned into a crisp industrial-navy theme.
 - **Command palette** (`⌘K`), F-key quick-action bar, and a segmented status bar.
 
 ### AI, your way
-- **~40 LLM providers** — bring your own key for Anthropic, OpenAI, Google,
-  Groq, Mistral, OpenRouter, Moonshot/Kimi, and more. The picker injects the
-  right env vars at shell spawn so `claude`, `codex`, etc. just work.
-- **Ask AI** — turn plain English into a shell command, review it, then run.
+- **16+ LLM providers, ~40 models** — bring your own key for Anthropic, OpenAI,
+  Google, Groq, Mistral, OpenRouter, Moonshot/Kimi, and more. The picker injects
+  the right env vars at shell spawn so `claude`, `codex`, etc. just work.
+- **Ask AI** (`Ctrl+I`) — turn plain English into a shell command, review it,
+  then run. Auto-detects whether you typed a command or a request.
+- **Agent Mode** (`Ctrl+Shift+A`) — describe a goal; an in-app agent runs the
+  commands in your terminal, streaming its reasoning live.
 - **One-click Fix** — when a command fails, get an AI-suggested fix you can run.
 - **AI error explainer** and **session summaries**.
+
+### Modern terminal experience
+- **Command blocks** — every command/output pair is a block with ✓/✗ status.
+- **Prompt editor (beta)** — a Warp-style app-owned input line: syntax
+  highlighting, multiline composing, ghost-text autosuggest from history, fuzzy
+  tab completions, cwd-aware path completion — with automatic passthrough for
+  vim/less/REPLs. Off = the classic terminal, byte-for-byte.
+- **Workflows** — saved parameterized commands, with Warp-YAML import/export.
+- **Custom themes** — import any Warp theme YAML; themes the terminal palette
+  and the whole app chrome, with optional OS light/dark auto-switch.
+- **Customizable keybindings** — remap every shortcut, including the system-wide
+  summon hotkey (default ``Ctrl+Shift+` ``).
 
 ### Remote toolkit
 - **SSH** (libssh2) with `~/.ssh/known_hosts` host-key verification; password,
@@ -61,10 +77,13 @@ right — re-skinned into a crisp industrial-navy theme.
 - **Broadcast (MultiExec)** — type once, send to every visible terminal.
 
 ### Power UX
-- Parameterized **snippets**, **command-history search** (`⌘R`), named
-  **workspaces / saved layouts**, **tab colors**, **broadcast groups**, session
-  **recording** (asciinema `.cast`), **multi-window**, persistent **scrollback**,
-  system tray + hide-on-close, and multiple terminal **themes**.
+- **Command-history search** (`⌘R`), named **workspaces / saved layouts**,
+  **tab colors**, **broadcast groups**, session **recording** (asciinema
+  `.cast`), **keystroke macros**, **multi-window**, persistent **scrollback**,
+  a **master-password lock screen**, network tools (ping · traceroute · ports ·
+  DNS), and system tray + hide-on-close.
+- **Phone remote control** — run a private companion server (Tailscale-friendly)
+  to view and type into your terminals from your phone.
 
 ## Install
 
