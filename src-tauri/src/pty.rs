@@ -29,7 +29,7 @@ use std::thread;
 use std::time::Duration;
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::scrollback_path;
 use crate::session::new_id;
@@ -66,6 +66,10 @@ pub struct PtySession {
 impl Drop for PtySession {
     fn drop(&mut self) {
         let _ = self.child.kill();
+        // Reap the killed child so it doesn't linger as a zombie on unix
+        // (kill() alone leaves the exit status uncollected). kill-first means
+        // wait() returns promptly instead of blocking on a live process.
+        let _ = self.child.wait();
     }
 }
 
@@ -239,6 +243,44 @@ impl ScrollbackWriter {
             self.bytes_on_disk = fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
         }
         self.reopen();
+    }
+}
+
+/// Cap on the SSH outbound buffer while the channel's flow-control window is
+/// stalled. Past this the connection is effectively wedged — we drop ALL
+/// pending writes (never silently a partial chunk) and tell the user.
+const SSH_OUTBOUND_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// Decode one streamed byte chunk as UTF-8, carrying any incomplete trailing
+/// multibyte sequence in `pending` for the next call. A naive per-chunk
+/// `from_utf8_lossy` permanently corrupts a multibyte char that straddles a
+/// read boundary (it becomes U+FFFD in both the emit and the scrollback file);
+/// this keeps the ≤3 trailing bytes of an unfinished sequence and prepends
+/// them to the next chunk instead. Genuinely invalid bytes (error mid-buffer,
+/// i.e. `error_len()` is Some) still fall back to lossy decoding, matching the
+/// old behavior for non-UTF-8 shell output (CP-1252 etc.).
+pub(crate) fn decode_utf8_stream(pending: &mut Vec<u8>, new_bytes: &[u8]) -> String {
+    pending.extend_from_slice(new_bytes);
+    match std::str::from_utf8(pending) {
+        Ok(s) => {
+            let out = s.to_owned();
+            pending.clear();
+            out
+        }
+        Err(e) if e.error_len().is_none() => {
+            // Incomplete sequence at the tail (≤3 bytes by UTF-8 construction):
+            // decode the valid prefix, carry the tail.
+            let valid = e.valid_up_to();
+            let out = String::from_utf8_lossy(&pending[..valid]).into_owned();
+            pending.drain(..valid);
+            out
+        }
+        Err(_) => {
+            // Invalid bytes mid-buffer — lossy-decode everything.
+            let out = String::from_utf8_lossy(pending).into_owned();
+            pending.clear();
+            out
+        }
     }
 }
 
@@ -437,11 +479,18 @@ pub fn pty_spawn(
         // frontend attaches its listener before signaling, so a fallback start
         // still streams to a live listener — it just costs this latency.
         let _ = ready_rx.recv_timeout(Duration::from_secs(2));
+        // Incomplete trailing UTF-8 bytes carried across read chunks (see
+        // decode_utf8_stream) so a multibyte char straddling a 4KB boundary
+        // isn't corrupted to U+FFFD in the emit + scrollback file.
+        let mut pending: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let chunk = decode_utf8_stream(&mut pending, &buf[..n]);
+                    if chunk.is_empty() {
+                        continue;
+                    }
                     // Persist the same UTF-8 bytes xterm receives, so a hard
                     // process death between emit and disk-flush still
                     // preserves what we just rendered. Best-effort.
@@ -452,6 +501,26 @@ pub fn pty_spawn(
                 }
                 Err(_) => break,
             }
+        }
+        // EOF with an unfinished sequence still buffered — flush it lossily so
+        // no bytes are silently dropped.
+        if !pending.is_empty() {
+            let tail = String::from_utf8_lossy(&pending).into_owned();
+            if let Some(w) = scrollback_writer.as_mut() {
+                w.append(tail.as_bytes());
+            }
+            let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), tail);
+        }
+        // The shell exited on its own (EOF/read error): reap the registry entry
+        // here rather than waiting on a pty_kill the frontend might never send,
+        // otherwise the Session (and its zombie child) leaks until app exit.
+        // Dropping the removed PtySession kills + waits the child (Drop impl).
+        if let Ok(mut sessions) = app_for_thread
+            .state::<SessionRegistry>()
+            .sessions
+            .lock()
+        {
+            drop(sessions.remove(&id_for_thread));
         }
         let _ = app_for_thread.emit(&format!("pty-exit://{}", id_for_thread), ());
     });
@@ -579,6 +648,8 @@ pub fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(), Str
     match sessions.remove(&id) {
         Some(Session::Local(mut s)) => {
             let _ = s.child.kill();
+            // Reap so the dead child doesn't linger as a zombie on unix.
+            let _ = s.child.wait();
         }
         Some(Session::Serial(h)) => {
             h.alive.store(false, Ordering::Relaxed);
@@ -893,6 +964,9 @@ pub async fn ssh_spawn(
         // and is retried next tick. write_all would instead treat that WouldBlock
         // as fatal and silently drop the tail — truncating large pastes.
         let mut outbound: VecDeque<u8> = VecDeque::new();
+        // Incomplete trailing UTF-8 bytes carried across read chunks (see
+        // decode_utf8_stream).
+        let mut pending: Vec<u8> = Vec::new();
         loop {
             // 1. Pull queued writes from pty_write into the outbound buffer. A
             //    disconnected sender means the registry entry was dropped
@@ -907,6 +981,20 @@ pub async fn ssh_spawn(
                         return;
                     }
                 }
+            }
+            // 1a. Backpressure cap: if the SSH window has been stalled long
+            //     enough for 4MB of writes to pile up, the connection is
+            //     effectively wedged. Drop ALL pending writes at once (never
+            //     silently a single chunk) and tell the user via the terminal
+            //     stream so the loss is visible.
+            if outbound.len() > SSH_OUTBOUND_MAX_BYTES {
+                outbound.clear();
+                let _ = app_for_thread.emit(
+                    &format!("pty://{}", id_for_thread),
+                    "\r\n\x1b[1;31m[Pluto's Terminals] SSH connection stalled: outbound \
+                     buffer exceeded 4MB — pending writes dropped.\x1b[0m\r\n"
+                        .to_string(),
+                );
             }
             // 1b. Drain the outbound buffer to the channel with flow control.
             //     When the window is full the write reports WouldBlock; keep the
@@ -940,7 +1028,10 @@ pub async fn ssh_spawn(
                     thread::sleep(Duration::from_millis(8));
                 }
                 Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let chunk = decode_utf8_stream(&mut pending, &buf[..n]);
+                    if chunk.is_empty() {
+                        continue;
+                    }
                     if let Some(w) = scrollback_writer.as_mut() {
                         w.append(chunk.as_bytes());
                     }
@@ -954,6 +1045,14 @@ pub async fn ssh_spawn(
                 }
                 Err(_) => break,
             }
+        }
+        // Flush any unfinished UTF-8 sequence still buffered at EOF.
+        if !pending.is_empty() {
+            let tail = String::from_utf8_lossy(&pending).into_owned();
+            if let Some(w) = scrollback_writer.as_mut() {
+                w.append(tail.as_bytes());
+            }
+            let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), tail);
         }
         let _ = channel.close();
         let _ = channel.wait_close();
@@ -1020,11 +1119,17 @@ pub async fn serial_spawn(
         let mut buf = [0u8; 4096];
         // Gate the first emit on the frontend's listener (see pty_spawn).
         let _ = ready_rx.recv_timeout(Duration::from_secs(2));
+        // Incomplete trailing UTF-8 bytes carried across read chunks (see
+        // decode_utf8_stream).
+        let mut pending: Vec<u8> = Vec::new();
         while alive.load(Ordering::Relaxed) {
             match reader.read(&mut buf) {
                 Ok(0) => thread::sleep(Duration::from_millis(20)),
                 Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let chunk = decode_utf8_stream(&mut pending, &buf[..n]);
+                    if chunk.is_empty() {
+                        continue;
+                    }
                     if let Some(w) = scrollback_writer.as_mut() {
                         w.append(chunk.as_bytes());
                     }
@@ -1035,6 +1140,14 @@ pub async fn serial_spawn(
                 // Device unplugged / fatal error.
                 Err(_) => break,
             }
+        }
+        // Flush any unfinished UTF-8 sequence still buffered at exit.
+        if !pending.is_empty() {
+            let tail = String::from_utf8_lossy(&pending).into_owned();
+            if let Some(w) = scrollback_writer.as_mut() {
+                w.append(tail.as_bytes());
+            }
+            let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), tail);
         }
         let _ = app_for_thread.emit(&format!("pty-exit://{}", id_for_thread), ());
     });
@@ -1053,6 +1166,8 @@ pub fn kill_all(registry: &SessionRegistry) {
             match session {
                 Session::Local(mut s) => {
                     let _ = s.child.kill();
+                    // Reap after kill — no zombies left behind at app exit.
+                    let _ = s.child.wait();
                 }
                 Session::Serial(h) => {
                     h.alive.store(false, Ordering::Relaxed);

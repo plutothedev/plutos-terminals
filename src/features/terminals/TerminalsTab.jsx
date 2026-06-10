@@ -69,29 +69,18 @@ import { useSessionDispatch } from "./hooks/useSessionDispatch.js";
 import { useWorkspaces } from "./hooks/useWorkspaces.js";
 import { defaultState } from "./workspaceModel.js";
 import {
-  getSkinId,
-  getSkinXtermTheme,
-  applyGlobalSkin,
   resolveBaseSkinId,
   getActiveXtermTheme,
   applyActiveTheme,
   findCustomTheme,
   effectiveSkinValue,
 } from "./headerSkins";
+import { isPrimaryWindow } from "./storageKeys.js";
 import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds, getPtyId, onDimsChange } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
 import { sshAccount } from "./sshAccount.js";
-
-const M = "'JetBrains Mono', Menlo, Monaco, monospace";
-
-// Green / amber / red for a 0..100 load gauge (CPU, disk) in the status bar.
-function loadColor(pct) {
-  if (pct >= 85) return "#ef4444";
-  if (pct >= 60) return "#f59e0b";
-  return "#10b981";
-}
 
 export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {} }) {
   const state = st?.terminalsState || defaultState();
@@ -196,9 +185,17 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // transpose, etc.). Ctrl+P opens pack search; Ctrl+K opens command
   // palette; Ctrl+1..8 switches active panel.
   const shortcutsRef = useRef({});
-  // Resolved combo→action map, refreshed each render from userSt.keybindings so
-  // the dispatcher (a stable [] effect) always sees the latest remaps.
-  const bindingsRef = useRef(resolveBindings(userSt?.keybindings));
+  // Resolved combo→action map, derived from userSt.keybindings. The memo gives
+  // render-time readers (the palette's shortcut chips) a fresh value; the effect
+  // mirrors it into the ref for the stable [] dispatcher and into keybindings.js's
+  // shared cache (setResolved, read by TerminalPane's find handler) — that
+  // module-cache mutation must happen post-commit, not during render.
+  const resolvedBindings = useMemo(() => resolveBindings(userSt?.keybindings), [userSt?.keybindings]);
+  const bindingsRef = useRef(resolvedBindings);
+  useEffect(() => {
+    bindingsRef.current = resolvedBindings;
+    setResolved(userSt?.keybindings);
+  }, [resolvedBindings, userSt?.keybindings]);
   useEffect(() => {
     const onKey = (e) => {
       // Stand down while the Keybindings remap UI is capturing a keystroke.
@@ -275,7 +272,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       } finally {
         if (!cancelled) {
           // Mark seen even if claude was found, so subsequent launches skip.
-          save({ ...st, setupSeen: true });
+          // Functional form: `st` was captured before the await — spreading it
+          // here would clobber any save that landed during the version check.
+          save((prev) => ({ ...prev, setupSeen: true }));
         }
       }
     })();
@@ -427,7 +426,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     // (?w=) windows have their own per-window layout; if they pushed too, the two
     // would race on the single shared CompanionState and the phone would flap
     // between / write to the wrong window's terminals (matches the listener gates).
-    if (new URLSearchParams(window.location.search).get("w")) return;
+    if (!isPrimaryWindow()) return;
     invoke("companion_set_sessions", { sessions: sessionListJson }).catch(() => {});
   }, [sessionListJson]);
 
@@ -437,7 +436,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // webview localStorage). String identity short-circuits redundant pushes.
   const snippetsJson = useMemo(() => JSON.stringify(snippets || []), [snippets]);
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("w")) return; // primary window owns the mirror
+    if (!isPrimaryWindow()) return; // primary window owns the mirror
     invoke("companion_set_snippets", { snippets: snippetsJson }).catch(() => {});
   }, [snippetsJson]);
 
@@ -456,7 +455,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     return JSON.stringify({ active: userSt?.activeModel || null, providers });
   }, [userSt]);
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("w")) return; // primary window owns the mirror
+    if (!isPrimaryWindow()) return; // primary window owns the mirror
     invoke("companion_set_models", { models: modelsJson }).catch(() => {});
   }, [modelsJson]);
 
@@ -470,13 +469,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     // companion://* are GLOBAL app.emit broadcasts → every open window receives
     // them. Only the primary window (no ?w= suffix) should act, else one phone
     // tap spawns a shell tab in EVERY window. Secondary windows skip registration.
-    if (new URLSearchParams(window.location.search).get("w")) return;
+    if (!isPrimaryWindow()) return;
     let un, cancelled = false;
     // Guard the async listen(): if this effect unmounts before the promise
     // resolves, unlisten as soon as we get the handle (else the listener leaks
     // and a single phone tap fires addTab twice under StrictMode/HMR).
     listen("companion://new-session", () => newSessionReqRef.current())
-      .then((f) => { if (cancelled) f(); else un = f; });
+      .then((f) => { if (cancelled) f(); else un = f; })
+      .catch(() => {});
     return () => { cancelled = true; if (un) un(); };
   }, []);
 
@@ -496,10 +496,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     saveUser({ ...userSt, activeModel: { providerId, model } });
   };
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("w")) return; // primary window only (see new-session)
+    if (!isPrimaryWindow()) return; // primary window only (see new-session)
     let un, cancelled = false;
     listen("companion://set-active-model", (e) => setActiveModelRef.current(e?.payload))
-      .then((f) => { if (cancelled) f(); else un = f; });
+      .then((f) => { if (cancelled) f(); else un = f; })
+      .catch(() => {});
     return () => { cancelled = true; if (un) un(); };
   }, []);
 
@@ -521,8 +522,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     setRibbon(id);
   }, [focusFilesDock]);
   // Bridge selectRibbon to useProjects' importSshConfig (declared above) without a
-  // render-time TDZ: the ref is read only from the post-render callback body.
-  selectRibbonRef.current = selectRibbon;
+  // render-time TDZ: the ref is read only from post-render callback bodies, so an
+  // effect-time write (not a render-phase one) is always fresh enough.
+  useEffect(() => { selectRibbonRef.current = selectRibbon; }, [selectRibbon]);
 
   // "Games" toolbar button — MobaXterm has built-in games; we keep it honest
   // with a wink toward the palette.
@@ -636,34 +638,35 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     }
   }, [activeTabId, activeTab, toast]);
 
-  // Wire keyboard-shortcut callbacks. Updates per-render so closures see the
-  // latest state (no stale captures).
-  shortcutsRef.current = {
-    addTab: () => addTab(state.activePanelId),
-    closeActiveTab: () => {
-      const panel = state.panels.find((p) => p.id === state.activePanelId);
-      if (panel && panel.tabs.length > 1 && panel.activeTabId) {
-        closeTab(panel.id, panel.activeTabId);
-      }
-    },
-    openCommandPalette: () => setCommandPaletteOpen(true),
-    openAskAi: () => setAskOpen(true),
-    openAgent: () => setAgentOpen(true),
-    openHistory: () => setHistoryOpen(true),
-    openSettings: () => setSettingsOpen(true),
-    reopenTab,
-    toggleTheme,
-    switchPanel: (idx) => {
-      if (state.panels[idx]) setActivePanel(state.panels[idx].id);
-    },
-    togglePromptEditor: () => save({ ...st, promptEditor: !st?.promptEditor }),
-  };
-  // Keep the dispatcher's binding map (and the shared cache TerminalPane reads
-  // for find-in-terminal) in sync with the user's remaps.
-  bindingsRef.current = setResolved(userSt?.keybindings);
+  // Wire keyboard-shortcut callbacks. Dep-less effect = refreshed after every
+  // render so closures see the latest state (no stale captures), without the
+  // ref write happening during the render phase. Key handlers only read it on
+  // events, so post-commit freshness is sufficient.
+  useEffect(() => {
+    shortcutsRef.current = {
+      addTab: () => addTab(state.activePanelId),
+      closeActiveTab: () => {
+        const panel = state.panels.find((p) => p.id === state.activePanelId);
+        if (panel && panel.tabs.length > 1 && panel.activeTabId) {
+          closeTab(panel.id, panel.activeTabId);
+        }
+      },
+      openCommandPalette: () => setCommandPaletteOpen(true),
+      openAskAi: () => setAskOpen(true),
+      openAgent: () => setAgentOpen(true),
+      openHistory: () => setHistoryOpen(true),
+      openSettings: () => setSettingsOpen(true),
+      reopenTab,
+      toggleTheme,
+      switchPanel: (idx) => {
+        if (state.panels[idx]) setActivePanel(state.panels[idx].id);
+      },
+      togglePromptEditor: () => save((prev) => ({ ...prev, promptEditor: !prev?.promptEditor })),
+    };
+  });
   // Live-combo lookup for command-palette shortcut chips (reflects remaps).
   const scOf = (actionId) => {
-    const c = bindingsRef.current.byAction.get(actionId);
+    const c = resolvedBindings.byAction.get(actionId);
     return c ? formatCombo(c) : undefined;
   };
 

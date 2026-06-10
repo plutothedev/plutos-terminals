@@ -28,6 +28,33 @@ export function getWindowStorageKey(winId = currentWindowId()) {
   return winId ? `${STATE_KEY_PREFIX}:${winId}` : STATE_KEY_PREFIX;
 }
 
+// True in the primary window (no ?w= suffix). The primary window owns shared
+// singletons — the phone-companion mirrors, finish notifications, etc. — so
+// secondary windows gate those paths on this.
+export function isPrimaryWindow() {
+  return !currentWindowId();
+}
+
+// Every localStorage key the app writes lives under one of these prefixes:
+// "plutos-terminals:" (state/user blobs, cmd history, macros, dismissed-update)
+// and "pt:" (dock/tree layout in useDockResize). Factory reset wipes by prefix
+// so new keys can't silently escape the reset.
+export const ALL_STORAGE_PREFIXES = ["plutos-terminals:", "pt:"];
+
+// Remove every app-owned localStorage key (factory reset). Iterates backwards
+// so removal doesn't shift unvisited indices.
+export function wipeAllLocalState() {
+  if (typeof window === "undefined") return;
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && ALL_STORAGE_PREFIXES.some((p) => k.startsWith(p))) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch { /* storage unavailable — nothing to wipe */ }
+}
+
 // Shared, fault-tolerant reader for the user-level prefs blob (welcomeDone,
 // providerKeys, activeModel, …). Used by the AI widgets and PTY spawn.
 //

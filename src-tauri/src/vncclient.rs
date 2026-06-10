@@ -113,6 +113,19 @@ pub async fn vnc_connect(
     let port = if port == 0 { 5900 } else { port };
     let tcp = TcpStream::connect((host.as_str(), port))
         .map_err(|e| format!("connect to {host}:{port} failed: {e}"))?;
+    // Bound the RFB handshake (version / security / auth / ServerInit) so a
+    // wedged or silent server fails with an error instead of hanging the
+    // connect forever. Relaxed for reads after the handshake (below) — a quiet
+    // server with no screen changes is normal and must not kill the session.
+    tcp.set_read_timeout(Some(Duration::from_secs(15)))
+        .map_err(|e| format!("set vnc read timeout: {e}"))?;
+    tcp.set_write_timeout(Some(Duration::from_secs(15)))
+        .map_err(|e| format!("set vnc write timeout: {e}"))?;
+    // from_tcp_stream consumes the stream; keep a cloned handle (same
+    // underlying socket) so the read deadline can be relaxed post-handshake.
+    let tcp_ctl = tcp
+        .try_clone()
+        .map_err(|e| format!("clone vnc socket: {e}"))?;
     let pw = vnc_password(password.as_deref().unwrap_or(""));
 
     let mut client = vnc::Client::from_tcp_stream(tcp, true, |methods| {
@@ -132,6 +145,30 @@ pub async fn vnc_connect(
         None
     })
     .map_err(|e| format!("vnc handshake failed: {e}"))?;
+
+    // Handshake done — drop the read deadline. The vnc crate's internal reader
+    // thread does blocking reads; with a deadline left in place a quiet server
+    // (no framebuffer changes) would surface as a read error and tear the
+    // session down. Writes keep the 15s bound.
+    let _ = tcp_ctl.set_read_timeout(None);
+
+    // Validate the server-declared pixel format before the worker trusts it in
+    // to_rgba: bits_per_pixel drives chunking (must be whole bytes we support)
+    // and shifts feed `v >> shift` on a u32 (shift ≥ 32 would panic in debug /
+    // be UB-adjacent in release). A malformed/hostile ServerInit fails here
+    // with a clear message instead of corrupting frames or panicking.
+    let format = client.format();
+    if !matches!(format.bits_per_pixel, 8 | 16 | 32)
+        || format.red_shift >= 32
+        || format.green_shift >= 32
+        || format.blue_shift >= 32
+    {
+        return Err(format!(
+            "VNC server sent an unsupported pixel format (bits_per_pixel={}, shifts r={} g={} b={}); \
+             expected 8/16/32 bpp with color shifts < 32",
+            format.bits_per_pixel, format.red_shift, format.green_shift, format.blue_shift
+        ));
+    }
 
     let (w, h) = client.size();
     let _ = client.set_encodings(&[

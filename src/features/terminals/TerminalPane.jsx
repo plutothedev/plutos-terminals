@@ -9,7 +9,7 @@ import { ImageAddon } from "@xterm/addon-image";
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
-import { readUserSt, getWindowStorageKey } from "./storageKeys.js";
+import { readUserSt, getWindowStorageKey, isPrimaryWindow } from "./storageKeys.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import { actionForEvent } from "./keybindings.js";
@@ -319,7 +319,7 @@ export default function TerminalPane({
       // Phone companion (Phase 5): push a "finished" alert when no phone is actively
       // connected (the companion no-ops if its server is off / a phone is viewing /
       // no push subscription). Primary window only, to avoid duplicate pushes.
-      if (!new URLSearchParams(window.location.search).get("w")) {
+      if (isPrimaryWindow()) {
         invoke("companion_notify_finish", { label: projectNameRef.current || "session", exit: 0 }).catch(() => {});
       }
     }
@@ -578,10 +578,20 @@ export default function TerminalPane({
       const buf = term.buffer.active;
       const here = buf.baseY + buf.cursorY;
       if (data === "A" || data.startsWith("A;")) {
-        const b = { startLine: here, command: null, endLine: null, exit: 0, el: null };
+        const b = { startLine: here, command: null, endLine: null, exit: 0, el: null, deco: null };
         currentBlockRef.current = b;
         blocksRef.current.push(b);
-        if (blocksRef.current.length > 200) blocksRef.current.shift();
+        if (blocksRef.current.length > 200) {
+          // Evict the oldest block AND its xterm decoration — without the
+          // dispose, blockDecorationsRef grew unbounded over a long session
+          // (each decoration holds a marker + a DOM overlay element).
+          const evicted = blocksRef.current.shift();
+          if (evicted?.deco) {
+            try { evicted.deco.dispose(); } catch { /* already disposed */ }
+            const di = blockDecorationsRef.current.indexOf(evicted.deco);
+            if (di !== -1) blockDecorationsRef.current.splice(di, 1);
+          }
+        }
         // App-owned prompt editor: the prompt is (re)opening. Once the prompt
         // string finishes printing and the cursor settles, capture the input
         // origin and show the editor. Re-armed on every prompt.
@@ -615,6 +625,7 @@ export default function TerminalPane({
                 el.style.borderLeft = `2px solid ${ok ? "rgba(111,184,92,0.45)" : "rgba(224,91,91,0.85)"}`;
                 el.style.backgroundColor = ok ? "transparent" : "rgba(224,91,91,0.08)";
               });
+              blk.deco = deco; // pairs the decoration with its block for eviction
               blockDecorationsRef.current.push(deco);
             }
           }

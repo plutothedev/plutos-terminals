@@ -111,8 +111,7 @@ fn magic_dns_name() -> Option<String> {
 /// Front the loopback companion with Tailscale Serve so the phone reaches it over
 /// HTTPS — a secure context, required for the service worker + Web Push. Tailscale
 /// auto-provisions and renews the MagicDNS cert. Idempotent; best-effort (logs on
-/// failure). Left configured on stop (it just proxies to a closed port until the
-/// next start; `tailscale serve reset` removes it).
+/// failure). Undone by `serve_off` when the companion stops.
 fn ensure_serve(port: u16) {
     match std::process::Command::new("tailscale")
         .args(["serve", "--bg", &port.to_string()])
@@ -124,6 +123,24 @@ fn ensure_serve(port: u16) {
             String::from_utf8_lossy(&o.stderr).trim()
         ),
         Err(e) => log::warn!("companion: couldn't run `tailscale serve`: {e}"),
+    }
+}
+
+/// Undo `ensure_serve`: remove the Tailscale Serve proxy for `port`. Without
+/// this, stopping the companion left the external HTTPS surface up — the
+/// tailnet kept a live proxy pointing at the (now closed) loopback port until
+/// a manual `tailscale serve reset`. Best-effort; failures are logged.
+fn serve_off(port: u16) {
+    match std::process::Command::new("tailscale")
+        .args(["serve", "--bg", &port.to_string(), "off"])
+        .output()
+    {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => log::warn!(
+            "companion: `tailscale serve off` failed: {}",
+            String::from_utf8_lossy(&o.stderr).trim()
+        ),
+        Err(e) => log::warn!("companion: couldn't run `tailscale serve off`: {e}"),
     }
 }
 
@@ -159,6 +176,20 @@ fn ensure_vapid() -> Result<(String, String), String> {
     kr_set("vapid_private", &priv_b64)?;
     kr_set("vapid_public", &pub_b64)?;
     Ok((priv_b64, pub_b64))
+}
+
+/// Forget all stored Web Push subscriptions. Called when the server stops and
+/// when the auth token rotates (each `start` mints a fresh token): the
+/// subscriptions were registered by a phone paired under the now-revoked
+/// token, and push-when-closed must not keep notifying a revoked device.
+fn clear_push_subscriptions() {
+    match keyring::Entry::new(KEYCHAIN_SERVICE, "push_subscriptions") {
+        Ok(entry) => match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => log::warn!("companion: couldn't clear push subscriptions: {e}"),
+        },
+        Err(e) => log::warn!("companion: keychain access failed clearing push subscriptions: {e}"),
+    }
 }
 
 /// Append a browser PushSubscription (its `toJSON()` shape) to the stored set,
@@ -299,7 +330,12 @@ async fn handle_socket(socket: WebSocket, ctx: WsCtx) {
     });
 
     // Active event subscriptions — unlistened on disconnect so we don't leak.
+    // Deduped by channel name (re-subscribing would register a second listener
+    // and double every relayed frame) and capped so a misbehaving client can't
+    // grow the listener set without bound for the life of the connection.
     let mut subs: Vec<tauri::EventId> = Vec::new();
+    let mut sub_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    const MAX_SUBS: usize = 64;
 
     while let Some(Ok(msg)) = ws_rx.next().await {
         let text = match msg {
@@ -320,7 +356,15 @@ async fn handle_socket(socket: WebSocket, ctx: WsCtx) {
                     .unwrap_or("")
                     .to_string();
                 let args = val.get("args").cloned().unwrap_or(serde_json::Value::Null);
-                let frame = match dispatch(&ctx.app, &cmd, args) {
+                // Dispatch on the blocking pool: scrollback_load reads files up
+                // to ~10MB, pty_write/system_stats also block — running them
+                // inline would stall the shared tokio runtime (every other
+                // socket + the PTY event relay) for the duration.
+                let app = ctx.app.clone();
+                let result = tokio::task::spawn_blocking(move || dispatch(&app, &cmd, args))
+                    .await
+                    .unwrap_or_else(|e| Err(format!("dispatch task failed: {e}")));
+                let frame = match result {
                     Ok(v) => serde_json::json!({ "type": "rpc-result", "id": id, "ok": v }),
                     Err(e) => serde_json::json!({ "type": "rpc-result", "id": id, "err": e }),
                 };
@@ -339,19 +383,29 @@ async fn handle_socket(socket: WebSocket, ctx: WsCtx) {
                     // `rdp-frame://` (live remote-desktop pixels). Mirror the
                     // command allow-list's least-privilege intent for the relay.
                     if ch.starts_with("pty://") || ch.starts_with("pty-exit://") {
-                        let channel = ch.to_string();
-                        let ch_json =
-                            serde_json::to_string(&channel).unwrap_or_else(|_| "\"\"".into());
-                        let tx = out_tx.clone();
-                        let id = ctx.app.listen(channel, move |ev| {
-                            // ev.payload() is already JSON — embed it raw as `payload`.
-                            let _ = tx.send(format!(
-                                r#"{{"type":"event","channel":{},"payload":{}}}"#,
-                                ch_json,
-                                ev.payload()
-                            ));
-                        });
-                        subs.push(id);
+                        if sub_names.contains(ch) {
+                            // Already relaying this channel — ignore the duplicate.
+                        } else if sub_names.len() >= MAX_SUBS {
+                            let _ = out_tx.send(
+                                r#"{"type":"error","error":"subscription limit (64) reached"}"#
+                                    .to_string(),
+                            );
+                        } else {
+                            sub_names.insert(ch.to_string());
+                            let channel = ch.to_string();
+                            let ch_json =
+                                serde_json::to_string(&channel).unwrap_or_else(|_| "\"\"".into());
+                            let tx = out_tx.clone();
+                            let id = ctx.app.listen(channel, move |ev| {
+                                // ev.payload() is already JSON — embed it raw as `payload`.
+                                let _ = tx.send(format!(
+                                    r#"{{"type":"event","channel":{},"payload":{}}}"#,
+                                    ch_json,
+                                    ev.payload()
+                                ));
+                            });
+                            subs.push(id);
+                        }
                     }
                 }
             }
@@ -519,6 +573,9 @@ pub fn start(
         return Err("companion already running".into());
     }
     let token = random_token();
+    // Token rotation: any push subscriptions registered under a previous token
+    // (e.g. after a crash that skipped stop()) die with it.
+    clear_push_subscriptions();
     let ctx = WsCtx {
         token: token.clone(),
         app: app.clone(),
@@ -576,11 +633,15 @@ pub fn start(
     Ok((port, token, host))
 }
 
-/// Stop the running server (fires graceful shutdown). No-op if not running.
+/// Stop the running server (fires graceful shutdown). Also tears down the
+/// Tailscale Serve proxy and forgets push subscriptions — stop must revoke the
+/// whole external surface, not just the loopback socket. No-op if not running.
 pub fn stop(state: &CompanionState) -> Result<(), String> {
     let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
     if let Some(r) = guard.take() {
         let _ = r.shutdown.send(());
+        serve_off(r.port);
+        clear_push_subscriptions();
     }
     Ok(())
 }

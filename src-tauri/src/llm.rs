@@ -4,6 +4,30 @@
 //! API key never hits a browser-origin request and we sidestep CORS. Extracted
 //! from the commands.rs grab-bag (the only HTTP-client concern in there).
 
+/// Map a non-success HTTP response to a readable error: prefer the provider's
+/// JSON `error.message`; otherwise status + a body excerpt (capped). Checking
+/// status BEFORE parsing JSON matters — an HTML 502 from a proxy must surface
+/// as "502 Bad Gateway: <html>…", not as a JSON decode error.
+async fn http_error(status: reqwest::StatusCode, resp: reqwest::Response) -> String {
+    let body = resp.text().await.unwrap_or_default();
+    if let Some(msg) = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_string())
+        })
+    {
+        return msg;
+    }
+    let excerpt: String = body.trim().chars().take(300).collect();
+    if excerpt.is_empty() {
+        status.to_string()
+    } else {
+        format!("{status}: {excerpt}")
+    }
+}
+
 #[tauri::command]
 pub async fn llm_complete(
     kind: String,
@@ -47,18 +71,10 @@ pub async fn llm_complete(
             .await
             .map_err(|e| e.to_string())?;
         let status = resp.status();
-        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
-            let msg = v
-                .pointer("/error/message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("");
-            return Err(if msg.is_empty() {
-                status.to_string()
-            } else {
-                msg.to_string()
-            });
+            return Err(http_error(status, resp).await);
         }
+        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         let text = v
             .get("content")
             .and_then(|c| c.as_array())
@@ -92,18 +108,10 @@ pub async fn llm_complete(
             .await
             .map_err(|e| e.to_string())?;
         let status = resp.status();
-        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
-            let msg = v
-                .pointer("/error/message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("");
-            return Err(if msg.is_empty() {
-                status.to_string()
-            } else {
-                msg.to_string()
-            });
+            return Err(http_error(status, resp).await);
         }
+        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         let text = v
             .pointer("/choices/0/message/content")
             .and_then(|s| s.as_str())
@@ -187,9 +195,14 @@ pub async fn llm_stream(
     let mut stream = resp.bytes_stream();
     let mut buf = String::new();
     let mut full = String::new();
+    // Incomplete trailing UTF-8 bytes carried across network chunks — a
+    // multibyte char straddling a chunk boundary must not become U+FFFD
+    // (see pty::decode_utf8_stream).
+    let mut pending: Vec<u8> = Vec::new();
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| e.to_string())?;
-        buf.push_str(&String::from_utf8_lossy(&bytes).replace("\r\n", "\n"));
+        let text = crate::pty::decode_utf8_stream(&mut pending, &bytes);
+        buf.push_str(&text.replace("\r\n", "\n"));
         // Process complete SSE events (separated by a blank line).
         while let Some(idx) = buf.find("\n\n") {
             let event: String = buf[..idx].to_string();

@@ -60,13 +60,18 @@ fn ssh_include_files(pattern: &str) -> Vec<PathBuf> {
     } else {
         local_home().join(".ssh").join(pattern)
     };
-    let s = base.to_string_lossy().to_string();
-    let dir = if let Some(star) = s.find('*') {
-        // The glob's directory is everything up to the last '/' BEFORE the '*'
-        // (e.g. "…/config.d/*" → "…/config.d"). Path::parent() would climb one
-        // level too far past the trailing slash and rescan the parent dir.
-        let prefix = &s[..star];
-        PathBuf::from(prefix.rsplit_once('/').map(|(d, _)| d).unwrap_or("."))
+    let dir = if base.to_string_lossy().contains('*') {
+        // The glob's directory is the deepest ancestor with no '*' in it
+        // (e.g. "…/config.d/*" → "…/config.d"). Walk up with PathBuf::pop so
+        // Windows backslash paths work — the old rsplit_once('/') never matched
+        // '\\' and fell back to scanning the current working directory.
+        let mut d = base.clone();
+        while d.to_string_lossy().contains('*') {
+            if !d.pop() {
+                return vec![];
+            }
+        }
+        d
     } else if base.is_dir() {
         base.clone()
     } else {
@@ -240,6 +245,44 @@ pub fn ssh_keys_list() -> Result<Vec<SshKey>, String> {
     Ok(keys)
 }
 
+/// RAII cleanup for the unix askpass helper script — removed as soon as
+/// ssh-keygen finishes (the script itself never contains the passphrase; it
+/// only echoes the env var, but don't litter temp anyway).
+#[cfg(not(target_os = "windows"))]
+struct AskpassScript(PathBuf);
+#[cfg(not(target_os = "windows"))]
+impl Drop for AskpassScript {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+/// Feed a non-empty passphrase to ssh-keygen without `-N` (argv is
+/// world-visible in `ps` on unix). ssh-keygen prompts via $SSH_ASKPASS when it
+/// has no tty (SSH_ASKPASS_REQUIRE=force covers OpenSSH 8.4+ even with a tty,
+/// e.g. dev runs from a terminal); the helper script echoes the passphrase
+/// from an environment variable, which only the owning user can read.
+#[cfg(not(target_os = "windows"))]
+fn setup_askpass(cmd: &mut Command, passphrase: &str) -> Result<AskpassScript, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let script = std::env::temp_dir().join(format!(
+        ".pt-askpass-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_millis()
+    ));
+    fs::write(&script, "#!/bin/sh\nprintf '%s' \"$PT_KEY_PASSPHRASE\"\n")
+        .map_err(|e| format!("askpass helper: {e}"))?;
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("askpass helper: {e}"))?;
+    cmd.env("SSH_ASKPASS", &script)
+        .env("SSH_ASKPASS_REQUIRE", "force")
+        .env("PT_KEY_PASSPHRASE", passphrase)
+        // Pre-8.4 OpenSSH only consults SSH_ASKPASS when DISPLAY is set.
+        .env("DISPLAY", ":0")
+        .stdin(std::process::Stdio::null());
+    Ok(AskpassScript(script))
+}
+
 #[tauri::command]
 pub fn ssh_key_generate(
     name: String,
@@ -271,10 +314,24 @@ pub fn ssh_key_generate(
     }
     cmd.arg("-f")
         .arg(&path)
-        .arg("-N")
-        .arg(&passphrase)
         .arg("-C")
         .arg(if comment.is_empty() { &safe } else { &comment });
+    // Passphrase: `-N <pass>` puts the secret on the command line. On Windows
+    // another process needs same-user/admin rights to read our argv — and a
+    // same-user process can already read ~/.ssh outright — so `-N` stays (it
+    // also suppresses the console window's prompt path). On unix, argv is
+    // world-visible in `ps`, so a non-empty passphrase is delivered via
+    // SSH_ASKPASS instead (environment is owner-readable only); the guard
+    // deletes the askpass helper script when generation finishes.
+    #[cfg(target_os = "windows")]
+    cmd.arg("-N").arg(&passphrase);
+    #[cfg(not(target_os = "windows"))]
+    let _askpass_guard: Option<AskpassScript> = if passphrase.is_empty() {
+        cmd.arg("-N").arg("");
+        None
+    } else {
+        Some(setup_askpass(&mut cmd, &passphrase)?)
+    };
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let out = cmd

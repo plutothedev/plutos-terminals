@@ -7,7 +7,7 @@
 // name maps, the live total spend, and per-project activity rollups. Inputs: the
 // workspace state + the project list.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export function useTabTelemetry({ state, projects }) {
   // Per-tab activity state ({tabId: 'idle'|'active'|'done'}). NOT persisted —
@@ -19,12 +19,31 @@ export function useTabTelemetry({ state, projects }) {
   // own /cost output each session.
   const [tabCosts, setTabCosts] = useState({});
 
+  // Cost updates arrive per output-chunk during a busy Claude session — committing
+  // each one re-renders the whole tab tree (tabCosts feeds the header/status-bar
+  // totals). Throttle to at most ONE state commit per second per tab: stash the
+  // latest value and commit it on a trailing-edge timer, so the final figure is
+  // never lost, just coalesced.
+  const pendingCostsRef = useRef(new Map()); // tabId -> latest {tokens, cost}
+  const costTimersRef = useRef(new Map()); // tabId -> timeout id
+  useEffect(() => {
+    const timers = costTimersRef.current;
+    return () => { for (const t of timers.values()) clearTimeout(t); };
+  }, []);
   const handleTabCostUpdate = useCallback((tabId, c) => {
-    setTabCosts(prev => {
-      const cur = prev[tabId];
-      if (cur && cur.tokens === c.tokens && cur.cost === c.cost) return prev;
-      return { ...prev, [tabId]: c };
-    });
+    pendingCostsRef.current.set(tabId, c);
+    if (costTimersRef.current.has(tabId)) return; // commit already scheduled
+    costTimersRef.current.set(tabId, setTimeout(() => {
+      costTimersRef.current.delete(tabId);
+      const latest = pendingCostsRef.current.get(tabId);
+      pendingCostsRef.current.delete(tabId);
+      if (!latest) return;
+      setTabCosts(prev => {
+        const cur = prev[tabId];
+        if (cur && cur.tokens === latest.tokens && cur.cost === latest.cost) return prev;
+        return { ...prev, [tabId]: latest };
+      });
+    }, 1000));
   }, []);
 
   const handleTabActivityChange = useCallback((tabId, nextState) => {

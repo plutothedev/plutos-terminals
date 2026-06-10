@@ -50,17 +50,31 @@ pub fn system_stats() -> SystemStats {
         }
     };
 
-    // Disk: prefer the root mount ("/"), else fall back to the first disk.
-    // Reuse the cached Disks handle and refresh space figures in place rather
-    // than re-enumerating the mount table on every poll.
+    // Disk: the volume holding the user's home directory (longest mount-point
+    // prefix match), else fall back to the first disk. The old root-only
+    // (`mount_point == "/"`) match never hit on Windows — there is no "/"
+    // mount, so the status bar showed whichever disk happened to enumerate
+    // first (often a recovery/secondary volume), not the system drive. The
+    // prefix match also picks a separate /home mount on unix. Reuse the cached
+    // Disks handle and refresh space figures in place rather than
+    // re-enumerating the mount table on every poll.
     let disks_mutex = DISKS.get_or_init(|| Mutex::new(sysinfo::Disks::new_with_refreshed_list()));
     let disk_used_pct = match disks_mutex.lock() {
         Ok(mut disks) => {
             disks.refresh(true);
-            let mut p = disks
-                .list()
-                .iter()
-                .find(|d| d.mount_point() == std::path::Path::new("/"))
+            let home = crate::commands::local_home();
+            let mut best: Option<&sysinfo::Disk> = None;
+            for d in disks.list() {
+                if home.starts_with(d.mount_point()) {
+                    let better = best.map_or(true, |b| {
+                        d.mount_point().as_os_str().len() > b.mount_point().as_os_str().len()
+                    });
+                    if better {
+                        best = Some(d);
+                    }
+                }
+            }
+            let mut p = best
                 .map(|d| pct(d.total_space(), d.available_space()))
                 .unwrap_or(0.0);
             if p == 0.0 {

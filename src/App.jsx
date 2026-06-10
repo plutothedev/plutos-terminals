@@ -14,10 +14,8 @@ import {
 import { ToastProvider } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
 import {
-  getSkinId,
   getLayoutId,
   injectHeaderSkinsCss,
-  applyGlobalSkin,
   applyActiveTheme,
   effectiveSkinValue,
   applyGlobalButtonStyle,
@@ -135,20 +133,30 @@ function AppInner() {
     }
   }, []);
 
+  // `save` accepts either a whole next-state object or a functional updater
+  // (prev => next). Async callers MUST use the functional form: a post-await
+  // `save({ ...st, … })` spreads the state captured before the await and
+  // silently reverts anything that landed in between (lost update). stRef
+  // mirrors the latest committed value so back-to-back saves in one tick
+  // compose instead of clobbering; `save` is the only writer of setSt.
+  const stRef = useRef(st);
   const save = useCallback(
     (next) => {
-      setSt(next);
-      pendingRef.current = next;
+      const prev = stRef.current;
+      const resolved = typeof next === "function" ? next(prev) : next;
+      stRef.current = resolved;
+      setSt(resolved);
+      pendingRef.current = resolved;
       // envOverrides / the legacy anthropicKey are read straight from this blob
       // at PTY spawn (TerminalPane) — persist those synchronously so a freshly
       // opened tab can't miss them. Everything else (layout, UI prefs) debounces.
-      if (next.anthropicKey !== st.anthropicKey || next.envOverrides !== st.envOverrides) {
+      if (resolved.anthropicKey !== prev.anthropicKey || resolved.envOverrides !== prev.envOverrides) {
         flushNow();
         return;
       }
       if (!timerRef.current) timerRef.current = setTimeout(flushNow, 200);
     },
-    [st.anthropicKey, st.envOverrides, flushNow],
+    [flushNow],
   );
 
   // Flush any pending write before the window goes away (hide → tray, close,
@@ -169,9 +177,15 @@ function AppInner() {
     };
   }, [flushNow]);
 
+  // Same object-or-updater contract as `save` (see above). userStRef is also
+  // refreshed by the two non-saveUser setUserSt paths (keychain migration,
+  // cross-window storage sync) so functional updates never see a stale base.
+  const userStRef = useRef(userSt);
   const saveUser = useCallback((next) => {
-    setUserSt(next);
-    writeUserState(next);
+    const resolved = typeof next === "function" ? next(userStRef.current) : next;
+    userStRef.current = resolved;
+    setUserSt(resolved);
+    writeUserState(resolved);
   }, []);
 
   // One-time migration: the legacy standalone Anthropic key now lives in the
@@ -202,6 +216,7 @@ function AppInner() {
           providerKeys: { ...(userSt.providerKeys || {}), ...s.providerKeys },
           anthropicKey: s.anthropicKey || userSt.anthropicKey || "",
         };
+        userStRef.current = merged;
         setUserSt(merged);
         writeUserState(merged); // keychainAvailable() now true → secrets pruned from localStorage
       })
@@ -222,11 +237,13 @@ function AppInner() {
           // provider keys on any cross-window user-state update.
           const parsed = JSON.parse(e.newValue);
           const s = getCachedSecretKeys();
-          setUserSt({
+          const merged = {
             ...parsed,
             providerKeys: { ...(parsed.providerKeys || {}), ...(s.providerKeys || {}) },
             anthropicKey: s.anthropicKey || parsed.anthropicKey || "",
-          });
+          };
+          userStRef.current = merged;
+          setUserSt(merged);
         } catch { /* ignore */ }
       }
     };
@@ -245,7 +262,9 @@ function AppInner() {
   // we only override while mobaDefaultForced is unset.
   useEffect(() => {
     if (st?.mobaDefaultForced) return;
-    save({ ...st, headerSkin: "moba", uiLayout: "moba", mobaDefaultForced: true });
+    // Functional form: child (TerminalsTab) mount effects run before this parent
+    // effect — a spread of the render-time `st` here would clobber their saves.
+    save((prev) => ({ ...prev, headerSkin: "moba", uiLayout: "moba", mobaDefaultForced: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -270,7 +289,9 @@ function AppInner() {
         <Welcome
           discordUrl={DEFAULT_DISCORD_URL}
           onContinue={() => {
-            saveUser({ ...userSt, welcomeDone: true });
+            // Functional form: the keychain migration effect may merge keys into
+            // user state between render and this click — don't clobber it.
+            saveUser((prev) => ({ ...prev, welcomeDone: true }));
           }}
         />
         <UpdateBanner currentVersion={APP_VERSION} />

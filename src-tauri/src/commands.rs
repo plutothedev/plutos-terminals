@@ -75,7 +75,12 @@ pub fn write_store(app: AppHandle, data: String) -> Result<(), String> {
     let dir = get_data_dir(&app);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("store.json");
-    fs::write(&path, data).map_err(|e| e.to_string())
+    // Atomic replace (write-tmp + rename, same pattern as the scrollback
+    // tail-truncation in pty.rs) so a crash/power-cut mid-write can't leave a
+    // truncated or half-written store.json behind.
+    let tmp = dir.join("store.json.tmp");
+    fs::write(&tmp, data).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
 // ── Native folder picker (used by Terminals tab project sidebar) ──
@@ -656,11 +661,20 @@ pub async fn recent_files(cwd: String) -> Vec<String> {
     {
         if out.status.success() {
             for line in String::from_utf8_lossy(&out.stdout).lines() {
-                let trimmed = line.trim_start();
-                if trimmed.len() < 3 {
+                // Porcelain v1: two status bytes + a space, then the path. Do
+                // NOT trim_start first — unstaged entries lead with a space
+                // (" M file"), and trimming shifted the [3..] slice into the
+                // middle of the filename. Renames/copies are "XY old -> new";
+                // keep the post-rename path.
+                if line.len() < 4 {
                     continue;
                 }
-                let f = trimmed[3..].trim().to_string();
+                let path = &line[3..];
+                let f = match path.split_once(" -> ") {
+                    Some((_, new)) => new,
+                    None => path,
+                }
+                .to_string();
                 if !f.is_empty() {
                     push(f, &mut files, &mut seen);
                 }

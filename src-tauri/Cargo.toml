@@ -48,6 +48,9 @@ ironrdp-blocking = "0.8"
 native-tls = "0.2"
 # Extract the server's SubjectPublicKeyInfo (SPKI) from its TLS cert for CredSSP.
 x509-cert = { version = "0.2", features = ["pem"] }
+# SHA-256 fingerprints for RDP trust-on-first-use cert pinning (rdp.rs).
+# Already in the tree transitively via p256 — zero new compilation units.
+sha2 = "0.10"
 # CredSSP NetworkClient trait (matches the version IronRDP uses).
 sspi = "0.18"
 

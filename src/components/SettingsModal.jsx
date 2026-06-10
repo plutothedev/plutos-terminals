@@ -7,7 +7,7 @@ import { useToast } from "./Toast.jsx";
 import { useConfirm } from "./ConfirmModal.jsx";
 import { Button, Field } from "./ui.jsx";
 import { getSkinId } from "../features/terminals/headerSkins.js";
-import { USER_STORAGE_KEY, STATE_KEY_PREFIX } from "../features/terminals/storageKeys.js";
+import { wipeAllLocalState } from "../features/terminals/storageKeys.js";
 import KeybindingsSection from "../features/terminals/KeybindingsSection.jsx";
 import ThemesSection from "../features/terminals/ThemesSection.jsx";
 import { SMoon, SSun } from "../features/terminals/toolbarIcons.jsx";
@@ -41,16 +41,10 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
       { title: "Factory reset?", confirmLabel: "reset everything", destructive: true }
     );
     if (!ok) return;
-    try {
-      // v0.1.21: also wipe shared user state + any per-window state from
-      // multi-window setups. Walks all keys to catch suffixed window states.
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && (k === USER_STORAGE_KEY || k.startsWith(STATE_KEY_PREFIX))) {
-          localStorage.removeItem(k);
-        }
-      }
-    } catch (_) { /* ignore */ }
+    // Wipe EVERY app-owned key (state/user blobs, per-window states, command
+    // history, macros, dock layout, dismissed-update) — see ALL_STORAGE_PREFIXES
+    // in storageKeys.js. The old inline loop missed cmdhistory/macros/pt:* keys.
+    wipeAllLocalState();
     window.location.reload();
   };
 

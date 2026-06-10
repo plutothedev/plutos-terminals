@@ -97,6 +97,55 @@ fn server_public_key(cert_der: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("encode SPKI: {e}"))
 }
 
+/// Trust-on-first-use pinning for the RDP server's TLS identity — the same
+/// model the SSH transport uses for host keys (pty.rs::verify_host_key).
+/// RDP servers are almost always self-signed, so chain validation is off
+/// (`danger_accept_invalid_certs`); this pin is the actual trust layer. The
+/// SHA-256 fingerprint of the server's SPKI is recorded per host:port in
+/// `rdp-known-hosts.txt` (app data dir) on first connect; a later mismatch
+/// refuses the connection (possible man-in-the-middle).
+fn verify_rdp_pin(app: &AppHandle, host: &str, port: u16, spki: &[u8]) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let fp: String = Sha256::digest(spki)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let entry_key = format!("{}:{}", host.to_ascii_lowercase(), port);
+    let path = crate::commands::get_data_dir(app).join("rdp-known-hosts.txt");
+
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            let mut parts = line.split_whitespace();
+            let (Some(k), Some(stored)) = (parts.next(), parts.next()) else {
+                continue;
+            };
+            if k != entry_key {
+                continue;
+            }
+            if stored.eq_ignore_ascii_case(&fp) {
+                return Ok(());
+            }
+            return Err(format!(
+                "RDP host certificate changed for {entry_key}: expected {stored}, got {fp} — \
+                 remove the pinned entry from {} to trust the new cert.",
+                path.display()
+            ));
+        }
+    }
+
+    // First sight: pin the fingerprint so a later change is caught.
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("record RDP host pin: {e}"))?;
+    writeln!(f, "{entry_key} {fp}").map_err(|e| format!("record RDP host pin: {e}"))?;
+    Ok(())
+}
+
 /// CredSSP NetworkClient stub. Only Kerberos uses the network; for NTLM
 /// (username/password) it's never called, so we report no protocol support.
 struct NoNetworkClient;
@@ -134,7 +183,9 @@ pub async fn rdp_connect(
         connect_begin(&mut framed, &mut connector).map_err(|e| format!("connect_begin: {e}"))?;
     let (initial_stream, _leftover) = framed.into_inner();
 
-    // TLS upgrade (RDP servers are usually self-signed → accept).
+    // TLS upgrade. RDP servers are usually self-signed, so chain validation
+    // stays off — the trust layer is the TOFU pin check below (verify_rdp_pin),
+    // mirroring the SSH transport's known-hosts model.
     let tls_connector = native_tls::TlsConnector::builder()
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
@@ -150,6 +201,9 @@ pub async fn rdp_connect(
         .to_der()
         .map_err(|e| e.to_string())?;
     let pubkey = server_public_key(&cert_der)?;
+
+    // Trust-on-first-use: refuse if this host's pinned cert fingerprint changed.
+    verify_rdp_pin(&app, &host, port, &pubkey)?;
 
     let upgraded = mark_as_upgraded(should_upgrade, &mut connector);
     let mut tls_framed = Framed::new(tls);
