@@ -41,6 +41,18 @@ npm run tauri build        # release MSI + portable exe (~minutes)
 scripts/clean-and-dev.bat  # kill stale processes + clean dev start
 ```
 
+> **Release-build gotchas (git-bash):**
+> 1. The vendored OpenSSL build (`openssl-sys`, pulled in by `ssh2` + `web-push`)
+>    needs a real perl. Git-bash puts MSYS perl first on PATH, which lacks
+>    `Locale::Maketext::Simple` and fails `Configure`. Prepend Strawberry first:
+>    `export PATH="/c/Strawberry/perl/bin:$PATH"`.
+> 2. `npm run tauri build` exits 1 even on success: `bundle.targets` is `"all"`
+>    and the NSIS bundler always dies on the apostrophe in the product name
+>    (`NSISCOMCALL` macro error) — *after* the MSI is already produced. Check
+>    for the `.msi` in `target/release/bundle/msi/`, don't trust the exit code.
+>    (Config stays `"all"` because the CI macOS leg reads bundle targets from
+>    config; don't narrow it to `["msi"]` without testing a mac CI run.)
+
 ## Frontend architecture (`src/`)
 
 Two persistence layers, both localStorage-backed (see `storageKeys.js`):
