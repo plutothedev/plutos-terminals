@@ -164,8 +164,9 @@ export const HEADER_SKINS = [
       brightCyan: "#67e8f9", brightWhite: "#f7f8f8",
     },
   },
-  // ── The only two themes (v5): a Dark and a Light CHROME. Both keep the
-  //    terminal pure black — the toggle only repaints the app chrome.
+  // ── The core chrome themes (v5): Dark, Light, and OLED Black. Dark/Light
+  //    keep the terminal near-black — the toggle only repaints the chrome;
+  //    OLED turns every surface (chrome AND terminal) true #000.
   {
     id: "moba",
     label: "Dark",
@@ -189,6 +190,24 @@ export const HEADER_SKINS = [
     // Same terminal palette as Dark — the toggle only changes the chrome.
     xterm: {
       background: "#0c0d0e",
+      foreground: "#c6c8cc",
+      cursor: "#c6c8cc",
+      selectionBackground: "rgba(124,156,245,0.30)",
+      black: "#26282b", red: "#e08784", green: "#7fbf8a", yellow: "#d2b36b",
+      blue: "#7c9cf5", magenta: "#c49ad1", cyan: "#6fbcc9", white: "#c6c8cc",
+      brightBlack: "#67696e", brightRed: "#eda3a0", brightGreen: "#9bd3a5",
+      brightYellow: "#e3ca8e", brightBlue: "#9cb5f7", brightMagenta: "#d7b3e2",
+      brightCyan: "#8fd0db", brightWhite: "#eceef0",
+    },
+  },
+  {
+    id: "oled",
+    label: "OLED Black",
+    description: "True #000 everywhere — chrome, panels, terminal. Separation comes from hairlines, not luminance.",
+    // Dark's readable palette over a true-black well; on OLED panels every
+    // background pixel is literally off.
+    xterm: {
+      background: "#000000",
       foreground: "#c6c8cc",
       cursor: "#c6c8cc",
       selectionBackground: "rgba(124,156,245,0.30)",
@@ -1011,6 +1030,35 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
 [data-phn-skin="moba"] .phn-muted { color: #67696e !important; }
 [data-phn-skin="moba"] option { background: #1b1c1f; color: #d6d8dc; }
 
+/* ── oled — pitch-black chrome; every surface #000, hairlines do the work ── */
+[data-phn-skin="oled"] .phn-header {
+  background: #000000;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+[data-phn-skin="oled"] .phn-title {
+  color: #eceef0;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-size: 12px;
+}
+[data-phn-skin="oled"] .phn-meta { color: #9a9da3; }
+[data-phn-skin="oled"] .phn-cost { color: #9a9da3; }
+[data-phn-skin="oled"] .phn-btn,
+[data-phn-skin="oled"] .phn-select {
+  background: #000000;
+  border: 1px solid rgba(255,255,255,0.10);
+  color: #d6d8dc;
+  border-radius: 6px;
+}
+[data-phn-skin="oled"] .phn-btn:hover:not(:disabled),
+[data-phn-skin="oled"] .phn-select:hover {
+  background: #101113;
+  border-color: rgba(255,255,255,0.16);
+  color: #eceef0;
+}
+[data-phn-skin="oled"] .phn-muted { color: #67696e !important; }
+[data-phn-skin="oled"] option { background: #000000; color: #d6d8dc; }
+
 /* ── moba-light — light Windows chrome (the Light toggle state) ───────── */
 [data-phn-skin="moba-light"] .phn-header {
   background: #ececec;
@@ -1191,6 +1239,38 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-tab-bg: transparent;
   --phn-tab-bg-hover: rgba(255,255,255,0.04);
   --phn-tab-bg-active: #1b1c1f;
+  --phn-tab-fg: #9a9da3;
+  --phn-tab-fg-active: #eceef0;
+}
+
+/* OLED — true black on every surface. No luminance ladder: the page, chrome,
+   sidebar, tab strip, and terminal are all #000; structure is carried entirely
+   by alpha-white hairlines, slightly stronger than Dark's so edges survive on
+   a panel where black pixels are off. Modals/popovers get the faintest lift
+   (#0a0a0c) so they read as a layer; tab/hover states are the only lit fills. */
+[data-phn-skin="oled"] {
+  --phn-page-bg: #000000;
+  --phn-surface-bg: #000000;
+  --phn-surface-alt-bg: #000000;
+  --phn-elevated-bg: #0a0a0c;
+  --phn-surface-border: rgba(255,255,255,0.09);
+  --phn-text-fg: #d6d8dc;
+  --phn-text-active: #eceef0;
+  --phn-text-dim: #9a9da3;
+  --phn-text-faint: #67696e;
+  --phn-link: #7c9cf5;
+  --phn-accent-hover: #93aff7;
+  --phn-accent-subtle: rgba(124,156,245,0.16);
+  --phn-accent-fg: #0e1018;
+  --phn-success: #7fbf8a;
+  --phn-warning: #d2b36b;
+  --phn-danger: #e08784;
+  --phn-focus-ring: rgba(124,156,245,0.50);
+  --phn-hover-bg: rgba(255,255,255,0.06);
+  --phn-tabstrip-bg: #000000;
+  --phn-tab-bg: transparent;
+  --phn-tab-bg-hover: rgba(255,255,255,0.05);
+  --phn-tab-bg-active: #101113;
   --phn-tab-fg: #9a9da3;
   --phn-tab-fg-active: #eceef0;
 }

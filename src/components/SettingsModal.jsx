@@ -34,6 +34,7 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
     save({ ...st, headerSkin: next });
   };
   const isLight = headerSkin === "moba-light";
+  const isOled = headerSkin === "oled";
 
   const handleFactoryReset = async () => {
     const ok = await confirm(
@@ -62,11 +63,12 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
 
       <Field
         label="Appearance (live preview)"
-        hint="Switches the whole app chrome between dark and light. The terminal itself stays black either way."
+        hint="Dark and Light switch the app chrome (terminal stays black). OLED turns every surface — chrome and terminal — true #000 for OLED panels."
       >
         <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
-          <Button variant={isLight ? "ghost" : "primary"} onClick={() => setTheme("moba")} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SMoon size={13} /> Dark</span></Button>
+          <Button variant={!isLight && !isOled ? "primary" : "ghost"} onClick={() => setTheme("moba")} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SMoon size={13} /> Dark</span></Button>
           <Button variant={isLight ? "primary" : "ghost"} onClick={() => setTheme("moba-light")} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SSun size={13} /> Light</span></Button>
+          <Button variant={isOled ? "primary" : "ghost"} onClick={() => setTheme("oled")} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SMoon size={13} /> OLED</span></Button>
         </div>
       </Field>
 

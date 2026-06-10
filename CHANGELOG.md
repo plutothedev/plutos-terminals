@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.2 — OLED Black theme (2026-06-10)
+
+### Added
+- **OLED Black** appearance (Settings → Appearance, third option next to
+  Dark/Light): true `#000000` on every surface including the terminal;
+  hairline borders carry the structure. Selectable in the OS-sync slots too.
+
 ## v0.4.1 — Clean terminal boot (2026-06-10)
 
 ### Fixed

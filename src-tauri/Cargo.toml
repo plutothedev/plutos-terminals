@@ -1,6 +1,6 @@
 [package]
 name = "plutos-terminals"
-version = "0.4.1"
+version = "0.4.2"
 description = "Pluto's Terminals — multi-terminal desktop app for the Pluto community"
 authors = ["Michael T. Cinnamon"]
 license = "MIT"
