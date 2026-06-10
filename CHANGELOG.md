@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.3 — OLED Black by default (2026-06-10)
+
+### Changed
+- OLED Black is the default skin: fresh installs and installs still on the old
+  default dark ("moba") switch to `oled` via a one-time migration; explicit
+  picks (Light, custom themes, legacy skins) are preserved. Sun/moon toggle
+  now flips OLED ⇄ Light; OS-sync dark slot defaults to OLED.
+
 ## v0.4.2 — OLED Black theme (2026-06-10)
 
 ### Added

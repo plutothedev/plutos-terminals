@@ -313,10 +313,11 @@ export function applyGlobalLayout(layoutId) {
 export function getSkinId(stored) {
   const ids = HEADER_SKINS.map((s) => s.id);
   if (typeof stored === "string" && ids.includes(stored)) return stored;
-  // v4.0: "moba" (MobaXterm classic toolbox) is the new default aesthetic.
-  // Explicitly-picked skins are kept (stored is a valid id); only the unset
-  // case falls through to moba. (Pro remains selectable.)
-  return "moba";
+  // v0.4.3: OLED Black is the default aesthetic (pluto's call — replaces the
+  // v0.4.0 refined-dark "moba" default). Explicitly-picked skins are kept
+  // (stored is a valid id); only the unset case falls through. App.jsx also
+  // runs a one-time migration converting stored "moba" → "oled".
+  return "oled";
 }
 
 const CSS = `
@@ -1486,7 +1487,7 @@ export const CUSTOM_PREFIX = "custom:";
 // explicit per-window selection (st.headerSkin) wins.
 export function effectiveSkinValue(st, userSt, osDark) {
   if (userSt?.themeFollowOS) {
-    return osDark ? (userSt.themeDark || "moba") : (userSt.themeLight || "moba-light");
+    return osDark ? (userSt.themeDark || "oled") : (userSt.themeLight || "moba-light");
   }
   return st?.headerSkin;
 }

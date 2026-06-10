@@ -171,10 +171,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     applyActiveTheme(activeSkin, userSt?.customThemes);
   }, [activeSkin, userSt?.customThemes]);
 
-  // Dark ⇄ Light chrome toggle (toolbar button + Ctrl+\). Flips the two base
-  // skins; a manual flip turns OFF OS sync so the choice sticks.
+  // Dark ⇄ Light chrome toggle (toolbar button + Ctrl+\). From light it returns
+  // to OLED Black (the default dark since v0.4.3); from any dark variant it goes
+  // light. A manual flip turns OFF OS sync so the choice sticks.
   const toggleTheme = useCallback(() => {
-    const next = headerSkinId === "moba-light" ? "moba" : "moba-light";
+    const next = headerSkinId === "moba-light" ? "oled" : "moba-light";
     if (userSt?.themeFollowOS) saveUser({ ...userSt, themeFollowOS: false });
     save({ ...st, headerSkin: next });
   }, [headerSkinId, st, save, userSt, saveUser]);

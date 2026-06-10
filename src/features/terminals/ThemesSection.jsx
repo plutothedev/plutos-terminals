@@ -33,7 +33,7 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
   const osDark = useOsDark();
   const themes = Array.isArray(userSt?.customThemes) ? userSt.customThemes : [];
   const followOS = !!userSt?.themeFollowOS;
-  const themeDark = userSt?.themeDark || "moba";
+  const themeDark = userSt?.themeDark || "oled";
   const themeLight = userSt?.themeLight || "moba-light";
   // The selection actually showing right now (OS sync overrides the per-window pick).
   const active = followOS ? (osDark ? themeDark : themeLight) : st?.headerSkin;
@@ -83,7 +83,7 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
     if (!ok) return;
     saveUser({ ...userSt, customThemes: themes.filter((t) => t.id !== theme.id) });
     if (active === CUSTOM_PREFIX + theme.id) {
-      save({ ...st, headerSkin: theme.dark === false ? "moba-light" : "moba" });
+      save({ ...st, headerSkin: theme.dark === false ? "moba-light" : "oled" });
     }
     toast.success(`Deleted “${theme.name}”.`);
   };

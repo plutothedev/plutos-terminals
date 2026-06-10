@@ -202,6 +202,20 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // One-time migration (v0.4.3): OLED Black replaces refined-dark "moba" as the
+  // default skin. Installs whose stored skin is unset or the old default flip to
+  // "oled"; an explicit other choice (light, custom:<id>, legacy skins) is kept.
+  useEffect(() => {
+    if (!stRef.current.oledDefaultMigrated) {
+      save((prev) => ({
+        ...prev,
+        headerSkin: (prev.headerSkin == null || prev.headerSkin === "moba") ? "oled" : prev.headerSkin,
+        oledDefaultMigrated: true,
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Move provider API keys from plaintext localStorage into the OS keychain
   // (secretVault) on boot, then re-persist: writeUserState now strips the keys
   // from localStorage (keychain confirmed), and readUserSt overlays the keychain
