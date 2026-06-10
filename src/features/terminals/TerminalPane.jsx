@@ -13,6 +13,9 @@ import { readUserSt, getWindowStorageKey, isPrimaryWindow } from "./storageKeys.
 import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import { actionForEvent } from "./keybindings.js";
+import { buildWelcomeBanner } from "./welcomeBanner.js";
+import { buildPosixShellInit, buildPowerShellInit } from "./shellIntegration.js";
+import { resolveEnvFromUserState } from "./spawnEnv.js";
 import PromptEditor from "./PromptEditor.jsx";
 import { MONO_STACK } from "./fonts.js";
 import {
@@ -800,25 +803,10 @@ export default function TerminalPane({
           // localStorage read here would spawn shells with NO keys.
           let userPersisted = null;
           try { userPersisted = readUserSt(); } catch (_) { /* ignore */ }
-          if (userPersisted) {
-            const keys = (userPersisted && userPersisted.providerKeys) || {};
-            const baseUrls = (userPersisted && userPersisted.providerBaseUrls) || {};
-            // Default Claude key now lives in the Models section as
-            // providerKeys.anthropic (legacy userPersisted.anthropicKey is the
-            // pre-consolidation fallback for not-yet-migrated state).
-            const defaultAnthropic =
-              (typeof keys.anthropic === "string" && keys.anthropic.length > 0)
-                ? keys.anthropic
-                : (typeof userPersisted?.anthropicKey === "string" ? userPersisted.anthropicKey : "");
-            if (defaultAnthropic) env.ANTHROPIC_API_KEY = defaultAnthropic;
-            // Multi-LLM routing: if the user picked an active provider/model,
-            // inject its env vars so `claude` / `codex` route there. Takes
-            // precedence over the default ANTHROPIC_API_KEY above.
-            const am = userPersisted && userPersisted.activeModel;
-            if (am && am.providerId && am.model && typeof keys[am.providerId] === "string" && keys[am.providerId].length > 0) {
-              Object.assign(env, envForModel(am.providerId, am.model, keys[am.providerId], baseUrls[am.providerId]));
-            }
-          }
+          // Pure transform: provider keys + active-model routing → env vars.
+          // The keychain-overlaid read (readUserSt) stays above; this only
+          // maps the already-read blob.
+          Object.assign(env, resolveEnvFromUserState(userPersisted, envForModel));
           // envOverrides (and the legacy anthropicKey for not-yet-migrated
           // users) still live in the per-window state. Use the per-window key
           // (matches App's write key) so a detached ?w= window reads ITS OWN
@@ -1077,134 +1065,13 @@ export default function TerminalPane({
           // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less
           // + a few quality-of-life aliases. (Kept short so the welcome init fits
           // comfortably in one shell line alongside the big welcome box.)
-          const colors = "export CLICOLOR=1; export LSCOLORS=ExGxFxdaCxDaDahbadacec; export LESS='-R'; alias grep='grep --color=auto'; alias ll='ls -lah'; alias la='ls -laGh';";
-          // MobaXterm v12.4 segmented prompt: green  date  cyan  time
-          // yellow  path, joined by powerline  arrows. Icons are Nerd-Font
-          // glyphs from the bundled MesloLGS NF (calendar , clock ,
-          // folder ) — NOT color emoji: emoji fall back to Apple Color
-          // Emoji, which renders taller/wider than the text cell and gets clipped
-          // by the segment edges. Nerd glyphs are single-cell and monochrome
-          // (they take the segment's fg colour), so they sit cleanly like the
-          // powerline arrows. Each  carries fg = the colour it comes from,
-          // bg = the colour it goes to, so the segments blend like MobaXterm's.
-          const zshPrompt = "PROMPT='%K{2}%F{0}  %D{%d/%m/%Y} %K{6}%F{2}%F{0}  %* %K{3}%F{6}%F{0}  %~ %k%F{3}%f '";
-          const bashPrompt = "PS1='\\[\\e[42;30m\\]  \\D{%d/%m/%Y} \\[\\e[32;46m\\]\\[\\e[30;46m\\]  \\t \\[\\e[36;43m\\]\\[\\e[30;43m\\]  \\w \\[\\e[0;33m\\]\\[\\e[0m\\] '";
-          // MobaXterm-style welcome box: a white-bordered rectangle on the pure
-          // black terminal, with a cyan title, yellow ► markers, and green ✓
-          // checks. Plain text is padded to a fixed inner width BEFORE color is
-          // layered on so the box edges align across every line. The box is
-          // written to a file (real ESC bytes) and the shell `cat`s it before
-          // the first prompt — clean ordering, and the short `cat` command
-          // avoids the tty canonical line-length limit that truncates a 2.4 KB
-          // inline printf.
-          const E = "\x1b";
-          // Per-segment colour: each line is a list of [text, ansiCode|null]
-          // pairs (+ optional center / hang). The box edges align because the
-          // inner width is measured on the PLAIN text (✓ ✗ · ► are all width 1)
-          // and colour is layered on after. CRUCIALLY the box is sized to the
-          // pane's actual column count and content is word-wrapped, so a narrow
-          // split pane never wraps a line past the border. MobaXterm-style.
-          const BORDER = "1;36";       // cyan box (MobaXterm header vibe)
-          const TITLE_BG = "1;30;46";  // black-on-cyan title bar
-          const wrap = (code, s) => (code ? `${E}[${code}m${s}${E}[0m` : s);
-          const C = (c, t) => [t, c];  // coloured segment
-          const T = (t) => [t, null];  // plain segment
-          const lines = [
-            { center: true, segs: [C(TITLE_BG, "  ✦ Pluto's Terminal ✦  ")] },
-            { center: true, segs: [C("36", "free multi-terminal for the Pluto community")] },
-            { segs: [] },
-            { hang: 2, segs: [C("1;36", "► "), T("Saved sessions live in the "), C("1;33", "Sessions"), T(" panel — SSH · local · serial · RDP/VNC")] },
-            { hang: 2, segs: [C("1;36", "► "), T("Scrollback is "), C("1;32", "persistent"), T(" — every tab is saved and replayed on restart")] },
-            { hang: 2, segs: [C("1;36", "► "), C("1;35", "MultiExec"), T(" broadcasts your typing to every visible terminal at once")] },
-            { hang: 2, segs: [C("1;36", "► "), C("1;36", "Models"), T(": route to any LLM — Claude · GPT · Gemini · GLM · Kimi · 16 providers")] },
-            { hang: 2, segs: [C("1;36", "► "), T("Split panes, drag tabs and pin sessions to shape your workspace")] },
-            { hang: 2, segs: [C("1;36", "► "), T("Tools, snippets and a file browser are one click away in the toolbar")] },
-            { hang: 2, segs: [C("1;36", "► "), T("Command status shows as a symbol   ("), C("1;32", "✓"), T(" ok · "), C("1;31", "✗"), T(" failed)")] },
-            { segs: [] },
-            { hang: 2, segs: [C("1;36", "► "), C("1;31", "Tip!")] },
-            { hang: 6, segs: [T("   Run "), C("1;33", "Claude Code"), T(", Codex and other AI agents side by side — each in")] },
-            { hang: 6, segs: [T("   its own git worktree, on "), C("1;33", "any model"), T(" you pick.")] },
-            { hang: 6, segs: [T("   Press "), C("1;33", "Ctrl+K"), T(" for the command palette, or "), C("1;36", "Home"), T(" to launch.")] },
-            { segs: [] },
-            { hang: 3, segs: [C("1;32", "➜ "), T("Docs: "), C("4;36", "https://github.com/plutothedev/plutos-terminals")] },
-            { hang: 3, segs: [C("1;35", "➜ "), T("Community: "), C("4;35", "https://discord.gg/3cZQVgKF")] },
-          ];
-          const plainLen = (segs) => segs.reduce((n, [t]) => n + t.length, 0);
-          // Fit to the pane: -6 leaves the border (space+│+space ... space+│) and
-          // a 1-col right margin so terminals with a magic margin don't wrap.
-          // Also clamp to a comfortable ABSOLUTE max: the box can't reflow once
-          // printed to scrollback, so an absolute cap keeps it (a) a tidy card
-          // rather than a sprawling banner, (b) the SAME width in every pane no
-          // matter how wide that pane was when it was created — so a tab split
-          // full-width and a pane born already-narrow get identical boxes that
-          // line up, and (c) narrow enough to survive a 2-way split.
-          const BOX_MAX = 60;
-          const paneCols = term.cols || 80;
-          const maxInner = Math.max(...lines.map((l) => plainLen(l.segs)));
-          const W = Math.max(24, Math.min(maxInner, paneCols - 6, BOX_MAX));
-          // Word-wrap coloured segments to width, hang-indenting continuations
-          // and hard-splitting any token longer than a row (e.g. a URL).
-          const wrapLine = (segs, width, hang = 0) => {
-            const rows = [];
-            let cur = [], curLen = 0;
-            const startRow = (withHang) => { cur = []; curLen = 0; if (withHang && hang) { cur.push([" ".repeat(hang), null]); curLen = hang; } };
-            startRow(false);
-            for (const [t, c] of segs) {
-              for (const tok of t.split(/(\s+)/)) {
-                if (tok === "") continue;
-                if (/^\s+$/.test(tok)) {
-                  if (curLen > 0 && curLen + tok.length <= width) { cur.push([tok, c]); curLen += tok.length; }
-                  continue;
-                }
-                let w = tok;
-                while (w.length > width - curLen) {
-                  if (curLen > (hang || 0)) { rows.push(cur); startRow(true); continue; }
-                  const avail = Math.max(1, width - curLen);
-                  cur.push([w.slice(0, avail), c]); curLen += avail; w = w.slice(avail);
-                  rows.push(cur); startRow(true);
-                }
-                if (w.length) { cur.push([w, c]); curLen += w.length; }
-              }
-            }
-            rows.push(cur);
-            return rows;
-          };
-          const box = [" " + wrap(BORDER, "┌" + "─".repeat(W + 2) + "┐")];
-          const pushRow = (rowSegs, center) => {
-            const len = rowSegs.reduce((n, [t]) => n + t.length, 0);
-            const left = center ? Math.max(0, Math.floor((W - len) / 2)) : 0;
-            const right = Math.max(0, W - len - left);
-            const inner = " ".repeat(left) + rowSegs.map(([t, c]) => wrap(c, t)).join("") + " ".repeat(right);
-            box.push(" " + wrap(BORDER, "│") + " " + inner + " " + wrap(BORDER, "│"));
-          };
-          lines.forEach((l) => {
-            if (!l.segs.length) { pushRow([[" ", null]], false); return; }
-            const rows = wrapLine(l.segs, W, l.hang || 0);
-            rows.forEach((rowSegs, idx) => pushRow(rowSegs, l.center && idx === 0));
-          });
-          box.push(" " + wrap(BORDER, "└" + "─".repeat(W + 2) + "┘"));
-          const boxRaw = "\n" + box.join("\n") + "\n\n";
-          // OSC 133 shell integration (command blocks): emit a prompt mark (A)
-          // and a command-done mark (D;<exit>) so the UI can pair them into
-          // blocks and flag failures. zsh via add-zsh-hook precmd; bash by
-          // prepending to PROMPT_COMMAND (both preserve the user's own hooks).
-          // $? is read FIRST so the real exit code survives.
-          const osc133 =
-            `__plt133z(){ local __e=$?; printf '\\033]133;D;%s\\007\\033]133;A\\007\\033]1337;PlutoCwd=%s\\007' "$__e" "$(printf '%s' "$PWD" | base64 2>/dev/null | tr -d '\\n')"; }; ` +
-            `__plt133b(){ local __e=$?; printf '\\033]133;D;%s\\007\\033]133;A\\007\\033]1337;PlutoCwd=%s\\007' "$__e" "$(printf '%s' "$PWD" | base64 2>/dev/null | tr -d '\\n')"; }; ` +
-            `if [ -n "$ZSH_VERSION" ]; then autoload -Uz add-zsh-hook 2>/dev/null; add-zsh-hook precmd __plt133z 2>/dev/null; ` +
-            `elif [ -n "$BASH_VERSION" ]; then PROMPT_COMMAND="__plt133b\${PROMPT_COMMAND:+; $PROMPT_COMMAND}"; fi`;
-          const promptSetup = `${colors} if [ -n "$ZSH_VERSION" ]; then ${zshPrompt}; elif [ -n "$BASH_VERSION" ]; then ${bashPrompt}; fi; ${osc133}`;
-          // Command-history capture: emit ESC]1337;PlutoCmd=<base64> for each
-          // command the shell is about to run. zsh via preexec (clean); bash via
-          // a guarded DEBUG trap (best-effort — dedup on the app side handles
-          // pipeline repeats). Sent as its own line so promptSetup stays under
-          // the tty canonical line-length limit (MAX_CANON).
-          const cmdCapture =
-            `__pltcmdz(){ printf '\\033]1337;PlutoCmd=%s\\007' "$(printf '%s' "$1" | base64 | tr -d '\\n')"; }; ` +
-            `__pltcmdb(){ case "$BASH_COMMAND" in __plt*|"$PROMPT_COMMAND") return;; esac; printf '\\033]1337;PlutoCmd=%s\\007' "$(printf '%s' "$BASH_COMMAND" | base64 2>/dev/null | tr -d '\\n')"; }; ` +
-            `if [ -n "$ZSH_VERSION" ]; then autoload -Uz add-zsh-hook 2>/dev/null; add-zsh-hook preexec __pltcmdz 2>/dev/null; ` +
-            `elif [ -n "$BASH_VERSION" ]; then trap '__pltcmdb' DEBUG; fi`;
+          // MobaXterm-style welcome box + POSIX prompt / OSC-133 / command-capture
+          // setup strings. Both are pure builders extracted to welcomeBanner.js +
+          // shellIntegration.js — output bytes identical to the old inline code.
+          // The box is written to a file (real ESC bytes) and the shell `cat`s it
+          // before the first prompt to dodge the tty canonical line-length limit.
+          const boxRaw = buildWelcomeBanner({ paneCols: term.cols || 80 });
+          const { promptSetup, cmdCapture } = buildPosixShellInit();
           // Fresh tabs: write the box to a file, then `${promptSetup}; clear; cat
           // '<file>'` — a short command whose output (the box) lands before the
           // first prompt (clean ordering, box sits above the prompt where ZLE
@@ -1218,37 +1085,10 @@ export default function TerminalPane({
           // over and hang the line (the old 2.4 KB-printf bug). The trailing
           // `clear` wipes the echoed setup line either way.
           if (isWindowsUA) {
-            // Windows uses PowerShell, which can't run the POSIX prompt / OSC-133 /
-            // command-capture setup above — so emit the PowerShell equivalents.
-            // OutputEncoding = UTF8 keeps the box-drawing + powerline glyphs from
-            // being re-encoded to the OEM codepage (mojibake in xterm).
-            const psEnc = `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8`;
-            // Themed powerline prompt (green date  cyan time  yellow cwd) that ALSO
-            // emits OSC-133: D;<exit> closes the previous command block, A opens the
-            // prompt — the UI pairs them into blocks (✓/✗ status). $? / $LASTEXITCODE
-            // are captured FIRST so the real exit code survives.
-            const psPrompt =
-              `function prompt { ` +
-              `$c = if ($?) { 0 } elseif ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 }; ` +
-              `$e = [char]27; $b = [char]7; $a = [char]0xE0B0; ` +
-              `$o = "$e]133;D;$c$b$e]133;A$b$e]1337;PlutoCwd=$([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($PWD.Path)))$b"; ` +
-              `$d = Get-Date -Format 'dd/MM/yyyy'; $t = Get-Date -Format 'HH:mm:ss'; ` +
-              `$p = $PWD.Path; if ($HOME -and $p.StartsWith($HOME)) { $p = '~' + $p.Substring($HOME.Length) }; ` +
-              `"$o$e[42;30m $d $e[32;46m$a$e[30;46m $t $e[36;43m$a$e[30;43m $p $e[0;33m$a$e[0m " }`;
-            // Command-history capture: emit OSC 1337 PlutoCmd=<base64> as each command
-            // is submitted (PSReadLine's history handler ≈ a preexec hook).
-            const psHist =
-              `if (Get-Module PSReadLine) { Set-PSReadLineOption -AddToHistoryHandler { param($l) ` +
-              `try { $e=[char]27; $b=[char]7; $x=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($l)); ` +
-              `[Console]::Write("$e]1337;PlutoCmd=$x$b") } catch {}; $true } }`;
-            // Autosuggestions + Tab completion (Milestone 2): PSReadLine renders
-            // fish-style inline ghost text (accept with →/End/Ctrl+F) + a Tab
-            // completion menu — natively, right in xterm. Needs PSReadLine >= 2.1
-            // (PowerShell 7 / updated 5.1); guarded → silent no-op on stock 5.1.
-            const psComplete =
-              `$prl = Get-Module PSReadLine; if ($prl -and $prl.Version -ge [version]'2.1.0') { ` +
-              `Set-PSReadLineOption -PredictionSource History -PredictionViewStyle InlineView; ` +
-              `Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete }`;
+            // PowerShell prompt / OSC-133 / command-capture / autosuggest setup.
+            // Pure builders extracted to shellIntegration.js — output bytes
+            // identical to the old inline PowerShell equivalents.
+            const { psEnc, psPrompt, psHist, psComplete } = buildPowerShellInit();
             if (alive && ptyId) {
               try { await invoke("pty_write", { id: ptyId, data: `${psEnc}; ${psPrompt}` + "\r" }); } catch {}
               try { await invoke("pty_write", { id: ptyId, data: psHist + "\r" }); } catch {}

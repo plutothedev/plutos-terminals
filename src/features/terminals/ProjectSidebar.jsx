@@ -1,5 +1,5 @@
 // (C)
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import "./terminals.css";
 import { SLocal, SSsh, SWindows, SServer, SBox, SBot, SModels, SFolder, SAgents } from "./toolbarIcons.jsx";
@@ -128,7 +128,7 @@ function highlightPanel(el) {
 const ACTIVE_FG = "rgba(250,204,21,0.85)";
 const DONE_FG = "#34D399";
 
-export default function ProjectSidebar({
+function ProjectSidebar({
   projects,
   projectActivities,
   collapsed = false,
@@ -890,3 +890,10 @@ function ctxBtnStyle() {
     borderRadius: 3,
   };
 }
+
+// Memoized so a TerminalsTab re-render (e.g. the 2.5s sysStats poll or per-token
+// cost telemetry) skips re-rendering the sidebar when its props are unchanged.
+// Relies on stable function props from the parent (the handlers below are
+// useCallback-wrapped in TerminalsTab; the inline arrow props are stabilized via
+// useCallback there too).
+export default memo(ProjectSidebar);
