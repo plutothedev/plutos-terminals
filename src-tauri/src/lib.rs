@@ -16,6 +16,7 @@ mod session;
 mod sftp;
 mod sshconfig;
 mod sysstats;
+mod sync_git;
 mod vault;
 mod vncclient;
 
@@ -260,6 +261,9 @@ pub fn run() {
             vault::secret_set,
             vault::secret_get,
             vault::secret_delete,
+            sync_git::sync_clone_or_open,
+            sync_git::sync_pull,
+            sync_git::sync_push,
             forward::port_forward_start,
             forward::port_forward_stop,
             forward::socks_forward_start,
