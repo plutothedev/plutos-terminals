@@ -3,7 +3,7 @@
 // exactly two opaque files: `salt` (base64) and `state.enc` (JSON {iv,ct}).
 // All encryption happens in the renderer; this layer never sees plaintext.
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use git2::{Cred, FetchOptions, PushOptions, RemoteCallbacks, Repository, Signature};
 use serde::Serialize;
 use tauri::Manager;
@@ -35,15 +35,15 @@ fn callbacks(pat: Option<String>) -> RemoteCallbacks<'static> {
     cb
 }
 
-#[tauri::command]
-pub async fn sync_clone_or_open(
-    app: tauri::AppHandle,
-    repo_url: String,
-    pat: Option<String>,
-) -> Result<(), String> {
-    let dir = repo_dir(&app)?;
+// ---------------------------------------------------------------------------
+// Path-based helpers: the real git logic, decoupled from tauri::AppHandle so it
+// can be unit-tested against a local bare repo over file:// URLs (no network).
+// The #[tauri::command] fns below are thin wrappers that resolve repo_dir().
+// ---------------------------------------------------------------------------
+
+fn clone_or_open_at(dir: &Path, repo_url: &str, pat: Option<String>) -> Result<(), String> {
     if dir.join(".git").exists() {
-        Repository::open(&dir).map_err(|e| e.to_string())?;
+        Repository::open(dir).map_err(|e| e.to_string())?;
         return Ok(());
     }
     if let Some(parent) = dir.parent() {
@@ -53,24 +53,19 @@ pub async fn sync_clone_or_open(
     fo.remote_callbacks(callbacks(pat));
     let mut builder = git2::build::RepoBuilder::new();
     builder.fetch_options(fo);
-    match builder.clone(&repo_url, &dir) {
+    match builder.clone(repo_url, dir) {
         Ok(_) => Ok(()),
         Err(e) if e.code() == git2::ErrorCode::NotFound => {
-            let repo = Repository::init(&dir).map_err(|x| x.to_string())?;
-            repo.remote("origin", &repo_url).map_err(|x| x.to_string())?;
+            let repo = Repository::init(dir).map_err(|x| x.to_string())?;
+            repo.remote("origin", repo_url).map_err(|x| x.to_string())?;
             Ok(())
         }
         Err(e) => Err(e.to_string()),
     }
 }
 
-#[tauri::command]
-pub async fn sync_pull(
-    app: tauri::AppHandle,
-    pat: Option<String>,
-) -> Result<PullResult, String> {
-    let dir = repo_dir(&app)?;
-    let repo = Repository::open(&dir).map_err(|e| e.to_string())?;
+fn pull_at(dir: &Path, pat: Option<String>) -> Result<PullResult, String> {
+    let repo = Repository::open(dir).map_err(|e| e.to_string())?;
     {
         let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
         let mut fo = FetchOptions::new();
@@ -102,15 +97,8 @@ pub async fn sync_pull(
     Ok(PullResult { salt, blob })
 }
 
-#[tauri::command]
-pub async fn sync_push(
-    app: tauri::AppHandle,
-    salt: String,
-    blob: String,
-    pat: Option<String>,
-) -> Result<(), String> {
-    let dir = repo_dir(&app)?;
-    let repo = Repository::open(&dir).map_err(|e| e.to_string())?;
+fn push_at(dir: &Path, salt: String, blob: String, pat: Option<String>) -> Result<(), String> {
+    let repo = Repository::open(dir).map_err(|e| e.to_string())?;
     fs::write(dir.join("salt"), salt).map_err(|e| e.to_string())?;
     fs::write(dir.join("state.enc"), blob).map_err(|e| e.to_string())?;
 
@@ -134,4 +122,82 @@ pub async fn sync_push(
         .push(&[&format!("refs/heads/{BRANCH}:refs/heads/{BRANCH}")], Some(&mut po))
         .map_err(|e| format!("push failed (pull first?): {e}"))?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_clone_or_open(
+    app: tauri::AppHandle,
+    repo_url: String,
+    pat: Option<String>,
+) -> Result<(), String> {
+    clone_or_open_at(&repo_dir(&app)?, &repo_url, pat)
+}
+
+#[tauri::command]
+pub async fn sync_pull(
+    app: tauri::AppHandle,
+    pat: Option<String>,
+) -> Result<PullResult, String> {
+    pull_at(&repo_dir(&app)?, pat)
+}
+
+#[tauri::command]
+pub async fn sync_push(
+    app: tauri::AppHandle,
+    salt: String,
+    blob: String,
+    pat: Option<String>,
+) -> Result<(), String> {
+    push_at(&repo_dir(&app)?, salt, blob, pat)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bare_repo(dir: &std::path::Path) {
+        let repo = git2::Repository::init_bare(dir).unwrap();
+        // Mirror a GitHub-style remote whose default branch is `main`, so a fresh
+        // clone of the (empty) remote inherits `main` as its HEAD — matching what
+        // push_at commits to (it writes HEAD, then pushes refs/heads/main).
+        repo.set_head("refs/heads/main").unwrap();
+    }
+
+    #[test]
+    fn round_trips_two_files_through_a_bare_repo() {
+        let base = std::env::temp_dir().join(format!("pluto-sync-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let bare = base.join("origin.git");
+        let work = base.join("clone");
+        std::fs::create_dir_all(&bare).unwrap();
+        bare_repo(&bare);
+        // libgit2 on Windows wants file:///C:/... (three slashes) for absolute paths.
+        let url = format!("file:///{}", bare.to_string_lossy().replace('\\', "/"));
+
+        // clone empty, push two files, then re-clone into a SECOND workdir and read them back
+        clone_or_open_at(&work, &url, None).unwrap();
+        // A real GitHub remote whose default branch is `main` yields a clone with
+        // HEAD -> main. libgit2 cloning an *empty* remote instead falls back to the
+        // local init.defaultBranch (often `master`), so point HEAD at `main` to match
+        // production — push_at commits to HEAD then pushes refs/heads/main.
+        git2::Repository::open(&work)
+            .unwrap()
+            .set_head("refs/heads/main")
+            .unwrap();
+        push_at(
+            &work,
+            "SALT123".into(),
+            "{\"iv\":\"a\",\"ct\":\"b\"}".into(),
+            None,
+        )
+        .unwrap();
+
+        let work2 = base.join("clone2");
+        clone_or_open_at(&work2, &url, None).unwrap();
+        let got = pull_at(&work2, None).unwrap();
+        assert_eq!(got.salt.as_deref(), Some("SALT123"));
+        assert_eq!(got.blob.as_deref(), Some("{\"iv\":\"a\",\"ct\":\"b\"}"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
