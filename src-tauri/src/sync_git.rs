@@ -75,7 +75,16 @@ pub async fn sync_pull(
         let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
         let mut fo = FetchOptions::new();
         fo.remote_callbacks(callbacks(pat));
-        let _ = remote.fetch(&[BRANCH], Some(&mut fo), None);
+        if let Err(e) = remote.fetch(&[BRANCH], Some(&mut fo), None) {
+            // Empty remote / missing branch is fine on first run; auth/transport is not.
+            use git2::ErrorClass::*;
+            match e.class() {
+                Net | Ssh | Http | Callback => {
+                    return Err(format!("repo fetch failed (check credentials/URL): {e}"));
+                }
+                _ => { /* empty repo or no such branch yet — tolerate */ }
+            }
+        }
     }
     if let Ok(fetch_head) = repo.find_reference("FETCH_HEAD") {
         if let Ok(commit) = fetch_head.peel_to_commit() {
