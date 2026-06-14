@@ -53,8 +53,16 @@ export async function encrypt(plaintext, passphrase, saltB64) {
   return { iv: toB64(iv), ct: toB64(new Uint8Array(ct)) };
 }
 
-/** Decrypt a { iv, ct } blob. Throws if the passphrase/salt are wrong. */
+/** Decrypt a { iv, ct } blob. Throws CorruptBlobError on a malformed blob (the
+ *  repo is user-controlled, so a truncated/garbage state.enc is plausible) and a
+ *  WebCrypto OperationError on a wrong passphrase/salt — distinct so callers can
+ *  tell "corrupt repo" from "wrong passphrase". */
+export class CorruptBlobError extends Error {}
+
 export async function decrypt(blob, passphrase, saltB64) {
+  if (!blob || typeof blob.iv !== "string" || typeof blob.ct !== "string") {
+    throw new CorruptBlobError("corrupt sync blob: missing iv/ct");
+  }
   const key = await deriveKey(passphrase, saltB64);
   const pt = await subtle.decrypt(
     { name: "AES-GCM", iv: fromB64(blob.iv) },

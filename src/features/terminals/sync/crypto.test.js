@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { newSalt, encrypt, decrypt } from "./crypto.js";
+import { newSalt, encrypt, decrypt, CorruptBlobError } from "./crypto.js";
 
 test("round-trips plaintext", async () => {
   const salt = newSalt();
@@ -21,4 +21,11 @@ test("uses a fresh IV per encrypt", async () => {
   const a = await encrypt("x", "p", salt);
   const b = await encrypt("x", "p", salt);
   expect(a.iv).not.toBe(b.iv);
+});
+
+test("rejects a malformed blob with CorruptBlobError", async () => {
+  const salt = newSalt();
+  await expect(decrypt({}, "p", salt)).rejects.toBeInstanceOf(CorruptBlobError);
+  await expect(decrypt({ iv: "x" }, "p", salt)).rejects.toBeInstanceOf(CorruptBlobError);
+  await expect(decrypt(null, "p", salt)).rejects.toBeInstanceOf(CorruptBlobError);
 });
