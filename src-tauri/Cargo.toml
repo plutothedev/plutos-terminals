@@ -74,3 +74,8 @@ p256 = "0.13"
 base64 = "0.22"
 # Global summon hotkey — show/hide the window from anywhere (Ctrl+Shift+`).
 tauri-plugin-global-shortcut = "2"
+# Cloud-sync git transport — moves two opaque encrypted files to/from a
+# user-controlled git repo. Vendored libgit2 + openssl keep the binary
+# self-contained; ssh feature enables SSH-agent auth. Encryption is done in JS;
+# this layer never sees plaintext. See sync_git.rs.
+git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2", "vendored-openssl", "ssh"] }
