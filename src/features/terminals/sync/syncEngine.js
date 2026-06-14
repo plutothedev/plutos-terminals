@@ -28,6 +28,18 @@ function saveSnapshot(surface) {
   try { localStorage.setItem(SNAP_KEY, JSON.stringify(surface)); } catch { /* ignore */ }
 }
 
+// Order-insensitive serialization for the "is local newer than remote?" check.
+// Collections are sorted by item identity (id, else name) so two machines that
+// hold the same items in different array order don't push to each other forever.
+function canonical(surface) {
+  const collections = {};
+  for (const k of Object.keys(surface.collections || {})) {
+    collections[k] = [...surface.collections[k]].sort((a, b) =>
+      String(a.id != null ? a.id : a.name).localeCompare(String(b.id != null ? b.id : b.name)));
+  }
+  return JSON.stringify({ fields: surface.fields, fieldMeta: surface.fieldMeta, collections });
+}
+
 class BadPassphraseError extends Error {}
 
 async function decryptRemote(res, pass) {
@@ -48,7 +60,7 @@ async function pullMerge(pass, pat, now) {
   const { merged, changedLocally } = merge(localSurface, remoteSurface);
   if (changedLocally) cfg.applyStores(writeSurface(merged));
   saveSnapshot(merged);
-  const localNewer = JSON.stringify(merged) !== JSON.stringify(remoteSurface);
+  const localNewer = canonical(merged) !== canonical(remoteSurface);
   return { merged, salt: res.salt || newSalt(), localNewer };
 }
 

@@ -6,6 +6,8 @@
 // remote changed local state (→ schedule a re-push).
 export const TOMBSTONE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
+function idOf(item) { return item.id != null ? item.id : item.name; }
+
 function mergeScalars(local, remote, result) {
   const keys = new Set([...Object.keys(local.fields), ...Object.keys(remote.fields)]);
   let changed = false;
@@ -28,14 +30,14 @@ function mergeScalars(local, remote, result) {
 function mergeCollection(localArr, remoteArr, now) {
   const byId = new Map();
   let changed = false;
-  for (const item of localArr || []) byId.set(item.id, item);
+  for (const item of localArr || []) byId.set(idOf(item), item);
   for (const item of remoteArr || []) {
-    const existing = byId.get(item.id);
+    const existing = byId.get(idOf(item));
     if (!existing) {
-      byId.set(item.id, item);
+      byId.set(idOf(item), item);
       changed = true;
     } else if ((item._updatedAt ?? 0) > (existing._updatedAt ?? 0)) {
-      byId.set(item.id, item);
+      byId.set(idOf(item), item);
       changed = true;
     }
   }
