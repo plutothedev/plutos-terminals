@@ -10,11 +10,6 @@ export const SOURCES = [
   { store: "macros", fields: [], collections: ["macros"] },
 ];
 
-// Backward-compat shim for App.jsx (R3 era) — flat list of all scalar field names
-// across all stores. App.jsx uses this to stamp _syncMeta on userSt changes.
-// Removed in R4 when App.jsx is rewritten to use getStores/applyStores.
-export const SYNCED_FIELDS = SOURCES.flatMap((s) => s.fields);
-
 const SYNC_META = ["_updatedAt", "_deletedAt"];
 function idOf(item) { return item.id != null ? item.id : item.name; }
 function stripMeta(item) { const o = { ...item }; for (const k of SYNC_META) delete o[k]; return o; }

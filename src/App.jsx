@@ -22,8 +22,8 @@ import {
   applyGlobalLayout,
 } from "./features/terminals/headerSkins.js";
 import { useOsDark } from "./features/terminals/hooks/useOsDark.js";
-import { SYNCED_FIELDS } from "./features/terminals/sync/syncState.js";
 import { configure as configureSync, start as startSync, notifyChange } from "./features/terminals/sync/syncEngine.js";
+import { loadMacros, saveMacros } from "./features/terminals/macros.js";
 import { isPrimaryWindow } from "./features/terminals/storageKeys.js";
 
 // Per-window state key (default window = bare key; secondary ?w=<id> windows =
@@ -150,6 +150,10 @@ function AppInner() {
       stRef.current = resolved;
       setSt(resolved);
       pendingRef.current = resolved;
+      // sync.enabled lives in the SHARED userSt store, not this per-window blob —
+      // gate the cloud-sync trigger on it so st changes (skin/workflows/prompt
+      // editor) push only when the user has cloud sync turned on.
+      if (isPrimaryWindow() && userStRef.current?.sync?.enabled) notifyChange();
       // envOverrides / the legacy anthropicKey are read straight from this blob
       // at PTY spawn (TerminalPane) — persist those synchronously so a freshly
       // opened tab can't miss them. Everything else (layout, UI prefs) debounces.
@@ -185,27 +189,22 @@ function AppInner() {
   // cross-window storage sync) so functional updates never see a stale base.
   const userStRef = useRef(userSt);
   const saveUser = useCallback((next) => {
-    const prev = userStRef.current;
-    const resolved = typeof next === "function" ? next(prev) : next;
-    // Stamp _syncMeta for any synced scalar field whose value changed, so cloud
-    // sync can resolve cross-machine conflicts by newest-wins per field.
-    const meta = { ...(resolved._syncMeta || {}) };
-    let stamped = false;
-    for (const k of SYNCED_FIELDS) {
-      if (resolved[k] !== prev?.[k]) { meta[k] = Date.now(); stamped = true; }
-    }
-    const final = stamped ? { ...resolved, _syncMeta: meta } : resolved;
-    userStRef.current = final;
-    setUserSt(final);
-    writeUserState(final);
-    if (stamped && isPrimaryWindow() && final?.sync?.enabled) notifyChange();
+    const resolved = typeof next === "function" ? next(userStRef.current) : next;
+    userStRef.current = resolved;
+    setUserSt(resolved);
+    writeUserState(resolved);
+    if (isPrimaryWindow() && resolved?.sync?.enabled) notifyChange();
   }, []);
 
   useEffect(() => {
     if (!isPrimaryWindow()) return;            // background sync = primary only
     configureSync({
-      getUserSt: () => userStRef.current,
-      saveUser,
+      getStores: () => ({ userSt: userStRef.current, st: stRef.current, macros: loadMacros() }),
+      applyStores: ({ userSt, st, macros }) => {
+        if (userSt && Object.keys(userSt).length) saveUser((prev) => ({ ...prev, ...userSt }));
+        if (st && Object.keys(st).length) save((prev) => ({ ...prev, ...st }));
+        if (macros) saveMacros(macros);
+      },
       getRepoUrl: () => userStRef.current?.sync?.repoUrl,
       setStatus: () => {},
     });
