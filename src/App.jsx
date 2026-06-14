@@ -23,6 +23,8 @@ import {
 } from "./features/terminals/headerSkins.js";
 import { useOsDark } from "./features/terminals/hooks/useOsDark.js";
 import { SYNCED_FIELDS } from "./features/terminals/sync/syncState.js";
+import { configure as configureSync, start as startSync, notifyChange } from "./features/terminals/sync/syncEngine.js";
+import { isPrimaryWindow } from "./features/terminals/storageKeys.js";
 
 // Per-window state key (default window = bare key; secondary ?w=<id> windows =
 // suffixed for independent panels/skin). Resolver + keys live in storageKeys.js
@@ -196,7 +198,22 @@ function AppInner() {
     userStRef.current = final;
     setUserSt(final);
     writeUserState(final);
+    if (stamped && isPrimaryWindow() && final?.sync?.enabled) notifyChange();
   }, []);
+
+  useEffect(() => {
+    if (!isPrimaryWindow()) return;            // background sync = primary only
+    configureSync({
+      getUserSt: () => userStRef.current,
+      saveUser,
+      getRepoUrl: () => userStRef.current?.sync?.repoUrl,
+      setStatus: () => {},
+    });
+    if (userStRef.current?.sync?.enabled) {
+      const stop = startSync();
+      return stop;
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-time migration: the legacy standalone Anthropic key now lives in the
   // Models section as providerKeys.anthropic (single source of truth for keys).
