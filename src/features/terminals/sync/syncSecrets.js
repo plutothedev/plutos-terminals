@@ -3,7 +3,7 @@
 // touch localStorage or the repo — only the OS keychain, via the same vault
 // commands SSH creds use. Non-secret config (repo URL, enabled) lives in
 // userSt.sync.
-import { invoke } from "../../backend.js";
+import { invoke } from "@backend";
 
 const PASS_ACCOUNT = "sync-passphrase:v0";
 const PAT_ACCOUNT = "sync-git-pat:v0";

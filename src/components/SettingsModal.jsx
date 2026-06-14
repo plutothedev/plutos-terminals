@@ -10,6 +10,7 @@ import { getSkinId } from "../features/terminals/headerSkins.js";
 import { wipeAllLocalState } from "../features/terminals/storageKeys.js";
 import KeybindingsSection from "../features/terminals/KeybindingsSection.jsx";
 import ThemesSection from "../features/terminals/ThemesSection.jsx";
+import SyncSection from "../features/terminals/SyncSection.jsx";
 import { SMoon, SSun } from "../features/terminals/toolbarIcons.jsx";
 
 export default function SettingsModal({ open, st, save, userSt, saveUser, onClose }) {
@@ -103,6 +104,15 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
           hint="Click a shortcut, then press the new key combo (Esc cancels). Changes apply instantly and sync across windows."
         >
           <KeybindingsSection userSt={userSt} saveUser={saveUser} />
+        </Field>
+      )}
+
+      {saveUser && (
+        <Field
+          label="Cloud Sync"
+          hint="End-to-end encrypted. Syncs workflows, themes, keybindings, settings, and macros across your machines via a private git repo you control. API keys never sync."
+        >
+          <SyncSection userSt={userSt} saveUser={saveUser} />
         </Field>
       )}
 

@@ -3,7 +3,7 @@
 // all I/O goes through injected backend invoke + getUserSt/saveUser callbacks so
 // it can be reasoned about and (later) tested. Primary-window gated by the
 // caller. See docs/superpowers/specs/2026-06-13-cloud-sync-design.md.
-import { invoke } from "../../backend.js";
+import { invoke } from "@backend";
 import { encrypt, decrypt, newSalt } from "./crypto.js";
 import { merge } from "./merge.js";
 import { extractSynced, applySynced } from "./syncState.js";
