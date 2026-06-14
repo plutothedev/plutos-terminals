@@ -33,7 +33,7 @@ test("collection: union by id, newer item wins on collision", () => {
 test("collection: tombstone is not resurrected by a stale copy", () => {
   const local = { ...base(), collections: { workflows: [{ id: "a", _updatedAt: 200, _deletedAt: 200 }] } };
   const remote = { ...base(), collections: { workflows: [{ id: "a", _updatedAt: 50, name: "stale" }] } };
-  const { merged } = merge(local, remote);
+  const { merged } = merge(local, remote, 300);
   expect(merged.collections.workflows.find((x) => x.id === "a")._deletedAt).toBe(200);
 });
 

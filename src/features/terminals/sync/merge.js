@@ -28,8 +28,6 @@ function mergeScalars(local, remote, result) {
 function mergeCollection(localArr, remoteArr, now) {
   const byId = new Map();
   let changed = false;
-  // Build a set of ids that appear on the remote side (for GC eligibility check)
-  const remoteIds = new Set((remoteArr || []).map((item) => item.id));
   for (const item of localArr || []) byId.set(item.id, item);
   for (const item of remoteArr || []) {
     const existing = byId.get(item.id);
@@ -43,11 +41,8 @@ function mergeCollection(localArr, remoteArr, now) {
   }
   const out = [];
   for (const item of byId.values()) {
-    // GC a tombstone only when the remote has no record of this id (it has
-    // already forgotten the item) AND the tombstone is past TTL. If the remote
-    // still carries a (stale) live copy the tombstone must survive to prevent
-    // resurrection on a future sync that might not have this local state.
-    if (item._deletedAt && !remoteIds.has(item.id) && now - item._deletedAt > TOMBSTONE_TTL_MS) continue;
+    // GC a tombstone past its TTL.
+    if (item._deletedAt && now - item._deletedAt > TOMBSTONE_TTL_MS) continue; // GC
     out.push(item);
   }
   return { out, changed };
