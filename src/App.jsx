@@ -22,6 +22,7 @@ import {
   applyGlobalLayout,
 } from "./features/terminals/headerSkins.js";
 import { useOsDark } from "./features/terminals/hooks/useOsDark.js";
+import { SYNCED_FIELDS } from "./features/terminals/sync/syncState.js";
 
 // Per-window state key (default window = bare key; secondary ?w=<id> windows =
 // suffixed for independent panels/skin). Resolver + keys live in storageKeys.js
@@ -182,10 +183,19 @@ function AppInner() {
   // cross-window storage sync) so functional updates never see a stale base.
   const userStRef = useRef(userSt);
   const saveUser = useCallback((next) => {
-    const resolved = typeof next === "function" ? next(userStRef.current) : next;
-    userStRef.current = resolved;
-    setUserSt(resolved);
-    writeUserState(resolved);
+    const prev = userStRef.current;
+    const resolved = typeof next === "function" ? next(prev) : next;
+    // Stamp _syncMeta for any synced scalar field whose value changed, so cloud
+    // sync can resolve cross-machine conflicts by newest-wins per field.
+    const meta = { ...(resolved._syncMeta || {}) };
+    let stamped = false;
+    for (const k of SYNCED_FIELDS) {
+      if (resolved[k] !== prev?.[k]) { meta[k] = Date.now(); stamped = true; }
+    }
+    const final = stamped ? { ...resolved, _syncMeta: meta } : resolved;
+    userStRef.current = final;
+    setUserSt(final);
+    writeUserState(final);
   }, []);
 
   // One-time migration: the legacy standalone Anthropic key now lives in the
