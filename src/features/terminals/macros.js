@@ -9,12 +9,20 @@ let recording = false;
 let armedTabId = null; // only this tab's keystrokes are captured
 let buffer = "";
 const listeners = new Set();
+const changeListeners = new Set(); // fired when the saved macros LIST changes (for cloud sync)
 
 function emit() { listeners.forEach((cb) => { try { cb(recording); } catch { /* ignore */ } }); }
 
 export function onMacroStateChange(cb) {
   listeners.add(cb);
   return () => listeners.delete(cb);
+}
+
+// Subscribe to saved-list changes (add/edit/delete). Used by cloud sync to push
+// macro edits promptly instead of waiting for the next poll.
+export function onMacrosChanged(cb) {
+  changeListeners.add(cb);
+  return () => changeListeners.delete(cb);
 }
 
 export function isMacroRecording() { return recording; }
@@ -53,6 +61,7 @@ export function loadMacros() {
 
 export function saveMacros(list) {
   try { localStorage.setItem(KEY, JSON.stringify(list)); } catch { /* ignore */ }
+  changeListeners.forEach((cb) => { try { cb(); } catch { /* ignore */ } });
 }
 
 // Human-readable preview of a macro's raw bytes (show control chars as symbols).

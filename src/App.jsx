@@ -23,7 +23,7 @@ import {
 } from "./features/terminals/headerSkins.js";
 import { useOsDark } from "./features/terminals/hooks/useOsDark.js";
 import { configure as configureSync, start as startSync, notifyChange } from "./features/terminals/sync/syncEngine.js";
-import { loadMacros, saveMacros } from "./features/terminals/macros.js";
+import { loadMacros, saveMacros, onMacrosChanged } from "./features/terminals/macros.js";
 import { isPrimaryWindow } from "./features/terminals/storageKeys.js";
 
 // Per-window state key (default window = bare key; secondary ?w=<id> windows =
@@ -208,10 +208,14 @@ function AppInner() {
       getRepoUrl: () => userStRef.current?.sync?.repoUrl,
       setStatus: () => {},
     });
-    if (userStRef.current?.sync?.enabled) {
-      const stop = startSync();
-      return stop;
-    }
+    // Macro edits go through saveMacros (not save/saveUser), so subscribe here
+    // to push them promptly instead of waiting for the next poll.
+    const unsubMacros = onMacrosChanged(() => {
+      if (userStRef.current?.sync?.enabled) notifyChange();
+    });
+    let stopSync;
+    if (userStRef.current?.sync?.enabled) stopSync = startSync();
+    return () => { unsubMacros(); if (stopSync) stopSync(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-time migration: the legacy standalone Anthropic key now lives in the
