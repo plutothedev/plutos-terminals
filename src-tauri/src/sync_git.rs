@@ -42,8 +42,20 @@ fn callbacks(pat: Option<String>) -> RemoteCallbacks<'static> {
 // ---------------------------------------------------------------------------
 
 fn clone_or_open_at(dir: &Path, repo_url: &str, pat: Option<String>) -> Result<(), String> {
+    // Normalize local HEAD to our single sync branch regardless of the remote's
+    // default branch name. An empty remote may hand back HEAD->master (Gitea,
+    // self-hosted, plain `git init --bare`); without this, push_at would commit
+    // to refs/heads/master but push refs/heads/main and silently push nothing.
+    // For a non-empty remote already on main this is a harmless no-op.
+    fn normalize_head(dir: &Path) {
+        if let Ok(repo) = Repository::open(dir) {
+            let _ = repo.set_head(&format!("refs/heads/{BRANCH}"));
+        }
+    }
+
     if dir.join(".git").exists() {
         Repository::open(dir).map_err(|e| e.to_string())?;
+        normalize_head(dir);
         return Ok(());
     }
     if let Some(parent) = dir.parent() {
@@ -54,10 +66,14 @@ fn clone_or_open_at(dir: &Path, repo_url: &str, pat: Option<String>) -> Result<(
     let mut builder = git2::build::RepoBuilder::new();
     builder.fetch_options(fo);
     match builder.clone(repo_url, dir) {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            normalize_head(dir);
+            Ok(())
+        }
         Err(e) if e.code() == git2::ErrorCode::NotFound => {
             let repo = Repository::init(dir).map_err(|x| x.to_string())?;
             repo.remote("origin", repo_url).map_err(|x| x.to_string())?;
+            normalize_head(dir);
             Ok(())
         }
         Err(e) => Err(e.to_string()),
@@ -156,11 +172,11 @@ mod tests {
     use super::*;
 
     fn bare_repo(dir: &std::path::Path) {
+        // Default `init_bare` HEAD is `master` (or local init.defaultBranch) — i.e.
+        // a non-GitHub-style empty remote. We deliberately do NOT set it to `main`,
+        // so the round-trip proves clone_or_open_at normalizes local HEAD to `main`.
         let repo = git2::Repository::init_bare(dir).unwrap();
-        // Mirror a GitHub-style remote whose default branch is `main`, so a fresh
-        // clone of the (empty) remote inherits `main` as its HEAD — matching what
-        // push_at commits to (it writes HEAD, then pushes refs/heads/main).
-        repo.set_head("refs/heads/main").unwrap();
+        repo.set_head("refs/heads/master").unwrap();
     }
 
     #[test]
@@ -174,16 +190,11 @@ mod tests {
         // libgit2 on Windows wants file:///C:/... (three slashes) for absolute paths.
         let url = format!("file:///{}", bare.to_string_lossy().replace('\\', "/"));
 
-        // clone empty, push two files, then re-clone into a SECOND workdir and read them back
+        // clone empty, push two files, then re-clone into a SECOND workdir and read them back.
+        // No manual HEAD fixup here: clone_or_open_at normalizes local HEAD to `main`,
+        // so the round-trip must work purely via the helpers even though this bare
+        // remote's default branch is `master`.
         clone_or_open_at(&work, &url, None).unwrap();
-        // A real GitHub remote whose default branch is `main` yields a clone with
-        // HEAD -> main. libgit2 cloning an *empty* remote instead falls back to the
-        // local init.defaultBranch (often `master`), so point HEAD at `main` to match
-        // production — push_at commits to HEAD then pushes refs/heads/main.
-        git2::Repository::open(&work)
-            .unwrap()
-            .set_head("refs/heads/main")
-            .unwrap();
         push_at(
             &work,
             "SALT123".into(),
