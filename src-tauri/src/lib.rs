@@ -9,6 +9,7 @@ mod commands;
 mod companion;
 mod forward;
 mod llm;
+mod llm_tools;
 mod netools;
 mod pty;
 mod rdp;
