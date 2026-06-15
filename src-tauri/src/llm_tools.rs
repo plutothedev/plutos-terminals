@@ -141,6 +141,53 @@ pub fn parse_openai_response(v: &Value) -> Value {
     json!({ "text": text, "tool_calls": calls, "stop_reason": stop })
 }
 
+use crate::llm::http_error;
+
+#[tauri::command]
+pub async fn llm_tool_turn(
+    kind: String,
+    base_url: String,
+    api_key: String,
+    model: String,
+    system: String,
+    messages: Vec<Value>,
+    tools: Vec<Value>,
+) -> Result<Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build().map_err(|e| e.to_string())?;
+    let trim = |s: &str| s.trim_end_matches('/').to_string();
+    let anthropic = kind == "anthropic" || kind == "anthropic-compat";
+
+    let resp = if anthropic {
+        let base = if base_url.is_empty() { "https://api.anthropic.com".to_string() } else { trim(&base_url) };
+        let mut body = json!({
+            "model": model, "max_tokens": 4096, "system": system,
+            "messages": to_anthropic_messages(&messages),
+        });
+        if !tools.is_empty() { body["tools"] = tools_to_anthropic(&tools); }
+        client.post(format!("{}/v1/messages", base))
+            .header("x-api-key", &api_key)
+            .header("authorization", format!("Bearer {}", api_key))
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body).send().await.map_err(|e| e.to_string())?
+    } else {
+        let base = if base_url.is_empty() { "https://api.openai.com/v1".to_string() } else { trim(&base_url) };
+        let mut body = json!({ "model": model, "messages": to_openai_messages(&messages, &system) });
+        if !tools.is_empty() { body["tools"] = tools_to_openai(&tools); }
+        client.post(format!("{}/chat/completions", base))
+            .header("authorization", format!("Bearer {}", api_key))
+            .header("content-type", "application/json")
+            .json(&body).send().await.map_err(|e| e.to_string())?
+    };
+
+    let status = resp.status();
+    if !status.is_success() { return Err(http_error(status, resp).await); }
+    let v: Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(if anthropic { parse_anthropic_response(&v) } else { parse_openai_response(&v) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -8,7 +8,7 @@
 /// JSON `error.message`; otherwise status + a body excerpt (capped). Checking
 /// status BEFORE parsing JSON matters — an HTML 502 from a proxy must surface
 /// as "502 Bad Gateway: <html>…", not as a JSON decode error.
-async fn http_error(status: reqwest::StatusCode, resp: reqwest::Response) -> String {
+pub(crate) async fn http_error(status: reqwest::StatusCode, resp: reqwest::Response) -> String {
     let body = resp.text().await.unwrap_or_default();
     if let Some(msg) = serde_json::from_str::<serde_json::Value>(&body)
         .ok()

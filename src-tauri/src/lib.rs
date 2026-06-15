@@ -232,6 +232,7 @@ pub fn run() {
             commands::list_directory,
             llm::llm_complete,
             llm::llm_stream,
+            llm_tools::llm_tool_turn,
             sshconfig::parse_ssh_config,
             sshconfig::ssh_keys_list,
             sshconfig::ssh_key_generate,
