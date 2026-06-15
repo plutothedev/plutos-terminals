@@ -79,3 +79,6 @@ tauri-plugin-global-shortcut = "2"
 # self-contained; ssh feature enables SSH-agent auth. Encryption is done in JS;
 # this layer never sees plaintext. See sync_git.rs.
 git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2", "vendored-openssl", "ssh"] }
+# Model Context Protocol client (official SDK). stdio child-process + streamable
+# HTTP transports for connecting to MCP servers; protocol/handshake handled here.
+rmcp = { version = "1.7", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "client-side-sse"] }
