@@ -284,6 +284,12 @@ pub fn run() {
             companion::companion_set_snippets,
             companion::companion_set_models,
             companion::companion_notify_finish,
+            mcp::manager::mcp_servers_list,
+            mcp::manager::mcp_server_add,
+            mcp::manager::mcp_server_remove,
+            mcp::manager::mcp_list_tools,
+            mcp::manager::mcp_call_tool,
+            mcp::manager::mcp_reconnect,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Pluto's Terminals")

@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ServerCfg {
@@ -31,6 +32,11 @@ pub fn load_configs(path: &Path) -> Result<Vec<ServerCfg>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
         Err(e) => Err(e.to_string()),
     }
+}
+
+pub fn config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(base.join("mcp-servers.json"))
 }
 
 pub fn save_configs(path: &Path, cfgs: &[ServerCfg]) -> Result<(), String> {
