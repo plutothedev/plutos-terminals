@@ -3,7 +3,7 @@
 // ships with copy-paste UX so users get a curated discovery surface without
 // having to google "how to install MCP filesystem server claude code."
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@backend";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
@@ -62,11 +62,27 @@ const MCPS = [
   },
 ];
 
+// Tokens needed for specific servers (by id or by keyword in notes).
+const NEEDS_TOKEN = {
+  github: "GITHUB_PERSONAL_ACCESS_TOKEN",
+  "brave-search": "BRAVE_API_KEY",
+};
+
 export default function McpInstaller({ open, onClose }) {
   const [copiedId, setCopiedId] = useState(null);
   // installState[id] = "idle" | "installing" | "ok" | "error"
   const [installState, setInstallState] = useState({});
+  const [configured, setConfigured] = useState([]);
+  const [addingId, setAddingId] = useState(null);
   const toast = useToast();
+
+  const refreshConfigured = () => {
+    invoke("mcp_servers_list").then(setConfigured).catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshConfigured();
+  }, []);
 
   const onCopy = (mcp) => {
     navigator.clipboard.writeText(mcp.command).then(() => {
@@ -108,10 +124,153 @@ export default function McpInstaller({ open, onClose }) {
     }
   };
 
+  const onAddToAgent = async (mcp) => {
+    setAddingId(mcp.id);
+    try {
+      // Parse argv from the command: split on whitespace, find '--', take everything after.
+      const fullArgv = mcp.command.split(/\s+/).filter(Boolean);
+      const sepIdx = fullArgv.indexOf("--");
+      let realArgv = sepIdx !== -1 ? fullArgv.slice(sepIdx + 1) : fullArgv;
+
+      // Expand directory placeholders via prompt.
+      const needsDir = realArgv.some((a) => /\$\{?PWD\}?|\$HOME|%USERPROFILE%/.test(a));
+      if (needsDir) {
+        const dir = window.prompt("Directory to expose to this MCP server:", "");
+        if (dir === null) {
+          toast.info("Add to agent cancelled.");
+          setAddingId(null);
+          return;
+        }
+        realArgv = realArgv.map((a) =>
+          /\$\{?PWD\}?|\$HOME|%USERPROFILE%/.test(a) ? dir : a
+        );
+      }
+
+      const command = realArgv[0] ?? "npx";
+      const args = realArgv.slice(1);
+
+      // Handle token/PAT for servers that need one.
+      let secret_keys = [];
+      const tokenKey = NEEDS_TOKEN[mcp.id] || (mcp.notes && /token|PAT/i.test(mcp.notes) ? Object.values(NEEDS_TOKEN)[0] : null);
+      if (tokenKey || mcp.id === "github") {
+        const key = tokenKey || "GITHUB_PERSONAL_ACCESS_TOKEN";
+        const token = window.prompt(`Access token for this server (leave blank to skip):`, "");
+        if (token) {
+          secret_keys = [key];
+          await invoke("secret_set", {
+            account: `mcp-secret:${mcp.id}:${key}`,
+            secret: token,
+          });
+        }
+      }
+
+      const cfg = {
+        id: mcp.id,
+        enabled: true,
+        transport: "stdio",
+        command,
+        args,
+        env: {},
+        url: null,
+        secret_keys,
+      };
+
+      await invoke("mcp_server_add", { cfg });
+      toast.success(`Added ${mcp.name} to the agent`);
+      refreshConfigured();
+    } catch (err) {
+      toast.error(`Failed to add ${mcp.name} to agent: ${String(err).slice(0, 200)}`);
+    } finally {
+      setAddingId(null);
+    }
+  };
+
+  const onToggleEnabled = async (srv) => {
+    try {
+      await invoke("mcp_server_add", { cfg: { ...srv, enabled: !srv.enabled } });
+      refreshConfigured();
+    } catch (err) {
+      toast.error(`Failed to update ${srv.id}: ${String(err).slice(0, 200)}`);
+    }
+  };
+
+  const onRemoveFromAgent = async (srv) => {
+    try {
+      await invoke("mcp_server_remove", { id: srv.id });
+      refreshConfigured();
+    } catch (err) {
+      toast.error(`Failed to remove ${srv.id}: ${String(err).slice(0, 200)}`);
+    }
+  };
+
   return (
     <Modal open={open} title="MCP Servers — Install Commands" onClose={onClose} width={680}>
+      {/* ── Configured-for-agent section ── */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ color: FG_DIM, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+          Configured for the agent
+        </div>
+        {configured.length === 0 ? (
+          <div style={{ color: FG_DIM, fontSize: 11, fontStyle: "italic" }}>
+            No MCP servers registered for the agent yet — add one below.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {configured.map((srv) => (
+              <div
+                key={srv.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  background: "var(--phn-surface-bg, #181818)",
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: 4,
+                  padding: "7px 10px",
+                }}
+              >
+                {/* enabled checkbox */}
+                <input
+                  type="checkbox"
+                  checked={!!srv.enabled}
+                  onChange={() => onToggleEnabled(srv)}
+                  style={{ accentColor: ACCENT, cursor: "pointer", flexShrink: 0 }}
+                  title={srv.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ color: FG_ACTIVE, fontSize: 11, fontFamily: M }}>{srv.id}</span>
+                  <span style={{ color: FG_DIM, fontSize: 10, marginLeft: 6 }}>{srv.transport}</span>
+                  {!srv.enabled && (
+                    <span style={{ color: FG_DIM, fontSize: 9, marginLeft: 6, fontStyle: "italic" }}>disabled</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => onRemoveFromAgent(srv)}
+                  style={{
+                    background: "transparent",
+                    border: `1px solid ${BORDER}`,
+                    color: FG_DIM,
+                    padding: "3px 8px",
+                    borderRadius: 3,
+                    fontFamily: M,
+                    fontSize: 10,
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                  title="Remove from agent config"
+                >
+                  remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ borderTop: `1px solid ${BORDER}`, marginBottom: 16 }} />
+
       <p style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.7, marginBottom: 18 }}>
-        Curated list of popular MCP (Model Context Protocol) servers that extend Claude Code. Click <strong style={{ color: ACCENT }}>install</strong> and the app runs <code style={{ background: "var(--phn-page-bg, #0a0a0a)", padding: "1px 4px", borderRadius: 2 }}>claude mcp add ...</code> for you. Or click <strong>copy</strong> to paste the command into a pane manually. <strong>Restart any open Claude sessions</strong> after install for them to pick up the new MCP.
+        Curated list of popular MCP (Model Context Protocol) servers that extend Claude Code. Click <strong style={{ color: ACCENT }}>install</strong> and the app runs <code style={{ background: "var(--phn-page-bg, #0a0a0a)", padding: "1px 4px", borderRadius: 2 }}>claude mcp add ...</code> for you. Or click <strong>copy</strong> to paste the command into a pane manually. Click <strong style={{ color: ACCENT }}>+ agent</strong> to register the server directly with the native agent. <strong>Restart any open Claude sessions</strong> after install for them to pick up the new MCP.
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -174,6 +333,31 @@ export default function McpInstaller({ open, onClose }) {
                   title="Copy the install command to clipboard"
                 >
                   {copiedId === mcp.id ? "✓ copied" : "copy"}
+                </button>
+                <button
+                  onClick={() => onAddToAgent(mcp)}
+                  disabled={addingId === mcp.id || configured.some((s) => s.id === mcp.id)}
+                  style={{
+                    background: configured.some((s) => s.id === mcp.id) ? "#34D399" : "transparent",
+                    border: `1px solid ${configured.some((s) => s.id === mcp.id) ? "#34D399" : BORDER}`,
+                    color: configured.some((s) => s.id === mcp.id) ? "#001" : FG,
+                    padding: "5px 10px",
+                    borderRadius: 3,
+                    fontFamily: M,
+                    fontSize: 10,
+                    cursor: (addingId === mcp.id || configured.some((s) => s.id === mcp.id)) ? "default" : "pointer",
+                    whiteSpace: "nowrap",
+                    opacity: addingId === mcp.id ? 0.6 : 1,
+                  }}
+                  title={
+                    configured.some((s) => s.id === mcp.id)
+                      ? "Already registered for the agent"
+                      : "Register this server with the native agent"
+                  }
+                >
+                  {addingId === mcp.id ? "adding…"
+                    : configured.some((s) => s.id === mcp.id) ? "✓ agent"
+                    : "+ agent"}
                 </button>
                 <button
                   onClick={() => onInstall(mcp)}
