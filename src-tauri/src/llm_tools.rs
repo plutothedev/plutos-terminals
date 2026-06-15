@@ -7,7 +7,11 @@
 use serde_json::{json, Value};
 
 pub fn enc_name(name: &str) -> String { name.replace('.', "__") }
-pub fn dec_name(name: &str) -> String { name.replacen("__", ".", 1) }
+// Inverse of enc_name: decode EVERY "__" back to "." (not just the first) so
+// multi-dot tool names like "tv.chart.set_symbol" round-trip. (A literal "__"
+// inside a real MCP tool name would be ambiguous, but that is not used in
+// practice — tool names use single underscores.)
+pub fn dec_name(name: &str) -> String { name.replace("__", ".") }
 
 /// Anthropic `tools`: [{ name, description, input_schema }].
 pub fn tools_to_anthropic(tools: &[Value]) -> Value {
@@ -195,6 +199,8 @@ mod tests {
     fn encodes_and_decodes_dotted_names() {
         assert_eq!(enc_name("fs.read_file"), "fs__read_file");
         assert_eq!(dec_name("fs__read_file"), "fs.read_file");
+        // multi-dot (a server tool name that itself contains a dot) must round-trip
+        assert_eq!(dec_name(&enc_name("tv.chart.set_symbol")), "tv.chart.set_symbol");
     }
     #[test]
     fn anthropic_tools_shape() {
