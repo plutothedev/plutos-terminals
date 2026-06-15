@@ -52,8 +52,8 @@ export function buildWelcomeBanner({ paneCols }) {
   // kept short (RULE) so they rarely wrap — and if they do it's a harmless
   // 2-row underline, never a broken frame.
   const cols = Math.max(1, paneCols || 80);
-  const W = Math.max(20, Math.min(cols - 2, 56));  // text wrap width
-  const RULE = Math.min(W, 44);                    // rule length (short = split-safe)
+  const W = Math.max(20, Math.min(cols - 2, 52));  // text wrap width
+  const RULE = W;                                  // rule spans the content width
   const INDENT = "  ";                             // 2-col left margin
   const RULE_COLOR = BORDER;
   // Word-wrap coloured segments to width, hang-indenting continuations
@@ -84,17 +84,17 @@ export function buildWelcomeBanner({ paneCols }) {
     return rows;
   };
   const out = [INDENT + wrap(RULE_COLOR, "─".repeat(RULE))];
-  // Emit one indented row; centered rows are padded within W (no right pad / no
-  // borders, so a narrower pane simply re-wraps the text below).
-  const pushRow = (rowSegs, center) => {
-    const len = rowSegs.reduce((n, [t]) => n + t.length, 0);
-    const pad = center ? " ".repeat(Math.max(0, Math.floor((W - len) / 2))) : "";
-    out.push(INDENT + pad + rowSegs.map(([t, c]) => wrap(c, t)).join(""));
+  // Every row is LEFT-ALIGNED at INDENT — no centering. Centering padded a line
+  // with leading spaces sized to the boot-time width; once the pane narrowed on
+  // a split, that padding wrapped and threw the line off-center. Left-aligned
+  // text just re-wraps cleanly under the same indent at any width.
+  const pushRow = (rowSegs) => {
+    out.push(INDENT + rowSegs.map(([t, c]) => wrap(c, t)).join(""));
   };
   lines.forEach((l) => {
     if (!l.segs.length) { out.push(""); return; }
     const rows = wrapLine(l.segs, W, l.hang || 0);
-    rows.forEach((rowSegs, idx) => pushRow(rowSegs, l.center && idx === 0));
+    rows.forEach((rowSegs) => pushRow(rowSegs));
   });
   out.push(INDENT + wrap(RULE_COLOR, "─".repeat(RULE)));
   return "\n" + out.join("\n") + "\n\n";
