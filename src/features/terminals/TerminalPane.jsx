@@ -249,6 +249,12 @@ export default function TerminalPane({
   const activityRef = useRef("idle");
   const bytesSinceSeenRef = useRef(0);
   const userHasTypedRef = useRef(false);
+  // Welcome-banner re-render on resize: a fresh local shell's banner is baked
+  // into scrollback at boot width and can't reflow, so splitting the pane garbles
+  // it. While the pane is still untouched we reprint it at the new width.
+  const bannerRedrawRef = useRef(null);    // (cols) => Promise, or null when not armed
+  const bannerColsRef = useRef(0);         // width the banner was last drawn at
+  const bannerRedrawTimerRef = useRef(null);
   const doneTimerRef = useRef(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -1042,6 +1048,16 @@ export default function TerminalPane({
               rows: Math.max(rows, MIN_ROWS),
             }).catch(() => {});
           }
+          // Reprint the welcome banner at the new width while the pane is still
+          // untouched (e.g. just split). Debounced so a flurry of resize events
+          // collapses to one reprint; bannerColsRef guards against redundant runs.
+          if (bannerRedrawRef.current && !userHasTypedRef.current && cols !== bannerColsRef.current) {
+            clearTimeout(bannerRedrawTimerRef.current);
+            bannerRedrawTimerRef.current = setTimeout(() => {
+              const t = termRef.current;
+              if (t && !userHasTypedRef.current && bannerRedrawRef.current) bannerRedrawRef.current(t.cols);
+            }, 200);
+          }
         });
 
         // App-owned prompt editor: drop to raw passthrough whenever a full-screen
@@ -1124,6 +1140,25 @@ export default function TerminalPane({
           // The box is written to a file (real ESC bytes) and the shell `cat`s it
           // before the first prompt to dodge the tty canonical line-length limit.
           const boxRaw = buildWelcomeBanner({ paneCols: term.cols || 80 });
+          // Reprint the welcome banner at a given width (used by the resize hook
+          // when a split narrows an untouched pane). Rebuilds the box file and
+          // runs a plain clear+cat (no boot marker / conceal gate — just a tidy
+          // refresh). Leading space on POSIX so a shell with ignorespace skips it
+          // in history.
+          const sendBannerDisplay = async (cols) => {
+            if (!alive || !ptyId) return;
+            try {
+              const raw = buildWelcomeBanner({ paneCols: cols });
+              const p = await invoke("write_welcome_file", { content: raw });
+              if (!p) return;
+              const lit = String(p);
+              const cmd = isWindowsUA
+                ? `Clear-Host; Get-Content -Raw -Encoding utf8 -LiteralPath '${lit.replace(/'/g, "''")}'`
+                : ` clear; cat '${lit.replace(/'/g, "'\\''")}'`;
+              bannerColsRef.current = cols;
+              await invoke("pty_write", { id: ptyId, data: cmd + "\r" });
+            } catch { /* best-effort refresh */ }
+          };
           const { promptSetup, cmdCapture } = buildPosixShellInit();
           // Fresh tabs: write the box to a file, then `${promptSetup}; clear; cat
           // '<file>'` — a short command whose output (the box) lands before the
@@ -1185,6 +1220,15 @@ export default function TerminalPane({
               try { await invoke("pty_write", { id: ptyId, data: cmdCapture + "\r" }); } catch {}
               try { await invoke("pty_write", { id: ptyId, data: display + "\r" }); } catch {}
             }
+          }
+          // Arm banner re-render on resize, but only for a plain local shell with
+          // no pack commands / system prompt (those make the pane "busy" — never
+          // a clean banner to refresh). userHasTypedRef gates it live: once the
+          // user touches the pane we stop reprinting.
+          if (!restored && !connection && !serial && cmdsAtSpawn.length === 0
+              && !(systemPromptRef.current && systemPromptRef.current.trim())) {
+            bannerRedrawRef.current = sendBannerDisplay;
+            bannerColsRef.current = term.cols;
           }
         }
 
