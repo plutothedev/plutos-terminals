@@ -16,6 +16,7 @@ mod session;
 mod sftp;
 mod sshconfig;
 mod sysstats;
+mod mcp;
 mod sync_git;
 mod vault;
 mod vncclient;
