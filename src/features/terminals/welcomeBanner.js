@@ -42,18 +42,20 @@ export function buildWelcomeBanner({ paneCols }) {
     { hang: 3, segs: [C("1;32", "➜ "), T("Docs: "), C("4;36", "https://github.com/plutothedev/plutos-terminals")] },
     { hang: 3, segs: [C("1;35", "➜ "), T("Community: "), C("4;35", "https://discord.gg/3cZQVgKF")] },
   ];
-  const plainLen = (segs) => segs.reduce((n, [t]) => n + t.length, 0);
-  // Fit to the pane: -6 leaves the border (space+│+space ... space+│) and
-  // a 1-col right margin so terminals with a magic margin don't wrap.
-  // Also clamp to a comfortable ABSOLUTE max: the box can't reflow once
-  // printed to scrollback, so an absolute cap keeps it (a) a tidy card
-  // rather than a sprawling banner, (b) the SAME width in every pane no
-  // matter how wide that pane was when it was created — so a tab split
-  // full-width and a pane born already-narrow get identical boxes that
-  // line up, and (c) narrow enough to survive a 2-way split.
-  const BOX_MAX = 60;
-  const maxInner = Math.max(...lines.map((l) => plainLen(l.segs)));
-  const W = Math.max(24, Math.min(maxInner, paneCols - 6, BOX_MAX));
+  // BORDERLESS banner. The previous design framed the content in a │-bordered
+  // box sized to the boot-time pane width. That box is baked into scrollback as
+  // shell output and CANNOT reflow — so splitting the pane narrower than the box
+  // forced xterm to re-wrap the too-wide lines and orphaned the side borders
+  // (the "messed-up box" bug). Dropping the side borders fixes it at the root:
+  // a narrowing split now just re-wraps the indented text gracefully, with no
+  // frame to misalign. The only fixed-width elements are the top/bottom rules,
+  // kept short (RULE) so they rarely wrap — and if they do it's a harmless
+  // 2-row underline, never a broken frame.
+  const cols = Math.max(1, paneCols || 80);
+  const W = Math.max(20, Math.min(cols - 2, 56));  // text wrap width
+  const RULE = Math.min(W, 44);                    // rule length (short = split-safe)
+  const INDENT = "  ";                             // 2-col left margin
+  const RULE_COLOR = BORDER;
   // Word-wrap coloured segments to width, hang-indenting continuations
   // and hard-splitting any token longer than a row (e.g. a URL).
   const wrapLine = (segs, width, hang = 0) => {
@@ -81,19 +83,19 @@ export function buildWelcomeBanner({ paneCols }) {
     rows.push(cur);
     return rows;
   };
-  const box = [" " + wrap(BORDER, "┌" + "─".repeat(W + 2) + "┐")];
+  const out = [INDENT + wrap(RULE_COLOR, "─".repeat(RULE))];
+  // Emit one indented row; centered rows are padded within W (no right pad / no
+  // borders, so a narrower pane simply re-wraps the text below).
   const pushRow = (rowSegs, center) => {
     const len = rowSegs.reduce((n, [t]) => n + t.length, 0);
-    const left = center ? Math.max(0, Math.floor((W - len) / 2)) : 0;
-    const right = Math.max(0, W - len - left);
-    const inner = " ".repeat(left) + rowSegs.map(([t, c]) => wrap(c, t)).join("") + " ".repeat(right);
-    box.push(" " + wrap(BORDER, "│") + " " + inner + " " + wrap(BORDER, "│"));
+    const pad = center ? " ".repeat(Math.max(0, Math.floor((W - len) / 2))) : "";
+    out.push(INDENT + pad + rowSegs.map(([t, c]) => wrap(c, t)).join(""));
   };
   lines.forEach((l) => {
-    if (!l.segs.length) { pushRow([[" ", null]], false); return; }
+    if (!l.segs.length) { out.push(""); return; }
     const rows = wrapLine(l.segs, W, l.hang || 0);
     rows.forEach((rowSegs, idx) => pushRow(rowSegs, l.center && idx === 0));
   });
-  box.push(" " + wrap(BORDER, "└" + "─".repeat(W + 2) + "┘"));
-  return "\n" + box.join("\n") + "\n\n";
+  out.push(INDENT + wrap(RULE_COLOR, "─".repeat(RULE)));
+  return "\n" + out.join("\n") + "\n\n";
 }
