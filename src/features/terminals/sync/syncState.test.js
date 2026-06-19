@@ -1,5 +1,6 @@
 import { test, expect } from "vitest";
-import { readSurface, writeSurface, deriveLocal, SOURCES } from "./syncState.js";
+import { readSurface, writeSurface, deriveLocal, surfaceValueKey, SOURCES } from "./syncState.js";
+import { merge } from "./merge.js";
 
 const stores = () => ({
   userSt: { keybindings: { a: "x" }, activeModel: "m1", customThemes: [{ id: "t1", name: "T" }], providerKeys: { anthropic: "sk-xxx" } },
@@ -66,6 +67,47 @@ test("deriveLocal does NOT mass-tombstone when a store reads empty (corrupt/unlo
   expect(snips.filter((x) => x._deletedAt).length).toBe(0); // no fresh deletes
   expect(snips.find((x) => x.id === "s1")).toBeTruthy();
   expect(snips.find((x) => x.id === "s2")).toBeTruthy();
+});
+
+test("first sync (null snapshot): remote wins scalar conflicts, collections union", () => {
+  // No snapshot => no basis to claim local scalars are newer. A fresh machine
+  // joining the fleet must adopt the established remote settings (not clobber
+  // them with local defaults), while still contributing its unique collection
+  // items. Bug was: deriveLocal stamped local fields `now`, so local always won.
+  const s = stores();
+  const local = deriveLocal(s, null, 1000);
+  const remote = {
+    fields: { "userSt.activeModel": "REMOTE", "st.headerSkin": "light" },
+    fieldMeta: { "userSt.activeModel": 50, "st.headerSkin": 50 },
+    collections: { "st.snippets": [{ id: "sR", cmd: "remote", _updatedAt: 50 }] },
+  };
+  const { merged } = merge(local, remote, 2000);
+  expect(merged.fields["userSt.activeModel"]).toBe("REMOTE"); // remote wins despite older stamp
+  expect(merged.fields["st.headerSkin"]).toBe("light");
+  const snipIds = merged.collections["st.snippets"].map((x) => x.id).sort();
+  expect(snipIds).toEqual(["s1", "sR"]); // union: local-unique item survives
+});
+
+test("surfaceValueKey ignores timestamps so identical data does not ping-pong", () => {
+  const a = { fields: { "st.headerSkin": "oled" }, fieldMeta: { "st.headerSkin": 100 },
+    collections: { "st.snippets": [{ id: "s1", cmd: "ls", _updatedAt: 100 }] } };
+  const b = { fields: { "st.headerSkin": "oled" }, fieldMeta: { "st.headerSkin": 999 },
+    collections: { "st.snippets": [{ id: "s1", cmd: "ls", _updatedAt: 999 }] } };
+  expect(surfaceValueKey(a)).toBe(surfaceValueKey(b));
+});
+
+test("surfaceValueKey is order-insensitive but value-sensitive", () => {
+  const a = { fields: {}, fieldMeta: {}, collections: { "st.snippets": [{ id: "s1" }, { id: "s2" }] } };
+  const b = { fields: {}, fieldMeta: {}, collections: { "st.snippets": [{ id: "s2" }, { id: "s1" }] } };
+  const c = { fields: {}, fieldMeta: {}, collections: { "st.snippets": [{ id: "s1", cmd: "X" }, { id: "s2" }] } };
+  expect(surfaceValueKey(a)).toBe(surfaceValueKey(b)); // order doesn't matter
+  expect(surfaceValueKey(a)).not.toBe(surfaceValueKey(c)); // a value change does
+});
+
+test("surfaceValueKey distinguishes a tombstone from a live item", () => {
+  const live = { fields: {}, fieldMeta: {}, collections: { "st.snippets": [{ id: "s1", cmd: "ls", _updatedAt: 5 }] } };
+  const dead = { fields: {}, fieldMeta: {}, collections: { "st.snippets": [{ id: "s1", cmd: "ls", _updatedAt: 9, _deletedAt: 9 }] } };
+  expect(surfaceValueKey(live)).not.toBe(surfaceValueKey(dead));
 });
 
 test("SOURCES never lists key fields", () => {

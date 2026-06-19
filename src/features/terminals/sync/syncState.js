@@ -15,6 +15,24 @@ function idOf(item) { return item.id != null ? item.id : item.name; }
 function stripMeta(item) { const o = { ...item }; for (const k of SYNC_META) delete o[k]; return o; }
 function jsonEq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
+/** A meta-insensitive key for "does this surface hold different DATA than that
+ *  one?" — used by the engine to decide whether to push. Ignores sync-meta
+ *  timestamps (_updatedAt, fieldMeta) and collection order so two machines that
+ *  hold identical user-visible data with different stamp histories don't push to
+ *  each other forever. Tombstone PRESENCE still counts (a deleted item differs
+ *  from a live one); its exact _deletedAt does not. */
+export function surfaceValueKey(surface) {
+  const sortedFields = {};
+  for (const k of Object.keys(surface.fields || {}).sort()) sortedFields[k] = surface.fields[k];
+  const collections = {};
+  for (const k of Object.keys(surface.collections || {})) {
+    collections[k] = (surface.collections[k] || [])
+      .map((it) => ({ ...stripMeta(it), _deleted: it._deletedAt ? 1 : 0 }))
+      .sort((a, b) => String(idOf(a)).localeCompare(String(idOf(b))));
+  }
+  return JSON.stringify({ fields: sortedFields, collections });
+}
+
 function collArray(stores, store, name, src) {
   if (store === "macros") return Array.isArray(stores.macros) ? stores.macros : [];
   return Array.isArray(src[name]) ? src[name] : [];
@@ -60,10 +78,17 @@ export function writeSurface(merged) {
 export function deriveLocal(stores, snapshot, now) {
   const current = readSurface(stores);
   const snap = snapshot || { fields: {}, fieldMeta: {}, collections: {} };
+  // FIRST SYNC (no snapshot): there is no baseline, so we cannot claim local
+  // values are "new". Stamp them at 0 so a genuinely-newer remote wins scalar
+  // ties (a fresh machine adopts the established fleet settings). Collections
+  // still UNION by id (mergeCollection), so local-unique items are never lost.
+  // Without this, local defaults stamped `now` clobbered the user's real
+  // settings on every other machine.
+  const stamp = snapshot ? now : 0;
   const fieldMeta = {};
   for (const ns of Object.keys(current.fields)) {
     const changed = !(ns in (snap.fields || {})) || !jsonEq(current.fields[ns], snap.fields[ns]);
-    fieldMeta[ns] = changed ? now : (snap.fieldMeta?.[ns] ?? now);
+    fieldMeta[ns] = changed ? stamp : (snap.fieldMeta?.[ns] ?? stamp);
   }
   const collections = {};
   for (const ns of Object.keys(current.collections)) {
@@ -86,7 +111,7 @@ export function deriveLocal(stores, snapshot, now) {
       const id = idOf(item); seen.add(id);
       const prev = snapById.get(id);
       const changed = !prev || prev._deletedAt || !jsonEq(stripMeta(item), stripMeta(prev));
-      out.push({ ...item, _updatedAt: changed ? now : (prev._updatedAt ?? now) });
+      out.push({ ...item, _updatedAt: changed ? stamp : (prev._updatedAt ?? stamp) });
     }
     for (const it of snapArr) {
       const id = idOf(it);
