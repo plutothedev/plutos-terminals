@@ -68,6 +68,18 @@ export function deriveLocal(stores, snapshot, now) {
   const collections = {};
   for (const ns of Object.keys(current.collections)) {
     const snapArr = snap.collections?.[ns] || [];
+    // SAFETY (mass-delete guard): a store that failed to load or whose
+    // localStorage blob corrupt-parsed reads back as {} → an empty collection.
+    // If the current read is empty but the snapshot held live items, do NOT
+    // manufacture a fresh delete-tombstone for every item — those would win the
+    // merge (fresh _updatedAt) and propagate a fleet-wide wipe of the user's
+    // snippets/themes/macros. Carry the snapshot forward unchanged instead.
+    // Safe bias: clearing an ENTIRE collection in one action won't sync the
+    // clear, but a transient empty read can never delete everyone's data.
+    if (current.collections[ns].length === 0 && snapArr.some((it) => !it._deletedAt)) {
+      collections[ns] = snapArr.map((it) => ({ ...it }));
+      continue;
+    }
     const snapById = new Map(snapArr.map((it) => [idOf(it), it]));
     const out = [], seen = new Set();
     for (const item of current.collections[ns]) {

@@ -50,6 +50,24 @@ test("deriveLocal emits tombstone for a removed collection item", () => {
   expect(tomb._deletedAt).toBe(500);
 });
 
+test("deriveLocal does NOT mass-tombstone when a store reads empty (corrupt/unloaded store)", () => {
+  // The snapshot recorded 2 live snippets. The live `st` store then reads empty
+  // (e.g. a corrupt localStorage blob whose JSON.parse failed and returned {}).
+  // deriveLocal must NOT manufacture fresh delete-tombstones for the snapshot
+  // items — that would merge-win and propagate a fleet-wide wipe.
+  const snap = { fields: {}, fieldMeta: {}, collections: { "st.snippets": [
+    { id: "s1", cmd: "ls", _updatedAt: 100 },
+    { id: "s2", cmd: "pwd", _updatedAt: 100 },
+  ] } };
+  const s = stores();
+  s.st = {}; // simulate the store that failed to load / corrupt-parse returned {}
+  const local = deriveLocal(s, snap, 500);
+  const snips = local.collections["st.snippets"];
+  expect(snips.filter((x) => x._deletedAt).length).toBe(0); // no fresh deletes
+  expect(snips.find((x) => x.id === "s1")).toBeTruthy();
+  expect(snips.find((x) => x.id === "s2")).toBeTruthy();
+});
+
 test("SOURCES never lists key fields", () => {
   const all = SOURCES.flatMap((s) => [...s.fields, ...s.collections]);
   expect(all).not.toContain("providerKeys");
