@@ -4,14 +4,18 @@
 // (bearer tokens, sensitive env) come from the keychain (vault.rs) by the key
 // names in ServerCfg.secret_keys — account format "mcp-secret:<id>:<key>".
 use std::collections::{BTreeMap, HashMap};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 use serde_json::Value;
 use crate::mcp::client::{McpConn, Tool};
 use crate::mcp::config::{load_configs, save_configs, config_path, ServerCfg};
 
-static CONNS: OnceLock<Mutex<HashMap<String, McpConn>>> = OnceLock::new();
-fn conns() -> &'static Mutex<HashMap<String, McpConn>> {
+// Each connection sits behind its OWN Mutex so the global map lock is held only
+// for a brief lookup, never across a tool call. A slow/hung call on one server
+// therefore can't stall list/call on the others. Same-server calls still
+// serialize (one stdio/http connection at a time), which is the intended bound.
+static CONNS: OnceLock<Mutex<HashMap<String, Arc<Mutex<McpConn>>>>> = OnceLock::new();
+fn conns() -> &'static Mutex<HashMap<String, Arc<Mutex<McpConn>>>> {
     CONNS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -46,7 +50,7 @@ async fn ensure_conn(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
         }
         other => return Err(format!("unknown transport {other}")),
     };
-    conns().lock().await.insert(id.to_string(), conn);
+    conns().lock().await.insert(id.to_string(), Arc::new(Mutex::new(conn)));
     Ok(())
 }
 
@@ -80,9 +84,9 @@ pub async fn mcp_list_tools(app: tauri::AppHandle) -> Result<Vec<Tool>, String> 
     let mut all = Vec::new();
     for cfg in cfgs.iter().filter(|c| c.enabled) {
         if ensure_conn(&app, &cfg.id).await.is_err() { continue; } // skip servers that won't connect
-        let map = conns().lock().await;
-        if let Some(conn) = map.get(&cfg.id) {
-            if let Ok(tools) = conn.list_tools().await { all.extend(tools); }
+        let conn = conns().lock().await.get(&cfg.id).cloned(); // brief global lock: clone the Arc out
+        if let Some(conn) = conn {
+            if let Ok(tools) = conn.lock().await.list_tools().await { all.extend(tools); }
         }
     }
     Ok(all)
@@ -91,9 +95,9 @@ pub async fn mcp_list_tools(app: tauri::AppHandle) -> Result<Vec<Tool>, String> 
 #[tauri::command]
 pub async fn mcp_call_tool(app: tauri::AppHandle, server: String, tool: String, args: Value) -> Result<Value, String> {
     ensure_conn(&app, &server).await?;
-    let map = conns().lock().await;
-    let conn = map.get(&server).ok_or("not connected")?;
-    conn.call_tool(&tool, args).await
+    let conn = conns().lock().await.get(&server).cloned().ok_or("not connected")?; // clone Arc, drop map lock
+    let guard = conn.lock().await; // per-server lock held only for this call
+    guard.call_tool(&tool, args).await
 }
 
 #[tauri::command]
