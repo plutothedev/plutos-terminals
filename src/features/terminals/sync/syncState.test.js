@@ -110,6 +110,21 @@ test("surfaceValueKey distinguishes a tombstone from a live item", () => {
   expect(surfaceValueKey(live)).not.toBe(surfaceValueKey(dead));
 });
 
+test("deriveLocal DOES tombstone a full-collection clear when the store is still loaded", () => {
+  // The st store loaded fine (still has headerSkin) and the user deleted their
+  // only snippet. That is a legitimate clear and must sync — the mass-delete
+  // guard only protects against an unloaded/corrupt store (whole object empty),
+  // not a collection the user legitimately emptied.
+  const snap = { fields: {}, fieldMeta: {}, collections: { "st.snippets": [
+    { id: "s1", cmd: "ls", _updatedAt: 100 },
+  ] } };
+  const s = stores();
+  s.st = { headerSkin: "oled" }; // store loaded, snippets legitimately cleared
+  const local = deriveLocal(s, snap, 500);
+  const tomb = local.collections["st.snippets"].find((x) => x.id === "s1");
+  expect(tomb._deletedAt).toBe(500); // the clear syncs (not masked)
+});
+
 test("SOURCES never lists key fields", () => {
   const all = SOURCES.flatMap((s) => [...s.fields, ...s.collections]);
   expect(all).not.toContain("providerKeys");

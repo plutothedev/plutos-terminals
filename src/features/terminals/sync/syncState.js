@@ -33,6 +33,17 @@ export function surfaceValueKey(surface) {
   return JSON.stringify({ fields: sortedFields, collections });
 }
 
+// Does this store look UNLOADED (vs a collection the user legitimately emptied)?
+// A corrupt-parse loader returns {} for userSt/st (App.jsx catches and returns
+// {}), so a store with zero keys is the corrupt/unloaded signal. The macros
+// store IS its array, so we can't separate a failed load from a real clear-all
+// — treat empty as suspicious there (safe bias toward keeping data).
+function storeUnloaded(stores, store) {
+  if (store === "macros") return !Array.isArray(stores.macros) || stores.macros.length === 0;
+  const o = stores[store];
+  return !o || Object.keys(o).length === 0;
+}
+
 function collArray(stores, store, name, src) {
   if (store === "macros") return Array.isArray(stores.macros) ? stores.macros : [];
   return Array.isArray(src[name]) ? src[name] : [];
@@ -94,14 +105,16 @@ export function deriveLocal(stores, snapshot, now) {
   for (const ns of Object.keys(current.collections)) {
     const snapArr = snap.collections?.[ns] || [];
     // SAFETY (mass-delete guard): a store that failed to load or whose
-    // localStorage blob corrupt-parsed reads back as {} → an empty collection.
-    // If the current read is empty but the snapshot held live items, do NOT
-    // manufacture a fresh delete-tombstone for every item — those would win the
-    // merge (fresh _updatedAt) and propagate a fleet-wide wipe of the user's
-    // snippets/themes/macros. Carry the snapshot forward unchanged instead.
-    // Safe bias: clearing an ENTIRE collection in one action won't sync the
-    // clear, but a transient empty read can never delete everyone's data.
-    if (current.collections[ns].length === 0 && snapArr.some((it) => !it._deletedAt)) {
+    // localStorage blob corrupt-parsed reads back as {} → empty collections.
+    // If the current read is empty, the snapshot held live items, AND the owning
+    // store looks UNLOADED, do NOT manufacture a fresh delete-tombstone for every
+    // item — those would win the merge (fresh _updatedAt) and propagate a
+    // fleet-wide wipe of the user's snippets/themes/macros. Carry the snapshot
+    // forward unchanged instead. The storeUnloaded() gate means a legitimate
+    // clear-to-empty (store still loaded, e.g. headerSkin present) still syncs;
+    // only a genuinely unreadable store is protected.
+    const store = ns.slice(0, ns.indexOf("."));
+    if (current.collections[ns].length === 0 && snapArr.some((it) => !it._deletedAt) && storeUnloaded(stores, store)) {
       collections[ns] = snapArr.map((it) => ({ ...it }));
       continue;
     }
