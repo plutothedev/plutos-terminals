@@ -1261,6 +1261,7 @@ export default function TerminalPane({
       vis.disconnect();
       ro.disconnect();
       clearDoneTimer();
+      clearTimeout(bannerRedrawTimerRef.current); // pending banner reprint must not fire post-dispose
       if (concealRef.current) {
         clearTimeout(concealRef.current.timer);
         concealRef.current = null;
