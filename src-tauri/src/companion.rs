@@ -281,8 +281,20 @@ async fn ws_handler(ws: WebSocketUpgrade, State(ctx): State<WsCtx>) -> impl Into
 
 /// The self-contained companion page (Phase 1). Compiled into the binary so it's
 /// served even before the React app's dist/ exists / when it isn't reused yet.
-async fn index() -> Html<&'static str> {
-    Html(include_str!("../companion-web/index.html"))
+async fn index() -> impl IntoResponse {
+    // Safe hardening headers (audit 2026-06-19): clickjacking, MIME-sniff, referrer.
+    // A strict CSP is intentionally NOT set here yet: the page currently loads xterm
+    // from the jsdelivr CDN and runs an inline module script, so locking script-src
+    // down requires vendoring xterm + externalizing that script first (tracked in
+    // docs). These three headers cannot break script/style/WebSocket loading.
+    (
+        [
+            (header::X_FRAME_OPTIONS, "DENY"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::REFERRER_POLICY, "no-referrer"),
+        ],
+        Html(include_str!("../companion-web/index.html")),
+    )
 }
 
 /// Service worker (Phase 5) — handles `push` events to show a notification even

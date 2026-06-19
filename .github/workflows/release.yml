@@ -111,6 +111,16 @@ jobs:
       - name: List artifacts
         run: ls -laR all-installers
 
+      - name: Generate SHA256 checksums
+        shell: bash
+        run: |
+          cd all-installers
+          # Hash every installer (filenames contain spaces + apostrophes, so NUL-delimit).
+          # SHA256SUMS is excluded from its own input; the redirect creates it empty first.
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+            | while IFS= read -r -d '' f; do sha256sum "$f"; done > SHA256SUMS
+          echo "SHA256SUMS:"; cat SHA256SUMS
+
       - name: Publish GitHub Release
         env:
           # Cross-repo publish to the public releases repo when configured,
@@ -127,6 +137,6 @@ jobs:
           gh release create "$TAG" \
             --repo "$TARGET_REPO" \
             --title "Pluto's Terminals $TAG" \
-            --notes "Download the installer for your platform below. macOS: .dmg · Windows: .msi/.exe · Linux: .AppImage/.deb. Unsigned builds may show an OS security prompt on first launch." \
+            --notes "Download the installer for your platform below. macOS: .dmg, Windows: .msi/.exe, Linux: .AppImage/.deb. Builds are unsigned, so your OS may prompt on first launch; verify your download against the attached SHA256SUMS before running (see the README Install section)." \
             all-installers/* || \
           gh release upload "$TAG" --repo "$TARGET_REPO" --clobber all-installers/*

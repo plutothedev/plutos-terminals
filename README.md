@@ -94,9 +94,17 @@ monochrome stroke icons (plus importable custom themes).
    - **Linux** — `.AppImage` (portable) or `.deb`
 3. Install and launch.
 
-> **Unsigned builds:** until code-signing certificates are in place, your OS may
-> warn on first launch. **macOS:** right-click the app → Open → Open. **Windows:**
-> SmartScreen → More info → Run anyway.
+> **Verify your download (builds are not yet code-signed).** Because these
+> installers aren't signed yet, your OS may warn on first launch. Don't bypass the
+> warning blindly: verify the file against the `SHA256SUMS` published with every
+> release. Compute your download's hash and confirm it matches before running:
+>
+> - **Windows (PowerShell):** `Get-FileHash .\<file>.msi -Algorithm SHA256`
+> - **macOS / Linux:** `shasum -a 256 <file>`
+>
+> If the value matches the matching line in `SHA256SUMS` on the release page, the
+> download is intact. Code signing is planned; until then this checksum check is the
+> integrity guarantee.
 
 ## Getting AI agents running
 
