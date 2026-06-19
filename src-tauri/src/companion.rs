@@ -491,8 +491,14 @@ fn dispatch(
                 Some(p) if !p.trim().is_empty() => PathBuf::from(p),
                 _ => home.clone(),
             };
-            let canon = std::fs::canonicalize(&requested).unwrap_or(requested);
-            let home_canon = std::fs::canonicalize(&home).unwrap_or(home);
+            // Fail CLOSED: if a path can't be canonicalized, reject it rather than
+            // falling back to the raw (un-resolved) path, which would let a crafted
+            // `..` sequence pass the component-based starts_with check and escape the
+            // home jail once the OS resolves it.
+            let canon = std::fs::canonicalize(&requested)
+                .map_err(|_| "path is not accessible".to_string())?;
+            let home_canon = std::fs::canonicalize(&home)
+                .map_err(|_| "home directory not accessible".to_string())?;
             if !canon.starts_with(&home_canon) {
                 return Err("path outside the allowed home directory".into());
             }
