@@ -55,6 +55,16 @@ monochrome stroke icons (plus importable custom themes).
 - **One-click Fix** — when a command fails, get an AI-suggested fix you can run.
 - **AI error explainer** and **session summaries**.
 
+### Private & local-first
+- **Your machine, your data.** No account, no sign-up, no telemetry. Your sessions,
+  snippets, and themes live in local storage on your own computer.
+- **Credentials stay in the OS keychain.** Provider API keys and saved passwords go
+  into the Windows Credential Manager / macOS Keychain and are stripped from
+  plaintext storage, never written to disk in the clear, and never sent anywhere but
+  the provider you chose.
+- **Verify what you run.** Every release ships a `SHA256SUMS` file so you can confirm
+  your download is intact before launching it (see [Install](#install)).
+
 ### Modern terminal experience
 - **Command blocks** — every command/output pair is a block with ✓/✗ status.
 - **Prompt editor (beta)** — a Warp-style app-owned input line: syntax

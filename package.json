@@ -40,5 +40,8 @@
     "@vitejs/plugin-react": "^6.0.1",
     "vite": "^8.0.4",
     "vitest": "^2.1.9"
+  },
+  "overrides": {
+    "dompurify": "^3.4.11"
   }
 }
