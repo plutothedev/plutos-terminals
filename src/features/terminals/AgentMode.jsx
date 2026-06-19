@@ -36,7 +36,9 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
 
   useEffect(() => {
     if (open) {
-      setGoal(""); setSteps([]); setRunning(false); stopRef.current = false;
+      // Keep the previous run's step log visible on reopen so it stays reviewable;
+      // a new run clears it (see start()).
+      setGoal(""); setRunning(false); stopRef.current = false;
       setPending(null); approveRef.current = null;
       setTimeout(() => goalRef.current?.focus(), 30);
     }
@@ -53,6 +55,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
     if (!llm) { setSteps([{ type: "error", text: "No model configured — open the Models picker (toolbar) first." }]); return; }
     if (!tabId) { setSteps([{ type: "error", text: "No active terminal to run in." }]); return; }
     setRunning(true); stopRef.current = false;
+    setSteps([]); // clear the previous run's log now that a new run is starting
     const local = [];
     const onStep = (s) => { local.push(s); setSteps([...local]); };
 
