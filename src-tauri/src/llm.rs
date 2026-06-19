@@ -58,29 +58,20 @@ pub(crate) fn resolve_base(base_url: &str, default: &str) -> Result<String, Stri
         return Ok(default.to_string());
     }
     let b = raw.trim_end_matches('/');
-    let lower = b.to_ascii_lowercase();
-    if lower.starts_with("https://") {
-        return Ok(b.to_string());
+    // Parse with a real URL parser (reqwest::Url == url::Url) instead of hand-
+    // splitting: it correctly isolates the host from userinfo, port, query and
+    // fragment, closing host-spoof bypasses such as http://localhost:x@evil.com
+    // and http://evil.com#@localhost. https is always allowed; http only to a
+    // loopback / private-LAN / .local host (self-hosted LLM gateways on the LAN).
+    let parsed = reqwest::Url::parse(b).map_err(|_| format!("Invalid base URL: {b}"))?;
+    let host = parsed.host_str().unwrap_or("");
+    let ok = parsed.scheme() == "https" || (parsed.scheme() == "http" && is_private_or_local(host));
+    if !ok {
+        return Err(format!(
+            "Refusing to send the API key to a non-HTTPS endpoint: {b}. Use https:// (http:// is allowed only for localhost / a private-LAN address)."
+        ));
     }
-    if let Some(rest) = lower.strip_prefix("http://") {
-        let authority = rest.split('/').next().unwrap_or("");
-        // Strip any userinfo ("user:pass@") FIRST — otherwise a private-looking
-        // username spoofs the host check (http://localhost:x@evil.com would parse
-        // "localhost" as the host while reqwest actually connects to evil.com).
-        let authority = authority.rsplit('@').next().unwrap_or(authority);
-        // host = authority minus an optional :port (IPv6 literals keep their brackets).
-        let host = if let Some(stripped) = authority.strip_prefix('[') {
-            stripped.split(']').next().unwrap_or("")
-        } else {
-            authority.split(':').next().unwrap_or("")
-        };
-        if is_private_or_local(host) {
-            return Ok(b.to_string());
-        }
-    }
-    Err(format!(
-        "Refusing to send the API key to a non-HTTPS endpoint: {b}. Use https:// (http:// is allowed only for localhost / a private-LAN address)."
-    ))
+    Ok(b.to_string())
 }
 
 #[cfg(test)]
@@ -116,6 +107,8 @@ mod base_url_tests {
             "http://localhost:x@evil.com/v1",
             "http://127.0.0.1@evil.com",
             "http://user@8.8.8.8",
+            "http://evil.com#@localhost",
+            "http://evil.com?x=@localhost",
         ] {
             assert!(resolve_base(u, "x").is_err(), "should reject {u}");
         }
