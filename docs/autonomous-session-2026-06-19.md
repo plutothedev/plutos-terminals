@@ -1,4 +1,4 @@
-<!-- (C) Claude Opus 4.8 — autonomous overnight session 2026-06-19 -->
+<!-- (C) Claude Opus 4.8, autonomous overnight session 2026-06-19 -->
 # Autonomous hardening session, 2026-06-19
 
 Pluto asked for an overnight autonomous pass: make the app "perfect and working,"
@@ -268,3 +268,47 @@ testing I can't do headless. Ordered by download-app risk.
 - After installing the next build, the companion page (if you use it) should still load
   and render the terminal. If you apply the vendoring fix (#2), re-test that first.
 - The release CI now attaches `SHA256SUMS`; do a test release and confirm it appears.
+
+---
+
+# Continuation: more security + competitor takeaways
+
+After the audit, a few more items landed (each forward-only, build/test-gated).
+
+## Security
+- **Bundled DOMPurify XSS CVE patched** (`287c77a`). monaco-editor exact-pinned the
+  vulnerable `dompurify@3.2.7`; a package.json `overrides` forces `3.4.11`. Production
+  `npm audit` went from a cluster of DOMPurify advisories to **0 vulnerabilities**.
+  **GUI test needed:** open the Monaco editor (the SFTP file editor / prompt editor)
+  and confirm hover tooltips + any markdown still render correctly after the bump.
+- **Release actions pinned to commit SHAs + Dependabot** (`4090503`). All 7 GitHub
+  Actions were on floating tags (a hijacked tag could inject into the published
+  binary); each is now pinned to the exact SHA (resolved via `gh api`) with a version
+  comment, plus `.github/dependabot.yml` keeps them current. Build-provenance
+  attestation was deferred (needs extra token permissions + the cross-repo publish
+  complicates the attestation target).
+- **Dev-only vulns NOT fixed (intentional):** `npm audit` shows 5 vulns in vite /
+  vitest / esbuild (build + test tooling). These do NOT ship in the binary, so they
+  are not a download risk. Fixing needs a vitest major bump that could break the test
+  setup, so bump them when convenient, separately.
+
+## Competitor takeaways (from the MeshPilot/MeshConsole scan)
+- **#1 Local-first positioning: DONE** (`287c77a`). README now leads with a Private
+  & local-first section (no account/telemetry, keys in the OS keychain, SHA256SUMS
+  verification), turning the security work into positioning.
+- **#3 Reviewable agent runs: DONE** (`e20d464`). Agent Mode keeps the last run's
+  step log visible on reopen instead of wiping it. **GUI test:** run an agent task,
+  close + reopen the panel, confirm the last run's steps are still shown and that
+  starting a new goal clears them.
+- **#2 Voice input: NOT built (deliberately).** The cheap path (Web Speech API) does
+  not work in Tauri webviews: WebView2 (Windows) and WKWebView (macOS) don't expose a
+  functional `webkitSpeechRecognition` (it needs Chrome's gated speech backend). A mic
+  button there would be dead UI on both primary platforms. Real voice input needs a
+  native STT (a Rust/whisper Tauri plugin or a platform STT API), a scoped build, not
+  a quick add. Recommended as a future feature, not shipped as fake progress.
+
+## Still open (unchanged from the audit's deferred list)
+Code-signing cert (#1), companion CDN vendoring + CSP (#2), app-ACL manifest / Rust
+gate on pty_spawn+secret_get (#3 ROOT-A), VNC no-auth + RDP TOFU (#5/#6), MCP
+read-only-hint trust (#7), secret_get namespace scoping (#9). All need a purchase, a
+UX decision, or GUI testing.
