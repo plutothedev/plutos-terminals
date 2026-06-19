@@ -440,7 +440,9 @@ pub async fn mcp_install(argv: Vec<String>) -> Result<McpInstallResult, String> 
         .iter()
         .find(|a| a.chars().any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '%' | '"' | '\n' | '\r')))
     {
-        return Err(format!("Refusing MCP install: argument contains a shell metacharacter: {bad}"));
+        return Err(format!(
+            "Refusing MCP install: a path or argument contains a character the Windows shell would misinterpret ({bad}). Pick a folder whose name has no & | < > ^ % or quote characters."
+        ));
     }
 
     // Unix: exec `claude` directly — no shell at all, so there is no

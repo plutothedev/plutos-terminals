@@ -64,6 +64,10 @@ pub(crate) fn resolve_base(base_url: &str, default: &str) -> Result<String, Stri
     }
     if let Some(rest) = lower.strip_prefix("http://") {
         let authority = rest.split('/').next().unwrap_or("");
+        // Strip any userinfo ("user:pass@") FIRST — otherwise a private-looking
+        // username spoofs the host check (http://localhost:x@evil.com would parse
+        // "localhost" as the host while reqwest actually connects to evil.com).
+        let authority = authority.rsplit('@').next().unwrap_or(authority);
         // host = authority minus an optional :port (IPv6 literals keep their brackets).
         let host = if let Some(stripped) = authority.strip_prefix('[') {
             stripped.split(']').next().unwrap_or("")
@@ -96,15 +100,23 @@ mod base_url_tests {
 
     #[test]
     fn http_localhost_and_private_lan_allowed() {
-        for u in ["http://localhost:1234", "http://127.0.0.1:8080", "http://192.168.1.50:11434", "http://10.0.0.5", "http://ollama.local"] {
+        for u in ["http://localhost:1234", "http://127.0.0.1:8080", "http://192.168.1.50:11434", "http://10.0.0.5", "http://ollama.local", "http://user:pass@192.168.1.5:8080"] {
             assert!(resolve_base(u, "x").is_ok(), "should allow {u}");
         }
     }
 
     #[test]
     fn http_to_public_is_rejected() {
-        // cleartext key leak to the public internet, and the localhost-prefix bypass
-        for u in ["http://api.evil.com/v1", "http://1.2.3.4:8080", "http://localhost.evil.com"] {
+        // cleartext key leak to the public internet, the localhost-prefix bypass,
+        // and the userinfo spoof (host is what's AFTER the last @, not the username).
+        for u in [
+            "http://api.evil.com/v1",
+            "http://1.2.3.4:8080",
+            "http://localhost.evil.com",
+            "http://localhost:x@evil.com/v1",
+            "http://127.0.0.1@evil.com",
+            "http://user@8.8.8.8",
+        ] {
             assert!(resolve_base(u, "x").is_err(), "should reject {u}");
         }
     }
