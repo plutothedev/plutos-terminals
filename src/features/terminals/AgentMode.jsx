@@ -2,9 +2,11 @@
 // Native Agent Mode — type a goal in plain English; an in-app agent accomplishes
 // it by calling tools: the built-in run_command (shell, via OSC-133 Blocks capture)
 // plus any configured MCP server tools. Uses native LLM function-calling
-// (llm_tool_turn). Per-tool-call approval by default; with Auto-run on, read-only
-// MCP tools + safe shell commands auto-execute while writes/destructive/dangerous
-// are always gated (annotation-aware, in code — see agentTools.js).
+// (llm_tool_turn). Per-tool-call approval by default; with Auto-run on, only
+// read-only MCP tools auto-execute. Shell commands ALWAYS require approval (the
+// command is model-chosen from possibly attacker-controlled content and the danger
+// denylist is evadable), as do MCP write/destructive tools (annotation-aware, in
+// code; see agentTools.js).
 import { useEffect, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Textarea } from "../../components/ui.jsx";
@@ -13,7 +15,7 @@ import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { runAndCapture } from "./ptyBridge.js";
 import { toolTurn } from "./llmTools.js";
-import { buildTools, needsApproval } from "./agentTools.js";
+import { buildTools, needsApproval, isDangerousCommand } from "./agentTools.js";
 import { runAgentLoop } from "./agentLoop.js";
 
 const MAX_STEPS = 14;
@@ -82,7 +84,10 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
     const requestApproval = (call) => new Promise((resolve) => {
       const m = meta[call.name];
       const isShell = m?.kind === "shell";
-      const risky = autoRunRef.current; // only reached in auto-run when forced (write/dangerous)
+      // Shell now always requires approval; show the ⚠ destructive warning only when
+      // the command actually matches a danger pattern. For MCP, being forced under
+      // auto-run means it is a write/destructive tool.
+      const risky = isShell ? isDangerousCommand(String(call.args?.command || "")) : autoRunRef.current;
       setPendingCmd(isShell ? String(call.args?.command || "") : "");
       setPending({ call, isShell, risky, argsText: isShell ? "" : JSON.stringify(call.args || {}, null, 2) });
       approveRef.current = resolve;
@@ -130,7 +135,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
       </div>
       <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: "var(--phn-sp-2)", fontSize: "var(--phn-fs-xs)", color: "var(--phn-text-dim)", cursor: "pointer" }}>
         <input type="checkbox" checked={autoRun} onChange={(e) => setAutoRun(e.target.checked)} />
-        Auto-run — run read-only / safe tools without asking (writes &amp; destructive always confirm)
+        Auto-run: auto-execute read-only MCP tools only. Shell commands and writes/destructive tools always ask.
       </label>
 
       {pending && (
@@ -183,7 +188,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
 
       <p style={{ fontSize: "var(--phn-fs-xs)", color: "var(--phn-text-dim)", marginTop: "var(--phn-sp-3)", lineHeight: "var(--phn-lh)" }}>
         Runs real commands + MCP tools using your active model. Watch it work; hit <strong>stop</strong> anytime.
-        Read-only tools can auto-run; writes &amp; destructive actions always ask.
+        Read-only MCP tools can auto-run; shell commands, writes &amp; destructive actions always ask.
       </p>
     </Modal>
   );

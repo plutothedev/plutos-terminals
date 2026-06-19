@@ -18,9 +18,12 @@ test("needsApproval: auto-run off always gates", () => {
   expect(needsApproval({ name: "run_command", args: { command: "ls" } }, meta, false)).toBe(true);
 });
 
-test("needsApproval: auto-run on — safe shell auto, dangerous shell gated", () => {
+test("needsApproval: auto-run on — shell ALWAYS gates (denylist is not a safe-auto gate)", () => {
   const { meta } = buildTools([]);
-  expect(needsApproval({ name: "run_command", args: { command: "ls -la" } }, meta, true)).toBe(false);
+  // Shell is the universal RCE primitive and the dangerous-command denylist is
+  // evadable via indirect prompt injection, so shell never auto-runs — even a
+  // benign-looking `ls` requires explicit approval under auto-run.
+  expect(needsApproval({ name: "run_command", args: { command: "ls -la" } }, meta, true)).toBe(true);
   expect(needsApproval({ name: "run_command", args: { command: "rm -rf /" } }, meta, true)).toBe(true);
 });
 

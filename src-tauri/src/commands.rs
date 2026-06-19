@@ -428,17 +428,31 @@ pub async fn mcp_install(argv: Vec<String>) -> Result<McpInstallResult, String> 
         })
         .collect();
 
+    // SECURITY (audit 2026-06-19): on Windows these tokens reach `cmd /c claude ...`,
+    // and std does NOT caret-escape cmd metacharacters when the spawned program is
+    // cmd.exe, so a standalone `&` or a `>` redirect inside any arg gets reparsed by
+    // cmd.exe as command chaining / redirection (a verified RCE PoC drove `calc`
+    // through this path). The frontend builds argv from a fixed catalog, but this
+    // command is directly invokable from the webview, so do not trust the caller:
+    // reject any token carrying a shell metacharacter. Legitimate catalog tokens and
+    // the resolved home path contain none of these.
+    if let Some(bad) = resolved
+        .iter()
+        .find(|a| a.chars().any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '%' | '"' | '\n' | '\r')))
+    {
+        return Err(format!("Refusing MCP install: argument contains a shell metacharacter: {bad}"));
+    }
+
     // Unix: exec `claude` directly — no shell at all, so there is no
     // metacharacter / command-chaining surface regardless of the args.
     // Windows: the Claude CLI is an npm shim (`claude.cmd`), which CreateProcess
     // (and thus a bare Command::new("claude")) won't resolve — only `.exe`. Route
     // through `cmd /c claude …` so PATHEXT finds the `.cmd`, passing every token
-    // as a SEPARATE arg rather than one reparsed string. NOTE: std quotes spaces/
-    // quotes but does NOT caret-escape cmd metacharacters (& | < > ^) when the
-    // spawned program is cmd.exe — safe here ONLY because every argv element is
-    // the hard-coded catalog plus a local_home() path (no user-editable input).
-    // If a user-editable MCP arg is ever added, reject cmd metacharacters on this
-    // Windows branch first (the Unix no-shell branch stays safe either way).
+    // as a SEPARATE arg rather than one reparsed string. std quotes spaces/quotes
+    // but does NOT caret-escape cmd metacharacters (& | < > ^ %) when the spawned
+    // program is cmd.exe, which is why the metacharacter guard above runs first and
+    // rejects any such token before it reaches this branch (the Unix no-shell branch
+    // is safe either way).
     #[cfg(target_os = "windows")]
     let output = silent_command("cmd")
         .arg("/c")

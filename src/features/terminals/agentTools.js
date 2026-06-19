@@ -49,12 +49,19 @@ export function buildTools(mcpTools) {
 }
 
 /** Does this tool call require manual approval? auto-run OFF → always. auto-run ON
- *  → gate unless safe: shell safe iff not a dangerous command; mcp safe iff
- *  read-only AND not destructive; unknown tool → always gate. */
+ *  → shell ALWAYS gates (it is the universal RCE primitive and the model picks the
+ *  command from possibly attacker-controlled content; the denylist is evadable, so
+ *  it is never the sole gate); mcp safe iff read-only AND not destructive; unknown
+ *  tool → always gate. */
 export function needsApproval(call, meta, autoRun) {
   if (!autoRun) return true;
   const m = meta[call.name];
   if (!m) return true;
-  if (m.kind === "shell") return isDangerousCommand(call.args?.command || "");
+  // SECURITY (audit 2026-06-19): never auto-run shell. The command is model-chosen
+  // from content that may be attacker-controlled (a file, an MCP tool result, remote
+  // terminal output), and isDangerousCommand is a denylist that is trivially evaded
+  // (split download+run, base64|sh, node -e, reverse shells, persistence writes).
+  // Shell therefore always requires explicit approval, even under auto-run.
+  if (m.kind === "shell") return true;
   return !(m.read_only && !m.destructive);
 }
