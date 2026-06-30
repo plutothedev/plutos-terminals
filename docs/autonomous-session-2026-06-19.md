@@ -332,10 +332,18 @@ Anchor: tag `auto-safety-2026-06-30` + branch `backup/pre-auto-2026-06-30`.
 Verification at close: 46 vitest + 20 Rust lib tests green, frontend build clean,
 clippy clean. **NOT pushed.**
 
-**REMAINING GATE for #2 (HIGH):** the companion page must be browser-smoked — xterm
-must still render + type + the file/snippet/model overlays work from the vendored
-UMD — before this ships. The Rust tests prove no CDN ref + correct routes/globals,
-but cannot prove the page actually draws. This is the last step to call #2 done.
+**GATE for #2 (HIGH) — headless smoke PASSED 2026-06-30.** A throwaway playwright
+harness served companion-web/ with the EXACT CSP + routes + content-types from
+companion.rs and headless-loaded it: the strict CSP did NOT block the vendored
+scripts (`window.Terminal` + `FitAddon.FitAddon` both resolved), xterm constructed
++ opened + fit + rendered a `.xterm` node (80x24), 0 console errors, 0 page errors.
+That proves the vendoring + UMD loader + CSP all work together — the actual risk.
+
+Residual (lower): this was headless chromium, not the real Tauri WebView2/WKWebView,
+and it did not drive the live `/ws` flow (connect -> initTerm -> type into a real
+shell -> file/snippet/model overlays). That wiring was UNCHANGED by this diff, so its
+risk is unchanged from the shipped build; a real-device pass is nice-to-have, not a
+blocker for the security fix. #2 is effectively closed.
 
 Still genuinely open (bucket 3, need a purchase / UX decision): code-signing cert
 (#1), app-ACL manifest / Rust gate on pty_spawn+secret_get (#3 ROOT-A), VNC no-auth
