@@ -282,18 +282,52 @@ async fn ws_handler(ws: WebSocketUpgrade, State(ctx): State<WsCtx>) -> impl Into
 /// The self-contained companion page (Phase 1). Compiled into the binary so it's
 /// served even before the React app's dist/ exists / when it isn't reused yet.
 async fn index() -> impl IntoResponse {
-    // Safe hardening headers (audit 2026-06-19): clickjacking, MIME-sniff, referrer.
-    // A strict CSP is intentionally NOT set here yet: the page currently loads xterm
-    // from the jsdelivr CDN and runs an inline module script, so locking script-src
-    // down requires vendoring xterm + externalizing that script first (tracked in
-    // docs). These three headers cannot break script/style/WebSocket loading.
+    // Strict CSP (audit 2026-06-19, vendoring done 2026-06-30): script-src 'self'
+    // means NO inline script and NO CDN — xterm + the app logic are now vendored
+    // and served same-origin (/vendor/*, /app.js), so a TLS-MITM or CDN compromise
+    // on a hostile phone network can no longer inject script into the page that
+    // holds the shell-access token (which would be desktop RCE). 'unsafe-inline' is
+    // kept ONLY for style (the page has an inline <style> block + style attributes);
+    // style injection is not a code-exec vector. connect-src allows the same-origin
+    // WebSocket. The X-* headers stay for older clients that ignore CSP.
+    const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+        img-src 'self' data:; connect-src 'self' ws: wss:; manifest-src 'self'; worker-src 'self'; \
+        font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
     (
         [
+            (header::CONTENT_SECURITY_POLICY, CSP),
             (header::X_FRAME_OPTIONS, "DENY"),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
             (header::REFERRER_POLICY, "no-referrer"),
         ],
         Html(include_str!("../companion-web/index.html")),
+    )
+}
+
+/// Vendored xterm + addon-fit + app logic, served same-origin so the page needs
+/// no CDN (see the CSP in `index`). Compiled into the binary via `include_str!`.
+async fn vendor_xterm_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../companion-web/vendor/xterm.js"),
+    )
+}
+async fn vendor_addon_fit_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../companion-web/vendor/addon-fit.js"),
+    )
+}
+async fn vendor_xterm_css() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css")],
+        include_str!("../companion-web/vendor/xterm.css"),
+    )
+}
+async fn app_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../companion-web/app.js"),
     )
 }
 
@@ -600,6 +634,10 @@ pub fn start(
     };
     let router = Router::new()
         .route("/", get(index))
+        .route("/app.js", get(app_js))
+        .route("/vendor/xterm.js", get(vendor_xterm_js))
+        .route("/vendor/addon-fit.js", get(vendor_addon_fit_js))
+        .route("/vendor/xterm.css", get(vendor_xterm_css))
         .route("/ws", get(ws_handler))
         .route("/sw.js", get(sw_js))
         .route("/manifest.webmanifest", get(manifest))
@@ -800,5 +838,58 @@ pub fn companion_notify_finish(
         .into_bytes();
     for sub in subs {
         tauri::async_runtime::spawn(send_push(sub.to_string(), vapid_priv.clone(), payload.clone()));
+    }
+}
+
+#[cfg(test)]
+mod companion_assets_tests {
+    // Lock the companion-page security invariant (audit 2026-06-19 item #2):
+    // the page must load xterm + its app logic SAME-ORIGIN, never from a CDN, so a
+    // strict script-src 'self' CSP holds and a hostile-network MITM can't inject
+    // script into the token-bearing page. These assert the embedded assets only;
+    // the visual render (xterm actually drawing from the vendored UMD) is a manual
+    // browser smoke — see docs/autonomous-session checklist item D/F.
+    const INDEX: &str = include_str!("../companion-web/index.html");
+    const APP_JS: &str = include_str!("../companion-web/app.js");
+    const XTERM_JS: &str = include_str!("../companion-web/vendor/xterm.js");
+    const ADDON_FIT_JS: &str = include_str!("../companion-web/vendor/addon-fit.js");
+    const XTERM_CSS: &str = include_str!("../companion-web/vendor/xterm.css");
+
+    #[test]
+    fn no_cdn_references_anywhere() {
+        for (name, src) in [("index.html", INDEX), ("app.js", APP_JS)] {
+            assert!(!src.contains("jsdelivr"), "{name} still references a CDN");
+            assert!(!src.contains("cdn."), "{name} still references a CDN");
+            assert!(!src.contains("https://"), "{name} loads an external resource");
+        }
+    }
+
+    #[test]
+    fn index_loads_vendored_assets_same_origin() {
+        assert!(INDEX.contains("/vendor/xterm.css"), "css not vendored");
+        assert!(INDEX.contains(r#"src="/vendor/xterm.js""#), "xterm.js not vendored");
+        assert!(INDEX.contains(r#"src="/vendor/addon-fit.js""#), "addon-fit not vendored");
+        assert!(INDEX.contains(r#"src="/app.js""#), "app.js not externalized");
+        // No inline executable <script> block (only external src= tags). The page
+        // must satisfy script-src 'self' with no 'unsafe-inline'.
+        assert!(!INDEX.contains("import {"), "an ESM import survived in the page");
+    }
+
+    #[test]
+    fn app_js_uses_umd_globals_not_esm() {
+        assert!(!APP_JS.contains("import "), "app.js still uses an ESM import");
+        // UMD global instantiation (xterm exposes `Terminal`, addon-fit the
+        // `FitAddon` namespace whose `.FitAddon` is the class).
+        assert!(APP_JS.contains("new Terminal("), "Terminal global not used");
+        assert!(APP_JS.contains("new FitAddon.FitAddon("), "FitAddon UMD namespace not used");
+    }
+
+    #[test]
+    fn vendored_libs_are_the_expected_umd_bundles() {
+        // sanity: non-trivial size + a UMD marker, so a truncated/empty copy fails CI.
+        assert!(XTERM_JS.len() > 100_000, "xterm.js looks truncated");
+        assert!(XTERM_JS.contains("define.amd"), "xterm.js is not the UMD build");
+        assert!(ADDON_FIT_JS.contains("FitAddon"), "addon-fit.js missing its export");
+        assert!(XTERM_CSS.contains(".xterm"), "xterm.css looks wrong");
     }
 }
