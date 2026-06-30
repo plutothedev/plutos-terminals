@@ -65,3 +65,24 @@ export function needsApproval(call, meta, autoRun) {
   if (m.kind === "shell") return true;
   return !(m.read_only && !m.destructive);
 }
+
+/** Flatten an MCP CallToolResult into the plain text fed back to the model.
+ *  rmcp/MCP serializes a result as { content: [{type, text|...}], isError }.
+ *  Sending the whole stringified struct back each turn is pure token bloat
+ *  (annotations, mime metadata, nesting) — the model only needs the text. Non-text
+ *  parts (image/resource) are summarized so the model still knows they exist.
+ *  Deferred-item #6 from docs/autonomous-session-2026-06-19.md. */
+export function mcpResultToContent(out) {
+  if (out == null) return "";
+  if (typeof out === "string") return out;
+  const parts = Array.isArray(out.content) ? out.content : null;
+  if (!parts) return JSON.stringify(out); // unexpected shape: fail safe, don't drop data
+  const pieces = parts
+    .map((p) => {
+      if (p && typeof p.text === "string") return p.text;
+      if (p && p.type) return `[${p.type}]`;
+      return "";
+    })
+    .filter(Boolean);
+  return pieces.join("\n");
+}

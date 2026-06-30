@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { buildTools, needsApproval, isDangerousCommand, RUN_COMMAND_TOOL } from "./agentTools.js";
+import { buildTools, needsApproval, isDangerousCommand, RUN_COMMAND_TOOL, mcpResultToContent } from "./agentTools.js";
 
 test("buildTools includes the built-in run_command + mcp tools with meta", () => {
   const { tools, meta } = buildTools([
@@ -41,4 +41,34 @@ test("isDangerousCommand flags rm -rf and sudo", () => {
   expect(isDangerousCommand("rm -rf foo")).toBe(true);
   expect(isDangerousCommand("sudo apt install x")).toBe(true);
   expect(isDangerousCommand("echo hi")).toBe(false);
+});
+
+test("mcpResultToContent extracts text parts, dropping struct bloat", () => {
+  const out = {
+    content: [
+      { type: "text", text: "hello" },
+      { type: "text", text: "world", annotations: { audience: ["user"] } },
+    ],
+    isError: false,
+  };
+  expect(mcpResultToContent(out)).toBe("hello\nworld");
+});
+
+test("mcpResultToContent passes a plain string through", () => {
+  expect(mcpResultToContent("raw output")).toBe("raw output");
+});
+
+test("mcpResultToContent summarizes non-text parts so the model knows they exist", () => {
+  const out = { content: [{ type: "image", data: "AAAA", mimeType: "image/png" }, { type: "text", text: "ok" }] };
+  expect(mcpResultToContent(out)).toBe("[image]\nok");
+});
+
+test("mcpResultToContent fails safe on an unexpected shape (no data dropped)", () => {
+  const out = { weird: 1 };
+  expect(mcpResultToContent(out)).toBe(JSON.stringify(out));
+});
+
+test("mcpResultToContent handles null/undefined", () => {
+  expect(mcpResultToContent(null)).toBe("");
+  expect(mcpResultToContent(undefined)).toBe("");
 });

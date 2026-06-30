@@ -15,7 +15,7 @@ import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { runAndCapture } from "./ptyBridge.js";
 import { toolTurn } from "./llmTools.js";
-import { buildTools, needsApproval, isDangerousCommand } from "./agentTools.js";
+import { buildTools, needsApproval, isDangerousCommand, mcpResultToContent } from "./agentTools.js";
 import { runAgentLoop } from "./agentLoop.js";
 
 const MAX_STEPS = 14;
@@ -81,7 +81,9 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
       }
       const out = await invoke("mcp_call_tool", { server: m.server, tool: m.tool, args: call.args || {} });
       const isErr = !!(out && out.isError);
-      return { content: typeof out === "string" ? out : JSON.stringify(out), isError: isErr };
+      // Feed back only the text parts, not the whole stringified CallToolResult
+      // (token bloat + prompt-injection surface). See mcpResultToContent.
+      return { content: mcpResultToContent(out), isError: isErr };
     };
 
     const requestApproval = (call) => new Promise((resolve) => {
