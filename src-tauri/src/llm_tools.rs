@@ -6,12 +6,45 @@
 // names forbid '.', so on the wire we encode '.' as '__' and decode on return.
 use serde_json::{json, Value};
 
-pub fn enc_name(name: &str) -> String { name.replace('.', "__") }
-// Inverse of enc_name: decode EVERY "__" back to "." (not just the first) so
-// multi-dot tool names like "tv.chart.set_symbol" round-trip. (A literal "__"
-// inside a real MCP tool name would be ambiguous, but that is not used in
-// practice — tool names use single underscores.)
-pub fn dec_name(name: &str) -> String { name.replace("__", ".") }
+// Bijective encode into the OpenAI function-name charset ([A-Za-z0-9_-], no '.').
+// Escape char is '_':  '_' -> "_u",  '.' -> "_d". This is a true inverse pair:
+// the old encoder (".".replace -> "__") was AMBIGUOUS — a real tool name that
+// itself contained "__" decoded to a "." and mis-routed (fails to the unknown-
+// tool gate). Now every escape sequence is self-delimiting, so "__", "_d", and
+// multi-dot names ("tv.chart.set_symbol") all round-trip.
+pub fn enc_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 4);
+    for c in name.chars() {
+        match c {
+            '_' => out.push_str("_u"),
+            '.' => out.push_str("_d"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+// Inverse of enc_name: walk the escape sequences left-to-right. A naive
+// `.replace("_u","_").replace("_d",".")` would be wrong (the first pass can
+// manufacture a fake "_d"), so decode by scanning.
+pub fn dec_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut chars = name.chars();
+    while let Some(c) = chars.next() {
+        if c == '_' {
+            match chars.next() {
+                Some('u') => out.push('_'),
+                Some('d') => out.push('.'),
+                // Malformed input from the model: keep the bytes verbatim so the
+                // lookup misses and the call gets gated as an unknown tool.
+                Some(other) => { out.push('_'); out.push(other); }
+                None => out.push('_'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
 
 /// Anthropic `tools`: [{ name, description, input_schema }].
 pub fn tools_to_anthropic(tools: &[Value]) -> Value {
@@ -196,16 +229,23 @@ mod tests {
     use super::*;
     #[test]
     fn encodes_and_decodes_dotted_names() {
-        assert_eq!(enc_name("fs.read_file"), "fs__read_file");
-        assert_eq!(dec_name("fs__read_file"), "fs.read_file");
+        assert_eq!(enc_name("fs.read_file"), "fs_dread_ufile");
+        assert_eq!(dec_name("fs_dread_ufile"), "fs.read_file");
         // multi-dot (a server tool name that itself contains a dot) must round-trip
         assert_eq!(dec_name(&enc_name("tv.chart.set_symbol")), "tv.chart.set_symbol");
+        // bijectivity regression: a tool name containing a literal "__" must NOT
+        // collapse to a "." (the old encoder's bug). "a__b" and "a.b" stay distinct.
+        assert_eq!(dec_name(&enc_name("a__b")), "a__b");
+        assert_eq!(dec_name(&enc_name("a.b")), "a.b");
+        assert_ne!(enc_name("a__b"), enc_name("a.b"));
+        // every encoded name is OpenAI-safe (no '.')
+        assert!(!enc_name("x.y_z").contains('.'));
     }
     #[test]
     fn anthropic_tools_shape() {
         let t = vec![json!({"name":"fs.read","description":"d","input_schema":{"type":"object"}})];
         let out = tools_to_anthropic(&t);
-        assert_eq!(out[0]["name"], "fs__read");
+        assert_eq!(out[0]["name"], "fs_dread");
         assert_eq!(out[0]["input_schema"]["type"], "object");
     }
     #[test]
@@ -213,7 +253,7 @@ mod tests {
         let t = vec![json!({"name":"fs.read","description":"d","input_schema":{"type":"object"}})];
         let out = tools_to_openai(&t);
         assert_eq!(out[0]["type"], "function");
-        assert_eq!(out[0]["function"]["name"], "fs__read");
+        assert_eq!(out[0]["function"]["name"], "fs_dread");
         assert_eq!(out[0]["function"]["parameters"]["type"], "object");
     }
     #[test]
@@ -228,7 +268,7 @@ mod tests {
         let a = &out[1];
         assert_eq!(a["role"], "assistant");
         let tu = a["content"].as_array().unwrap().iter().find(|b| b["type"]=="tool_use").unwrap();
-        assert_eq!(tu["name"], "fs__read");
+        assert_eq!(tu["name"], "fs_dread");
         assert_eq!(tu["id"], "c1");
         assert_eq!(tu["input"]["p"], "a");
         let r = &out[2];
@@ -250,7 +290,7 @@ mod tests {
         let a = &out[2];
         assert_eq!(a["role"], "assistant");
         assert_eq!(a["tool_calls"][0]["id"], "c1");
-        assert_eq!(a["tool_calls"][0]["function"]["name"], "fs__read");
+        assert_eq!(a["tool_calls"][0]["function"]["name"], "fs_dread");
         let args_str = a["tool_calls"][0]["function"]["arguments"].as_str().unwrap();
         assert!(args_str.contains("\"p\""));
         let r = &out[3];
@@ -263,7 +303,7 @@ mod tests {
             "stop_reason":"tool_use",
             "content":[
                 {"type":"text","text":"let me read"},
-                {"type":"tool_use","id":"c1","name":"fs__read","input":{"p":"a"}}
+                {"type":"tool_use","id":"c1","name":"fs_dread","input":{"p":"a"}}
             ]
         });
         let r = parse_anthropic_response(&resp);
@@ -278,7 +318,7 @@ mod tests {
         let resp = json!({
             "choices":[{"finish_reason":"tool_calls","message":{
                 "content":null,
-                "tool_calls":[{"id":"c1","type":"function","function":{"name":"fs__read","arguments":"{\"p\":\"a\"}"}}]
+                "tool_calls":[{"id":"c1","type":"function","function":{"name":"fs_dread","arguments":"{\"p\":\"a\"}"}}]
             }}]
         });
         let r = parse_openai_response(&resp);
