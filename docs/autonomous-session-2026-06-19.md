@@ -312,3 +312,31 @@ Code-signing cert (#1), companion CDN vendoring + CSP (#2), app-ACL manifest / R
 gate on pty_spawn+secret_get (#3 ROOT-A), VNC no-auth + RDP TOFU (#5/#6), MCP
 read-only-hint trust (#7), secret_get namespace scoping (#9). All need a purchase, a
 UX decision, or GUI testing.
+
+---
+
+# Resolved 2026-06-30 (supervised session, full adversarial loop)
+
+Four codeable/verifiable deferred items closed, each TDD'd + build/test-gated +
+forward-only, then a self re-review that found + fixed one real follow-up.
+Anchor: tag `auto-safety-2026-06-30` + branch `backup/pre-auto-2026-06-30`.
+
+| commit | deferred item | what |
+|--------|---------------|------|
+| `a054b9b` | sync-session #4 (MED) | bijective MCP tool-name encoder — a literal `__` in a tool name now round-trips (was mis-routed to the unknown-tool gate) |
+| `8f686e8` | sync-session #6 (LOW) | feed only `content[].text` back to the model, not `JSON.stringify(full CallToolResult)` (token bloat + injection surface) |
+| `cb09bfd` | sync-session #3 (LOW) | corrupt/truncated sync blob surfaces as a distinct `corrupt` status, not a generic "error" implying a passphrase problem |
+| `188ac4a` | **security #2 (HIGH)** | **companion CDN vendoring + strict CSP** — xterm + app JS vendored same-origin, inline script externalized to `/app.js`, `script-src 'self'` (no CDN/inline/eval). Kills the hostile-phone-network MITM→desktop-RCE. UMD loader (`new Terminal`, `new FitAddon.FitAddon()`). Rust tests lock the no-CDN invariant. |
+| `1d688f2` | re-review follow-up | a truncated blob fails the outer `JSON.parse` BEFORE `decrypt()`, so cb09bfd missed its most common case; `decryptRemote` now throws `CorruptBlobError` on bad outer JSON. |
+
+Verification at close: 46 vitest + 20 Rust lib tests green, frontend build clean,
+clippy clean. **NOT pushed.**
+
+**REMAINING GATE for #2 (HIGH):** the companion page must be browser-smoked — xterm
+must still render + type + the file/snippet/model overlays work from the vendored
+UMD — before this ships. The Rust tests prove no CDN ref + correct routes/globals,
+but cannot prove the page actually draws. This is the last step to call #2 done.
+
+Still genuinely open (bucket 3, need a purchase / UX decision): code-signing cert
+(#1), app-ACL manifest / Rust gate on pty_spawn+secret_get (#3 ROOT-A), VNC no-auth
++ RDP TOFU (#5/#6), MCP read-only-hint trust (#7), secret_get namespace scoping (#9).
