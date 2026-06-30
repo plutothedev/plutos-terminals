@@ -4,7 +4,7 @@
 // merges with the decrypted remote, applies back to the stores, and pushes the
 // re-encrypted blob. Primary-window gated by the caller.
 import { invoke } from "@backend";
-import { encrypt, decrypt, newSalt } from "./crypto.js";
+import { encrypt, decrypt, newSalt, CorruptBlobError } from "./crypto.js";
 import { merge } from "./merge.js";
 import { writeSurface, deriveLocal, surfaceValueKey } from "./syncState.js";
 import { pushWithRePull } from "./pushRetry.js";
@@ -30,6 +30,16 @@ function saveSnapshot(surface) {
 }
 
 class BadPassphraseError extends Error {}
+
+/** Map a thrown sync error to a status object. A corrupt/truncated remote blob is
+ *  surfaced distinctly from a wrong passphrase (different fix: re-push from a good
+ *  machine, not "retype the passphrase") and from a generic network/git error.
+ *  Deferred-item #3 from docs/autonomous-session-2026-06-19.md. */
+export function classifyError(e) {
+  if (e instanceof BadPassphraseError) return { state: "bad-passphrase" };
+  if (e instanceof CorruptBlobError) return { state: "corrupt" };
+  return { state: "error", msg: String(e) };
+}
 
 async function decryptRemote(res, pass) {
   if (!res.salt || !res.blob) return { fields: {}, fieldMeta: {}, collections: {} };
@@ -81,8 +91,7 @@ export async function syncNow() {
     }
     status({ state: "ok", at: Date.now() });
   } catch (e) {
-    if (e instanceof BadPassphraseError) status({ state: "bad-passphrase" });
-    else status({ state: "error", msg: String(e) });
+    status(classifyError(e));
   } finally {
     busy = false;
   }

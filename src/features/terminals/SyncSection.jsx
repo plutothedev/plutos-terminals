@@ -34,6 +34,7 @@ export default function SyncSection({ userSt, saveUser }) {
   const label = {
     idle: "Not synced", disabled: "Disabled", syncing: "Syncing…",
     ok: "Synced", error: "Error", "bad-passphrase": "Passphrase mismatch",
+    corrupt: "Corrupt sync repo",
   }[status.state] || status.state;
 
   return (
@@ -92,6 +93,12 @@ export default function SyncSection({ userSt, saveUser }) {
       {status.state === "bad-passphrase" && (
         <div style={{ color: "var(--phn-danger, #e66)", fontSize: 12, marginTop: 6 }}>
           That passphrase doesn&apos;t match this sync repo.
+        </div>
+      )}
+      {status.state === "corrupt" && (
+        <div style={{ color: "var(--phn-danger, #e66)", fontSize: 12, marginTop: 6 }}>
+          The remote sync blob is corrupt or truncated. Re-push from a machine whose
+          data is intact (Sync now), rather than retyping the passphrase.
         </div>
       )}
       {status.state === "error" && (
