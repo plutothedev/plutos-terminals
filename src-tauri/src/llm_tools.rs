@@ -7,6 +7,9 @@
 use serde_json::{json, Value};
 
 // Bijective encode into the OpenAI function-name charset ([A-Za-z0-9_-], no '.').
+// (Wire format only — not persisted. Changing the scheme is safe: agent
+// conversations don't survive an app restart, and an MSI upgrade restarts the
+// app, so no in-flight history carries old-encoded names across the change.)
 // Escape char is '_':  '_' -> "_u",  '.' -> "_d". This is a true inverse pair:
 // the old encoder (".".replace -> "__") was AMBIGUOUS — a real tool name that
 // itself contained "__" decoded to a "." and mis-routed (fails to the unknown-

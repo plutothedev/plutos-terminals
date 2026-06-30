@@ -41,11 +41,19 @@ export function classifyError(e) {
   return { state: "error", msg: String(e) };
 }
 
-async function decryptRemote(res, pass) {
+export async function decryptRemote(res, pass) {
   if (!res.salt || !res.blob) return { fields: {}, fieldMeta: {}, collections: {} };
+  // A truncated/garbage remote blob fails the OUTER JSON.parse with a SyntaxError
+  // before decrypt() ever runs — that is the most common "corrupt repo" case, so
+  // classify it as corrupt here rather than letting it fall to the generic error
+  // (which would wrongly tell the user to check their passphrase).
+  let blobParsed;
+  try { blobParsed = JSON.parse(res.blob); }
+  catch { throw new CorruptBlobError("corrupt sync blob: invalid JSON"); }
   try {
-    return JSON.parse(await decrypt(JSON.parse(res.blob), pass, res.salt));
+    return JSON.parse(await decrypt(blobParsed, pass, res.salt));
   } catch (e) {
+    if (e instanceof CorruptBlobError) throw e;
     if (e && e.name === "OperationError") throw new BadPassphraseError("passphrase mismatch");
     throw e;
   }

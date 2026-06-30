@@ -4,6 +4,9 @@
 // script AFTER /vendor/xterm.js and /vendor/addon-fit.js, which expose the UMD
 // globals `Terminal` and `FitAddon` (namespace: `new FitAddon.FitAddon()`).
 const $ = (id) => document.getElementById(id);
+// `status` is a top-level `const`, i.e. a lexical global — it shadows the legacy
+// `window.status` string within this script (intended) but does NOT overwrite the
+// window property (const/let are not added to the global object, unlike var).
 const status = (t, cls) => { const s = $("status"); s.textContent = t; s.className = cls || ""; };
 
 let ws, rpcId = 0, pending = {}, subs = {}, currentId = null, currentTab = null;
