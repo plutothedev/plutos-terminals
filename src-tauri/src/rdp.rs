@@ -9,7 +9,7 @@
 use crate::session::{b64, new_id};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc;
 use std::sync::Mutex;
 
@@ -171,8 +171,22 @@ pub async fn rdp_connect(
     let port = if port == 0 { 3389 } else { port };
     let (req_w, req_h) = (1280u16, 800u16);
 
-    let tcp = TcpStream::connect((host.as_str(), port))
-        .map_err(|e| format!("connect {host}:{port}: {e}"))?;
+    // Bound the TCP connect (a dead host otherwise parks this worker ~21s on Windows);
+    // try each resolved address with a 10s per-address timeout, first success wins.
+    let tcp = {
+        let addrs = (host.as_str(), port)
+            .to_socket_addrs()
+            .map_err(|e| format!("resolve {host}:{port}: {e}"))?;
+        let mut last = String::from("no address resolved");
+        let mut sock = None;
+        for addr in addrs {
+            match TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(10)) {
+                Ok(s) => { sock = Some(s); break; }
+                Err(e) => last = e.to_string(),
+            }
+        }
+        sock.ok_or_else(|| format!("connect {host}:{port}: {last}"))?
+    };
     let client_addr: SocketAddr = tcp.local_addr().map_err(|e| e.to_string())?;
 
     let config = make_config(username, password, domain, req_w, req_h);

@@ -8,7 +8,7 @@
 // (Module is named `vncclient` so it doesn't shadow the `vnc` crate.)
 
 use std::collections::HashMap;
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread;
@@ -111,8 +111,22 @@ pub async fn vnc_connect(
     password: Option<String>,
 ) -> Result<(String, u16, u16), String> {
     let port = if port == 0 { 5900 } else { port };
-    let tcp = TcpStream::connect((host.as_str(), port))
-        .map_err(|e| format!("connect to {host}:{port} failed: {e}"))?;
+    // Bound the TCP connect (a dead host otherwise parks this worker ~21s on Windows);
+    // try each resolved address with a 10s per-address timeout, first success wins.
+    let tcp = {
+        let addrs = (host.as_str(), port)
+            .to_socket_addrs()
+            .map_err(|e| format!("resolve {host}:{port}: {e}"))?;
+        let mut last = String::from("no address resolved");
+        let mut sock = None;
+        for addr in addrs {
+            match TcpStream::connect_timeout(&addr, Duration::from_secs(10)) {
+                Ok(s) => { sock = Some(s); break; }
+                Err(e) => last = e.to_string(),
+            }
+        }
+        sock.ok_or_else(|| format!("connect to {host}:{port} failed: {last}"))?
+    };
     // Bound the RFB handshake (version / security / auth / ServerInit) so a
     // wedged or silent server fails with an error instead of hanging the
     // connect forever. Relaxed for reads after the handshake (below) — a quiet

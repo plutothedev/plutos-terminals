@@ -20,7 +20,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -816,8 +816,24 @@ pub fn connect_session(
     verify_as: Option<(&str, u16)>,
 ) -> Result<ssh2::Session, String> {
     let port = if port == 0 { 22 } else { port };
-    let tcp = TcpStream::connect((host, port))
-        .map_err(|e| format!("connect to {host}:{port} failed: {e}"))?;
+    // Bound the TCP connect: a dead/firewalled host otherwise parks this worker
+    // thread on the OS default (~21s on Windows). Try each resolved address (so a
+    // dual-stack host with an unreachable first address still connects) with a 10s
+    // per-address timeout; first success wins.
+    let tcp = {
+        let addrs = (host, port)
+            .to_socket_addrs()
+            .map_err(|e| format!("resolve {host}:{port}: {e}"))?;
+        let mut last = String::from("no address resolved");
+        let mut sock = None;
+        for addr in addrs {
+            match TcpStream::connect_timeout(&addr, Duration::from_secs(10)) {
+                Ok(s) => { sock = Some(s); break; }
+                Err(e) => last = e.to_string(),
+            }
+        }
+        sock.ok_or_else(|| format!("connect to {host}:{port} failed: {last}"))?
+    };
     let mut sess = ssh2::Session::new().map_err(|e| e.to_string())?;
     // Bound blocking libssh2 ops (handshake, host-key, userauth, channel setup)
     // so a genuinely stalled negotiation fails with an error instead of hanging
