@@ -249,7 +249,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const shellName = useShellName();
 
   // Live system stats (CPU / memory / disk) for the status bar (polled ~2.5s).
-  const sysStats = useSystemStats();
+  const sysStats = useSystemStats(dockTab === "monitor");
 
   // Claude CLI availability — checked once on mount, surfaced in the status bar.
   const claudeAvailable = useClaudeAvailable();
