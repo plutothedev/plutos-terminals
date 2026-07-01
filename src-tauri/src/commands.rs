@@ -410,6 +410,37 @@ pub struct McpInstallResult {
     pub stderr: String,
 }
 
+/// The Windows cmd metacharacters that `cmd /c claude ...` would reparse as command
+/// chaining / redirection / env-expansion (std does not caret-escape them when the
+/// spawned program is cmd.exe). Returns the first argument carrying one, if any.
+fn first_shell_metachar_arg(args: &[String]) -> Option<&str> {
+    args.iter()
+        .map(String::as_str)
+        .find(|a| a.chars().any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '%' | '"' | '\n' | '\r')))
+}
+
+#[cfg(test)]
+mod mcp_install_guard_tests {
+    use super::first_shell_metachar_arg;
+
+    fn v(a: &[&str]) -> Vec<String> {
+        a.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn rejects_cmd_metacharacters_but_allows_normal_paths() {
+        // The injection vectors: a standalone `&`, a `>` redirect, an env-expansion `%`.
+        assert_eq!(first_shell_metachar_arg(&v(&["mcp", "add", "x", "&"])), Some("&"));
+        assert_eq!(first_shell_metachar_arg(&v(&["a>b"])), Some("a>b"));
+        assert_eq!(first_shell_metachar_arg(&v(&["%PATH%"])), Some("%PATH%"));
+        assert_eq!(first_shell_metachar_arg(&v(&["ok", "x|y"])), Some("x|y"));
+        // Legitimate catalog tokens + a normal Windows path carry none of these.
+        assert!(first_shell_metachar_arg(&v(&["mcp", "add", "fs", "--", "npx", "-y", "server"])).is_none());
+        assert!(first_shell_metachar_arg(&v(&["C:\\Users\\pluto\\my-project"])).is_none());
+        assert!(first_shell_metachar_arg(&v(&[])).is_none());
+    }
+}
+
 #[tauri::command]
 pub async fn mcp_install(argv: Vec<String>) -> Result<McpInstallResult, String> {
     if argv.first().map(String::as_str) != Some("claude") {
@@ -436,10 +467,7 @@ pub async fn mcp_install(argv: Vec<String>) -> Result<McpInstallResult, String> 
     // command is directly invokable from the webview, so do not trust the caller:
     // reject any token carrying a shell metacharacter. Legitimate catalog tokens and
     // the resolved home path contain none of these.
-    if let Some(bad) = resolved
-        .iter()
-        .find(|a| a.chars().any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '%' | '"' | '\n' | '\r')))
-    {
+    if let Some(bad) = first_shell_metachar_arg(&resolved) {
         return Err(format!(
             "Refusing MCP install: a path or argument contains a character the Windows shell would misinterpret ({bad}). Pick a folder whose name has no & | < > ^ % or quote characters."
         ));
