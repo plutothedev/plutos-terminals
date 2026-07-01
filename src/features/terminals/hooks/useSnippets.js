@@ -11,7 +11,9 @@ import { DEFAULT_SNIPPETS } from "../SnippetsDrawer.jsx";
 export function useSnippets(st, save) {
   const snippets = Array.isArray(st?.snippets) ? st.snippets : DEFAULT_SNIPPETS;
   const setSnippets = useCallback((next) => {
-    save({ ...st, snippets: next });
-  }, [st, save]);
+    // Functional form so a concurrent cloud-sync applyStores commit isn't reverted
+    // by spreading a stale render-time `st` (the lost-update anti-clobber pattern).
+    save((prev) => ({ ...prev, snippets: next }));
+  }, [save]);
   return { snippets, setSnippets };
 }

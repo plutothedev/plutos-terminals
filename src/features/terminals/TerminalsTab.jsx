@@ -176,9 +176,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // light. A manual flip turns OFF OS sync so the choice sticks.
   const toggleTheme = useCallback(() => {
     const next = headerSkinId === "moba-light" ? "oled" : "moba-light";
-    if (userSt?.themeFollowOS) saveUser({ ...userSt, themeFollowOS: false });
-    save({ ...st, headerSkin: next });
-  }, [headerSkinId, st, save, userSt, saveUser]);
+    // Functional saves so a concurrent cloud-sync applyStores commit isn't reverted
+    // by spreading a stale render-time snapshot (lost-update anti-clobber pattern).
+    if (userSt?.themeFollowOS) saveUser((prev) => ({ ...prev, themeFollowOS: false }));
+    save((prev) => ({ ...prev, headerSkin: next }));
+  }, [headerSkinId, save, userSt, saveUser]);
 
   // Keyboard shortcuts (v0.1.16). Window-level capture so they fire even
   // when xterm has focus. Uses Ctrl+Shift+ for tab/window ops to avoid
