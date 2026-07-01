@@ -284,6 +284,52 @@ pub(crate) fn decode_utf8_stream(pending: &mut Vec<u8>, new_bytes: &[u8]) -> Str
     }
 }
 
+#[cfg(test)]
+mod utf8_stream_tests {
+    use super::decode_utf8_stream;
+
+    #[test]
+    fn multibyte_split_across_chunks_is_not_corrupted() {
+        // The whole point of the carry: a char straddling a read boundary must not
+        // become U+FFFD. 😀 = F0 9F 98 80, split down the middle.
+        let mut p = Vec::new();
+        let a = decode_utf8_stream(&mut p, &[0xF0, 0x9F]);
+        assert_eq!(a, ""); // nothing decodable yet
+        assert_eq!(p, vec![0xF0, 0x9F]); // incomplete tail carried
+        let b = decode_utf8_stream(&mut p, &[0x98, 0x80]);
+        assert_eq!(b, "😀");
+        assert!(p.is_empty());
+    }
+
+    #[test]
+    fn valid_prefix_emitted_incomplete_tail_carried() {
+        // "ab" + first byte of é (C3), then the rest (A9).
+        let mut p = Vec::new();
+        assert_eq!(decode_utf8_stream(&mut p, &[0x61, 0x62, 0xC3]), "ab");
+        assert_eq!(p, vec![0xC3]);
+        assert_eq!(decode_utf8_stream(&mut p, &[0xA9]), "é");
+        assert!(p.is_empty());
+    }
+
+    #[test]
+    fn complete_utf8_returns_all_and_clears() {
+        let mut p = Vec::new();
+        assert_eq!(decode_utf8_stream(&mut p, "hello".as_bytes()), "hello");
+        assert!(p.is_empty());
+    }
+
+    #[test]
+    fn invalid_midbuffer_falls_back_to_lossy_and_clears() {
+        // A genuinely invalid byte mid-buffer (non-UTF-8 shell output) must not be
+        // carried forever; it lossy-decodes and clears (old CP-1252 behavior).
+        let mut p = Vec::new();
+        let s = decode_utf8_stream(&mut p, &[0x41, 0xFF, 0x42]); // A, invalid, B
+        assert!(s.contains('\u{FFFD}'));
+        assert!(s.starts_with('A') && s.ends_with('B'));
+        assert!(p.is_empty());
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn pick_shell() -> (String, Vec<String>) {
     let candidates: Vec<Option<String>> = vec![
