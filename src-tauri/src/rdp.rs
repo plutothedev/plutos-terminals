@@ -260,10 +260,18 @@ fn emit_rect(
     rect: &ironrdp::pdu::geometry::InclusiveRectangle,
 ) {
     let img_w = image.width() as usize;
-    let left = rect.left as usize;
-    let top = rect.top as usize;
-    let rw = (rect.right - rect.left + 1) as usize;
-    let rh = (rect.bottom - rect.top + 1) as usize;
+    let img_h = image.height() as usize;
+    // Guard a malformed server rect: right<left / bottom<top would underflow the u16
+    // subtraction below (panic in debug; a ~65535 wrap -> multi-GB Vec::with_capacity
+    // OOM-abort in release), and a rect past the framebuffer would read out of bounds.
+    // Drop the degenerate case and clamp the span to the decoded image.
+    if rect.right < rect.left || rect.bottom < rect.top {
+        return;
+    }
+    let left = (rect.left as usize).min(img_w);
+    let top = (rect.top as usize).min(img_h);
+    let rw = ((rect.right - rect.left) as usize + 1).min(img_w - left);
+    let rh = ((rect.bottom - rect.top) as usize + 1).min(img_h - top);
     let data = image.data();
     let stride = img_w * 4;
     let mut out = Vec::with_capacity(rw * rh * 4);

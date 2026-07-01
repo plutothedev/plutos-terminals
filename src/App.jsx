@@ -301,14 +301,16 @@ function AppInner() {
   // v0.1.20 (the picker was removed; one canonical look across all skins).
   useEffect(() => { injectHeaderSkinsCss(); }, []);
 
-  // v4.0 one-time migration: force the "moba" (MobaXterm) skin + layout once so
-  // everyone lands on the new default look. They can switch skins afterward —
-  // we only override while mobaDefaultForced is unset.
+  // v4.0 one-time migration: force the "moba" (MobaXterm) LAYOUT once so everyone
+  // lands on the new layout. The SKIN is intentionally NOT forced here: the OLED
+  // default migration above owns headerSkin, and forcing "moba" would override it and
+  // land fresh v0.4.3 installs on the wrong (non-OLED) skin. Only overrides while
+  // mobaDefaultForced is unset.
   useEffect(() => {
     if (st?.mobaDefaultForced) return;
     // Functional form: child (TerminalsTab) mount effects run before this parent
-    // effect — a spread of the render-time `st` here would clobber their saves.
-    save((prev) => ({ ...prev, headerSkin: "moba", uiLayout: "moba", mobaDefaultForced: true }));
+    // effect; a spread of the render-time `st` here would clobber their saves.
+    save((prev) => ({ ...prev, uiLayout: "moba", mobaDefaultForced: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
