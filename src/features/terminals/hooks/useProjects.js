@@ -103,7 +103,10 @@ export function useProjects({ state, persist, projects, toast, selectRibbonRef }
       toast.info(`~/.ssh/config: all ${entries.length} host${entries.length === 1 ? "" : "s"} already imported.`);
       return;
     }
-    persist({ ...state, projects: [...projects, ...fresh] });
+    // Functional form: this runs after the parse_ssh_config await, so spreading the
+    // render-time `state` would revert a grid mutation / drop a project added during
+    // that window. Append onto the LATEST committed projects.
+    persist((prev) => ({ ...prev, projects: [...(prev.projects || []), ...fresh] }));
     selectRibbonRef.current("sessions");
     toast.success(`Imported ${fresh.length} session${fresh.length === 1 ? "" : "s"} from ~/.ssh/config.`);
     // selectRibbonRef.current is selectRibbon, assigned each render in TerminalsTab

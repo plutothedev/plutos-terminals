@@ -295,7 +295,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   } = useTabTelemetry({ state, projects });
 
   const persist = useCallback((next) => {
-    save((prev) => ({ ...prev, terminalsState: next }));
+    // Accept a value OR a functional updater (like save): callers running after an
+    // await should pass (prevTerminalsState) => ... so a concurrent commit isn't
+    // clobbered by a stale render-time spread (the lost-update anti-clobber form).
+    save((prev) => ({
+      ...prev,
+      terminalsState: typeof next === "function" ? next(prev.terminalsState) : next,
+    }));
   }, [save]);
 
   // ── Panel / tab / pane tree mutations (the workspace reducer) ───────
