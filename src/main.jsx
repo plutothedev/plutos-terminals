@@ -9,6 +9,15 @@ if (typeof document !== "undefined" && document.fonts?.load) {
   document.fonts.load("13px 'MesloLGS NF'").catch(() => {});
 }
 
+// Surface unhandled promise rejections instead of silently swallowing them; paired
+// with the top-level ErrorBoundary (which catches render-time throws) for basic
+// resilience against otherwise-invisible failures.
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (e) => {
+    try { console.error("Pluto's Terminal: unhandled promise rejection", e.reason); } catch { /* noop */ }
+  });
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <App />

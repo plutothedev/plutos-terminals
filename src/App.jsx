@@ -13,6 +13,7 @@ import {
 } from "./features/terminals/secretVault.js";
 import { ToastProvider } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
+import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import {
   getLayoutId,
   injectHeaderSkinsCss,
@@ -75,7 +76,9 @@ export default function App() {
   return (
     <ToastProvider>
       <ConfirmProvider>
-        <AppInner />
+        <ErrorBoundary storageKey={STORAGE_KEY}>
+          <AppInner />
+        </ErrorBoundary>
       </ConfirmProvider>
     </ToastProvider>
   );
