@@ -14,7 +14,7 @@ use std::sync::mpsc;
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use ironrdp::connector::{ClientConnector, Config, DesktopSize, ServerName};
 use ironrdp::session::image::DecodedImage;
@@ -418,6 +418,10 @@ fn rdp_worker<S: Read + Write>(
             break;
         }
     }
+    // Server-initiated disconnect: drop our own registry entry (the input mpsc
+    // sender) before signalling exit, so a closed session doesn't linger in the map
+    // until rdp_disconnect (mirrors the pty reader's cleanup at pty.rs:569).
+    let _ = app.state::<RdpRegistry>().sessions.lock().map(|mut s| s.remove(&id));
     let _ = app.emit(&format!("rdp-exit://{}", id), ());
 }
 

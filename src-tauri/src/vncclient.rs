@@ -17,7 +17,7 @@ use std::time::Duration;
 use crate::session::{b64, new_id};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Input messages from the renderer → the VNC worker thread.
 enum VncCtrl {
@@ -236,6 +236,9 @@ fn vnc_worker(
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
+                    // Drop our registry entry (input mpsc sender) before signalling
+                    // exit, so a server-closed session doesn't linger until vnc_disconnect.
+                    let _ = app.state::<VncRegistry>().sessions.lock().map(|mut s| s.remove(&id));
                     let _ = app.emit(&format!("vnc-exit://{}", id), ());
                     return;
                 }
@@ -277,6 +280,9 @@ fn vnc_worker(
                     );
                 }
                 vnc::client::Event::Disconnected(_) => {
+                    // Drop our registry entry (input mpsc sender) before signalling
+                    // exit, so a server-closed session doesn't linger until vnc_disconnect.
+                    let _ = app.state::<VncRegistry>().sessions.lock().map(|mut s| s.remove(&id));
                     let _ = app.emit(&format!("vnc-exit://{}", id), ());
                     return;
                 }
