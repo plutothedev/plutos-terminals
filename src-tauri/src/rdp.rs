@@ -106,6 +106,17 @@ fn server_public_key(cert_der: &[u8]) -> Result<Vec<u8>, String> {
 /// refuses the connection (possible man-in-the-middle).
 fn verify_rdp_pin(app: &AppHandle, host: &str, port: u16, spki: &[u8]) -> Result<(), String> {
     use sha2::{Digest, Sha256};
+    // Serialize the read-check-append so two concurrent first-connects to the
+    // same never-seen host (double-clicked Connect, two tabs auto-reconnecting)
+    // can't both pass the "not found" branch and race to pin — under an active
+    // MITM the attacker's cert could otherwise win the append and get durably
+    // trusted. One process-wide lock is enough: there's a single app instance.
+    static PIN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // Recover from poisoning rather than failing closed forever: the lock guards
+    // only file-write serialization (no invariant-bearing in-memory state), so a
+    // prior panic in the short critical section must not permanently disable RDP
+    // pinning for the rest of the app's lifetime.
+    let _pin_guard = PIN_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let fp: String = Sha256::digest(spki)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -299,8 +310,12 @@ fn emit_rect(
     let _ = app.emit(
         &format!("rdp-frame://{}", id),
         RdpFrame {
-            x: rect.left,
-            y: rect.top,
+            // Emit the CLAMPED origin so x/y stay consistent with w/h and the
+            // extracted pixels (raw rect.left/top would mis-position a tile whose
+            // origin was clamped to the framebuffer). Equal to rect.left/top in
+            // the normal, non-degenerate case.
+            x: left as u16,
+            y: top as u16,
             w: rw as u16,
             h: rh as u16,
             data: b64(&out),

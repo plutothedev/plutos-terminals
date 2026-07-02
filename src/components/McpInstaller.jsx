@@ -75,6 +75,18 @@ export default function McpInstaller({ open, onClose }) {
   const [configured, setConfigured] = useState([]);
   const [addingId, setAddingId] = useState(null);
   const toast = useToast();
+  // Masked in-app secret prompt (replaces window.prompt for access tokens so a
+  // token never renders in cleartext in an OS prompt box). askSecret() shows the
+  // sub-modal and resolves with the entered value, or null if the user skips.
+  const [secretPrompt, setSecretPrompt] = useState(null); // { label, resolve } | null
+  const [secretValue, setSecretValue] = useState("");
+  const askSecret = (label) =>
+    new Promise((resolve) => { setSecretValue(""); setSecretPrompt({ label, resolve }); });
+  const closeSecret = (val) => {
+    if (secretPrompt) secretPrompt.resolve(val);
+    setSecretPrompt(null);
+    setSecretValue("");
+  };
 
   const refreshConfigured = () => {
     invoke("mcp_servers_list").then(setConfigured).catch(() => {});
@@ -132,12 +144,14 @@ export default function McpInstaller({ open, onClose }) {
       const sepIdx = fullArgv.indexOf("--");
       let realArgv = sepIdx !== -1 ? fullArgv.slice(sepIdx + 1) : fullArgv;
 
-      // Expand directory placeholders via prompt.
+      // Expand directory placeholders via the native folder picker (a real,
+      // existing directory — the same picker onInstall uses; avoids window.prompt).
       const needsDir = realArgv.some((a) => /\$\{?PWD\}?|\$HOME|%USERPROFILE%/.test(a));
       if (needsDir) {
-        const dir = window.prompt("Directory to expose to this MCP server:", "");
-        if (dir === null) {
-          toast.info("Add to agent cancelled.");
+        let dir = null;
+        try { dir = await invoke("pick_directory"); } catch { dir = null; }
+        if (!dir) {
+          toast.info("Add to agent cancelled — pick the directory to expose.");
           setAddingId(null);
           return;
         }
@@ -154,7 +168,9 @@ export default function McpInstaller({ open, onClose }) {
       const tokenKey = NEEDS_TOKEN[mcp.id] || (mcp.notes && /token|PAT/i.test(mcp.notes) ? Object.values(NEEDS_TOKEN)[0] : null);
       if (tokenKey || mcp.id === "github") {
         const key = tokenKey || "GITHUB_PERSONAL_ACCESS_TOKEN";
-        const token = window.prompt(`Access token for this server (leave blank to skip):`, "");
+        // Masked in-app modal, not window.prompt: the token must not show in
+        // cleartext. It still routes only to secret_set (OS keychain) below.
+        const token = await askSecret(`Access token for ${mcp.name} (${key}). Leave blank to skip.`);
         if (token) {
           secret_keys = [key];
           await invoke("secret_set", {
@@ -336,7 +352,7 @@ export default function McpInstaller({ open, onClose }) {
                 </button>
                 <button
                   onClick={() => onAddToAgent(mcp)}
-                  disabled={addingId === mcp.id || configured.some((s) => s.id === mcp.id)}
+                  disabled={addingId != null || !!secretPrompt || configured.some((s) => s.id === mcp.id)}
                   style={{
                     background: configured.some((s) => s.id === mcp.id) ? "#34D399" : "transparent",
                     border: `1px solid ${configured.some((s) => s.id === mcp.id) ? "#34D399" : BORDER}`,
@@ -345,7 +361,7 @@ export default function McpInstaller({ open, onClose }) {
                     borderRadius: 3,
                     fontFamily: M,
                     fontSize: 10,
-                    cursor: (addingId === mcp.id || configured.some((s) => s.id === mcp.id)) ? "default" : "pointer",
+                    cursor: (addingId != null || !!secretPrompt || configured.some((s) => s.id === mcp.id)) ? "default" : "pointer",
                     whiteSpace: "nowrap",
                     opacity: addingId === mcp.id ? 0.6 : 1,
                   }}
@@ -408,6 +424,41 @@ export default function McpInstaller({ open, onClose }) {
         . The standard Claude Code install pattern is{" "}
         <code style={{ background: "var(--phn-surface-bg, #181818)", padding: "1px 4px", borderRadius: 2 }}>claude mcp add &lt;name&gt; -- npx -y &lt;package&gt;</code>.
       </div>
+
+      {/* Masked access-token prompt (replaces window.prompt for secrets). */}
+      <Modal open={!!secretPrompt} title="Access token" onClose={() => closeSecret(null)} width={420}>
+        <p style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.5, marginTop: 0 }}>
+          {secretPrompt?.label}
+        </p>
+        <input
+          type="password"
+          autoFocus
+          value={secretValue}
+          onChange={(e) => setSecretValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") closeSecret(secretValue); }}
+          placeholder="Paste token — stored in the OS keychain, never localStorage"
+          style={{
+            width: "100%", boxSizing: "border-box",
+            background: "var(--phn-page-bg, #0a0a0a)", border: `1px solid ${BORDER}`,
+            borderRadius: 4, color: FG_ACTIVE, padding: "7px 9px", fontSize: 12,
+            fontFamily: M, outline: "none",
+          }}
+        />
+        <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+          <button
+            onClick={() => closeSecret(null)}
+            style={{ background: "transparent", border: `1px solid ${BORDER}`, color: FG, padding: "6px 12px", borderRadius: 4, fontSize: 11, cursor: "pointer", fontFamily: M }}
+          >
+            skip
+          </button>
+          <button
+            onClick={() => closeSecret(secretValue)}
+            style={{ background: ACCENT, border: `1px solid ${ACCENT}`, color: "#001", padding: "6px 12px", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: M }}
+          >
+            set token
+          </button>
+        </div>
+      </Modal>
     </Modal>
   );
 }

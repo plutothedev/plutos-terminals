@@ -394,7 +394,7 @@ function Welcome({ discordUrl, onContinue }) {
         </div>
 
         <p style={{ color: "var(--phn-text-fg)", fontSize: "var(--phn-fs-base)", lineHeight: "var(--phn-lh)", marginBottom: "var(--phn-sp-5)" }}>
-          A free, open-source terminal for the <strong style={{ color: "var(--phn-text-active)" }}>Pluto community</strong>.
+          A free, source-available terminal for the <strong style={{ color: "var(--phn-text-active)" }}>Pluto community</strong>.
           Run Claude Code, Codex and other agents side by side — each in its own git worktree, pointed at
           {" "}<strong style={{ color: "var(--phn-text-active)" }}>any model you like</strong>.
         </p>
@@ -446,7 +446,7 @@ function Welcome({ discordUrl, onContinue }) {
         </div>
 
         <div style={{ color: "var(--phn-text-faint)", fontSize: "var(--phn-fs-2xs)", fontFamily: "var(--phn-mono-font)" }}>
-          v{APP_VERSION} · github.com/plutothedev/plutos-terminals · MIT
+          v{APP_VERSION} · github.com/plutothedev/plutos-terminals · source-available
         </div>
       </div>
     </div>

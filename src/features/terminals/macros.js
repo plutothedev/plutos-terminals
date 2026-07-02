@@ -8,6 +8,11 @@ const KEY = "plutos-terminals:macros:v0";
 let recording = false;
 let armedTabId = null; // only this tab's keystrokes are captured
 let buffer = "";
+// Cap the capture buffer so an armed recording left running through a large
+// paste / output-echoing loop can't grow unbounded in memory (mirrors the
+// scrollback 100KB and recording 100k-event caps). Once hit, we stop appending;
+// the recorded macro is truncated rather than the process ballooning.
+const MACRO_BUFFER_CAP = 256 * 1024;
 const listeners = new Set();
 const changeListeners = new Set(); // fired when the saved macros LIST changes (for cloud sync)
 
@@ -48,7 +53,12 @@ export function stopMacroRecording() {
 // Called from every terminal's onData; appends only while recording AND only for
 // the armed tab (null = any, for back-compat callers that don't pass a tab).
 export function recordInput(tabId, data) {
-  if (recording && typeof data === "string" && (armedTabId == null || tabId === armedTabId)) buffer += data;
+  if (recording && typeof data === "string" && (armedTabId == null || tabId === armedTabId)) {
+    if (buffer.length >= MACRO_BUFFER_CAP) return; // capped — stop growing
+    buffer += data.length > MACRO_BUFFER_CAP - buffer.length
+      ? data.slice(0, MACRO_BUFFER_CAP - buffer.length)
+      : data;
+  }
 }
 
 export function loadMacros() {

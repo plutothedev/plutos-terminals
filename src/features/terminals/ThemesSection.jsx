@@ -81,9 +81,12 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
       title: "Delete theme?", confirmLabel: "delete", destructive: true,
     });
     if (!ok) return;
-    saveUser({ ...userSt, customThemes: themes.filter((t) => t.id !== theme.id) });
+    // Functional form: the confirm() dialog await is bounded only by how long the
+    // user takes to click, the widest lost-update window of all (invariant 3) — a
+    // concurrent settings edit / sync poll landing mid-dialog must not be reverted.
+    saveUser((prev) => ({ ...prev, customThemes: (prev.customThemes || []).filter((t) => t.id !== theme.id) }));
     if (active === CUSTOM_PREFIX + theme.id) {
-      save({ ...st, headerSkin: theme.dark === false ? "moba-light" : "oled" });
+      save((prev) => ({ ...prev, headerSkin: theme.dark === false ? "moba-light" : "oled" }));
     }
     toast.success(`Deleted “${theme.name}”.`);
   };

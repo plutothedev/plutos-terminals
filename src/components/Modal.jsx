@@ -4,13 +4,23 @@
 // reference the old constant names; values intentionally point at safe
 // defaults (the actual rendering uses skin CSS vars via classes).
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export default function Modal({ open, title, onClose, children, width = 520 }) {
+  const overlayRef = useRef(null);
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Only the TOPMOST modal reacts to Escape. A nested modal renders inside its
+      // parent's body, so it is the last `.phn-modal-overlay` in document order;
+      // gating on that stops one Escape from dismissing both stacked dialogs.
+      // Checking the live DOM at event time is robust to effect re-runs from an
+      // unstable onClose prop (a counter/depth approach is not).
+      const overlays = document.querySelectorAll(".phn-modal-overlay");
+      if (overlays.length === 0 || overlays[overlays.length - 1] === overlayRef.current) {
+        onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -20,6 +30,7 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
 
   return (
     <div
+      ref={overlayRef}
       className="phn-modal-overlay"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >

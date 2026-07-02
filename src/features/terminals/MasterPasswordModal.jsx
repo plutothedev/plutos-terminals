@@ -22,15 +22,19 @@ export default function MasterPasswordModal({ open, userSt, saveUser, onClose })
     if (next.length < 8) { toast.error("Use at least 8 characters."); return; }
     if (next !== confirm) { toast.error("New passwords don't match."); return; }
     const hash = await hashPassword(next);
-    saveUser({ ...userSt, masterPasswordHash: hash });
+    // Functional form: hashPassword is ~600k PBKDF2 iterations, so a concurrent
+    // saveUser (cloud-sync poll, another window) can land during the await; a
+    // spread of the pre-await userSt would revert it (lost-update, invariant 3).
+    saveUser((prev) => ({ ...prev, masterPasswordHash: hash }));
     toast.success(isSet ? "Master password changed." : "Master password set — asked on next launch.");
     reset(); onClose();
   };
 
   const remove = async () => {
     if (!(await verifyCurrent())) { toast.error("Current password is incorrect."); return; }
-    const { masterPasswordHash, ...rest } = userSt;
-    saveUser(rest);
+    // Functional form: verifyCurrent awaits a PBKDF2/legacy-SHA256 hash, so derive
+    // `rest` from the latest committed state, not the pre-await snapshot (invariant 3).
+    saveUser((prev) => { const { masterPasswordHash, ...rest } = prev; return rest; });
     toast.success("Master password removed.");
     reset(); onClose();
   };

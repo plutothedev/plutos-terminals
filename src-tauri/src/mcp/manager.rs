@@ -19,6 +19,17 @@ fn conns() -> &'static Mutex<HashMap<String, Arc<Mutex<McpConn>>>> {
     CONNS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+// Serializes the config-file read-modify-write cycle. mcp_server_add/remove each
+// load the whole list, mutate it, and save it back; two concurrent invocations
+// would otherwise lost-update mcp-servers.json (both read the same base, both
+// write, one edit vanishes) and could collide on the save tmp file. The
+// read-only paths (list/call/reconnect) don't take this lock. Always release it
+// before taking `conns()` so the two locks never nest (no deadlock ordering).
+static CFG_WRITE: OnceLock<Mutex<()>> = OnceLock::new();
+fn cfg_write_lock() -> &'static Mutex<()> {
+    CFG_WRITE.get_or_init(|| Mutex::new(()))
+}
+
 fn secret_account(id: &str, key: &str) -> String { format!("mcp-secret:{id}:{key}") }
 
 // Resolve a server's secrets from the keychain into (extra env, optional bearer).
@@ -61,6 +72,7 @@ pub async fn mcp_servers_list(app: tauri::AppHandle) -> Result<Vec<ServerCfg>, S
 
 #[tauri::command]
 pub async fn mcp_server_add(app: tauri::AppHandle, cfg: ServerCfg) -> Result<(), String> {
+    let _w = cfg_write_lock().lock().await; // serialize the read-modify-write
     let path = config_path(&app)?;
     let mut cfgs = load_configs(&path)?;
     cfgs.retain(|c| c.id != cfg.id); // replace existing by id
@@ -70,10 +82,15 @@ pub async fn mcp_server_add(app: tauri::AppHandle, cfg: ServerCfg) -> Result<(),
 
 #[tauri::command]
 pub async fn mcp_server_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let path = config_path(&app)?;
-    let mut cfgs = load_configs(&path)?;
-    cfgs.retain(|c| c.id != id);
-    save_configs(&path, &cfgs)?;
+    // Scope the write lock so it's dropped before we take conns() below — the two
+    // locks must never nest (see cfg_write_lock's note on ordering).
+    {
+        let _w = cfg_write_lock().lock().await;
+        let path = config_path(&app)?;
+        let mut cfgs = load_configs(&path)?;
+        cfgs.retain(|c| c.id != id);
+        save_configs(&path, &cfgs)?;
+    }
     conns().lock().await.remove(&id);
     Ok(())
 }

@@ -53,6 +53,11 @@ export function unregisterPty(tabId) {
   ptyIds.delete(tabId);
   dims.delete(tabId);
   visible.delete(tabId);
+  // Fail an in-flight agent capture fast: without this a runAndCapture on a tab
+  // that's being closed sits idle until its 120s timeout (the writer is already
+  // gone, so no block-done can ever arrive to resolve it).
+  const cap = pendingCapture.get(tabId);
+  if (cap) { pendingCapture.delete(tabId); cap.resolve(null); }
   emitDims();
 }
 

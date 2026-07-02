@@ -48,13 +48,18 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
     const prompt =
       `Exit code: ${block.exitCode}\n\n--- terminal (command + output) ---\n` +
       block.text.slice(-3500);
+    // Staleness guard: a slow llm_complete for a since-dismissed block (or a
+    // switch to a different failed block) must not overwrite the current answer
+    // or fire setState after unmount.
+    let cancelled = false;
     invoke("llm_complete", {
       kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
       model: llm.model, system: SYSTEM, prompt,
     })
-      .then((t) => setAnswer(typeof t === "string" ? t.trim() : ""))
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .then((t) => { if (!cancelled) setAnswer(typeof t === "string" ? t.trim() : ""); })
+      .catch((e) => { if (!cancelled) setError(String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [block]);
 
   if (!block) return null;

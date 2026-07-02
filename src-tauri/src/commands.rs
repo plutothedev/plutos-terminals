@@ -166,7 +166,14 @@ pub async fn worktree_add(repo: String, branch: String) -> Result<String, String
     if !repo_path.join(".git").exists() {
         return Err("Not a git repository (no .git found).".into());
     }
-    let safe = sanitize_branch(&branch);
+    let mut safe = sanitize_branch(&branch);
+    // git reads a leading '-' as a flag, so a sanitized name like "--upload-pack"
+    // would be a latent argument-injection surface if the arg order ever changed;
+    // also refuse an empty result. Callers pass agent/<ts>, but this command is
+    // directly invokable from the webview, so don't trust the input.
+    if safe.is_empty() || safe.starts_with('-') {
+        safe = format!("wt-{}", safe.trim_start_matches('-'));
+    }
     let wt = repo_path.join(".worktrees").join(safe.replace('/', "-"));
 
     // Keep .worktrees/ out of `git status` via the repo's local exclude file.
@@ -196,6 +203,29 @@ pub async fn worktree_add(repo: String, branch: String) -> Result<String, String
 
 #[tauri::command]
 pub async fn worktree_remove(repo: String, path: String) -> Result<(), String> {
+    // Only remove a worktree that actually lives under the repo. This command is
+    // directly invokable from the webview with a raw path and runs a --force
+    // remove; confining it to the repo tree keeps a hostile/buggy caller from
+    // pointing it at an unrelated registered worktree elsewhere on disk.
+    let repo_c = std::fs::canonicalize(&repo).map_err(|e| e.to_string())?;
+    // Don't require the leaf to exist: `git worktree remove --force` is also how
+    // you prune a worktree whose directory was already deleted by hand. Resolve
+    // the nearest existing ancestor and re-append the missing tail, so a
+    // deleted-dir worktree can still be pruned while containment is still proven.
+    let path_c = match std::fs::canonicalize(&path) {
+        Ok(c) => c,
+        Err(_) => {
+            let pb = PathBuf::from(&path);
+            let parent = pb.parent().ok_or("path not accessible")?;
+            let file = pb.file_name().ok_or("path not accessible")?;
+            std::fs::canonicalize(parent)
+                .map_err(|_| "path not accessible".to_string())?
+                .join(file)
+        }
+    };
+    if !path_c.starts_with(&repo_c) {
+        return Err("refusing to remove a worktree outside the repository".into());
+    }
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(&repo)
@@ -438,6 +468,22 @@ mod mcp_install_guard_tests {
         assert!(first_shell_metachar_arg(&v(&["mcp", "add", "fs", "--", "npx", "-y", "server"])).is_none());
         assert!(first_shell_metachar_arg(&v(&["C:\\Users\\pluto\\my-project"])).is_none());
         assert!(first_shell_metachar_arg(&v(&[])).is_none());
+    }
+
+    // Rationale lock (audit 2026-07-01): the guard blocks the cmd.exe chars that
+    // actually enable command chaining / redirection / env-expansion. It does NOT
+    // block `(` `)` `!` and that is deliberate: cmd.exe needs a command separator
+    // (& | newline — all blocked) to start a new command, so a bare paren stays
+    // argument text and can't inject; `!` is inert unless delayed expansion is on
+    // (this code uses plain `cmd /c`, never `cmd /v:on`). Blocking `(` `)` would
+    // instead reject legitimate paths like `C:\Program Files (x86)\...`. This test
+    // pins that decision so a well-meaning "tighten the list" change gets a review.
+    #[test]
+    fn parens_and_bang_are_intentionally_allowed() {
+        assert!(first_shell_metachar_arg(&v(&["C:\\Program Files (x86)\\tool"])).is_none());
+        assert!(first_shell_metachar_arg(&v(&["path", "with!bang"])).is_none());
+        // …but a real chaining primitive next to them is still caught.
+        assert_eq!(first_shell_metachar_arg(&v(&["(evil)", "&", "calc"])), Some("&"));
     }
 }
 

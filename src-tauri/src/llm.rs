@@ -40,7 +40,19 @@ fn is_private_or_local(host: &str) -> bool {
         return ip.is_loopback() || ip.is_private() || ip.is_link_local();
     }
     if let Ok(ip) = h.parse::<std::net::Ipv6Addr>() {
-        return ip.is_loopback();
+        // An IPv4-mapped v6 address (::ffff:a.b.c.d) is the same host as its v4
+        // form — classify by the embedded v4 so ::ffff:127.0.0.1 counts as local.
+        if let Some(v4) = ip.to_ipv4_mapped() {
+            return v4.is_loopback() || v4.is_private() || v4.is_link_local();
+        }
+        // is_unique_local()/is_unicast_link_local() are unstable, so match the
+        // prefixes directly: unique-local fc00::/7 and link-local fe80::/10 are
+        // the v6 equivalents of the RFC1918 / 169.254 ranges allowed above, so a
+        // self-hosted LLM gateway on a v6 LAN is reachable over http like a v4 one.
+        let seg0 = ip.segments()[0];
+        let unique_local = (seg0 & 0xfe00) == 0xfc00; // fc00::/7
+        let link_local = (seg0 & 0xffc0) == 0xfe80; // fe80::/10
+        return ip.is_loopback() || unique_local || link_local;
     }
     false
 }
@@ -121,6 +133,21 @@ mod base_url_tests {
         assert!(is_private_or_local("192.168.0.1"));
         assert!(!is_private_or_local("8.8.8.8"));
         assert!(!is_private_or_local("localhost.evil.com"));
+    }
+
+    #[test]
+    fn private_host_classification_ipv6() {
+        // loopback + the v6 equivalents of the RFC1918 / link-local ranges.
+        assert!(is_private_or_local("::1"));
+        assert!(is_private_or_local("[::1]"));
+        assert!(is_private_or_local("fd00::1")); // unique-local fc00::/7
+        assert!(is_private_or_local("fc00::abcd"));
+        assert!(is_private_or_local("fe80::1")); // link-local fe80::/10
+        assert!(is_private_or_local("::ffff:127.0.0.1")); // v4-mapped loopback
+        assert!(is_private_or_local("::ffff:192.168.1.5")); // v4-mapped private
+        // public v6 must still be rejected (http key-leak protection holds).
+        assert!(!is_private_or_local("2001:4860:4860::8888")); // Google public DNS
+        assert!(!is_private_or_local("::ffff:8.8.8.8")); // v4-mapped public
     }
 }
 

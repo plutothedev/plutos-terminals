@@ -42,7 +42,16 @@ pub fn config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String>
 pub fn save_configs(path: &Path, cfgs: &[ServerCfg]) -> Result<(), String> {
     if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
     let json = serde_json::to_string_pretty(cfgs).map_err(|e| e.to_string())?;
-    std::fs::write(path, json).map_err(|e| e.to_string())
+    // Atomic replace (write-tmp + rename), the same pattern write_store and the
+    // pty.rs scrollback truncation use: a crash / power-cut mid-write must not
+    // truncate mcp-servers.json to a partial/empty file and drop the server list.
+    // The tmp name is per-process (distinct across app instances); same-process
+    // concurrent writers are serialized by manager::cfg_write_lock, so the two
+    // together mean no writer ever races another for this tmp path.
+    let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("mcp-servers.json");
+    let tmp = path.with_file_name(format!("{fname}.tmp{}", std::process::id()));
+    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
