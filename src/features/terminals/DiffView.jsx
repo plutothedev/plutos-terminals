@@ -73,7 +73,15 @@ export default function DiffView({ open, worktree, onClose, onDiscard }) {
     : "";
 
   return (
-    <Modal open={open} title={worktree ? `Review · ${worktree.branch}` : "Review"} onClose={onClose} width={760}>
+    <Modal
+      open={open}
+      title={worktree ? `Review · ${worktree.branch}` : "Review"}
+      // Block Escape / backdrop / × while a discard is mid-retry (~2.5s) so the
+      // user can't dismiss the modal and then get a stray toast from the
+      // still-running removal. Re-enabled the moment discarding settles.
+      onClose={discarding ? () => {} : onClose}
+      width={760}
+    >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <span style={{ fontSize: 11, color: "var(--phn-text-dim, #888)" }}>{stat}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
