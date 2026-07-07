@@ -214,7 +214,10 @@ export function useWorkspaceTree({ state, persist, toast }) {
     const panel = st.panels.find(p => p.id === panelId);
     const src = panel?.tabs.find(t => t.id === tabId);
     if (!src) return;
-    const copy = { ...src, id: freshId("tab"), layout: undefined, activePaneId: undefined };
+    // Strip `worktree`: an agent worktree is a 1:1 branch+dir, not duplicable —
+    // two tabs sharing a worktree path would let a discard delete the folder out
+    // from under the sibling's still-running shell. The copy is a plain tab.
+    const copy = { ...src, id: freshId("tab"), worktree: undefined, layout: undefined, activePaneId: undefined };
     // Carry the source tab's transient SSH password (in-memory bridge, keyed by
     // tab id) to the copy — same host/user/config, so the duplicate can spawn
     // without re-prompting for a password the user just typed.

@@ -315,6 +315,37 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
   } = useWorkspaceTree({ state, persist, toast });
 
+  // Discard an agent worktree from the diff-review modal. Close EVERY tab bound
+  // to it first — a live shell cwd'd inside the folder would block git's --force
+  // remove on Windows (there's normally exactly one owner; closing all defends a
+  // stray sibling). Then retry the removal with backoff, since the PTY (and its
+  // child agent) release the directory handle asynchronously after the kill. On
+  // final failure the folder is intact and the modal stays open to retry.
+  const discardWorktree = useCallback(async (wt) => {
+    if (!wt?.path) return;
+    const owners = [];
+    for (const p of state.panels) {
+      for (const t of p.tabs) {
+        if (t.worktree?.path === wt.path) owners.push({ panelId: p.id, tabId: t.id });
+      }
+    }
+    for (const o of owners) closeTab(o.panelId, o.tabId);
+    let lastErr = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 400 : 700));
+      try {
+        await invoke("worktree_remove", { repo: wt.repo, path: wt.path });
+        toast.success(`Worktree "${wt.branch}" discarded.`);
+        setDiffWorktree(null);
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    // Leave the modal open so the user can retry once any running agent exits.
+    toast.error(`Couldn't remove the worktree — a process may still be using it. Close any running agent and try again. (${lastErr})`);
+  }, [state.panels, closeTab, toast]);
+
   // ── Project mutations ──────────────────────────────────────────────
   // importSshConfig reveals the imported hosts via selectRibbon, which is
   // declared far below — bridge it through a ref so passing it doesn't touch a
@@ -1195,6 +1226,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         open={!!diffWorktree}
         worktree={diffWorktree}
         onClose={() => setDiffWorktree(null)}
+        onDiscard={discardWorktree}
       />
 
       <ModelPicker

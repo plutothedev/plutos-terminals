@@ -64,11 +64,15 @@ export function cloneWorkspaceFresh(ws) {
     const tabs = (p.tabs || []).map((t) => {
       const newTabId = freshId("tab");
       if (t.id === p.activeTabId) newActiveTabId = newTabId;
-      if (!t.layout) return { ...t, id: newTabId, activePaneId: newTabId };
+      // Strip `worktree`: a loaded workspace tab is a fresh instance, and a live
+      // worktree is a 1:1 branch+dir. Carrying the tag would let two windows
+      // point at the same worktree path — a discard from one could delete the
+      // folder under the other's live shell (same bug class as duplicateTab).
+      if (!t.layout) return { ...t, id: newTabId, worktree: undefined, activePaneId: newTabId };
       const map = {};
       const layout = regenLayout(t.layout, map);
       const activePaneId = map[t.activePaneId] || leafIds(layout)[0] || newTabId;
-      return { ...t, id: newTabId, layout, activePaneId };
+      return { ...t, id: newTabId, worktree: undefined, layout, activePaneId };
     });
     return { id: newPanelId, tabs, activeTabId: newActiveTabId || (tabs[0] && tabs[0].id) || null };
   });
