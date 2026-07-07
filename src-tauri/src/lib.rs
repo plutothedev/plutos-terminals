@@ -118,6 +118,9 @@ pub fn run() {
             // Ensure the data directory exists for store + scrollback.
             let data_dir = commands::get_data_dir(app.handle());
             std::fs::create_dir_all(&data_dir).ok();
+            // Scrollback GC runs from the frontend on boot (scrollback_sweep),
+            // which passes the keep-set of open tab ids — the backend can't know
+            // which tabs are live here in setup().
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -213,6 +216,7 @@ pub fn run() {
             commands::scrollback_save,
             commands::scrollback_load,
             commands::scrollback_delete,
+            commands::scrollback_sweep,
             commands::transcript_append,
             commands::recent_files,
             commands::check_command_version,

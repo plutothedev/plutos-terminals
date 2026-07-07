@@ -4,7 +4,8 @@ import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import LockScreen from "./features/terminals/LockScreen.jsx";
 import { isUnlockedThisSession } from "./features/terminals/masterPassword.js";
-import { USER_STORAGE_KEY, getWindowStorageKey } from "./features/terminals/storageKeys.js";
+import { USER_STORAGE_KEY, getWindowStorageKey, allOpenTabIds } from "./features/terminals/storageKeys.js";
+import { invoke } from "./backend.js";
 import {
   migrateAndLoad,
   saveSecretKeys,
@@ -306,6 +307,16 @@ function AppInner() {
   // Header buttons are locked to "bracket" terminal-aesthetic style as of
   // v0.1.20 (the picker was removed; one canonical look across all skins).
   useEffect(() => { injectHeaderSkinsCss(); }, []);
+
+  // Scrollback GC: once per launch (primary window only), reclaim scrollback
+  // files whose tab is no longer open in ANY window AND untouched for 30+ days.
+  // The keep-set (every open tab id) is a safety exclusion, so a live tab's
+  // history is never swept; best-effort, never blocks boot.
+  useEffect(() => {
+    if (!isPrimaryWindow()) return;
+    invoke("scrollback_sweep", { keepTabIds: allOpenTabIds() })
+      .catch((e) => console.warn("Pluto's Terminals: scrollback sweep failed", e));
+  }, []);
 
   // v4.0 one-time migration: force the "moba" (MobaXterm) LAYOUT once so everyone
   // lands on the new layout. The SKIN is intentionally NOT forced here: the OLED

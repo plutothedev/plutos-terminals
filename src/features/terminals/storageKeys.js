@@ -35,6 +35,30 @@ export function isPrimaryWindow() {
   return !currentWindowId();
 }
 
+// Every tab id currently open in ANY window (default + secondary ?w= windows).
+// Used as the KEEP-list for scrollback GC (scrollback_sweep) so a live tab's
+// history is never reclaimed. Reads each per-window state blob straight from
+// localStorage; a window whose blob won't parse simply contributes no ids, which
+// is fail-safe (the sweep keeps more, never deletes a wanted file).
+export function allOpenTabIds() {
+  const ids = [];
+  if (typeof window === "undefined") return ids;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(STATE_KEY_PREFIX)) continue;
+      let st;
+      try { st = JSON.parse(localStorage.getItem(k) || "{}"); } catch { continue; }
+      for (const p of st.panels || []) {
+        for (const t of p.tabs || []) {
+          if (t && t.id) ids.push(t.id);
+        }
+      }
+    }
+  } catch { /* storage unavailable */ }
+  return ids;
+}
+
 // Every localStorage key the app writes lives under one of these prefixes:
 // "plutos-terminals:" (state/user blobs, cmd history, macros, dismissed-update)
 // and "pt:" (dock/tree layout in useDockResize). Factory reset wipes by prefix

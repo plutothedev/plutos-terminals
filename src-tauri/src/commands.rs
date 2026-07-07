@@ -694,6 +694,183 @@ pub fn scrollback_delete(app: AppHandle, tab_id: String) -> Result<(), String> {
     Ok(())
 }
 
+// ── Scrollback GC: keep-set + age sweep ───────────────────────────
+// Per-tab scrollback files (100KB cap each) otherwise accumulate forever as
+// tabs are closed. A file is deleted ONLY when it is BOTH (a) not owned by any
+// currently-open tab — the caller passes the union of open tab ids across every
+// window as a KEEP-list — AND (b) not written in `max_age` (default 30 days).
+// The keep-list is a safety EXCLUSION, so an incomplete set only ever KEEPS more
+// files (fail-safe), never deletes a wanted one; the age bound then reclaims the
+// truly-abandoned remainder. (Workspaces re-mint tab ids on load, so a
+// workspace-saved tab owns no scrollback under its stored id — only open tabs
+// do, which is exactly what the keep-list carries.)
+
+/// True iff `modified` is more than `max_age` before `now`. A future mtime
+/// (clock skew) counts as fresh, never stale.
+fn scrollback_is_stale(
+    modified: std::time::SystemTime,
+    now: std::time::SystemTime,
+    max_age: std::time::Duration,
+) -> bool {
+    now.duration_since(modified)
+        .map(|age| age > max_age)
+        .unwrap_or(false)
+}
+
+/// Days → retention window, floored at 1 day (a caller passing 0 must never mean
+/// "wipe everything") and saturating so a huge value can't overflow/panic.
+fn max_age_from_days(days: Option<u64>) -> std::time::Duration {
+    let d = days.unwrap_or(30).max(1);
+    std::time::Duration::from_secs(d.saturating_mul(24 * 60 * 60))
+}
+
+/// Delete `*.txt` scrollback files under `dir` that are BOTH not in `keep`
+/// (filename set of live tabs) AND older than `max_age`. Returns how many were
+/// removed. Missing dir / unreadable mtime → skip.
+fn sweep_stale_scrollback(
+    dir: &std::path::Path,
+    max_age: std::time::Duration,
+    now: std::time::SystemTime,
+    keep: &std::collections::HashSet<String>,
+) -> usize {
+    let mut removed = 0usize;
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return 0, // no scrollback dir yet — nothing to sweep
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("txt") {
+            continue; // only our own scrollback files
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if keep.contains(&name) {
+            continue; // owned by an open tab — keep regardless of age
+        }
+        let modified = match entry.metadata().and_then(|m| m.modified()) {
+            Ok(m) => m,
+            Err(_) => continue, // can't read mtime — leave it
+        };
+        if scrollback_is_stale(modified, now, max_age) && fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// GC abandoned scrollback. `keep_tab_ids` = every tab id currently open in any
+/// window (the caller gathers these); their files are kept regardless of age.
+#[tauri::command]
+pub fn scrollback_sweep(
+    app: AppHandle,
+    keep_tab_ids: Vec<String>,
+    max_age_days: Option<u64>,
+) -> Result<usize, String> {
+    let dir = get_data_dir(&app).join("terminals").join("scrollback");
+    let keep: std::collections::HashSet<String> = keep_tab_ids
+        .iter()
+        .map(|id| format!("{}.txt", safe_filename(id)))
+        .collect();
+    Ok(sweep_stale_scrollback(
+        &dir,
+        max_age_from_days(max_age_days),
+        std::time::SystemTime::now(),
+        &keep,
+    ))
+}
+
+#[cfg(test)]
+mod scrollback_sweep_tests {
+    use super::{max_age_from_days, scrollback_is_stale, sweep_stale_scrollback};
+    use std::collections::HashSet;
+    use std::time::{Duration, SystemTime};
+
+    fn none() -> HashSet<String> {
+        HashSet::new()
+    }
+
+    #[test]
+    fn is_stale_compares_age() {
+        let now = SystemTime::now();
+        let day = Duration::from_secs(86_400);
+        assert!(scrollback_is_stale(now - day * 31, now, day * 30));
+        assert!(!scrollback_is_stale(now - day, now, day * 30));
+        assert!(!scrollback_is_stale(now + day, now, day * 30)); // future = fresh
+    }
+
+    #[test]
+    fn sweep_removes_stale_txt_only() {
+        let dir = std::env::temp_dir().join(format!("sb-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("t-a.txt"), "x").unwrap();
+        std::fs::write(dir.join("t-b.txt"), "x").unwrap();
+        std::fs::write(dir.join("keep.md"), "x").unwrap(); // non-.txt must survive
+        // Evaluate "now" an hour ahead so the just-written files read as aged.
+        let future = SystemTime::now() + Duration::from_secs(3_600);
+        let removed = sweep_stale_scrollback(&dir, Duration::from_secs(1), future, &none());
+        assert_eq!(removed, 2);
+        assert!(!dir.join("t-a.txt").exists());
+        assert!(!dir.join("t-b.txt").exists());
+        assert!(dir.join("keep.md").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sweep_keeps_owned_even_when_stale() {
+        // The core safety property: a file whose tab is still open is NEVER
+        // deleted, even if its mtime is ancient.
+        let dir = std::env::temp_dir().join(format!("sb-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("t-open.txt"), "x").unwrap();
+        std::fs::write(dir.join("t-closed.txt"), "x").unwrap();
+        let keep: HashSet<String> = ["t-open.txt".to_string()].into_iter().collect();
+        let future = SystemTime::now() + Duration::from_secs(3_600);
+        let removed = sweep_stale_scrollback(&dir, Duration::from_secs(1), future, &keep);
+        assert_eq!(removed, 1); // only the closed one
+        assert!(dir.join("t-open.txt").exists()); // stale but owned — kept
+        assert!(!dir.join("t-closed.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sweep_keeps_fresh_files() {
+        let dir = std::env::temp_dir().join(format!("sb-fresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("t-a.txt"), "x").unwrap();
+        let removed = sweep_stale_scrollback(
+            &dir,
+            Duration::from_secs(10_000_000_000),
+            SystemTime::now(),
+            &none(),
+        );
+        assert_eq!(removed, 0);
+        assert!(dir.join("t-a.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sweep_missing_dir_is_zero() {
+        let missing = std::env::temp_dir().join("sb-nope-xyz-does-not-exist-12345");
+        let _ = std::fs::remove_dir_all(&missing);
+        assert_eq!(
+            sweep_stale_scrollback(&missing, Duration::from_secs(1), SystemTime::now(), &none()),
+            0
+        );
+    }
+
+    #[test]
+    fn max_age_floors_and_saturates() {
+        let day = 86_400u64;
+        assert_eq!(max_age_from_days(None), Duration::from_secs(30 * day));
+        assert_eq!(max_age_from_days(Some(0)), Duration::from_secs(day)); // 0 floored to 1
+        assert_eq!(max_age_from_days(Some(7)), Duration::from_secs(7 * day));
+        let _ = max_age_from_days(Some(u64::MAX)); // must not panic (saturating_mul)
+    }
+}
+
 // Append a chunk to a daily session transcript.
 // Path: data/terminals/transcripts/{date}/{name}.md
 #[tauri::command]
