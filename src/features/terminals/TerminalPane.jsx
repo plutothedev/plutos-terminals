@@ -1557,12 +1557,12 @@ export default function TerminalPane({
             position: "absolute", left: 12, bottom: 12, zIndex: 25,
             display: "flex", alignItems: "center", gap: 8,
             background: "var(--phn-surface-bg, #242424)",
-            border: "1px solid #ff6b6b", borderRadius: 8, padding: "6px 8px 6px 12px",
+            border: "1px solid var(--phn-danger, #ff6b6b)", borderRadius: 8, padding: "6px 8px 6px 12px",
             boxShadow: "0 6px 18px rgba(0,0,0,0.5)", fontFamily: "var(--phn-ui-font)",
           }}
         >
           <span style={{ fontSize: 12, color: "var(--phn-text-fg, #d4d4d4)" }}>
-            <span style={{ color: "#ff6b6b" }}>✗</span> command failed · exit {failedBlock.exitCode}
+            <span style={{ color: "var(--phn-danger, #ff6b6b)" }}>✗</span> command failed · exit {failedBlock.exitCode}
           </span>
           <button
             onClick={() => { setExplainBlock(failedBlock); setFailedBlock(null); }}

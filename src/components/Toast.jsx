@@ -12,7 +12,7 @@ const ToastContext = createContext(null);
 
 const COLORS = {
   success: { bg: "rgba(127, 191, 138, 0.14)", border: "#7fbf8a", fg: "#7fbf8a" },
-  error:   { bg: "rgba(224, 135, 132, 0.14)", border: "#e08784", fg: "#e08784" },
+  error:   { bg: "rgba(224, 135, 132, 0.14)", border: "var(--phn-danger, #e08784)", fg: "var(--phn-danger, #e08784)" },
   info:    { bg: "rgba(124, 156, 245, 0.14)", border: "#7c9cf5", fg: "#7c9cf5" },
 };
 

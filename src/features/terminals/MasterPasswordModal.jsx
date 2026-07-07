@@ -70,6 +70,6 @@ const primaryBtn = {
   padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--phn-ui-font)",
 };
 const dangerBtn = {
-  background: "transparent", border: "1px solid #ff6b6b", color: "#ff6b6b", borderRadius: 5,
+  background: "transparent", border: "1px solid var(--phn-danger, #ff6b6b)", color: "var(--phn-danger, #ff6b6b)", borderRadius: 5,
   padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--phn-ui-font)",
 };

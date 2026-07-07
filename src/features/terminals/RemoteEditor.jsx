@@ -116,7 +116,7 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
         {loading ? (
           <div style={{ padding: 16, color: "var(--phn-text-dim, #888)", fontSize: 12 }}>Loading {name}…</div>
         ) : error ? (
-          <div style={{ padding: 16, color: "#ff6b6b", fontSize: 12 }}>{error}</div>
+          <div style={{ padding: 16, color: "var(--phn-danger, #ff6b6b)", fontSize: 12 }}>{error}</div>
         ) : useMonaco ? (
           <Editor
             height="100%"

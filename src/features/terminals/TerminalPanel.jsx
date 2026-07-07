@@ -21,7 +21,7 @@ const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 // Activity colors mirror Moon Dev: yellow while running, green when finished.
 const DOT_ACTIVE = "#FBBF24";
-const DOT_DONE = "#34D399";
+const DOT_DONE = "var(--phn-success, #34D399)";
 const GLOW_ACTIVE = "rgba(251,191,36,0.45)";
 const GLOW_DONE = "rgba(52,211,153,0.55)";
 const GLOW_ACTIVE_SHADOW = "0 0 0 1px rgba(251,191,36,0.25), 0 0 10px rgba(251,191,36,0.15)";
@@ -642,7 +642,7 @@ function TerminalPanel({
             style={{
               display: "block", width: "100%", textAlign: "left",
               background: "transparent", border: "none",
-              color: opts.danger ? "#f87171" : TAB_FG_ACTIVE,
+              color: opts.danger ? "var(--phn-danger, #f87171)" : TAB_FG_ACTIVE,
               padding: "6px 12px", fontFamily: M, fontSize: 12,
               cursor: opts.disabled ? "default" : "pointer", opacity: opts.disabled ? 0.4 : 1,
               whiteSpace: "nowrap", borderRadius: 4, boxSizing: "border-box",

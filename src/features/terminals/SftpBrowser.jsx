@@ -202,9 +202,9 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
         ) : connecting ? (
           <div className="phn-snippets-empty">Connecting…</div>
         ) : error ? (
-          <div className="phn-snippets-empty" style={{ color: "#f87171" }}>{error}</div>
+          <div className="phn-snippets-empty" style={{ color: "var(--phn-danger, #f87171)" }}>{error}</div>
         ) : listError ? (
-          <div className="phn-snippets-empty" style={{ color: "#f87171" }}>{listError}</div>
+          <div className="phn-snippets-empty" style={{ color: "var(--phn-danger, #f87171)" }}>{listError}</div>
         ) : loading ? (
           <div className="phn-snippets-empty">Loading…</div>
         ) : entries.length === 0 ? (

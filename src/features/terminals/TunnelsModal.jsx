@@ -101,7 +101,7 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
         </div>
 
         {error && (
-          <div style={{ fontSize: 11, color: "#f87171" }}>{error}</div>
+          <div style={{ fontSize: 11, color: "var(--phn-danger, #f87171)" }}>{error}</div>
         )}
 
         <div style={{ borderTop: "1px solid var(--phn-surface-border, #2b2b2b)", paddingTop: 12, display: "flex", gap: 10, alignItems: "flex-end" }}>
