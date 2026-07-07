@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.5.0 — Security hardening + reliability pass (2026-07-06)
+
+Bundles the remote-sessions-parity work (SSH/SFTP/RDP/VNC/tunnels, phone
+companion, cloud sync, native agent + MCP, prompt editor beta) with a full
+adversarial security audit and a production-readiness pass.
+
+### Security
+- Full multi-subsystem audit (state persistence, remote transports, MCP, and the
+  companion server). No critical or exploitable-high found. Closed the
+  defense-in-depth tail: IPv6 private-range classification in the LLM proxy,
+  atomic MCP-config writes with a serialized add/remove cycle, an RDP
+  known-hosts TOCTOU lock (plus poison recovery), worktree-command guards, and a
+  masked in-app token prompt (was a cleartext `window.prompt`).
+
+### Fixed
+- **Quit** confirmation crashed the whole UI into the error screen (an object was
+  passed where a string message was expected). Quit now confirms and exits
+  correctly, and the confirm modal fails soft on a non-string message.
+- **SFTP** New-folder / Rename used native OS prompts; both now use branded
+  in-app input modals (new `usePrompt()` hook).
+- Agent-mode command capture no longer stalls ~120s when its tab is closed
+  mid-command.
+- The error explainer no longer overwrites a newer answer with a slow stale one.
+- Keystroke-macro recording is capped (256 KB) so a runaway recording can't grow
+  memory without bound.
+- Closed three lost-update save sites (master-password set/remove, theme delete).
+
+### Added
+- Modals are accessible dialogs: `role="dialog"`, `aria-modal`, a Tab focus
+  trap, and focus restored to the trigger on close; only the topmost stacked
+  modal responds to Escape.
+- 14 regression tests (master-password verifier, macro scoping/cap, ptyBridge
+  capture, IPv6 classification, MCP metachar-guard rationale).
+
+### Changed
+- In-app copy: "open-source" / "MIT" → "source-available" to match the
+  proprietary / source-available license (earlier MIT-published versions
+  remain MIT). The lock screen now follows the active skin instead of stock dark.
+
+### Install
+- First launch on unsigned builds now has per-OS recovery steps in the README
+  (macOS Gatekeeper right-click → Open / `xattr` quarantine clear; Windows
+  SmartScreen → Run anyway). Code signing is still pending.
+
 ## v0.4.3 — OLED Black by default (2026-06-10)
 
 ### Changed

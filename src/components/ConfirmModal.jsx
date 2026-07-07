@@ -43,7 +43,9 @@ export function ConfirmProvider({ children }) {
       {children}
       <Modal open={!!request} title={request?.title || "Confirm"} onClose={onCancel} width={460}>
         <div style={{ color: FG, fontSize: 12, lineHeight: 1.7, marginBottom: 20, whiteSpace: "pre-wrap" }}>
-          {request?.message}
+          {/* Coerce to string so a non-string message degrades to text instead of
+              throwing "Objects are not valid as a React child" and crashing the UI. */}
+          {typeof request?.message === "string" ? request.message : request?.message == null ? "" : String(request.message)}
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button

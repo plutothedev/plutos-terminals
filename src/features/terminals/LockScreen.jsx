@@ -15,11 +15,11 @@ export default function LockScreen({ expectedHash, onUnlock }) {
   };
 
   return (
-    <div style={{ height: "100vh", background: "#0b0c0e", color: "#d4d4d4", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--phn-ui-font, system-ui)" }}>
+    <div style={{ height: "100vh", background: "var(--phn-page-bg, #0b0c0e)", color: "var(--phn-text-fg, #d4d4d4)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--phn-ui-font, system-ui)" }}>
       <div style={{ width: 320, textAlign: "center" }}>
         <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", opacity: 0.85 }}><SLock size={30} /></div>
         <div style={{ fontSize: 17, letterSpacing: 1, marginBottom: 4 }}>Pluto's Terminal</div>
-        <div style={{ fontSize: 12, color: "#888", marginBottom: 20 }}>Enter your master password</div>
+        <div style={{ fontSize: 12, color: "var(--phn-text-dim, #888)", marginBottom: 20 }}>Enter your master password</div>
         <input
           type="password"
           autoFocus
@@ -28,14 +28,14 @@ export default function LockScreen({ expectedHash, onUnlock }) {
           onKeyDown={(e) => { if (e.key === "Enter") tryUnlock(); }}
           style={{
             width: "100%", boxSizing: "border-box", textAlign: "center",
-            background: "#16181c", border: `1px solid ${error ? "#ff6b6b" : "#2a2a2a"}`,
-            color: "#f7f8f8", borderRadius: 6, padding: "10px 12px", fontSize: 14, outline: "none",
+            background: "var(--phn-surface-bg, #16181c)", border: `1px solid ${error ? "var(--phn-danger, #ff6b6b)" : "var(--phn-surface-border, #2a2a2a)"}`,
+            color: "var(--phn-text-active, #f7f8f8)", borderRadius: 6, padding: "10px 12px", fontSize: 14, outline: "none",
           }}
         />
-        {error && <div style={{ color: "#ff6b6b", fontSize: 11, marginTop: 8 }}>Incorrect password.</div>}
+        {error && <div style={{ color: "var(--phn-danger, #ff6b6b)", fontSize: 11, marginTop: 8 }}>Incorrect password.</div>}
         <button
           onClick={tryUnlock}
-          style={{ marginTop: 14, width: "100%", background: "#7c9cf5", border: "none", color: "#06223a", borderRadius: 6, padding: "9px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          style={{ marginTop: 14, width: "100%", background: "var(--phn-link, #7c9cf5)", border: "none", color: "var(--phn-accent-fg, #06223a)", borderRadius: 6, padding: "9px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
         >
           Unlock
         </button>

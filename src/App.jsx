@@ -13,6 +13,7 @@ import {
 } from "./features/terminals/secretVault.js";
 import { ToastProvider } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
+import { PromptProvider } from "./components/PromptModal.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import {
   getLayoutId,
@@ -76,9 +77,11 @@ export default function App() {
   return (
     <ToastProvider>
       <ConfirmProvider>
-        <ErrorBoundary storageKey={STORAGE_KEY}>
-          <AppInner />
-        </ErrorBoundary>
+        <PromptProvider>
+          <ErrorBoundary storageKey={STORAGE_KEY}>
+            <AppInner />
+          </ErrorBoundary>
+        </PromptProvider>
       </ConfirmProvider>
     </ToastProvider>
   );

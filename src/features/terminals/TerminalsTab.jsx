@@ -544,12 +544,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // "Exit" toolbar button — truly quit (kills every PTY). Needs the quit_app
   // backend command; falls back to hiding the window if it isn't available.
   const exitApp = useCallback(async () => {
-    const ok = await confirm({
-      title: "Quit Pluto's Terminal?",
-      message: "This closes every terminal session in this window and exits the app.",
-      confirmText: "Quit",
-      danger: true,
-    });
+    // confirm(message: string, opts) — message MUST be a string; passing an
+    // object rendered it as a raw JSX child and crashed the whole UI into the
+    // ErrorBoundary. Keys are confirmLabel/destructive (not confirmText/danger).
+    const ok = await confirm(
+      "This closes every terminal session in this window and exits the app.",
+      { title: "Quit Pluto's Terminal?", confirmLabel: "Quit", destructive: true }
+    );
     if (!ok) return;
     try { await invoke("quit_app"); }
     catch { try { const { getCurrentWindow } = await import("@tauri-apps/api/window"); getCurrentWindow().close(); } catch { /* ignore */ } }

@@ -104,6 +104,15 @@ monochrome stroke icons (plus importable custom themes).
    - **Linux** — `.AppImage` (portable) or `.deb`
 3. Install and launch.
 
+**First launch on an unsigned build:**
+
+- **macOS** — Gatekeeper blocks unsigned apps. Right-click (or Control-click) the
+  app → **Open**, then **Open** again in the dialog. If macOS still refuses
+  ("damaged" / "can't be opened"), clear the quarantine flag in Terminal:
+  `xattr -dr com.apple.quarantine "/Applications/Pluto's Terminal.app"`.
+- **Windows** — SmartScreen may show "Windows protected your PC". Click
+  **More info → Run anyway** (only after you've verified the checksum below).
+
 > **Verify your download (builds are not yet code-signed).** Because these
 > installers aren't signed yet, your OS may warn on first launch. Don't bypass the
 > warning blindly: verify the file against the `SHA256SUMS` published with every

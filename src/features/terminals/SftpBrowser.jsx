@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@backend";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
+import { usePrompt } from "../../components/PromptModal.jsx";
 import { FileIcon } from "./LocalFileBrowser.jsx";
 import { IconHome, IconUp, IconRefresh, IconUpload, IconNewFolder } from "./icons.jsx";
 import { SFolder, STrash } from "./toolbarIcons.jsx";
@@ -45,6 +46,7 @@ function joinPath(dir, name) {
 export default function SftpBrowser({ open, connecting, error, sessionId, onClose, docked = false }) {
   const toast = useToast();
   const confirm = useConfirm();
+  const prompt = usePrompt();
   const [cwd, setCwd] = useState(null);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -112,7 +114,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
 
   const onMkdir = async () => {
     if (!cwd) return;
-    const name = window.prompt("New folder name?");
+    const name = await prompt("New folder name?", { title: "New folder", confirmLabel: "create", placeholder: "folder name" });
     if (!name || !name.trim()) return;
     try {
       await invoke("sftp_mkdir", { id: sessionId, path: joinPath(cwd, name.trim()) });
@@ -137,7 +139,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
   };
 
   const onRename = async (entry) => {
-    const next = window.prompt(`Rename "${entry.name}" to?`, entry.name);
+    const next = await prompt(`Rename "${entry.name}" to?`, { title: "Rename", confirmLabel: "rename", initialValue: entry.name });
     if (!next || !next.trim() || next.trim() === entry.name) return;
     try {
       await invoke("sftp_rename", { id: sessionId, from: entry.path, to: joinPath(cwd, next.trim()) });
