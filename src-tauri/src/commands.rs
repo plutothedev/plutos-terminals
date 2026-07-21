@@ -1292,8 +1292,19 @@ fn notebook_path(dir: &std::path::Path, name: &str) -> Result<PathBuf, String> {
 // Sync core: create-if-missing + list ".md" FILES only — a directory that
 // happens to be named "*.md" is excluded via file_type() (reports the on-disk
 // type without following symlinks, so a symlinked entry is never listed
-// either), name-sorted. A missing/empty dir is not an error — it's just an
+// either), case-insensitively name-sorted (matches list_directory's sort
+// convention above). A missing/empty dir is not an error — it's just an
 // empty notebook library.
+//
+// The candidate filter is `notebook_path(dir, name).is_ok()` — the SAME gate
+// read/write use — not a looser ad-hoc suffix check. A quality-review catch:
+// a bare `.to_lowercase().ends_with(".md")` filter would list a file dropped
+// into the dir by something other than notebook_write (e.g. a stray
+// "my notes.md" with a space) that then fails to open, because read/write
+// reject it. Filtering through the real gate guarantees list only ever
+// returns names that read/write also accept — a non-canonical *.md file
+// on disk simply isn't a valid notebook by our naming rule, so it doesn't
+// appear.
 fn notebook_list_sync(dir: &std::path::Path) -> Vec<String> {
     fs::create_dir_all(dir).ok();
     let mut names: Vec<String> = fs::read_dir(dir)
@@ -1301,11 +1312,11 @@ fn notebook_list_sync(dir: &std::path::Path) -> Vec<String> {
             read.flatten()
                 .filter(|ent| ent.file_type().map(|t| t.is_file()).unwrap_or(false))
                 .map(|ent| ent.file_name().to_string_lossy().into_owned())
-                .filter(|name| name.to_lowercase().ends_with(".md"))
+                .filter(|name| notebook_path(dir, name).is_ok())
                 .collect()
         })
         .unwrap_or_default();
-    names.sort();
+    names.sort_by_key(|n| n.to_lowercase());
     names
 }
 
@@ -1331,7 +1342,12 @@ fn notebook_write_sync(dir: &std::path::Path, name: &str, content: &str) -> Resu
     tmp_name.push(".tmp");
     let tmp = path.with_file_name(tmp_name);
     fs::write(&tmp, content).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    fs::rename(&tmp, &path).map_err(|e| {
+        // Don't leak the tmp file if the rename itself fails (e.g. a
+        // permissions error) — best-effort cleanup, error is still reported.
+        let _ = fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -1623,5 +1639,39 @@ mod notebook_io_tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = notebook_path(tmp.path(), "console.md").unwrap();
         assert_eq!(path, tmp.path().join("console.md"));
+    }
+
+    #[test]
+    fn symlinked_md_file_is_not_listed() {
+        // Ports rule_file_tests::symlinked_rule_file_is_skipped's exact
+        // pattern: file_type() reports the symlink itself (not its target),
+        // so is_file() is false and the entry never reaches the name gate.
+        let tmp = tempfile::tempdir().unwrap();
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&secret, tmp.path().join("linked.md")).is_ok();
+        #[cfg(not(windows))]
+        let made = std::os::unix::fs::symlink(&secret, tmp.path().join("linked.md")).is_ok();
+        if !made { return; }
+        let got = notebook_list_sync(tmp.path());
+        assert!(got.is_empty(), "symlinked .md file must never be listed");
+    }
+
+    #[test]
+    fn non_canonical_name_on_disk_is_excluded_from_list_and_read() {
+        // The quality-review pin: a *.md file placed on disk by something
+        // other than notebook_write (here, a space in the stem) must be
+        // invisible to BOTH list and read — proving they agree, so a name
+        // that comes back from notebook_list is always openable via
+        // notebook_read.
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("my notes.md"), "hi").unwrap();
+        let got = notebook_list_sync(tmp.path());
+        assert!(!got.contains(&"my notes.md".to_string()), "non-canonical name must not be listed");
+        assert!(
+            notebook_read_sync(tmp.path(), "my notes.md").is_err(),
+            "list and read must agree: reject it too"
+        );
     }
 }
