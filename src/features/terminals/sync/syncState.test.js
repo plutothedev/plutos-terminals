@@ -130,3 +130,9 @@ test("SOURCES never lists key fields", () => {
   expect(all).not.toContain("providerKeys");
   expect(all).not.toContain("anthropicKey");
 });
+
+test("SOURCES carries the agent settings fields", () => {
+  const u = SOURCES.find((s) => s.store === "userSt");
+  expect(u.fields).toContain("agentRules");
+  expect(u.fields).toContain("agentContextEnabled");
+});

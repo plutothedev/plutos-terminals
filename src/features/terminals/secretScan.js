@@ -15,8 +15,13 @@ const PATTERNS = [
   { name: "jwt", re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g },
 ];
 
+// Banner-only match for the unpaired-BEGIN fallback (scanSecrets post-pass below).
+// Kept out of PATTERNS: a bare-banner entry there would double-hit every
+// well-formed BEGIN...END blob already caught by pem-private-key above.
+const BEGIN_BANNER_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----/g;
+
 export function scanSecrets(text) {
-  const s = String(text || "");
+  const s = String(text ?? "");
   const hits = [];
   for (const { name, re } of PATTERNS) {
     re.lastIndex = 0;
@@ -25,6 +30,18 @@ export function scanSecrets(text) {
       hits.push({ name, match: m[0], index: m.index });
       if (m.index === re.lastIndex) re.lastIndex++; // zero-width safety
     }
+  }
+  // Fail-open gap: a BEGIN banner whose END never pairs (truncated paste,
+  // mismatched key type) is invisible to the spanning pem-private-key pattern
+  // above and would otherwise ship unmasked with zero hits. Flag the banner
+  // itself, but only where a paired hit doesn't already cover it.
+  const pemHits = hits.filter((h) => h.name === "pem-private-key");
+  BEGIN_BANNER_RE.lastIndex = 0;
+  let bm;
+  while ((bm = BEGIN_BANNER_RE.exec(s))) {
+    const covered = pemHits.some((h) => bm.index >= h.index && bm.index < h.index + h.match.length);
+    if (!covered) hits.push({ name: "pem-unpaired-begin", match: bm[0], index: bm.index });
+    if (bm.index === BEGIN_BANNER_RE.lastIndex) BEGIN_BANNER_RE.lastIndex++; // zero-width safety
   }
   return hits.sort((a, b) => a.index - b.index);
 }

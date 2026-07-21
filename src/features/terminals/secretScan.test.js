@@ -9,6 +9,13 @@ const FAKE_PEM = [
   "-----END RSA PRIVATE KEY-----",
 ].join("\n");
 
+const FAKE_PEM_EC = [
+  "-----BEGIN EC PRIVATE KEY-----",
+  "MHcCAQEEIDlowFAYpwIsCzoM3lZDaOOJFrbCuCoxYRitTGWKF7WoAoGCCqGSM49",
+  "AwEHoUQDQgAEuNWFwoRzntohK9y1M3y2sYbxLon1MZgpf2Db0jzfLomOQbXqzYZ",
+  "-----END EC PRIVATE KEY-----",
+].join("\n");
+
 describe("scanSecrets", () => {
   const cases = [
     ["aws-access-key", "key=AKIAIOSFODNN7EXAMPLE ok"],
@@ -40,6 +47,27 @@ describe("scanSecrets", () => {
     ].join("\n");
     expect(scanSecrets(benign)).toEqual([]);
   });
+
+  // Regression: unpaired-BEGIN fallback (closes the fail-open gap where a BEGIN
+  // banner whose END never pairs used to yield ZERO hits).
+  it("well-formed single PEM blob produces exactly one hit (no fallback double-hit)", () => {
+    const hits = scanSecrets(FAKE_PEM);
+    expect(hits.length).toBe(1);
+    expect(hits[0].name).toBe("pem-private-key");
+  });
+
+  it("mismatched BEGIN RSA ... END EC yields no paired hit but the fallback flags the banner", () => {
+    const text = [
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "MIIBOgIBAAJBAKj34GkxFhD91RaHU1KFwqBSqcHTPYFbUxk2mBjRhkiK5RGbrJmB",
+      "-----END EC PRIVATE KEY-----",
+    ].join("\n");
+    const hits = scanSecrets(text);
+    expect(hits.filter((h) => h.name === "pem-private-key").length).toBe(0);
+    const unpaired = hits.filter((h) => h.name === "pem-unpaired-begin");
+    expect(unpaired.length).toBe(1);
+    expect(unpaired[0].match).toBe("-----BEGIN RSA PRIVATE KEY-----");
+  });
 });
 
 describe("maskSecrets", () => {
@@ -64,6 +92,27 @@ describe("maskSecrets", () => {
     expect(masked).toContain("[masked pem-private-key]");
     expect(masked).toContain("before");
     expect(masked).toContain("after");
+  });
+
+  it("two well-formed PEM blobs (RSA + EC) in one text -> exactly 2 hits, both bodies masked, middle preserved", () => {
+    const text = `${FAKE_PEM}\nMIDDLE-MARKER\n${FAKE_PEM_EC}`;
+    const hits = scanSecrets(text);
+    expect(hits.filter((h) => h.name === "pem-private-key").length).toBe(2);
+    expect(hits.filter((h) => h.name === "pem-unpaired-begin").length).toBe(0);
+    const masked = maskSecrets(text, hits);
+    expect(masked).not.toContain("MIIBOgIBAAJBAKj34GkxFhD91RaHU1KFwqBSqcHTPYFbUxk2mBjRhkiK5RGbrJmB");
+    expect(masked).not.toContain("MHcCAQEEIDlowFAYpwIsCzoM3lZDaOOJFrbCuCoxYRitTGWKF7WoAoGCCqGSM49");
+    expect(masked).toContain("MIDDLE-MARKER");
+  });
+
+  it("dangling BEGIN with no END anywhere -> one pem-unpaired-begin hit; maskSecrets masks the banner", () => {
+    const text = "before\n-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAKj34GkxFhD91RaHU1KFwqBSqcHTPYFbUxk2mBjRhkiK5RGbrJmB\nafter";
+    const hits = scanSecrets(text);
+    expect(hits.length).toBe(1);
+    expect(hits[0].name).toBe("pem-unpaired-begin");
+    const masked = maskSecrets(text, hits);
+    expect(masked).not.toContain("-----BEGIN RSA PRIVATE KEY-----");
+    expect(masked).toContain("[masked pem-unpaired-begin]");
   });
 
   it("no hits -> unchanged reference", () => {
