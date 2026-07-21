@@ -1,5 +1,7 @@
 <!-- (C) -->
-# Stream A: Agent Rules + Codebase Context Implementation Plan (rev 2, post-plan-audit)
+# Stream A: Agent Rules + Codebase Context Implementation Plan (rev 2.1, post-plan-audit + fix-verification)
+
+> Rev 2.1 (2026-07-21, after the executed fix-verification round): RULES_SHARE pre-cut so oversized global Rules can never evict rule files (verified defect: 3/3 files silently dropped); dirs-cap test assertion corrected (`d58,`/`d59 (`); facts section clamped at 2 KiB with marker; TOFU map keys lowercased + `\\?\UNC\` prefix strip; chip segments derived from structured state, not block-text regex.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -155,6 +157,14 @@ mod rule_file_tests {
     }
 
     #[test]
+    fn display_path_strips_extended_prefixes() {
+        use std::path::Path;
+        assert_eq!(display_path(Path::new(r"\\?\C:\x\AGENTS.md")), r"C:\x\AGENTS.md");
+        assert_eq!(display_path(Path::new(r"\\?\UNC\srv\share\AGENTS.md")), r"\\srv\share\AGENTS.md");
+        assert_eq!(display_path(Path::new(r"C:\plain\AGENTS.md")), r"C:\plain\AGENTS.md");
+    }
+
+    #[test]
     fn non_git_walk_keeps_only_nearest_3_levels() {
         // Hermetic: everything inside the tempdir; no .git anywhere.
         let tmp = tempfile::tempdir().unwrap();
@@ -258,6 +268,9 @@ pub struct RuleFile {
 
 fn display_path(p: &std::path::Path) -> String {
     let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{}", rest); // \\?\UNC\srv\share -> \\srv\share
+    }
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
 }
 
@@ -327,7 +340,7 @@ pub async fn collect_rule_files(cwd: String) -> Vec<RuleFile> {
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cd C:\Users\pluto\plutos-terminals\src-tauri && cargo test rule_file`
-Expected: 9 passed (symlink test may pass trivially where symlink creation is unprivileged).
+Expected: 10 passed (symlink test may pass trivially where symlink creation is unprivileged).
 
 - [ ] **Step 6: Register the command**
 
@@ -519,10 +532,12 @@ dirs: <name1>, ... (+N more)  <- max 60 names shown
 npm scripts: <s1>, <s2>, ...
 ```
 
-Budget rules (audit-hardened):
+Budget rules (audit-hardened, rev 2.1):
 - `CONTEXT_BUDGET` = 16 * 1024 chars for the whole block.
-- Over budget: cut rule-file content **root-most first**. If a file's content is not longer than the marker cost (cutting it cannot shrink the block), **drop that file's whole section** instead of marking it.
-- Global rules cut last, marked.
+- **`RULES_SHARE` = 8 * 1024: global Rules text longer than the share is pre-cut to it (marked) BEFORE any file is touched** — an oversized Rules field must never evict approved rule files (verified rev-2 defect).
+- Over budget after that: cut rule-file content **root-most first**. If a file's content is not longer than the marker cost (cutting it cannot shrink the block), **drop that file's whole section** instead of marking it.
+- Remaining global rules cut last, marked (floor-cut only when files alone could not close the gap).
+- `FACTS_CAP` = 2 * 1024: the facts section is clamped with a marker (pathological dir/script names can't blind-slice the block tail).
 - **Hard backstop on every return path:** the function can NEVER return more than `CONTEXT_BUDGET` chars (`safeSlice` guarantees it even if the accounting drifts).
 - `safeSlice(s, n)`: like `slice(0, n)` but backs off one char when the cut would split a surrogate pair.
 
@@ -533,7 +548,7 @@ Create `src/features/terminals/agentContext.test.js`:
 ```js
 // (C)
 import { describe, it, expect } from "vitest";
-import { buildContextBlock, safeSlice, CONTEXT_BUDGET } from "./agentContext.js";
+import { buildContextBlock, safeSlice, CONTEXT_BUDGET, RULES_SHARE, FACTS_CAP } from "./agentContext.js";
 
 const facts = {
   cwd: "C:\\code\\proj",
@@ -634,15 +649,42 @@ describe("buildContextBlock", () => {
     expect(block).not.toContain("### AGENTS.md"); // dropped, not marker-inflated
   });
 
-  it("pathological: gigantic global rules get cut last and marked", () => {
+  it("REGRESSION (fix-verification): gigantic global rules can NEVER evict rule files", () => {
     const block = buildContextBlock({
       globalRules: "g".repeat(CONTEXT_BUDGET * 2),
-      ruleFiles: [{ name: "AGENTS.md", path: "C:\\p\\AGENTS.md", content: "file rules", truncated: false }],
+      ruleFiles: [
+        { name: "AGENTS.md", path: "C:\\p\\AGENTS.md", content: "root file rules", truncated: false },
+        { name: "CLAUDE.md", path: "C:\\p\\s\\CLAUDE.md", content: "near file rules", truncated: false },
+      ],
       facts,
     });
     expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
-    expect(block).toContain("[...truncated]");
+    expect(block).toContain("root file rules"); // files SURVIVE oversized rules
+    expect(block).toContain("near file rules");
+    expect(block).toContain("[...truncated]"); // rules got the cut
     expect(block).toContain("### Project facts"); // facts survive
+  });
+
+  it("rules over RULES_SHARE are pre-cut to the share, files untouched", () => {
+    const block = buildContextBlock({
+      globalRules: "g".repeat(RULES_SHARE + 5_000),
+      ruleFiles: [{ name: "AGENTS.md", path: "C:\\p\\AGENTS.md", content: "intact", truncated: false }],
+      facts: null,
+    });
+    const rulesStart = block.indexOf("### User rules");
+    const rulesEnd = block.indexOf("### AGENTS.md");
+    expect(block.slice(rulesStart, rulesEnd).length).toBeLessThanOrEqual(RULES_SHARE + 64); // share + section framing
+    expect(block).toContain("intact");
+    expect(block).toContain("[...truncated]");
+  });
+
+  it("clamps a pathological facts section at FACTS_CAP with a marker", () => {
+    const dirs = Array.from({ length: 60 }, (_, i) => "verylongdirectoryname".repeat(20) + i);
+    const block = buildContextBlock({ globalRules: "", ruleFiles: [], facts: { cwd: "C:\\x", git: null, dirs, npmScripts: [] } });
+    expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
+    const factsStart = block.indexOf("### Project facts");
+    expect(block.length - factsStart).toBeLessThanOrEqual(FACTS_CAP + 64);
+    expect(block).toContain("[...truncated]");
   });
 
   it("marks Rust-side truncation even when budget is fine", () => {
@@ -657,7 +699,8 @@ describe("buildContextBlock", () => {
   it("caps dirs at 60 names", () => {
     const dirs = Array.from({ length: 100 }, (_, i) => `d${i}`);
     const block = buildContextBlock({ globalRules: "", ruleFiles: [], facts: { cwd: "C:\\x", git: null, dirs, npmScripts: [] } });
-    expect(block).toContain("d59,");
+    expect(block).toContain("d58,");   // last-shown name has no trailing comma:
+    expect(block).toContain("d59 (");  // "..., d58, d59 (+40 more)"
     expect(block).not.toContain("d60,");
     expect(block).not.toContain(" d60 ");
     expect(block).toContain("(+40 more)");
@@ -685,6 +728,8 @@ Create `src/features/terminals/agentContext.js`:
 // TOFU per-content-hash approval gate (Task 4/5), and secretScan masking.
 
 export const CONTEXT_BUDGET = 16 * 1024; // chars, whole block, hard-capped
+export const RULES_SHARE = 8 * 1024; // oversized global Rules can never evict rule files
+export const FACTS_CAP = 2 * 1024; // facts section clamp
 const DIRS_MAX = 60;
 const TRUNC = "\n[...truncated]";
 
@@ -718,7 +763,8 @@ function factsSection(facts) {
     lines.push(`npm scripts: ${facts.npmScripts.join(", ")}`);
   }
   if (!lines.length) return "";
-  return `\n### Project facts\n${lines.join("\n")}\n`;
+  const body = `\n### Project facts\n${lines.join("\n")}\n`;
+  return body.length > FACTS_CAP ? `${safeSlice(body, FACTS_CAP)}${TRUNC}\n` : body;
 }
 
 const fileSection = (f, content, cut) =>
@@ -737,6 +783,12 @@ export function buildContextBlock({ globalRules, ruleFiles, facts }) {
   const entries = files.map((f) => ({ f, content: f.content, cut: false, dropped: false }));
   let rulesText = rules;
   let rulesCut = false;
+  // Rev 2.1: pre-cut oversized rules to their share BEFORE any file is touched —
+  // a giant Rules field must never evict approved rule files (verified defect).
+  if (rulesText.length > RULES_SHARE) {
+    rulesText = safeSlice(rulesText, RULES_SHARE);
+    rulesCut = true;
+  }
 
   const assemble = () =>
     HEADER +
@@ -772,7 +824,7 @@ export function buildContextBlock({ globalRules, ruleFiles, facts }) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/features/terminals/agentContext.test.js`
-Expected: 11 passed.
+Expected: 13 passed.
 
 - [ ] **Step 5: Full gates + commit**
 
@@ -848,9 +900,10 @@ describe("collectProjectContext", () => {
 describe("partitionRuleFiles", () => {
   const rf = (path, hash) => ({ name: "AGENTS.md", path, content: "c", truncated: false, hash });
 
-  it("splits approved (hash matches) from pending (new or changed)", () => {
+  it("splits approved (hash matches) from pending (new or changed), case-insensitive keys", () => {
     const files = [rf("C:\\a", "h1"), rf("C:\\b", "h2"), rf("C:\\c", "h3")];
-    const approvedMap = { "C:\\a": "h1", "C:\\b": "OLD" }; // b changed, c never seen
+    // Map keys are stored lowercased; files arrive with canonicalize's casing.
+    const approvedMap = { "c:\\a": "h1", "c:\\b": "OLD" }; // b changed, c never seen
     const { approved, pending } = partitionRuleFiles(files, approvedMap);
     expect(approved.map((f) => f.path)).toEqual(["C:\\a"]);
     expect(pending.map((f) => f.path)).toEqual(["C:\\b", "C:\\c"]);
@@ -910,11 +963,13 @@ export async function collectProjectContext({ cwd, invoke, sha256 = sha256Hex })
 }
 
 export function partitionRuleFiles(ruleFiles, approvedMap) {
+  // Keys are lowercased: Windows paths are case-insensitive and canonicalize's
+  // casing is not guaranteed stable across runs — approval must stick anyway.
   const map = approvedMap || {};
   const approved = [];
   const pending = [];
   for (const f of ruleFiles || []) {
-    (map[f.path] === f.hash ? approved : pending).push(f);
+    (map[String(f.path).toLowerCase()] === f.hash ? approved : pending).push(f);
   }
   return { approved, pending };
 }
@@ -923,7 +978,7 @@ export function partitionRuleFiles(ruleFiles, approvedMap) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/features/terminals/agentContext.test.js`
-Expected: 17 passed (11 prior + 6 new).
+Expected: 19 passed (13 prior + 6 new).
 
 - [ ] **Step 5: Full gates + commit**
 
@@ -985,9 +1040,12 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
 State (beside existing useState hooks):
 
 ```jsx
-  const [ctx, setCtx] = useState({ block: "", pending: [], masked: 0 });
+  const EMPTY_CTX = { block: "", pending: [], masked: 0, hasRules: false, agentsCount: 0, claudeCount: 0, hasGit: false };
+  const [ctx, setCtx] = useState(EMPTY_CTX);
   const [ctxOpen, setCtxOpen] = useState(false);
 ```
+
+(`EMPTY_CTX` goes at module scope, above the component, so the reference is stable.)
 
 Run-function prefix — replace the current lines :54-60 region so the running flag flips BEFORE any await:
 
@@ -1010,13 +1068,23 @@ Run-function prefix — replace the current lines :54-60 region so the running f
         const raw = buildContextBlock({ globalRules: userSt?.agentRules, ruleFiles: approved, facts });
         const hits = scanSecrets(raw);
         contextBlock = maskSecrets(raw, hits);
-        setCtx({ block: contextBlock, pending, masked: hits.length });
+        // Chip segments come from STRUCTURED data, not regex over the block —
+        // a rule file whose prose contains "git:" must not fake a segment.
+        setCtx({
+          block: contextBlock,
+          pending,
+          masked: hits.length,
+          hasRules: !!String(userSt?.agentRules || "").trim(),
+          agentsCount: approved.filter((f) => f.name === "AGENTS.md").length,
+          claudeCount: approved.filter((f) => f.name === "CLAUDE.md").length,
+          hasGit: !!(facts && facts.git),
+        });
       } catch {
         contextBlock = ""; // context must never block the run
-        setCtx({ block: "", pending: [], masked: 0 });
+        setCtx(EMPTY_CTX);
       }
     } else {
-      setCtx({ block: "", pending: [], masked: 0 });
+      setCtx(EMPTY_CTX);
     }
 ```
 
@@ -1041,13 +1109,12 @@ Insert as the FIRST child inside the `<Modal ...>` return, ABOVE the goal-input 
 ```jsx
       {(() => {
         const off = userSt?.agentContextEnabled === false;
-        const count = (name) => (ctx.block.match(new RegExp(`### ${name} \\(`, "g")) || []).length;
         const seg = [];
         if (!off && ctx.block) {
-          if (ctx.block.includes("### User rules")) seg.push("rules");
-          const a = count("AGENTS\\.md"); if (a) seg.push(`AGENTS.md ×${a}`);
-          const c = count("CLAUDE\\.md"); if (c) seg.push(`CLAUDE.md ×${c}`);
-          if (ctx.block.includes("\ngit: ")) seg.push("git");
+          if (ctx.hasRules) seg.push("rules");
+          if (ctx.agentsCount) seg.push(`AGENTS.md ×${ctx.agentsCount}`);
+          if (ctx.claudeCount) seg.push(`CLAUDE.md ×${ctx.claudeCount}`);
+          if (ctx.hasGit) seg.push("git");
         }
         if (!off && ctx.pending.length) seg.push(`${ctx.pending.length} pending review`);
         const label = off ? "context: off" : (seg.length ? `context: ${seg.join(" · ")}` : "context: none");
@@ -1083,7 +1150,7 @@ Insert as the FIRST child inside the `<Modal ...>` return, ABOVE the goal-input 
                         if (!saveUser) return;
                         saveUser((prev) => ({
                           ...prev,
-                          approvedRuleFiles: { ...(prev?.approvedRuleFiles || {}), [f.path]: f.hash },
+                          approvedRuleFiles: { ...(prev?.approvedRuleFiles || {}), [String(f.path).toLowerCase()]: f.hash },
                         }));
                       }}
                       style={{ fontSize: 11 }}
