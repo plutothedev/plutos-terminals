@@ -637,17 +637,18 @@ pub fn read_npm_scripts(cwd: String) -> Vec<String> {
         .unwrap_or_default()
 }
 
-// ---- agent rule-file collection (Stream A) -------------------------------
+// ── Agent rule-file collection (Stream A) ─────────────────────────
 // (C) Narrow, bounded probe: reads ONLY AGENTS.md / CLAUDE.md walking up from
 // cwd to the git root (inclusive; 12-level cap) or, when no git root exists,
-// only the nearest 3 levels. Symlinks are skipped (never read through) — a
-// link-swapped rule file must not become an exfil path; the JS layer adds a
-// content-hash approval gate on top because hardlinks are undetectable here.
-// No generic file-read IPC is exposed; the webview privilege boundary stays
-// narrow. Early-stops past 32 KiB total (JS budget is 16 KiB).
+// only the nearest 3 levels. Symlinks are skipped BEST-EFFORT (symlink_metadata
+// check, then read — a swap between the two syscalls can still be followed),
+// and hardlinks are undetectable here entirely; the JS layer's per-content-hash
+// approval gate is the real backstop for both. No generic file-read IPC is
+// exposed; the webview privilege boundary stays narrow. Early-stops past
+// 32 KiB total (JS budget is 16 KiB).
 
 const RULE_FILE_NAMES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
-const RULE_FILE_CAP: usize = 8 * 1024; // bytes per file
+const RULE_FILE_CAP: usize = 8 * 1024; // input-slice cap per file (lossy decode may exceed by a few bytes)
 const RULE_WALK_MAX_LEVELS: usize = 12; // with a git root
 const RULE_WALK_NON_GIT_LEVELS: usize = 3; // without one
 const RULE_TOTAL_CAP: usize = 32 * 1024; // early-stop bound
@@ -671,7 +672,7 @@ fn display_path(p: &std::path::Path) -> String {
 fn read_rule_file(p: &std::path::Path) -> Option<RuleFile> {
     let meta = std::fs::symlink_metadata(p).ok()?;
     if meta.file_type().is_symlink() || !meta.is_file() {
-        return None; // never read through links; dirs named AGENTS.md are noise
+        return None; // skip links (best-effort; see module comment); dirs named AGENTS.md are noise
     }
     let bytes = std::fs::read(p).ok()?;
     let truncated = bytes.len() > RULE_FILE_CAP;
