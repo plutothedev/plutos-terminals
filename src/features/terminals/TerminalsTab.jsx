@@ -551,12 +551,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // effect-time write (not a render-phase one) is always fresh enough.
   useEffect(() => { selectRibbonRef.current = selectRibbon; }, [selectRibbon]);
 
-  // "Games" toolbar button — MobaXterm has built-in games; we keep it honest
-  // with a wink toward the palette.
-  const playGames = useCallback(() => {
-    toast.info("No games bundled — but Ctrl+K opens the command palette.");
-  }, [toast]);
-
   // "Exit" toolbar button — truly quit (kills every PTY). Needs the quit_app
   // backend command; falls back to hiding the window if it isn't available.
   const exitApp = useCallback(async () => {

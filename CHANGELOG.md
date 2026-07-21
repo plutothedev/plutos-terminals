@@ -33,6 +33,13 @@
 - Jump-host tunnels are torn down on every abort path of an SSH connection
   (previously a spawn interrupted at the wrong moment could leak the tunnel).
 
+### Internal
+- The main terminals view was decomposed: menu bar, toolbar, status bar,
+  F-key bar, right-dock tab strip, the ~24 modals, and the command-palette
+  command list now live in focused `chrome/` modules (behavior-identical;
+  every moved block byte-verified). TerminalsTab.jsx shrank from 1,448 to
+  ~1,090 lines. Dead code swept (MobaRibbon, unused icons, orphaned handlers).
+
 ## v0.5.0 — Security hardening + reliability pass (2026-07-06)
 
 Bundles the remote-sessions-parity work (SSH/SFTP/RDP/VNC/tunnels, phone
