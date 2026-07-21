@@ -218,7 +218,15 @@ export default function NotebookView({ name, tabId, visible }) {
   }, []);
 
   const save = useCallback(async () => {
-    if (savingRef.current) return;
+    if (savingRef.current) {
+      // BUSY-SKIP case: this request would be dropped by the mutex. Re-arm so
+      // the latest content still lands once the in-flight write releases (the
+      // mutex-race the autosave otherwise strands). Bounded: a save always
+      // clears savingRef in its finally, so a write can't be busy forever.
+      // Guarded on mountedRef so a post-unmount timer can't arm a stale write.
+      if (mountedRef.current) scheduleAutosave();
+      return;
+    }
     const snapshot = contentRef.current;
     if (snapshot == null) return;
     if (snapshot === savedRef.current) return; // nothing to persist
@@ -229,17 +237,15 @@ export default function NotebookView({ name, tabId, visible }) {
       savedRef.current = snapshot;
       setSavedContent(snapshot);
     } catch (e) {
+      // FAILED-WRITE case: deliberately do NOT re-arm here. A persistent error
+      // (disk full, permission, dir-scope reject) would otherwise self-retry
+      // every 2 s forever with a toast each cycle. A failed save waits for an
+      // explicit user action (next keystroke's onChange → scheduleAutosave, or
+      // Ctrl+S). Only the busy-skip branch above re-arms.
       toast.error(`Notebook save failed: ${e}`);
     } finally {
       savingRef.current = false;
       setSaving(false);
-      // A save() that arrived while this one held the mutex early-returned and
-      // was dropped. If content moved on during the write it would sit dirty
-      // with no scheduled autosave until the next keystroke — re-arm it. Guarded
-      // on mountedRef so a post-unmount finally can't arm a stale-content write.
-      if (mountedRef.current && contentRef.current != null && contentRef.current !== savedRef.current) {
-        scheduleAutosave();
-      }
     }
   }, [name, toast, scheduleAutosave]);
   saveRef.current = save;
@@ -326,11 +332,18 @@ export default function NotebookView({ name, tabId, visible }) {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [visible, save]);
 
-  // ── Save-on-unmount when dirty (fire-and-forget; hard-quit gap documented) ──
-  // Also flips mountedRef so in-flight run/save continuations bail instead of
-  // firing a zombie write after this instance is gone. []-deps: cleanup runs
-  // only on true unmount, never on a dependency-driven re-run.
+  // ── Mount flag + save-on-unmount when dirty ───────────────────────────────
+  // mountedRef re-asserts true on every mount and flips false on unmount, so
+  // in-flight run/save continuations bail instead of firing a zombie write
+  // after this instance is gone. Re-asserting at the TOP is load-bearing under
+  // React 18 StrictMode: its dev-only mount→cleanup→remount cycle would
+  // otherwise leave the ref stuck false forever (useRef's initializer runs once;
+  // the synthetic remount reuses the same ref object) — which would make Run
+  // look dead in every `tauri dev` smoke. The []-deps body runs on every real
+  // AND synthetic mount; the cleanup runs only on a true unmount. Mirrors the
+  // per-run `let alive = true` idiom used by the two effects below.
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       clearTimeout(autosaveTimer.current);
@@ -397,8 +410,10 @@ export default function NotebookView({ name, tabId, visible }) {
     try {
       await runOne(blockIndex);
     } finally {
-      runningRef.current = false;
-      setRunning(false);
+      if (mountedRef.current) {
+        runningRef.current = false;
+        setRunning(false);
+      }
     }
   }, [targetLive, runOne]);
 
@@ -422,19 +437,21 @@ export default function NotebookView({ name, tabId, visible }) {
         if (isFailure(r)) break; // stop at first nonzero exit / timeout / dead pane
       }
     } finally {
-      runningRef.current = false;
-      setRunning(false);
-      // Revert the transient "skipped" markers to their steady "runs in v1.1"
-      // rail text; preserve any "changed" discards so the user still sees them.
-      setRunStatus((s) => {
-        let touched = false;
-        const c = {};
-        for (const k in s) {
-          if (s[k] === "skipped") { touched = true; continue; }
-          c[k] = s[k];
-        }
-        return touched ? c : s;
-      });
+      if (mountedRef.current) {
+        runningRef.current = false;
+        setRunning(false);
+        // Revert the transient "skipped" markers to their steady "runs in v1.1"
+        // rail text; preserve any "changed" discards so the user still sees them.
+        setRunStatus((s) => {
+          let touched = false;
+          const c = {};
+          for (const k in s) {
+            if (s[k] === "skipped") { touched = true; continue; }
+            c[k] = s[k];
+          }
+          return touched ? c : s;
+        });
+      }
     }
   }, [targetLive, runOne]);
 
