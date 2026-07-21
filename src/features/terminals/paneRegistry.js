@@ -28,13 +28,13 @@
 //
 // StrictMode / mid-spawn semantics: React 18 dev StrictMode mounts, unmounts,
 // and remounts synchronously before the first real commit. This module
-// exposes `spawnState` ("starting" | "live" | "dead") precisely so a caller's
+// exposes `spawnState` ("starting" | "live") precisely so a caller's
 // cleanup can tell the two cases apart: if cleanup runs while the entry is
 // still "starting" (the PTY hasn't finished spawning), there is nothing live
 // to hand off to a next mount, so the caller destroys the entry outright
 // instead of parking it; the in-flight spawn callback then checks
 // getEntry(id) on arrival and kills the orphaned PTY if the entry is already
-// gone. Once spawnState is "live" (or "dead"), cleanup parks — only the sweep
+// gone. Once spawnState is "live", cleanup parks — only the sweep
 // or destroyAll ever destroys a live entry. This module provides the
 // primitives (spawnState, destroyEntry, detachHost); TerminalPane (Task 3)
 // is what actually branches on them.
@@ -76,7 +76,7 @@ function makeEntry() {
     search: null,
     ptyId: null,
     jumpFwdId: null,
-    spawnState: "starting", // "starting" | "live" | "dead"
+    spawnState: "starting", // "starting" | "live" — flips at spawn success; nothing assigns a third state
     setupDone: false,
     onDestroy: [],
     ui: null, // per-mount pointer table; repointed on EVERY mount (decision 4)

@@ -320,6 +320,16 @@ export default function TerminalPane({
   // closure is running.
   const entryRef = useRef(null);
 
+  // Project name resolved through entry.ui (the CURRENT fiber's ref) — same
+  // dead-closure class as the setters: the readers below live in create-once
+  // closures (setActivity's notifications, flushTranscript's filename,
+  // checkAutoApprove's ping), where a dead fiber's projectNameRef would
+  // freeze at its park-time value after a move + rename.
+  const liveProjectName = () => {
+    const ui = entryRef.current?.ui;
+    return ui?.projectName ? ui.projectName() : projectNameRef.current;
+  };
+
   // Scrollback / transcript buffers — populated from the PTY stream.
   // (The scrollback chunk list + byte count live at entry.counters.* so a
   // moved pane keeps its analysis buffers; transcript machinery stays
@@ -367,13 +377,14 @@ export default function TerminalPane({
     // you're staring at). Respects user gesture requirements: AudioContext
     // is created on demand and resumed if needed.
     if (prev === "active" && next === "done" && isAway()) {
+      const pn = liveProjectName();
       try { playDoneCue(); } catch {}
-      notifyOS("Agent finished ✓", projectNameRef.current ? `${projectNameRef.current} is done` : "A session finished");
+      notifyOS("Agent finished ✓", pn ? `${pn} is done` : "A session finished");
       // Phone companion (Phase 5): push a "finished" alert when no phone is actively
       // connected (the companion no-ops if its server is off / a phone is viewing /
       // no push subscription). Primary window only, to avoid duplicate pushes.
       if (isPrimaryWindow()) {
-        invoke("companion_notify_finish", { label: projectNameRef.current || "session", exit: 0 }).catch(() => {});
+        invoke("companion_notify_finish", { label: pn || "session", exit: 0 }).catch(() => {});
       }
     }
   };
@@ -409,7 +420,7 @@ export default function TerminalPane({
     transcriptBufRef.current = "";
     const id = tabIdRef.current;
     if (!id) return;
-    const name = transcriptName(projectNameRef.current, id);
+    const name = transcriptName(liveProjectName(), id);
     invoke("transcript_append", {
       date: transcriptDateRef.current,
       name,
@@ -449,7 +460,8 @@ export default function TerminalPane({
     } else if (now - lastNotifyAtRef.current > 15000) {
       // Auto-approve off + you're elsewhere → ping that a session needs you.
       lastNotifyAtRef.current = now;
-      notifyOS("Needs your input", projectNameRef.current ? `${projectNameRef.current} is waiting for approval` : "A session is waiting for approval");
+      const pn = liveProjectName();
+      notifyOS("Needs your input", pn ? `${pn} is waiting for approval` : "A session is waiting for approval");
     }
   };
 
@@ -587,6 +599,7 @@ export default function TerminalPane({
       isAutoApprove: () => autoApproveRef.current,
       isVisible: () => visibleRef.current,
       isActive: () => activeRef.current,
+      projectName: () => projectNameRef.current,
       onCost: (next) => onCostRef.current?.(next),
       onActivity: (a) => onActivityRef.current?.(a),
       resizeReprint: (cols) => { bannerRedrawRef.current?.(cols); },
@@ -619,6 +632,9 @@ export default function TerminalPane({
       ro.disconnect();
       clearDoneTimer();
       clearTimeout(bannerRedrawTimerRef.current); // pending banner reprint must not fire post-unmount
+      // Accepted gap: if a fresh local pane parks inside its ~4s boot-conceal
+      // window, the buffered boot output is dropped (the pane may look blank
+      // until the next output) — pre-existing park-time conceal semantics.
       if (concealRef.current) {
         clearTimeout(concealRef.current.timer);
         concealRef.current = null;
@@ -1002,7 +1018,11 @@ export default function TerminalPane({
       return false;
     };
 
-    // Periodic transcript flush. Persistent across the pane's lifetime.
+    // Periodic transcript flush — the 5s cadence runs only while THIS
+    // (first-mounting) fiber is attached: its park cleanup clears the interval
+    // and a re-attach never re-arms it. After a move, persistence falls back
+    // to the size-threshold flush in appendTranscript plus the destroy-hook
+    // tail flush on close/lock/crash.
     transcriptTimerRef.current = setInterval(() => {
       // Roll over to a new date file at midnight.
       const today = todayDate();
@@ -1127,11 +1147,20 @@ export default function TerminalPane({
         // Orphan guard (decision 6): if the entry was destroyed while the
         // spawn was in flight (mid-spawn unmount, StrictMode's synthetic first
         // mount, instant close), nothing owns this PTY — kill it on arrival.
-        // (Any jump tunnel was already stopped by its dedicated destroy hook.)
+        // Tunnel ownership split: the dedicated destroy hook covers destroys
+        // AFTER its registration; if the destroy landed while
+        // jump_forward_start was still awaited, registerDestroyHook no-oped on
+        // the already-missing entry — so THIS guard owns that pre-registration
+        // window. check→stop→null runs to completion (no await in between),
+        // and the null-out keeps every other stop site a no-op.
         // Identity check, not truthiness: a close-then-reopen may already have
         // minted a FRESH entry (with its own spawn) under the same id, and
         // this stale spawn must never adopt it.
         if (getEntry(tabId) !== entry) {
+          if (entry.jumpFwdId) {
+            invoke("port_forward_stop", { id: entry.jumpFwdId }).catch(() => {});
+            entry.jumpFwdId = null;
+          }
           await invoke("pty_kill", { id }).catch(() => {});
           return;
         }
