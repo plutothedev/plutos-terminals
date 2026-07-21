@@ -78,7 +78,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
         setCtx({
           block: contextBlock,
           pending,
-          masked: hits.length,
+          masked: new Set(hits.map((h) => h.match)).size,
           hasRules: !!String(userSt?.agentRules || "").trim(),
           agentsCount: approved.filter((f) => f.name === "AGENTS.md").length,
           claudeCount: approved.filter((f) => f.name === "CLAUDE.md").length,
@@ -176,10 +176,14 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
         return (
           <div style={{ fontSize: 11, color: "var(--phn-text-dim)", marginBottom: 8 }}>
             <span
-              role="button"
-              tabIndex={0}
+              role={expandable ? "button" : undefined}
+              tabIndex={expandable ? 0 : -1}
+              aria-expanded={ctxOpen}
               onClick={() => expandable && setCtxOpen((v) => !v)}
-              onKeyDown={(e) => { if (e.key === "Enter" && expandable) setCtxOpen((v) => !v); }}
+              onKeyDown={(e) => {
+                if (!expandable) return;
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setCtxOpen((v) => !v); }
+              }}
               style={{ cursor: expandable ? "pointer" : "default" }}
               title={expandable ? "Show the exact injected context + pending rule files" : ""}
             >
