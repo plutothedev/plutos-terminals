@@ -6,6 +6,7 @@
 // a poisoned persisted blob can't loop blank -> reload -> blank; snippets, themes,
 // and keys (separate keys) are kept.
 import { Component } from "react";
+import { destroyAll } from "../features/terminals/paneRegistry.js";
 
 export class ErrorBoundary extends Component {
   constructor(props) {
@@ -19,6 +20,8 @@ export class ErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     try { console.error("Pluto's Terminal: uncaught render error", error, info); } catch { /* never throw here */ }
+    // A crashed tree cannot supervise live sessions.
+    try { destroyAll(); } catch { /* the boundary must never throw */ }
   }
 
   render() {

@@ -80,6 +80,8 @@ import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds, getPtyId, onDimsChange } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
+import { reconcile } from "./paneRegistry.js";
+import { allRenderedPaneIds } from "./paneIds.js";
 import { sshAccount } from "./sshAccount.js";
 
 export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {} }) {
@@ -136,6 +138,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Inject header-skin CSS once. Idempotent inside injectHeaderSkinsCss.
   useHeaderSkinSetup();
+
+  // Registry lifecycle truth: any pane id no longer rendered by the tree is dead —
+  // covers every close path (tab/panel/pane close, reset-workspace, workspace
+  // load, worktree discard) with one mechanism. Runs after unmounted panes'
+  // cleanups in the same commit (React child-cleanup-before-parent-effect order).
+  useEffect(() => {
+    reconcile(new Set(allRenderedPaneIds(state.panels)));
+  }, [state.panels]);
 
   // Session-restore confirmation toast — fires once per app launch (not per
   // React remount) when there's a non-trivial saved state to restore.

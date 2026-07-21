@@ -39,11 +39,14 @@
 // primitives (spawnState, destroyEntry, detachHost); TerminalPane (Task 3)
 // is what actually branches on them.
 //
-// Lock screen / destroyAll: this module has no notion of "locked" — the App
-// shell calls destroyAll() directly on the transition into the locked state.
-// That's deliberate: a parked (invisible) session behind the lock screen
-// would keep running unsupervised (e.g. auto-approve still acting with the
-// window out of focus), so locking must kill every session, not park them.
+// Lock screen / crash recovery / destroyAll: this module has no notion of
+// "locked" or "crashed" — App.jsx's lock-transition effect and
+// ErrorBoundary.componentDidCatch call destroyAll() directly. That's
+// deliberate: a parked (invisible) session behind the lock screen would keep
+// running unsupervised (e.g. auto-approve still acting with the window out
+// of focus), so locking must kill every session, not park them; and a
+// crashed render tree can't supervise live sessions either, so the boundary
+// kills everything rather than leaving orphaned PTYs behind the fallback UI.
 //
 // `ui` pointer table (repointed every mount, decision 4): entry.ui is opaque
 // storage owned by TerminalPane — a plain object of the CURRENT mount's
@@ -117,6 +120,7 @@ export function detachHost(paneId) {
 }
 
 export function registerDestroyHook(paneId, fn) {
+  if (!paneId || typeof fn !== "function") return;
   const entry = registry.get(paneId);
   if (!entry) return;
   entry.onDestroy.push(fn);
@@ -136,7 +140,11 @@ export function destroyEntry(paneId) {
     }
   }
   entry.host.remove();
-  registry.delete(paneId);
+  // A destroy hook could itself call ensureEntry(paneId) and mint a fresh
+  // entry under the same id mid-teardown — only delete the Map slot if it
+  // still points at the entry we just tore down, so a hook's replacement
+  // entry is never deleted out from under it.
+  if (registry.get(paneId) === entry) registry.delete(paneId);
 }
 
 export function reconcile(liveIds) {

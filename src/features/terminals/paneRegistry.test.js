@@ -79,6 +79,18 @@ describe("paneRegistry", () => {
     expect(R.listEntries().sort()).toEqual(["keep1", "keep2"]);
   });
 
+  it("reconcile accepts a plain array (not just a Set) with identical behavior", async () => {
+    const R = await load();
+    R.destroyAll();
+    R.ensureEntry("keep1"); R.ensureEntry("gone1");
+    const killed = [];
+    R.registerDestroyHook("gone1", () => killed.push("gone1"));
+    const destroyed = R.reconcile(["keep1"]); // array, not a Set
+    expect(destroyed).toEqual(["gone1"]);
+    expect(killed).toEqual(["gone1"]);
+    expect(R.listEntries()).toEqual(["keep1"]);
+  });
+
   it("reconcile with everything live destroys nothing (move case)", async () => {
     const R = await load();
     R.destroyAll();

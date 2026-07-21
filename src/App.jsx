@@ -4,6 +4,7 @@ import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import LockScreen from "./features/terminals/LockScreen.jsx";
 import { isUnlockedThisSession } from "./features/terminals/masterPassword.js";
+import { destroyAll } from "./features/terminals/paneRegistry.js";
 import { USER_STORAGE_KEY, getWindowStorageKey, allOpenTabIds } from "./features/terminals/storageKeys.js";
 import { invoke } from "./backend.js";
 import {
@@ -342,6 +343,14 @@ function AppInner() {
 
   // Optional master-password lock — gate the UI once per launch when set.
   const lockHash = typeof userSt.masterPasswordHash === "string" ? userSt.masterPasswordHash : "";
+
+  // Locking must kill live sessions, exactly like the pre-registry behavior —
+  // a parked PTY behind the password gate could keep auto-approving with zero
+  // supervision once the window loses OS focus.
+  useEffect(() => {
+    if (welcomeDone && lockHash && !unlocked) destroyAll();
+  }, [welcomeDone, lockHash, unlocked]);
+
   if (welcomeDone && lockHash && !unlocked) {
     return <LockScreen expectedHash={lockHash} onUnlock={() => setUnlocked(true)} />;
   }
