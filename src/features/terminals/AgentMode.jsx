@@ -17,14 +17,20 @@ import { runAndCapture } from "./ptyBridge.js";
 import { toolTurn } from "./llmTools.js";
 import { buildTools, needsApproval, isDangerousCommand, mcpResultToContent } from "./agentTools.js";
 import { runAgentLoop } from "./agentLoop.js";
+import { collectProjectContext, partitionRuleFiles, buildContextBlock } from "./agentContext.js";
+import { scanSecrets, maskSecrets } from "./secretScan.js";
 
 const MAX_STEPS = 14;
 
-export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
+const EMPTY_CTX = { block: "", pending: [], masked: 0, hasRules: false, agentsCount: 0, claudeCount: 0, hasGit: false };
+
+export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt, saveUser }) {
   const [goal, setGoal] = useState("");
   const [steps, setSteps] = useState([]);
   const [running, setRunning] = useState(false);
   const [autoRun, setAutoRun] = useState(false);
+  const [ctx, setCtx] = useState(EMPTY_CTX);
+  const [ctxOpen, setCtxOpen] = useState(false);
   const [pending, setPending] = useState(null);     // { call, isShell, risky, argsText }
   const [pendingCmd, setPendingCmd] = useState("");  // editable shell command text
   const stopRef = useRef(false);
@@ -59,6 +65,33 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
     const local = [];
     const onStep = (s) => { local.push(s); setSteps([...local]); };
 
+    let contextBlock = "";
+    if (userSt?.agentContextEnabled !== false) {
+      try {
+        const { ruleFiles, facts } = await collectProjectContext({ cwd, invoke });
+        const { approved, pending } = partitionRuleFiles(ruleFiles, userSt?.approvedRuleFiles);
+        const raw = buildContextBlock({ globalRules: userSt?.agentRules, ruleFiles: approved, facts });
+        const hits = scanSecrets(raw);
+        contextBlock = maskSecrets(raw, hits);
+        // Chip segments come from STRUCTURED data, not regex over the block —
+        // a rule file whose prose contains "git:" must not fake a segment.
+        setCtx({
+          block: contextBlock,
+          pending,
+          masked: hits.length,
+          hasRules: !!String(userSt?.agentRules || "").trim(),
+          agentsCount: approved.filter((f) => f.name === "AGENTS.md").length,
+          claudeCount: approved.filter((f) => f.name === "CLAUDE.md").length,
+          hasGit: !!(facts && facts.git),
+        });
+      } catch {
+        contextBlock = ""; // context must never block the run
+        setCtx(EMPTY_CTX);
+      }
+    } else {
+      setCtx(EMPTY_CTX);
+    }
+
     let mcpTools = [];
     try { mcpTools = await invoke("mcp_list_tools"); } catch { mcpTools = []; }
     const { tools, meta } = buildTools(mcpTools);
@@ -68,7 +101,8 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
       `Accomplish the user's GOAL by calling the provided tools. Use run_command for shell work; ` +
       `use the other tools when they fit. Call one or more tools per turn; I will send you each tool's RESULT. ` +
       `When the goal is complete, reply with a short summary and DO NOT call any tool. ` +
-      `Prefer safe, idempotent actions.`;
+      `Prefer safe, idempotent actions.` +
+      (contextBlock ? `\n\n${contextBlock}` : "");
 
     const executeTool = async (call) => {
       const m = meta[call.name];
@@ -127,6 +161,61 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName }) {
 
   return (
     <Modal open={open} title="Agent Mode" onClose={onClose} width={700}>
+      {(() => {
+        const off = userSt?.agentContextEnabled === false;
+        const seg = [];
+        if (!off && ctx.block) {
+          if (ctx.hasRules) seg.push("rules");
+          if (ctx.agentsCount) seg.push(`AGENTS.md ×${ctx.agentsCount}`);
+          if (ctx.claudeCount) seg.push(`CLAUDE.md ×${ctx.claudeCount}`);
+          if (ctx.hasGit) seg.push("git");
+        }
+        if (!off && ctx.pending.length) seg.push(`${ctx.pending.length} pending review`);
+        const label = off ? "context: off" : (seg.length ? `context: ${seg.join(" · ")}` : "context: none");
+        const expandable = !!(ctx.block || ctx.pending.length);
+        return (
+          <div style={{ fontSize: 11, color: "var(--phn-text-dim)", marginBottom: 8 }}>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={() => expandable && setCtxOpen((v) => !v)}
+              onKeyDown={(e) => { if (e.key === "Enter" && expandable) setCtxOpen((v) => !v); }}
+              style={{ cursor: expandable ? "pointer" : "default" }}
+              title={expandable ? "Show the exact injected context + pending rule files" : ""}
+            >
+              {label}
+              {!off && ctx.masked > 0 && (
+                <span style={{ color: "var(--phn-danger)", marginLeft: 6 }}>· {ctx.masked} secret{ctx.masked > 1 ? "s" : ""} masked</span>
+              )}
+            </span>
+            {ctxOpen && (
+              <div>
+                {ctx.block && (
+                  <pre style={{ maxHeight: 180, overflow: "auto", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: 6, fontSize: 11, whiteSpace: "pre-wrap" }}>{ctx.block}</pre>
+                )}
+                {ctx.pending.map((f) => (
+                  <div key={f.path} style={{ marginTop: 6, border: "1px solid var(--phn-danger)", borderRadius: 6, padding: 8 }}>
+                    <div style={{ marginBottom: 4 }}>
+                      Pending review: <strong>{f.name}</strong> ({f.path}) — not sent to the model until approved.
+                    </div>
+                    <pre style={{ maxHeight: 120, overflow: "auto", fontSize: 11, whiteSpace: "pre-wrap" }}>{f.content}</pre>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        if (!saveUser) return;
+                        saveUser((prev) => ({
+                          ...prev,
+                          approvedRuleFiles: { ...(prev?.approvedRuleFiles || {}), [String(f.path).toLowerCase()]: f.hash },
+                        }));
+                      }}
+                    >Approve (applies from the next run)</Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
       <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
         <Input
           ref={goalRef} value={goal} onChange={(e) => setGoal(e.target.value)}

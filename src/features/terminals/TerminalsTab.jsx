@@ -1251,6 +1251,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         tabId={activeTab?.activePaneId || activeTabId}
         cwd={activeTab?.cwd || null}
         shellName={shellName}
+        userSt={userSt}
+        saveUser={saveUser}
       />
 
       <SessionSummary
