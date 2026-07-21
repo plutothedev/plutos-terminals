@@ -12,6 +12,7 @@
 import { useCallback, useRef } from "react";
 import { invoke } from "@backend";
 import { clearTabPassword, getTabPassword, setTabPassword } from "../ptyBridge.js";
+import { markNotebookNew } from "../NotebookView.jsx";
 import { getWindowStorageKey } from "../storageKeys.js";
 import { freshId } from "../ids.js";
 import { defaultPanel, renumberDefaultLabels } from "../workspaceModel.js";
@@ -111,6 +112,11 @@ export function useWorkspaceTree({ state, persist, toast }) {
         return;
       }
     }
+    // No open tab for this notebook — mint one. Mark the name "new" so
+    // NotebookView seeds a template when the file doesn't exist yet. A RESTORED
+    // tab (rehydrated from persisted state, never through here) is NOT marked,
+    // so a missing file there warns instead of silently reseeding.
+    markNotebookNew(name);
     const newTab = { id: freshId("tab"), label: name, notebook: { name }, cwd: null, startCommands: [] };
     const panels = st.panels.map(p =>
       p.id === panelId ? { ...p, tabs: [...p.tabs, newTab], activeTabId: newTab.id } : p
@@ -240,8 +246,11 @@ export function useWorkspaceTree({ state, persist, toast }) {
     if (!src) return;
     // Strip `worktree`: an agent worktree is a 1:1 branch+dir, not duplicable —
     // two tabs sharing a worktree path would let a discard delete the folder out
-    // from under the sibling's still-running shell. The copy is a plain tab.
-    const copy = { ...src, id: freshId("tab"), worktree: undefined, layout: undefined, activePaneId: undefined };
+    // from under the sibling's still-running shell. Strip `notebook` too: a
+    // notebook tab is bound 1:1 to a file, and two live NotebookViews on one
+    // file race on save (last-writer-wins clobber, once the C-4 write path
+    // lands). The copy is a plain tab.
+    const copy = { ...src, id: freshId("tab"), worktree: undefined, notebook: undefined, layout: undefined, activePaneId: undefined };
     // Carry the source tab's transient SSH password (in-memory bridge, keyed by
     // tab id) to the copy — same host/user/config, so the duplicate can spawn
     // without re-prompting for a password the user just typed.
