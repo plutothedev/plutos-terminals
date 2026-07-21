@@ -6,15 +6,15 @@ import ProjectSidebar from "./ProjectSidebar";
 import SnippetsDrawer from "./SnippetsDrawer";
 import SftpBrowser from "./SftpBrowser";
 import AgentDashboard from "./AgentDashboard";
-import MobaToolbar from "./MobaToolbar";
 import FKeyBar from "./chrome/FKeyBar.jsx";
 import DockTabStrip from "./chrome/DockTabStrip.jsx";
 import StatusBar from "./chrome/StatusBar.jsx";
 import MenuBar from "./chrome/MenuBar.jsx";
 import ModalHost from "./chrome/ModalHost.jsx";
+import Toolbar from "./chrome/Toolbar.jsx";
 import { PROVIDERS, findProvider } from "./providers.js";
 import {
-  SLocal, SSsh, SSerial, SSplit, SSplitRow, SSplitCol, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch, SPulse,
+  SSsh, SSerial, SSplit, SSplitRow, SSplitCol, STunnel, SAsk, SModels, SSnips, SPulse,
   SMouse, SWindows, SFolder, SLock, SKey, SRocket, SGear, SBot, SDoc, SClock, SLayout, SBroadcast, STarget, SPlug, SPhone, SRecord, SStop, SReset,
 } from "./toolbarIcons.jsx";
 import LocalFileBrowser from "./LocalFileBrowser";
@@ -756,41 +756,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // setters and module-level imports are stable and intentionally omitted from
   // the dep lists; the deps below are exactly the reactive values + hook
   // useCallbacks each array reads.
-  const toolbarGroups = useMemo(() => [
-    {
-      caption: "Connect",
-      items: [
-        { id: "local", icon: <SLocal />, label: "Local", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
-        { id: "ssh", icon: <SSsh />, label: "SSH", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
-        { id: "serial", icon: <SSerial />, label: "Serial", title: "Serial console session", onClick: () => setSerialOpen(true) },
-      ],
-    },
-    {
-      caption: "Workspace",
-      items: [
-        { id: "split", icon: <SSplit />, label: "Split", title: "Split the active pane", disabled: !activeTabId, menu: [
-          { id: "split-row", icon: <SSplitRow size={15} />, label: "Side by side", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-          { id: "split-col", icon: <SSplitCol size={15} />, label: "Stacked", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
-        ] },
-        { id: "multiexec", icon: <SMultiX />, label: "MultiX", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
-        { id: "tunnel", icon: <STunnel />, label: "Tunnel", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
-      ],
-    },
-    {
-      caption: "AI · Tools",
-      items: [
-        { id: "ask", icon: <SAsk />, label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
-        { id: "agent", icon: <SAgents />, label: "Agent", title: "Agent Mode — give a goal in plain English; it runs commands to do it (Ctrl+Shift+A)", onClick: () => setAgentOpen(true) },
-        { id: "models", icon: <SModels />, label: "Models", title: "Pick your LLM provider + model and enter its API key", onClick: () => setModelsOpen(true) },
-        { id: "snips", icon: <SSnips />, label: "Workflows", title: "Workflows — saved parameterized commands; click to run", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-        { id: "agents", icon: <SAgents />, label: "Agents", title: "Agent mission control", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
-      ],
-    },
-  ], [
-    activeTabId, activeTab, splitPane, broadcast, toggleBroadcast,
-    tunnelsOpen, setTunnelsOpen, openTunnels, ribbon, selectRibbon,
-  ]);
-
   const paletteCommands = useMemo(() => [
     { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: scOf("newTab"), action: () => addTab(state.activePanelId) },
     { id: "new-session", icon: <SSsh size={14} />, label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
@@ -930,26 +895,24 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       />
       {/* MobaXterm grouped icon toolbar — captioned button groups, themed via
           the active skin's --phn-* vars (see MobaToolbar.jsx + terminals.css). */}
-      <MobaToolbar
-        right={
-          <>
-            {(totalCost.cost > 0 || totalCost.tokens > 0) && (
-              <span className="phn-cost" title="Live aggregate from Claude /cost output across all sessions">
-                ${totalCost.cost.toFixed(2)}
-                {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
-              </span>
-            )}
-            <div className="moba-qc-inline" title="Quick connect — user@host (Enter)">
-              <SSearch size={13} />
-              <input
-                placeholder="quick connect — user@host"
-                spellCheck={false}
-                onKeyDown={(e) => { if (e.key === "Enter") { quickConnect(e.currentTarget.value); e.currentTarget.value = ""; } }}
-              />
-            </div>
-          </>
-        }
-        groups={toolbarGroups}
+      <Toolbar
+        activeTabId={activeTabId}
+        activeTab={activeTab}
+        splitPane={splitPane}
+        broadcast={broadcast}
+        toggleBroadcast={toggleBroadcast}
+        tunnelsOpen={tunnelsOpen}
+        setTunnelsOpen={setTunnelsOpen}
+        openTunnels={openTunnels}
+        ribbon={ribbon}
+        selectRibbon={selectRibbon}
+        setDialog={setDialog}
+        setSerialOpen={setSerialOpen}
+        setAskOpen={setAskOpen}
+        setAgentOpen={setAgentOpen}
+        setModelsOpen={setModelsOpen}
+        totalCost={totalCost}
+        quickConnect={quickConnect}
       />
 
       {/* Body: MobaXterm vertical ribbon + docked left panel + terminal grid.
