@@ -212,6 +212,7 @@ pub fn run() {
             commands::write_store,
             commands::pick_directory,
             commands::git_branch_status,
+            commands::collect_rule_files,
             commands::read_npm_scripts,
             commands::scrollback_save,
             commands::scrollback_load,

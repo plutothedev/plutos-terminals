@@ -637,6 +637,99 @@ pub fn read_npm_scripts(cwd: String) -> Vec<String> {
         .unwrap_or_default()
 }
 
+// ---- agent rule-file collection (Stream A) -------------------------------
+// (C) Narrow, bounded probe: reads ONLY AGENTS.md / CLAUDE.md walking up from
+// cwd to the git root (inclusive; 12-level cap) or, when no git root exists,
+// only the nearest 3 levels. Symlinks are skipped (never read through) — a
+// link-swapped rule file must not become an exfil path; the JS layer adds a
+// content-hash approval gate on top because hardlinks are undetectable here.
+// No generic file-read IPC is exposed; the webview privilege boundary stays
+// narrow. Early-stops past 32 KiB total (JS budget is 16 KiB).
+
+const RULE_FILE_NAMES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
+const RULE_FILE_CAP: usize = 8 * 1024; // bytes per file
+const RULE_WALK_MAX_LEVELS: usize = 12; // with a git root
+const RULE_WALK_NON_GIT_LEVELS: usize = 3; // without one
+const RULE_TOTAL_CAP: usize = 32 * 1024; // early-stop bound
+
+#[derive(Serialize, Debug, PartialEq)]
+pub struct RuleFile {
+    pub path: String,
+    pub name: String,
+    pub content: String,
+    pub truncated: bool,
+}
+
+fn display_path(p: &std::path::Path) -> String {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{}", rest); // \\?\UNC\srv\share -> \\srv\share
+    }
+    s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+}
+
+fn read_rule_file(p: &std::path::Path) -> Option<RuleFile> {
+    let meta = std::fs::symlink_metadata(p).ok()?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return None; // never read through links; dirs named AGENTS.md are noise
+    }
+    let bytes = std::fs::read(p).ok()?;
+    let truncated = bytes.len() > RULE_FILE_CAP;
+    let slice = if truncated { &bytes[..RULE_FILE_CAP] } else { &bytes[..] };
+    // from_utf8_lossy turns a mid-sequence cut into U+FFFD at the tail — fine
+    // for prompt text, never mojibake, never a panic.
+    let content = String::from_utf8_lossy(slice).into_owned();
+    Some(RuleFile {
+        path: display_path(p),
+        name: p.file_name()?.to_string_lossy().into_owned(),
+        content,
+        truncated,
+    })
+}
+
+pub fn collect_rule_files_sync(cwd: String) -> Vec<RuleFile> {
+    let start = match std::fs::canonicalize(std::path::Path::new(&cwd)) {
+        Ok(p) if p.is_dir() => p,
+        _ => return Vec::new(),
+    };
+    let mut levels: Vec<std::path::PathBuf> = Vec::new();
+    let mut found_git = false;
+    let mut dir = start;
+    for i in 0..RULE_WALK_MAX_LEVELS {
+        levels.push(dir.clone());
+        if dir.join(".git").exists() { // .exists() covers the worktree FILE form too
+            found_git = true;
+            break;
+        }
+        if i + 1 >= RULE_WALK_MAX_LEVELS { break; }
+        match dir.parent() {
+            Some(p) => dir = p.to_path_buf(),
+            None => break,
+        }
+    }
+    if !found_git {
+        levels.truncate(RULE_WALK_NON_GIT_LEVELS);
+    }
+    // Collect root-most first (injection order: root -> cwd, nearer wins by recency).
+    let mut out: Vec<RuleFile> = Vec::new();
+    let mut total = 0usize;
+    for level in levels.iter().rev() {
+        for name in RULE_FILE_NAMES {
+            if total > RULE_TOTAL_CAP { return out; }
+            if let Some(rf) = read_rule_file(&level.join(name)) {
+                total += rf.content.len();
+                out.push(rf);
+            }
+        }
+    }
+    out
+}
+
+#[tauri::command]
+pub async fn collect_rule_files(cwd: String) -> Vec<RuleFile> {
+    collect_rule_files_sync(cwd)
+}
+
 // ── Scrollback persistence + session transcripts ──────────────────
 
 pub fn safe_filename(s: &str) -> String {
@@ -1151,4 +1244,163 @@ pub fn list_directory(path: Option<String>) -> Result<(String, Vec<LocalEntry>),
             .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     Ok((resolved.to_string_lossy().into_owned(), entries))
+}
+
+#[cfg(test)]
+mod rule_file_tests {
+    use super::*;
+    use std::fs;
+
+    fn mkdirs(root: &std::path::Path, rel: &str) -> std::path::PathBuf {
+        let p = root.join(rel);
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn collects_root_first_and_stops_at_git_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = mkdirs(tmp.path(), "repo");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        fs::write(repo.join("AGENTS.md"), "root rules").unwrap();
+        let sub = mkdirs(tmp.path(), "repo/sub");
+        fs::write(sub.join("CLAUDE.md"), "sub rules").unwrap();
+        // decoy ABOVE the git root must NOT be collected
+        fs::write(tmp.path().join("AGENTS.md"), "outside").unwrap();
+
+        let got = collect_rule_files_sync(sub.to_string_lossy().to_string());
+        let names: Vec<(String, String)> =
+            got.iter().map(|r| (r.name.clone(), r.content.clone())).collect();
+        assert_eq!(
+            names,
+            vec![
+                ("AGENTS.md".into(), "root rules".into()),
+                ("CLAUDE.md".into(), "sub rules".into()),
+            ]
+        );
+        assert!(got.iter().all(|r| !r.truncated));
+        // display paths must not carry the \\?\ canonicalize prefix
+        assert!(got.iter().all(|r| !r.path.starts_with(r"\\?\")));
+    }
+
+    #[test]
+    fn git_file_worktree_form_stops_the_walk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let wt = mkdirs(tmp.path(), "wt");
+        fs::write(wt.join(".git"), "gitdir: elsewhere").unwrap(); // worktree form: a FILE
+        fs::write(wt.join("AGENTS.md"), "wt rules").unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "outside").unwrap();
+        let got = collect_rule_files_sync(wt.to_string_lossy().to_string());
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].content, "wt rules");
+    }
+
+    #[test]
+    fn caps_file_at_8kib_and_flags_truncated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = mkdirs(tmp.path(), "r");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        fs::write(repo.join("AGENTS.md"), "x".repeat(10_000)).unwrap();
+        let got = collect_rule_files_sync(repo.to_string_lossy().to_string());
+        assert_eq!(got.len(), 1);
+        assert!(got[0].truncated);
+        assert!(got[0].content.len() <= 8 * 1024);
+    }
+
+    #[test]
+    fn multibyte_cut_at_8kib_is_lossy_not_garbage() {
+        // 8 KiB boundary lands mid-emoji: decode must yield U+FFFD at the tail,
+        // never split bytes rendered as mojibake, and never panic.
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = mkdirs(tmp.path(), "r");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        let filler = "a".repeat(8 * 1024 - 2); // next char's 4 bytes straddle the cap
+        let content = format!("{filler}🦀🦀🦀");
+        fs::write(repo.join("CLAUDE.md"), content).unwrap();
+        let got = collect_rule_files_sync(repo.to_string_lossy().to_string());
+        assert_eq!(got.len(), 1);
+        assert!(got[0].truncated);
+        assert!(got[0].content.chars().all(|c| c == 'a' || c == '\u{FFFD}'));
+    }
+
+    #[test]
+    fn bad_cwd_returns_empty() {
+        let got = collect_rule_files_sync("Z:\\definitely\\not\\here".into());
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn display_path_strips_extended_prefixes() {
+        use std::path::Path;
+        assert_eq!(display_path(Path::new(r"\\?\C:\x\AGENTS.md")), r"C:\x\AGENTS.md");
+        assert_eq!(display_path(Path::new(r"\\?\UNC\srv\share\AGENTS.md")), r"\\srv\share\AGENTS.md");
+        assert_eq!(display_path(Path::new(r"C:\plain\AGENTS.md")), r"C:\plain\AGENTS.md");
+    }
+
+    #[test]
+    fn non_git_walk_keeps_only_nearest_3_levels() {
+        // Hermetic: everything inside the tempdir; no .git anywhere.
+        let tmp = tempfile::tempdir().unwrap();
+        let deep = mkdirs(tmp.path(), "l1/l2/l3/l4/l5");
+        // level 1 up from cwd (l4): collected. level 4 up (l1): NOT collected.
+        fs::write(tmp.path().join("l1/l2/l3/l4").join("AGENTS.md"), "near").unwrap();
+        fs::write(tmp.path().join("l1").join("AGENTS.md"), "far").unwrap();
+        let got = collect_rule_files_sync(deep.to_string_lossy().to_string());
+        let contents: Vec<&str> = got.iter().map(|r| r.content.as_str()).collect();
+        assert_eq!(contents, vec!["near"]);
+    }
+
+    #[test]
+    fn git_walk_is_capped_at_12_levels() {
+        // Hermetic: git root sits 13 levels above cwd — beyond the cap, so its
+        // rule file must NOT be collected; a nearer one must be.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = mkdirs(tmp.path(), "g");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("AGENTS.md"), "too far").unwrap();
+        let deep = mkdirs(tmp.path(), "g/d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12/d13");
+        fs::write(tmp.path().join("g/d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12").join("CLAUDE.md"), "near").unwrap();
+        let got = collect_rule_files_sync(deep.to_string_lossy().to_string());
+        let contents: Vec<&str> = got.iter().map(|r| r.content.as_str()).collect();
+        // no .git within 12 levels -> treated as non-git -> nearest-3 cap applies;
+        // "near" is 1 level up so it survives either way, "too far" must not appear.
+        assert_eq!(contents, vec!["near"]);
+    }
+
+    #[test]
+    fn symlinked_rule_file_is_skipped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = mkdirs(tmp.path(), "r");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
+        // Symlink creation on Windows needs Developer Mode / privilege; if the OS
+        // refuses, the vector doesn't exist in this environment — pass trivially.
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&secret, repo.join("AGENTS.md")).is_ok();
+        #[cfg(not(windows))]
+        let made = std::os::unix::fs::symlink(&secret, repo.join("AGENTS.md")).is_ok();
+        if !made { return; }
+        let got = collect_rule_files_sync(repo.to_string_lossy().to_string());
+        assert!(got.is_empty(), "symlinked rule file must never be read");
+    }
+
+    #[test]
+    fn early_stop_past_32kib_total() {
+        let tmp = tempfile::tempdir().unwrap();
+        // 6 nested dirs inside a git root, each with an 8 KiB AGENTS.md = 48 KiB available.
+        let root = mkdirs(tmp.path(), "g");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        let mut rel = String::from("g");
+        for i in 0..6 {
+            fs::write(tmp.path().join(&rel).join("AGENTS.md"), "y".repeat(8 * 1024)).unwrap();
+            rel = format!("{rel}/s{i}");
+            mkdirs(tmp.path(), &rel);
+        }
+        let cwd = tmp.path().join(&rel);
+        let got = collect_rule_files_sync(cwd.to_string_lossy().to_string());
+        let total: usize = got.iter().map(|r| r.content.len()).sum();
+        assert!(total <= 32 * 1024 + 8 * 1024, "early stop must bound total near 32KiB");
+        assert!(got.len() < 6, "must stop before collecting all 6 files");
+    }
 }
