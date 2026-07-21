@@ -1,69 +1,72 @@
 <!-- (C) -->
-# Stream B1: Pane Registry (moveTab keeps the PTY) + Bridge Subscriptions Implementation Plan
+# Stream B1: Pane Registry (moveTab keeps the PTY) + Bridge Subscriptions Implementation Plan (rev 2, post-plan-audit)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> Rev 2 (2026-07-21, after the 2-lens adversarial plan-audit; verdicts were BLOCK): the mark-then-persist fate protocol is REPLACED by a reconcile sweep (the mark design missed `closePane`, both wholesale-tree-replacement paths, and carried a stale-mark race); an `entry.ui` indirection layer is added (first-mount handlers close over per-fiber React setters that go permanently dead after a move — setFailedBlock/setShellCwd/setAtPrompt/setStickyBlock/setAltScreen/captureRef/autoApproveRef/visibleRef); the App lock screen gets `destroyAll()` (parked sessions must not keep auto-approving behind the password gate); Task 1's tests use an in-file DOM stub (vitest runs `environment: "node"`, jsdom is NOT installed — no new dependency); re-attach gets its own observer callback (reusing `openIfVisible` stacks a duplicate ImageAddon per move); the 9 migrated refs are classified shared-container vs value-replaced (6 are wholesale-reassigned and need write-through, not point-at-entry); pane-id semantics get a mandatory verification step (the "tabId" the pane receives is the LEAF id of the split tree — the sweep must enumerate exactly what TerminalPanel renders).
+
 **Goal:** close invariant-1's last gap — moving a tab between panels re-parents the live xterm + PTY instead of kill+respawn — and give ptyBridge a `useSyncExternalStore` subscription surface (#27). Three pre-existing bugs get fixed on the way: mid-move agent-capture force-resolve, cost telemetry jumping backward after a move, start-commands retyped into a live shell.
 
-**Architecture:** a new `paneRegistry.js` module (beside `ptyBridge.js`) owns each tab's create-once objects (xterm instance + addons, host DOM element, PTY session id + event listeners, per-tab counters, one-shot setup flags). TerminalPane becomes attach/detach: first mount for a tabId creates the entry and runs the full spawn/setup; later mounts re-attach the preserved host element and rebind only per-mount concerns (observers, fit, focus, theme). Close paths in `useWorkspaceTree` mark the tab closed in the registry BEFORE persisting, so the unmount cleanup knows its fate: consume-closed → full destroy; otherwise → park.
+**Architecture (rev 2):** `paneRegistry.js` owns each pane's create-once objects (xterm + addons, host DOM element, PTY session, counters, one-shot flags, and a per-mount-repointed `ui` pointer table). TerminalPane attaches/detaches the registry-owned host. **Lifecycle truth is the rendered tree, not close-path bookkeeping:** a reconcile sweep in TerminalsTab destroys any registry entry whose pane id is no longer rendered — one mechanism covers closeTab, closeOtherTabs, closePanel, closePane (split panes), reset-workspace, loadWorkspace, discardWorktree, and any future mutation, with no per-path edits and no mark races. The pane's own cleanup only parks (detach), except a mid-spawn unmount which destroys. The App lock screen calls `destroyAll()` (restores today's kill-on-lock semantics — a safety property, see decision 5).
 
-**Tech Stack:** React 18 (StrictMode ON in dev — a hard constraint, see Task 1), xterm 5.5, Tauri events, vitest.
+**Tech Stack:** React 18 (StrictMode ON in dev), xterm 5.5 (DOM renderer; `@xterm/addon-image` 0.9.0 confirmed 2D-canvas-only, no observers of its own), Tauri events, vitest (`environment: "node"` — kept).
 
-**Foundation document:** the TerminalPane lifecycle map (produced 2026-07-21 by code exploration; its classifications are restated inline below where needed). Key line refs (current HEAD `3193956`): big effect `TerminalPane.jsx:485-1297` deps `[cwd]`; cleanup block `:1259-1296` with the undifferentiated close-only lines at `:1288-1293`; container div `:1448`; `term.open` `:742`; spawn branch `:851-899`; orphan guard `:900-903`; bridge registrations `:908-928`; listeners `:982-1013`; shell setup `:1103-1250`; `moveTab` `useWorkspaceTree.js:285-316`; `closeTab` `:127-158`; `closeOtherTabs` `:263-281` region; `closePanel` `:51-66`; `reopenTab` `:163-180`; `detachTab` `:237-265`.
+**Foundation:** the TerminalPane lifecycle map + two plan audits (2026-07-21). Verified line refs @ `f3f4fad` (audits confirmed zero drift for the files in scope): big effect `TerminalPane.jsx:485-1297` deps `[cwd]`; cleanup `:1259-1296` with the six-statement close block `:1288-1293`; container `:1448`; `term.open` `:742`; `openIfVisible` `:739-745` (does open + `loadAddon(new ImageAddon())` + fit — NOT just fit); spawn `:851-899`; orphan guard `:900-903`; bridge registrations `:908-928`; listeners `:982-1013`; setup region `:1079-1250`; refs `currentBlockRef :234`, `blocksRef :235`, `blockDecorationsRef :236`, `scrollbackChunksRef :290`, `scrollbackBytesRef :291`, `lastCostRef :310`, `familyRef :315`, `userHasTypedRef :251`, `recentOutRef :297`; handler-captured setters `setFailedBlock :668`, `setShellCwd :684`, `setAtPrompt :698,:1069`, `updateSticky/setStickyBlock :706-717`, `setAltScreen :1067`, `captureRef :616-619`; `useWorkspaceTree.js` `closePanel :51-66`, `closeTab :127-158`, `reopenTab :163-180`, `duplicateTab :212-230`, `detachTab :237-265` (funnels to closeTab at `:263`), `closeOtherTabs :267-278`, `moveTab :285-316`, `closePane :374-397` (the split-pane close the rev-1 plan missed); wholesale replacements `useWorkspaces.js:28` (loadWorkspace) and `TerminalsTab.jsx:937-944` (reset-workspace); lock screen `App.jsx:345-347`.
 
-**Build gates (before EVERY commit, unfiltered):** `npm run build` + `npx vitest run` green; Rust untouched in this stream (no cargo gates unless a task touches src-tauri, which none should).
+**Build gates (before EVERY commit, unfiltered):** `npm run build` + `npx vitest run` green. No Rust in this stream.
 
-**Safety rails:** forward-only commits; no rebase/reset/force-push; `git push` is pluto-only. Anchor tag `pre-v0.6-buildout-2026-07-20` + `backup/pre-v0.6-buildout` already exist (Stream A Task 0).
-
----
-
-## Design decisions locked before tasks (from the lifecycle map)
-
-1. **Registry-owned host element.** The registry creates ONE detached `<div class="phn-pane-host">` per tab; xterm `open()`s into it exactly once. TerminalPane's `containerRef` div becomes a SLOT: mount = `slot.appendChild(entry.host)`, unmount = `entry.host.remove()` (detach, DOM node + xterm subtree survive). No second `term.open()` ever. After re-attach: `fit()`, `term.refresh(0, term.rows - 1)`, focus if active.
-2. **Fate signal = synchronous mark-then-persist.** `closeTab` / `closeOtherTabs` / `closePanel` call `paneRegistry.markClosed(tabId)` synchronously BEFORE `persist(...)`. The pane cleanup calls `paneRegistry.consumeClosed(tabId)`: true → full destroy (pty_kill, tunnel stop, unregisterPty, term.dispose, entry delete); false → park (detach host, keep everything alive). `moveTab` marks nothing — parking is the default. This is race-free: mark and persist happen in the same synchronous mutation call; React runs the old pane's cleanup strictly after.
-3. **StrictMode discipline (precise).** Entry creation is SYNCHRONOUS at effect start (placeholder entry with `spawnState:"starting"` before any await). Dev StrictMode's synthetic mount→cleanup→mount fires while the spawn is still `"starting"`, so the cleanup's mid-spawn rule (decision 4) DESTROYS the placeholder and the in-flight spawn's orphan guard kills the PTY on arrival — i.e. dev double-mount keeps today's exact spawn-twice-kill-first behavior, no leak, no change. What the registry's has-guard protects is every POST-SPAWN remount: real moves (and any dev remount after `spawnState === "live"`) find the entry and re-attach without a second spawn.
-4. **Mid-spawn move = today's behavior (documented).** If the pane unmounts while `entry.spawnState === "starting"` AND not closed: we do NOT attempt a live handoff of a half-spawned session. The cleanup destroys the entry the same way close does (the existing orphan-guard semantics at `:900-903` generalize). Rationale: the spawn IIFE's `openIfVisible` waits on an IntersectionObserver bound to the first slot; re-pointing every in-flight continuation is high-risk for a sub-second window. Recorded as an accepted gap.
-5. **Bridge registrations become registry-lifetime.** `registerPtyWriter` / `setPtyId` / `registerTabReader` happen once per spawn and are NOT unregistered on park — only on destroy. Consequence: `runAndCapture` survives a move (bug fix 1); the pending-capture force-resolve in `unregisterPty` now only fires on real close.
-6. **Per-tab counters move into the entry.** `lastCost` / `family` (cost monotonic guard), `scrollbackChunks` / `scrollbackBytes` (10KB scan ring), `blocks` / `currentBlock` / `blockDecorations` (command blocks), `userHasTyped`, `recentOut` — all become entry fields so a move cannot reset them (bug fix 2). The component keeps thin refs pointing at the entry.
-7. **One-shot setup flags in the entry.** `setupDone` guards the whole `:1079-1250` region (claude preflight, start-commands typing, welcome banner/shell-integration, system-prompt injection). Runs once per real spawn; a re-mount never re-types anything (bug fix 3).
-8. **#27 minimal shape.** ptyBridge grows `getVersion()` (monotonic int bumped inside `emitDims`) + `subscribeBridge(cb)` (alias of `onDimsChange`). New hook `useBridgeVersion()` = `useSyncExternalStore(subscribeBridge, getVersion)`. TerminalsTab's two ad-hoc subscriptions (`independentEffects.js:76-79` used at `TerminalsTab.jsx:131`, and the inline one at `:436`) become consumers of the version number. Single-channel notify semantics preserved exactly (the map warns per-Map splitting is invasive; we don't).
-9. **App exit unchanged.** `quit_app` (backend kill-everything) remains the real teardown for exit; the registry never assumes its destroy runs on process death (the scrollback lesson at `TerminalPane.jsx:1279-1286` stands).
-10. **Recording/`detachTab`/`reopenTab`:** recording.js already survives moves (module-level) — untouched. `detachTab` closes the source tab after `spawn_new_window` → normal close path (mark+destroy), new window has its own module singletons. `reopenTab` reuses an id only after a real close fully destroyed the entry synchronously in cleanup — no debounce exists to race.
+**Safety rails:** forward-only commits; no rebase/reset/force-push; push is pluto-only.
 
 ---
 
-### Task 1: `paneRegistry.js` core + tests
+## Design decisions (rev 2)
+
+1. **Registry-owned host element.** One detached `<div class="phn-pane-host">` per pane id; xterm `open()`s into it exactly once. TerminalPane's `containerRef` div is a SLOT: mount = `attachHost` (appendChild moves the node), unmount = `detachHost`. After re-attach: `fit()`, `term.refresh(0, term.rows - 1)`, focus-if-active. Re-attach NEVER calls `openIfVisible` (its body does `term.open` + `loadAddon(new ImageAddon())` unconditionally — reuse stacks a duplicate addon per move); re-attach observers use a dedicated `refit`-only callback.
+2. **Reconcile sweep = the only close mechanism.** TerminalsTab runs an effect on tree changes: enumerate the pane ids the tree currently renders; `destroyEntry` every registry id not in that set. Pane cleanup parks by default; nothing marks anything. React ordering guarantees the sweep effect runs after unmounted panes' cleanups in the same commit. The ~millisecond parked window between cleanup and sweep is accepted. This subsumes every close path (incl. `closePane` and both wholesale replacements) and eliminates the rev-1 stale-mark race entirely.
+3. **Pane-id semantics are pinned by construction, not assumption.** The id TerminalPane receives as `tabId` is the LEAF id TerminalPanel derives when rendering the split tree. The sweep's enumeration MUST be the same derivation. Task 2 Step 1 requires reading `TerminalPanel.jsx` (pane map ~`:487-628`) and `splitTree.js` (`leafIds`), extracting the exact per-tab leaf-id derivation into a shared helper, and asserting parity in a test. If a tab's layout has no split tree (single pane), the leaf id and the tab id may coincide — the helper handles both, mirroring TerminalPanel byte-for-byte.
+4. **`entry.ui` pointer table, repointed EVERY mount (both branches).** Create-once handlers (OSC 133/1337, onScroll, onBufferChange, onData, handleChunk/checkAutoApprove/checkCost) must never call a closed-over per-fiber setter/ref. The entry carries `ui`, an object the component overwrites on every mount with the CURRENT fiber's functions/reads: `{ setFailedBlock, setShellCwd, setAtPrompt, setStickyBlock, setAltScreen, capturePrompt, isAutoApprove: () => autoApproveRef.current, isVisible: () => visibleRef.current, isActive: () => activeRef.current, onCost, onActivity }`. Handlers call `entry.ui.<fn>(...)`. While parked, calls hit the unmounted fiber's setters — React 18 silently no-ops them; on re-attach the table repoints and everything resumes. Known cosmetic gap (documented): UI-derived state (shellCwd/atPrompt/altScreen/stickyBlock/failedBlock) updates that occur while parked are lost until the next OSC/scroll event after re-attach.
+5. **Lock screen kills.** `App.jsx:345-347`'s lock branch unmounts the whole TerminalsTab subtree; the sweep dies with it. Today lock kills every PTY (cold but safe); park-by-default would leave invisible sessions running — and an auto-approve tab would keep self-approving behind the password gate once the app loses OS focus (violates the auto-approve safety invariant). Therefore: on the transition INTO locked (`unlocked` flipping false while `lockHash` set, and on initial locked boot before TerminalsTab ever mounts there is nothing to kill), App calls `paneRegistry.destroyAll()`. Restores today's semantics exactly.
+6. **Mid-spawn unmount destroys (unchanged from rev 1).** Cleanup while `entry.spawnState === "starting"` destroys the entry; the in-flight spawn's orphan guard kills the PTY on arrival (`if (!getEntry(id))`). Dev StrictMode's synthetic double-mount always hits this window → dev keeps today's spawn-twice-kill-first behavior, no leak, no change. The has-guard protects POST-SPAWN remounts (real moves).
+7. **Bridge registrations are registry-lifetime.** `registerPtyWriter`/`setPtyId`/`registerTabReader` happen at spawn; `unregisterPty` runs only in a destroy hook. `runAndCapture` survives moves (bug fix 1); the capture force-resolve fires only on real destroy.
+8. **Counters + block state live on the entry** (bug fix 2), with per-ref conversion rules in Task 3b (audit-corrected: 6 of the 9 are wholesale-reassigned and need write-through at every assignment site, not point-at-entry).
+9. **Start-command suppression is the `isFirstMount` gate itself** (re-attach skips the whole spawn IIFE). `entry.setupDone` stays as a defensive latch + self-documentation, but the changelog credits the gate, not the flag (bug fix 3).
+10. **#27 minimal shape.** `getBridgeVersion()` + `subscribeBridge(cb)` on ptyBridge (version bumped in `emitDims`); `useDimsListener()` becomes a `useSyncExternalStore` hook RETURNING the version; TerminalsTab's single existing call site at `:131` changes to capture the return (`const bridgeVersion = useDimsListener();`), the `:435` `bridgeTick` state + `:436` effect are deleted, and the `sessionListJson` memo's `bridgeTick` dep becomes `bridgeVersion`. EXACTLY ONE `useDimsListener()` call may exist in the file afterward (a second call would silently re-add the duplicate subscription this consolidates away). Honest rationale: fewer listeners and less closure state — NOT fewer renders (React 18 already batches the two listeners' setStates into one render today).
+11. **App exit unchanged** (`quit_app` kills backend-side; the registry never assumes its destroy runs on process death). **`reopenTab`/`duplicateTab`** mint-or-reuse semantics are safe under the sweep: a reopened id's old entry was destroyed by the sweep in the close commit; `duplicateTab` mints fresh ids. **Pre-existing, out of scope (recorded):** the `useWorkspaceTree` stale-`stateRef` multi-mutation-per-tick lost-update hazard (e.g. `discardWorktree`'s close loop keeping only the last removal) predates this plan; the sweep protocol is immune to it (no marks to orphan — a tab that survives a lost-update close simply stays in the tree and stays alive, and its recovery is a plain re-close), but the hazard itself is logged for a future fix, not silently absorbed here.
+
+---
+
+### Task 1: `paneRegistry.js` core + tests (DOM-stubbed, no new dependency)
 
 **Files:**
 - Create: `src/features/terminals/paneRegistry.js`
 - Test: `src/features/terminals/paneRegistry.test.js`
 
-Registry API (all functions take `tabId` first):
+Registry API:
 
 ```js
-ensureEntry(tabId) -> entry            // create-if-missing placeholder (sync); entry.host is a created <div>
-getEntry(tabId) -> entry | null
-markClosed(tabId)                      // close paths call this BEFORE persist
-consumeClosed(tabId) -> boolean        // cleanup calls once; true means "destroy now"; clears the mark
-attachHost(tabId, slotEl)              // appendChild(entry.host); records entry.currentSlot = slotEl
-detachHost(tabId)                      // entry.host.remove(); currentSlot = null
-destroyEntry(tabId, { killPty })       // runs entry.onDestroy hooks (registered by the pane), deletes entry
-registerDestroyHook(tabId, fn)         // pane registers pty-kill/tunnel/unlisten/dispose closures here
-listEntries() -> tabId[]               // debugging/tests
+ensureEntry(paneId) -> entry       // create-if-missing placeholder (synchronous)
+getEntry(paneId) -> entry | null
+attachHost(paneId, slotEl)         // slotEl.appendChild(entry.host); entry.currentSlot = slotEl
+detachHost(paneId)                 // entry.host.remove(); currentSlot = null
+registerDestroyHook(paneId, fn)    // teardown closures; run LIFO on destroy
+destroyEntry(paneId)               // run hooks LIFO (throw-safe), remove host, delete entry
+reconcile(liveIds)                 // Set/array of pane ids; destroyEntry every id NOT in it; returns destroyed ids
+destroyAll()                       // destroyEntry everything (lock screen / panic path)
+listEntries() -> paneId[]
 ```
 
-Entry shape (plain object, documented in a comment):
+Entry shape:
 
 ```js
 {
-  host: HTMLDivElement,        // xterm opens into this exactly once; survives parks
-  currentSlot: null,           // the React slot currently holding host (or null when parked)
-  term: null, fit: null, search: null,   // set by the pane on create
+  host: <div>,
+  currentSlot: null,
+  term: null, fit: null, search: null,
   ptyId: null, jumpFwdId: null,
-  spawnState: "starting",      // "starting" | "live" | "dead"
-  setupDone: false,            // one-shot shell setup / start-commands / system prompt
-  closedMark: false,           // set by markClosed, consumed by consumeClosed
-  onDestroy: [],               // teardown closures (unlisteners, pty_kill invoker, term.dispose)
+  spawnState: "starting",          // "starting" | "live" | "dead"
+  setupDone: false,
+  onDestroy: [],
+  ui: null,                        // per-mount pointer table; repointed on EVERY mount (decision 4)
   counters: { lastCost: { tokens: 0, cost: 0 }, family: null,
               scrollbackChunks: [], scrollbackBytes: 0,
               userHasTyped: false, recentOut: "" },
@@ -73,323 +76,242 @@ Entry shape (plain object, documented in a comment):
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `src/features/terminals/paneRegistry.test.js`:
+Create `src/features/terminals/paneRegistry.test.js`. vitest runs `environment: "node"` (verified: `vitest.config.js:11`; jsdom/happy-dom NOT installed) — the tests install a minimal DOM stub; the registry only needs `document.createElement` returning objects with `appendChild`/`remove`/`className`/`style`:
 
 ```js
 // (C)
-import { describe, it, expect, vi } from "vitest";
-import {
-  ensureEntry, getEntry, markClosed, consumeClosed,
-  attachHost, detachHost, destroyEntry, registerDestroyHook, listEntries,
-} from "./paneRegistry.js";
+import { describe, it, expect, beforeAll } from "vitest";
 
-const fresh = (id) => { destroyEntry(id, { killPty: false }); return ensureEntry(id); };
+// Minimal DOM stub: the registry uses document.createElement + appendChild +
+// remove only. vitest runs in node (no jsdom dependency in this repo — a
+// deliberate choice); this stub keeps it that way.
+beforeAll(() => {
+  const makeEl = () => {
+    const el = {
+      className: "", style: {}, parentNode: null, children: [],
+      appendChild(child) {
+        if (child.parentNode) child.parentNode.children = child.parentNode.children.filter((c) => c !== child);
+        child.parentNode = el; el.children.push(child); return child;
+      },
+      remove() {
+        if (el.parentNode) { el.parentNode.children = el.parentNode.children.filter((c) => c !== el); el.parentNode = null; }
+      },
+      contains(node) { return el.children.includes(node); },
+    };
+    return el;
+  };
+  globalThis.document = globalThis.document || { createElement: () => makeEl() };
+  globalThis.__makeSlot = makeEl;
+});
+
+const load = async () => await import("./paneRegistry.js");
 
 describe("paneRegistry", () => {
-  it("ensureEntry is idempotent and synchronous (StrictMode guard)", () => {
-    const a = fresh("t1");
-    const b = ensureEntry("t1");
-    expect(b).toBe(a); // same object, no second creation
-    expect(a.host).toBeInstanceOf(HTMLDivElement);
+  it("ensureEntry is idempotent and synchronous", async () => {
+    const R = await load();
+    R.destroyAll();
+    const a = R.ensureEntry("p1");
+    const b = R.ensureEntry("p1");
+    expect(b).toBe(a);
     expect(a.spawnState).toBe("starting");
+    expect(typeof a.host.appendChild).toBe("function");
   });
 
-  it("markClosed then consumeClosed reads true exactly once", () => {
-    fresh("t2");
-    markClosed("t2");
-    expect(consumeClosed("t2")).toBe(true);
-    expect(consumeClosed("t2")).toBe(false); // consumed
-  });
-
-  it("consumeClosed is false for a plain move (nothing marked)", () => {
-    fresh("t3");
-    expect(consumeClosed("t3")).toBe(false);
-    expect(getEntry("t3")).not.toBeNull(); // entry survives (parked)
-  });
-
-  it("attachHost/detachHost move the SAME host node between slots", () => {
-    const e = fresh("t4");
-    const slot1 = document.createElement("div");
-    const slot2 = document.createElement("div");
-    attachHost("t4", slot1);
-    expect(slot1.contains(e.host)).toBe(true);
-    detachHost("t4");
-    expect(slot1.contains(e.host)).toBe(false);
-    attachHost("t4", slot2);
-    expect(slot2.contains(e.host)).toBe(true);
-    expect(e.currentSlot).toBe(slot2);
-  });
-
-  it("attachHost re-parents implicitly when called on a new slot without detach", () => {
-    const e = fresh("t5");
-    const s1 = document.createElement("div");
-    const s2 = document.createElement("div");
-    attachHost("t5", s1);
-    attachHost("t5", s2); // appendChild moves the node — no duplicate
+  it("attachHost moves the SAME host node between slots (implicit re-parent)", async () => {
+    const R = await load();
+    R.destroyAll();
+    const e = R.ensureEntry("p2");
+    const s1 = globalThis.__makeSlot();
+    const s2 = globalThis.__makeSlot();
+    R.attachHost("p2", s1);
+    expect(s1.contains(e.host)).toBe(true);
+    R.attachHost("p2", s2); // no detach first — appendChild moves it
     expect(s1.contains(e.host)).toBe(false);
     expect(s2.contains(e.host)).toBe(true);
+    expect(e.currentSlot).toBe(s2);
+    R.detachHost("p2");
+    expect(s2.contains(e.host)).toBe(false);
+    expect(e.currentSlot).toBe(null);
   });
 
-  it("destroyEntry runs hooks LIFO and deletes the entry", () => {
-    fresh("t6");
+  it("destroyEntry runs hooks LIFO and survives a throwing hook", async () => {
+    const R = await load();
+    R.destroyAll();
+    R.ensureEntry("p3");
     const order = [];
-    registerDestroyHook("t6", () => order.push("a"));
-    registerDestroyHook("t6", () => order.push("b"));
-    destroyEntry("t6", { killPty: true });
-    expect(order).toEqual(["b", "a"]); // LIFO: listeners detach before term.dispose
-    expect(getEntry("t6")).toBeNull();
+    R.registerDestroyHook("p3", () => order.push("first-registered"));
+    R.registerDestroyHook("p3", () => { throw new Error("boom"); });
+    R.registerDestroyHook("p3", () => order.push("last-registered"));
+    R.destroyEntry("p3");
+    expect(order).toEqual(["last-registered", "first-registered"]);
+    expect(R.getEntry("p3")).toBeNull();
   });
 
-  it("destroy hooks that throw do not stop the rest", () => {
-    fresh("t7");
-    const ran = [];
-    registerDestroyHook("t7", () => ran.push("late"));
-    registerDestroyHook("t7", () => { throw new Error("boom"); });
-    destroyEntry("t7", { killPty: true });
-    expect(ran).toEqual(["late"]);
-    expect(getEntry("t7")).toBeNull();
+  it("reconcile destroys exactly the ids missing from the live set", async () => {
+    const R = await load();
+    R.destroyAll();
+    R.ensureEntry("keep1"); R.ensureEntry("keep2"); R.ensureEntry("gone1"); R.ensureEntry("gone2");
+    const killed = [];
+    R.registerDestroyHook("gone1", () => killed.push("gone1"));
+    R.registerDestroyHook("gone2", () => killed.push("gone2"));
+    const destroyed = R.reconcile(new Set(["keep1", "keep2"]));
+    expect(destroyed.sort()).toEqual(["gone1", "gone2"]);
+    expect(killed.sort()).toEqual(["gone1", "gone2"]);
+    expect(R.listEntries().sort()).toEqual(["keep1", "keep2"]);
   });
 
-  it("close-then-reopen same id gets a FRESH entry", () => {
-    const first = fresh("t8");
-    markClosed("t8");
-    expect(consumeClosed("t8")).toBe(true);
-    destroyEntry("t8", { killPty: true });
-    const second = ensureEntry("t8");
+  it("reconcile with everything live destroys nothing (move case)", async () => {
+    const R = await load();
+    R.destroyAll();
+    R.ensureEntry("m1");
+    expect(R.reconcile(new Set(["m1", "m2-not-yet-mounted"]))).toEqual([]);
+    expect(R.getEntry("m1")).not.toBeNull();
+  });
+
+  it("destroyAll clears everything and runs hooks", async () => {
+    const R = await load();
+    R.destroyAll();
+    R.ensureEntry("a"); R.ensureEntry("b");
+    let hooks = 0;
+    R.registerDestroyHook("a", () => hooks++);
+    R.registerDestroyHook("b", () => hooks++);
+    R.destroyAll();
+    expect(hooks).toBe(2);
+    expect(R.listEntries()).toEqual([]);
+  });
+
+  it("close-then-reopen same id gets a FRESH entry; counters do not leak across", async () => {
+    const R = await load();
+    R.destroyAll();
+    const first = R.ensureEntry("r1");
+    first.counters.lastCost = { tokens: 42, cost: 0.5 };
+    R.reconcile(new Set()); // closed
+    const second = R.ensureEntry("r1");
     expect(second).not.toBe(first);
-    expect(second.spawnState).toBe("starting");
+    expect(second.counters.lastCost.tokens).toBe(0);
     expect(second.setupDone).toBe(false);
   });
 
-  it("counters live on the entry and survive park cycles", () => {
-    const e = fresh("t9");
-    e.counters.lastCost = { tokens: 42, cost: 0.5 };
+  it("counters and ui pointer survive a park cycle (detach only)", async () => {
+    const R = await load();
+    R.destroyAll();
+    const e = R.ensureEntry("k1");
     e.counters.scrollbackBytes = 999;
-    detachHost("t9"); // park
-    const again = ensureEntry("t9");
-    expect(again.counters.lastCost.tokens).toBe(42);
+    e.ui = { marker: 1 };
+    R.detachHost("k1");
+    const again = R.ensureEntry("k1");
     expect(again.counters.scrollbackBytes).toBe(999);
-  });
-
-  it("markClosed on an unknown id is a safe no-op; consumeClosed false", () => {
-    markClosed("ghost");
-    expect(consumeClosed("ghost")).toBe(false);
+    expect(again.ui.marker).toBe(1);
   });
 });
 ```
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd C:\Users\pluto\plutos-terminals && npx vitest run src/features/terminals/paneRegistry.test.js`
-Expected: FAIL, cannot resolve `./paneRegistry.js`.
+`npx vitest run src/features/terminals/paneRegistry.test.js` — FAIL (module missing).
 
 - [ ] **Step 3: Implement**
 
-Create `src/features/terminals/paneRegistry.js`:
+Create `src/features/terminals/paneRegistry.js` per the API above. Module comment explains: ownership inversion, sweep-as-lifecycle-truth, park-vs-destroy, StrictMode/mid-spawn semantics, lock-screen destroyAll, and that `ui` is a per-mount pointer table (decision 4). Implementation notes: `reconcile` accepts Set or array (`const live = ids instanceof Set ? ids : new Set(ids)`), returns the destroyed id list; `destroyEntry` runs hooks newest-first with per-hook try/catch, removes the host, deletes the entry; `ensureEntry` builds the host via `document.createElement("div")` with `className = "phn-pane-host"` and 100% width/height styles.
 
-```js
-// (C)
-// Pane registry: the create-once side of a terminal tab, owned OUTSIDE React so
-// a cross-panel move (unmount in one panel subtree, mount in another) re-attaches
-// the same live xterm + PTY instead of kill+respawn (invariant 1). The registry
-// owns: the host DOM element xterm opened into, the Terminal/addons, the live
-// session id, per-tab counters (cost/scrollback/blocks), and one-shot setup
-// flags. TerminalPane is reduced to attach/detach + per-mount concerns.
-//
-// Fate protocol: close mutations (closeTab/closeOtherTabs/closePanel) call
-// markClosed(tabId) synchronously BEFORE persist(); the pane's effect cleanup
-// calls consumeClosed(tabId) — true means destroy now, false means park.
-// moveTab marks nothing; parking is the default. StrictMode dev double-mount
-// parks then re-attaches; ensureEntry's has-guard prevents a double spawn.
-// App exit does NOT rely on this module: quit_app kills PTYs backend-side.
-
-const entries = new Map(); // tabId -> entry
-
-export function ensureEntry(tabId) {
-  let e = entries.get(tabId);
-  if (e) return e;
-  const host = document.createElement("div");
-  host.className = "phn-pane-host";
-  host.style.width = "100%";
-  host.style.height = "100%";
-  e = {
-    host,
-    currentSlot: null,
-    term: null, fit: null, search: null,
-    ptyId: null, jumpFwdId: null,
-    spawnState: "starting",
-    setupDone: false,
-    closedMark: false,
-    onDestroy: [],
-    counters: {
-      lastCost: { tokens: 0, cost: 0 }, family: null,
-      scrollbackChunks: [], scrollbackBytes: 0,
-      userHasTyped: false, recentOut: "",
-    },
-    blocks: { list: [], current: null, decorations: [] },
-  };
-  entries.set(tabId, e);
-  return e;
-}
-
-export function getEntry(tabId) {
-  return entries.get(tabId) || null;
-}
-
-export function markClosed(tabId) {
-  const e = entries.get(tabId);
-  if (e) e.closedMark = true;
-}
-
-export function consumeClosed(tabId) {
-  const e = entries.get(tabId);
-  if (!e || !e.closedMark) return false;
-  e.closedMark = false;
-  return true;
-}
-
-export function attachHost(tabId, slotEl) {
-  const e = entries.get(tabId);
-  if (!e || !slotEl) return;
-  slotEl.appendChild(e.host); // appendChild MOVES the node if parented elsewhere
-  e.currentSlot = slotEl;
-}
-
-export function detachHost(tabId) {
-  const e = entries.get(tabId);
-  if (!e) return;
-  try { e.host.remove(); } catch { /* already detached */ }
-  e.currentSlot = null;
-}
-
-export function registerDestroyHook(tabId, fn) {
-  const e = entries.get(tabId);
-  if (e && typeof fn === "function") e.onDestroy.push(fn);
-}
-
-export function destroyEntry(tabId) {
-  const e = entries.get(tabId);
-  if (!e) return;
-  // LIFO: listener detach hooks were registered before term.dispose, so running
-  // newest-first tears the stack down in reverse construction order.
-  for (let i = e.onDestroy.length - 1; i >= 0; i--) {
-    try { e.onDestroy[i](); } catch { /* one bad hook must not strand the rest */ }
-  }
-  try { e.host.remove(); } catch { /* detached is fine */ }
-  entries.delete(tabId);
-}
-
-export function listEntries() {
-  return [...entries.keys()];
-}
-```
-
-NOTE to implementer: the test calls `destroyEntry(id, { killPty: false })` — the options argument is accepted-and-ignored (`destroyEntry(tabId)` signature takes it as an unused second param for call-site readability). Match the tests: add the parameter `(tabId, _opts)`.
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npx vitest run src/features/terminals/paneRegistry.test.js`
-Expected: 10 passed. (vitest environment: check `vitest.config.js` — if `environment` is not `jsdom`/`happy-dom`, these DOM tests need a per-file `// @vitest-environment jsdom` pragma at the top of the test file; add it and, if the dependency is missing, STOP and report BLOCKED rather than adding packages silently.)
-
-- [ ] **Step 5: Full gates + commit**
-
-`npm run build && npx vitest run` green.
+- [ ] **Step 4: tests pass** (8), **Step 5: full gates + commit**
 
 ```bash
 git -C C:\Users\pluto\plutos-terminals add src/features/terminals/paneRegistry.js src/features/terminals/paneRegistry.test.js
-git -C C:\Users\pluto\plutos-terminals commit -m "feat(panes): pane registry core — park/attach/destroy with close-mark fate protocol"
+git -C C:\Users\pluto\plutos-terminals commit -m "feat(panes): pane registry core — park/attach/destroy with reconcile-sweep lifecycle"
 ```
 
 ---
 
-### Task 2: close paths mark the registry
+### Task 2: the reconcile sweep + lock-screen destroyAll + leaf-id parity
 
 **Files:**
-- Modify: `src/features/terminals/hooks/useWorkspaceTree.js`
+- Create: `src/features/terminals/paneIds.js` (shared leaf-id derivation)
+- Test: `src/features/terminals/paneIds.test.js`
+- Modify: `src/features/terminals/TerminalsTab.jsx` (one new effect)
+- Modify: `src/App.jsx` (lock transition)
 
-Add `markClosed` calls (import `{ markClosed } from "../paneRegistry.js"`), each BEFORE the mutation's `persist(...)`:
+- [ ] **Step 1 (MANDATORY verification): read `TerminalPanel.jsx` (the pane map, ~:487-628, and the `<TerminalPane>` element ~:531-547) and `splitTree.js` (`leafIds`).** Extract the EXACT derivation of the ids TerminalPanel renders panes with (per tab: the split-tree leaf ids when a layout exists; the pattern for single-pane tabs as the code actually does it — do not guess; if the derivation differs per transport (RDP/VNC render other components), capture only what mounts a TerminalPane OR mounts any component that creates registry entries — for B1 only TerminalPane does). Report the derivation in your task report.
 
-- `closeTab` (`:127-158`): `markClosed(tabId)` beside the existing `clearTabPassword(tabId)` (`:145`).
-- `closeOtherTabs` (`:263-281` region): for each removed tab id, beside its `clearTabPassword`.
-- `closePanel` (`:51-66`): for each tab of the closing panel, beside the existing loop at `:57`.
-- `detachTab` (`:237-265`): NO new call — it already funnels through `closeTab` (`:263`) after `spawn_new_window`.
-- `moveTab`, `reorderTab`, `duplicateTab`, `reopenTab`: NO calls (move parks by default; duplicate/reopen create fresh ids/entries).
+- [ ] **Step 2: write `paneIds.js` + tests.** `allRenderedPaneIds(panels) -> string[]` mirroring the TerminalPanel derivation byte-for-byte (import `leafIds` from `splitTree.js` if that is what TerminalPanel uses). Tests: a panels fixture with (a) a single-pane tab, (b) a split tab with a layout, (c) multiple panels — assert the ids match what the derivation yields, and assert parity with a hand-derived expectation copied from the TerminalPanel logic. (These tests are the guard that a future TerminalPanel change breaks loudly.)
 
-- [ ] **Step 1: Apply the edits** (anchor by content; the `clearTabPassword` call sites are the landmarks)
-- [ ] **Step 2: Gates + commit**
+- [ ] **Step 3: the sweep effect in TerminalsTab** (place near the other top-level effects; import `reconcile` from paneRegistry and `allRenderedPaneIds` from paneIds):
 
-`npm run build && npx vitest run` green.
+```js
+// Registry lifecycle truth: any pane id no longer rendered by the tree is dead —
+// covers every close path (tab/panel/pane close, reset-workspace, workspace
+// load, worktree discard) with one mechanism. Runs after unmounted panes'
+// cleanups in the same commit (React child-cleanup-before-parent-effect order).
+useEffect(() => {
+  reconcile(new Set(allRenderedPaneIds(state.panels)));
+}, [state.panels]);
+```
+
+- [ ] **Step 4: lock-screen destroyAll in App.jsx.** Locate the lock branch (`App.jsx:345-347`) and the state that flips it (`unlocked`). Add an effect that fires on the transition INTO locked while the app is past the welcome gate:
+
+```js
+// Locking must kill live sessions, exactly like the pre-registry behavior —
+// a parked PTY behind the password gate could keep auto-approving with zero
+// supervision once the window loses OS focus.
+useEffect(() => {
+  if (welcomeDone && lockHash && !unlocked) destroyAll();
+}, [welcomeDone, lockHash, unlocked]);
+```
+
+(Adapt names to the actual App.jsx state; on a locked cold boot this runs with an empty registry — harmless. Import from the registry module.)
+
+- [ ] **Step 5: full gates + commit**
 
 ```bash
-git -C C:\Users\pluto\plutos-terminals add src/features/terminals/hooks/useWorkspaceTree.js
-git -C C:\Users\pluto\plutos-terminals commit -m "feat(panes): close mutations mark the pane registry before persist"
+git -C C:\Users\pluto\plutos-terminals add src/features/terminals/paneIds.js src/features/terminals/paneIds.test.js src/features/terminals/TerminalsTab.jsx src/App.jsx
+git -C C:\Users\pluto\plutos-terminals commit -m "feat(panes): reconcile sweep drives registry lifecycle; lock screen destroys all sessions"
 ```
 
 ---
 
-### Task 3: TerminalPane surgery (the core task)
+### Task 3: TerminalPane surgery
 
-**Files:**
-- Modify: `src/features/terminals/TerminalPane.jsx`
+**Files:** Modify `src/features/terminals/TerminalPane.jsx`.
 
-This is the careful one. The implementing agent MUST read the whole big effect (`:485-1297`) before editing. The refactor, hunk by hunk:
+Read `:400-1300` in full before editing. The refactor:
 
-**3a. Effect entry — synchronous entry creation + create-once guard:**
-
-At the top of the big effect (after the `containerRef.current` guard at `:486-487`):
+**3a. Entry + first-mount guard (effect top, after the `:486-487` container guard):**
 
 ```js
 const entry = ensureEntry(tabId);
-const isFirstMount = !entry.term; // no Terminal yet -> this mount creates everything
+const isFirstMount = !entry.term;
 attachHost(tabId, containerRef.current);
 ```
 
-- When `isFirstMount` is false (re-attach after a move / StrictMode remount): SKIP Terminal creation (`:497-518`), SKIP handler registration (`:521-717`), SKIP the spawn IIFE (`:800-1254`) entirely. Run only the per-mount block (3d).
-- When true: run the existing setup, with the changes in 3b/3c. `term.open(entry.host)` replaces `term.open(container)` at `:742` — xterm opens into the registry host (already appended into this mount's slot), never into the React div directly. Store `entry.term = term; entry.fit = fit; entry.search = search;` right after creation. Keep `termRef.current = term` etc. for the component's own consumers, set in BOTH branches (re-attach sets them from the entry).
+Re-attach branch (`!isFirstMount`): skip Terminal creation, handler registration, and the whole spawn IIFE; run only 3d + repoint 3b'/3b'' below; set `termRef.current = entry.term; fitRef.current = entry.fit; searchAddonRef.current = entry.search;`.
 
-**3b. Move the per-tab mutable state onto the entry:**
+**3b. The 9 refs — classified conversion (audit-corrected):**
 
-The refs at `:234-236` (`currentBlockRef`, `blocksRef`, `blockDecorationsRef`), `:290-291` (`scrollbackChunksRef`, `scrollbackBytesRef`), `:310` (`lastCostRef`), `:315` (`familyRef`), plus `userHasTypedRef` and `recentOutRef`: keep the refs (so downstream code is untouched) but initialize them FROM the entry on every mount and write THROUGH to the entry. Mechanical pattern — replace `const blocksRef = useRef([])` style with:
+- SHARED-CONTAINER (only ever mutated in place — point the ref at the entry object once per mount): `blocksRef` → `entry.blocks.list`, `blockDecorationsRef` → `entry.blocks.decorations`, `scrollbackChunksRef` → `entry.counters.scrollbackChunks`.
+- VALUE-REPLACED (wholesale-reassigned at write sites — EVERY assignment converts to writing the entry field; reads convert too; the ref disappears or becomes a thin accessor): `scrollbackBytesRef` (`:355,358`) → `entry.counters.scrollbackBytes`, `recentOutRef` (`:389,411,944,1031`) → `entry.counters.recentOut`, `familyRef` (`:467`) → `entry.counters.family`, `userHasTypedRef` (`:1027` write; reads at `:1054,1058` and the activity gate) → `entry.counters.userHasTyped`, `lastCostRef` (`:480`) → `entry.counters.lastCost`, `currentBlockRef` (`:600,:622`) → `entry.blocks.current`.
+- Walk EVERY usage site of each (grep the ref name); list the conversions in the task report. A missed write site silently reverts state on the next move — this exact failure mode is why the classification exists.
 
-```js
-const blocksRef = useRef(null);
-if (blocksRef.current === null) blocksRef.current = entryRefFor(tabId); // see below
-```
-
-Simplest correct shape (implementer's choice, must be consistent): a tiny helper in TerminalPane that maps each ref to the entry field once per mount:
+**3b'. `entry.ui` pointer table (audit CRITICAL fix), set on EVERY mount (both branches):**
 
 ```js
-// after ensureEntry:
-blocksRef.current = entry.blocks.list;
-// ... but ARRAYS/objects must be shared by REFERENCE, not copied.
+entry.ui = {
+  setFailedBlock, setShellCwd, setAtPrompt, setStickyBlock, setAltScreen,
+  capturePrompt: (b) => { /* the existing :616-619 prompt-editor capture body, via current refs */ },
+  isAutoApprove: () => autoApproveRef.current,
+  isVisible: () => visibleRef.current,
+  isActive: () => activeRef.current,
+  onCost: (next) => onCostRef.current?.(next),
+  onActivity: (a) => onActivityRef.current?.(a),
+};
 ```
 
-Rule: every one of these refs points at the ENTRY-OWNED object (`entry.blocks`, `entry.counters`), so a re-mount sees the same live state. Where current code REASSIGNS a ref's `.current` wholesale (e.g. `scrollbackChunksRef.current = []`), it must instead mutate the entry object's fields (`entry.counters.scrollbackChunks.length = 0`) or reassign through the entry. The implementer walks each usage site (grep each ref name) and converts. The cost-monotonic guard (`:436-454`) now reads/writes `entry.counters.lastCost` — moving a tab no longer zeroes it (bug fix 2).
+Then EVERY create-once handler body (OSC 133 at `:591-672`, OSC 1337 at `:676-703`, `updateSticky`/`term.onScroll` at `:706-717`, `term.onBufferChange` at `:1065-1071`, `handleChunk`/`checkAutoApprove`/`checkCost` and the done-timer/activity path) replaces its direct setter/ref reads with `entry.ui.*` calls. Enumerate every replacement in the report. (While parked, these hit the old fiber's setters — React 18 no-ops them silently; the table repoints on the next mount. Documented cosmetic gap: UI-derived state changes during a parked window are lost until the next event after re-attach.)
 
-**3c. Spawn IIFE changes (first mount only):**
+**3c. Spawn IIFE (first mount only):** orphan guard `:900-903` becomes `if (!getEntry(tabId)) { invoke("pty_kill", { id }); return; }`; on success `entry.ptyId = id; entry.spawnState = "live";`, tunnel id into `entry.jumpFwdId`; the `:1079-1250` setup region wraps in `if (!entry.setupDone) { ...; entry.setupDone = true; }`; destroy hooks registered in construction order (term.dispose first-registered, then listeners-detach, then the pty_kill/tunnel/unregisterPty hook — LIFO runs kill+bridge first, dispose last).
 
-- Orphan guard `:900-903`: replace the `!alive` check body with fate-aware logic: if the component unmounted mid-spawn, kill ONLY if the entry is gone or was closed: `if (!getEntry(tabId)) { invoke("pty_kill", { id }); return; }` — and set `entry.spawnState = "dead"` on the kill path. Additionally, per design decision 4, the mid-spawn-move case is handled in the cleanup (3e): unmount during `spawnState === "starting"` destroys the entry (kill+dispose) even when not marked closed.
-- After successful registration (`:904-928`): `entry.ptyId = id; entry.spawnState = "live";` and `entry.jumpFwdId = jumpFwdId` where the tunnel is created (`:871-882`).
-- The whole `:1079-1250` setup region gains the one-shot guard: `if (!entry.setupDone) { ...existing code...; entry.setupDone = true; }` (bug fix 3). (On first mount it always runs; the guard's value is for any future respawn-into-same-entry path and self-documentation.)
-- Register destroy hooks WITH the registry as resources come live, in construction order (they run LIFO):
+**3d. Per-mount block (both branches):** recreate IntersectionObserver + ResizeObserver against the CURRENT slot. First-mount IO callback = the existing `openIfVisible`. **Re-attach IO/RO callback = a new `refitOnly` closure (`entry.fit?.fit()` + guard) — NEVER `openIfVisible`** (its `term.open` no-ops safely per xterm source, but its unconditional `loadAddon(new ImageAddon())` stacks a duplicate addon per move — audit HIGH). On re-attach additionally run once: `entry.fit?.fit(); entry.term?.refresh(0, entry.term.rows - 1);` + focus-if-active (mirror `:1317-1319`). `document.fonts.ready` refit stays first-mount-only.
 
-```js
-registerDestroyHook(tabId, () => { try { term.dispose(); } catch {} });          // registered FIRST -> runs LAST
-// ...after listeners resolve:
-registerDestroyHook(tabId, () => { if (unlistenData) unlistenData(); if (unlistenExit) unlistenExit(); });
-// ...after spawn:
-registerDestroyHook(tabId, () => {
-  if (entry.ptyId) invoke("pty_kill", { id: entry.ptyId });
-  if (entry.jumpFwdId) invoke("port_forward_stop", { id: entry.jumpFwdId });
-  unregisterPty(tabId); // bridge cleanup + capture force-resolve: CLOSE-ONLY now (bug fix 1)
-});
-```
-
-**3d. Per-mount block (BOTH branches):**
-
-Runs on every mount (first or re-attach): `IntersectionObserver` (`:750-753`) and `ResizeObserver` (`:1256-1257`) are recreated against `containerRef.current` (the slot) — their callbacks call `safeFit()` which must reference `entry.fit`/`entry.term` (not effect-closure locals) so they work in the re-attach branch too. On re-attach additionally: `entry.fit?.fit(); entry.term?.refresh(0, entry.term.rows - 1);` then focus restore if this pane is active (mirror the pattern at `:1317-1319`). `document.fonts.ready` refit (`:759-768`) stays first-mount-only (fonts load once).
-
-**3e. Cleanup split (the five-line block `:1288-1293` dissolves):**
+**3e. Cleanup (replaces `:1259-1296`; the six-statement close block `:1288-1293` dissolves into destroy hooks):**
 
 ```js
 return () => {
@@ -397,35 +319,23 @@ return () => {
   vis.disconnect(); ro.disconnect();
   clearDoneTimer();
   clearTimeout(bannerRedrawTimerRef.current);
-  /* conceal + costRaf + transcript timer teardown: unchanged (:1265-1276) */
-  flushTranscript(); // safe on both paths (idempotent)
+  /* conceal + costRaf + transcript timer teardown: unchanged */
+  flushTranscript();
   detachHost(tabId);
-  const entryNow = getEntry(tabId);
-  const closing = consumeClosed(tabId);
-  const midSpawn = entryNow && entryNow.spawnState === "starting";
-  if (closing || midSpawn) {
-    destroyEntry(tabId); // runs the LIFO hooks: pty_kill + tunnel + unregisterPty + listeners + dispose
-  }
-  // parked: everything lives on in the registry; nothing else to do.
+  const e = getEntry(tabId);
+  if (e && e.spawnState === "starting") destroyEntry(tabId); // mid-spawn: no live handoff (decision 6)
+  // otherwise: park. Closes are the sweep's job (Task 2), lock is destroyAll's.
   termRef.current = null; fitRef.current = null;
 };
 ```
 
-Delete the old unconditional `unregisterPty` / `unlisten` / `pty_kill` / `port_forward_stop` / `term.dispose` lines — they live in destroy hooks now. IMPORTANT: `unlistenData`/`unlistenExit` were effect-closure locals; they must be captured by the destroy hook registered in 3c (closure over the same variables in the first-mount branch), NOT referenced from the cleanup.
+**3f. `[cwd]` dep note:** a cwd-prop change re-runs the effect → park + re-attach (no respawn). One-line comment records that live cwd comes from OSC PlutoCwd, the prop matters only at first spawn.
 
-**3f. Effect deps:** the big effect's `[cwd]` dependency stays. A cwd change on a LIVE entry (rare: same tab id, changed cwd prop) re-runs the effect: cleanup parks (not closed), re-mount re-attaches. The old behavior (respawn on cwd change) is intentionally gone — cwd changes mid-session come from OSC PlutoCwd, not props; the prop only matters at first spawn. Add a one-line comment stating this.
-
-- [ ] **Step 1: Read `TerminalPane.jsx:400-1300` in full.** Map every usage site of the refs listed in 3b (grep each name). Report NEEDS_CONTEXT if any usage doesn't fit the entry-backed pattern.
-- [ ] **Step 2: Apply 3a-3f.**
-- [ ] **Step 3: Gates**
-
-`npm run build && npx vitest run` green (no unit tests cover this file; the build + full suite + Task 5's registry tests are the automated net).
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 1: read + map (report NEEDS_CONTEXT on any mismatch). Step 2: apply 3a-3f. Step 3: gates. Step 4: commit**
 
 ```bash
 git -C C:\Users\pluto\plutos-terminals add src/features/terminals/TerminalPane.jsx
-git -C C:\Users\pluto\plutos-terminals commit -m "feat(panes): TerminalPane attaches registry-owned xterm; moveTab parks instead of kill+respawn"
+git -C C:\Users\pluto\plutos-terminals commit -m "feat(panes): TerminalPane attaches registry-owned xterm; ui pointer table; park-by-default cleanup"
 ```
 
 ---
@@ -433,79 +343,26 @@ git -C C:\Users\pluto\plutos-terminals commit -m "feat(panes): TerminalPane atta
 ### Task 4: #27 — `useSyncExternalStore` bridge subscriptions
 
 **Files:**
-- Modify: `src/features/terminals/ptyBridge.js` (append)
-- Modify: `src/features/terminals/hooks/independentEffects.js` (`useDimsListener`, `:76-79`)
-- Modify: `src/features/terminals/TerminalsTab.jsx` (inline subscription at `:436`)
-- Test: `src/features/terminals/ptyBridge.test.js` (append)
+- Modify: `src/features/terminals/ptyBridge.js` (append `getBridgeVersion`/`subscribeBridge`; bump `bridgeVersion` inside `emitDims`)
+- Modify: `src/features/terminals/hooks/independentEffects.js` (`useDimsListener` → `useSyncExternalStore(subscribeBridge, getBridgeVersion)`, RETURNING the version)
+- Modify: `src/features/terminals/TerminalsTab.jsx` — TWO edit sites: **`:131`** becomes `const bridgeVersion = useDimsListener();` (capture the return; this is the only call — grep afterward that exactly one `useDimsListener(` exists in the file), and **`:435-463`**: delete the `bridgeTick` useState + the `:436` effect; the `sessionListJson` memo's `bridgeTick` dep becomes `bridgeVersion`. (`bridgeTick` has no other readers — verified `:435,:436,:463` only.)
+- Test: append to `src/features/terminals/ptyBridge.test.js` (match its existing flat `test()` style): version bumps on `setTabDims`, subscriber fires, unsubscribe stops delivery while the version still moves.
 
-**ptyBridge append:**
-
-```js
-// ── React subscription surface (#27) ────────────────────────────────────────
-// One monotonic version, bumped by emitDims() — the bridge's single existing
-// notify channel. useSyncExternalStore consumers re-read whatever getters they
-// need when the version moves. Deliberately NOT per-Map subscriptions: the
-// single-channel coupling is the current behavior, kept exactly.
-
-let bridgeVersion = 0;
-export function getBridgeVersion() { return bridgeVersion; }
-export function subscribeBridge(cb) {
-  dimsListeners.add(cb);
-  return () => dimsListeners.delete(cb);
-}
-```
-
-And inside `emitDims()` (before the listener loop): `bridgeVersion++;`.
-
-**`useDimsListener` becomes:**
-
-```js
-export function useDimsListener() {
-  return useSyncExternalStore(subscribeBridge, getBridgeVersion);
-}
-```
-
-(import `useSyncExternalStore` from react; import the two bridge functions; delete the old `bumpDims` state pattern. The hook now RETURNS the version; its caller at `TerminalsTab.jsx:131` ignores the return today — unchanged call site keeps working, the re-render-on-change contract is identical.)
-
-**TerminalsTab `:436` inline subscription:** replace the `useEffect(() => onDimsChange(() => setBridgeTick(...)), [])` + `bridgeTick` state pair with the same hook: `const bridgeTick = useDimsListener();` — wait: `useDimsListener` is already called at `:131`. Call it ONCE, keep the returned version in a variable, and use it as the `bridgeTick` dependency of the `sessionListJson` memo (`:437-463` deps swap `bridgeTick` → the version value). Delete the `bridgeTick` useState (`:435`) and the `:436` effect. Net: one subscription instead of two, same re-render semantics (the map noted the duplication; consolidating is a deliberate, declared improvement — one re-render per dims event instead of two).
-
-**Tests (append to `ptyBridge.test.js`, matching its existing style):**
-
-```js
-test("bridge version bumps on dims changes and subscribe delivers", () => {
-  const before = getBridgeVersion();
-  let called = 0;
-  const un = subscribeBridge(() => { called += 1; });
-  setTabDims("vtab", 80, 24);
-  expect(getBridgeVersion()).toBeGreaterThan(before);
-  expect(called).toBeGreaterThan(0);
-  un();
-  const at = getBridgeVersion();
-  setTabDims("vtab", 100, 30);
-  expect(getBridgeVersion()).toBeGreaterThan(at); // version still moves
-  expect(called).toBe(1); // but unsubscribed callback didn't fire again
-});
-```
-
-(Adjust imports/counts to the file's real conventions; verify the real test file's import list first.)
-
-- [ ] **Step 1: tests first (red), Step 2: implement, Step 3: gates, Step 4: commit**
+- [ ] tests red → implement → gates → commit
 
 ```bash
 git -C C:\Users\pluto\plutos-terminals add src/features/terminals/ptyBridge.js src/features/terminals/ptyBridge.test.js src/features/terminals/hooks/independentEffects.js src/features/terminals/TerminalsTab.jsx
-git -C C:\Users\pluto\plutos-terminals commit -m "feat(bridge): useSyncExternalStore subscription surface; consolidate dims listeners (#27)"
+git -C C:\Users\pluto\plutos-terminals commit -m "feat(bridge): useSyncExternalStore subscription surface; single dims listener (#27)"
 ```
 
 ---
 
 ### Task 5: B1 gate
 
-- [ ] **Step 1: Full gates:** `npm run build && npx vitest run` (all green, report counts).
-- [ ] **Step 2: Manual smoke list for pluto (append to the stream report, do NOT attempt GUI automation):**
-  - open 2 panels; run `ping -t 8.8.8.8` (or a long `npm run dev`) in a tab; drag the tab to the other panel → output CONTINUES, no respawn banner, no retyped start-commands; scroll position/history intact; cost/token chip does not jump backward.
-  - agent mode: start a long `run_command`, move the tab mid-run → capture still resolves.
-  - close tab → process actually dies (check with `tasklist`); Ctrl+Shift+T reopen → fresh clean shell.
-  - dev-mode (`npm run tauri dev`, StrictMode): open a new tab → exactly ONE shell process per tab (`tasklist | findstr` the shell), no orphan accumulation after several open/close cycles.
-  - SSH tab with jump host: move it → session stays connected; close → tunnel torn down.
-  - detach tab to new window → old window's session dies, new window spawns fresh (unchanged behavior).
-- [ ] **Step 3: Review pass:** code-reviewer subagent over the B1 diff; fix findings; re-review every fix.
+- [ ] Full gates (`npm run build && npx vitest run`), report counts.
+- [ ] Manual smoke list for pluto (report, do not GUI-automate):
+  - long-running command in a tab → drag to another panel → output continues, no respawn banner, no retyped start-commands, scrollback + scroll position intact, cost/token chip never jumps backward; the colored pass/fail block bars from before the move render at the right rows after the move; an in-progress selection or find overlay resets on move (expected, cosmetic).
+  - failed command AFTER a move still shows the red block bar + AI explainer; sticky header still updates; prompt editor still captures on a moved pane; auto-approve toggled after a move actually changes behavior.
+  - agent capture survives a mid-run move; close tab → process dies (tasklist); Ctrl+Shift+T reopen → fresh shell; SPLIT a tab, close ONE pane → that pane's process dies (the closePane path); reset-workspace and loading a workspace → ALL previous processes die; locking the app → all processes die.
+  - dev mode: one shell process per tab, no orphan accumulation across open/close cycles.
+- [ ] Review pass: code-reviewer over the whole B1 diff; fix findings; re-review every fix.
