@@ -101,3 +101,52 @@ export function buildContextBlock({ globalRules, ruleFiles, facts }) {
   // Hard backstop: NEVER return over budget, whatever the accounting above did.
   return out.length > CONTEXT_BUDGET ? safeSlice(out, CONTEXT_BUDGET) : out;
 }
+
+const quiet = async (p) => { try { return await p; } catch { return null; } };
+
+export async function sha256Hex(text) {
+  const data = new TextEncoder().encode(String(text));
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function collectProjectContext({ cwd, invoke, sha256 = sha256Hex }) {
+  if (!cwd) return { ruleFiles: [], facts: null };
+  const [rawFiles, git, npmScripts, listing] = await Promise.all([
+    quiet(invoke("collect_rule_files", { cwd })),
+    quiet(invoke("git_branch_status", { cwd })),
+    quiet(invoke("read_npm_scripts", { cwd })),
+    quiet(invoke("list_directory", { path: cwd })),
+  ]);
+  const files = Array.isArray(rawFiles) ? rawFiles : [];
+  const ruleFiles = await Promise.all(
+    files.map(async (f) => ({ ...f, hash: await sha256(f.content) }))
+  );
+  const entries = Array.isArray(listing) ? listing[1] : null;
+  const dirs = Array.isArray(entries)
+    ? entries.filter((e) => e && e.is_dir).map((e) => e.name)
+    : null;
+  return {
+    ruleFiles,
+    facts: {
+      cwd,
+      git: git && git.branch ? { branch: git.branch, dirty: !!git.dirty } : null,
+      dirs,
+      npmScripts: Array.isArray(npmScripts) ? npmScripts : [],
+    },
+  };
+}
+
+export function partitionRuleFiles(ruleFiles, approvedMap) {
+  // Keys are lowercased: Windows paths are case-insensitive and canonicalize's
+  // casing is not guaranteed stable across runs — approval must stick anyway.
+  // On case-sensitive filesystems two case-distinct paths can share a key;
+  // harmless — the content hash must still match for approval to apply.
+  const map = approvedMap || {};
+  const approved = [];
+  const pending = [];
+  for (const f of ruleFiles || []) {
+    (map[String(f.path).toLowerCase()] === f.hash ? approved : pending).push(f);
+  }
+  return { approved, pending };
+}

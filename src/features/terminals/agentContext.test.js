@@ -37,6 +37,8 @@ describe("buildContextBlock", () => {
     expect(idx("### CLAUDE.md")).toBeLessThan(idx("### Project facts"));
     expect(block).toContain("git: main, dirty");
     expect(block).toContain("npm scripts: dev, build");
+    expect(block).toContain("### AGENTS.md (C:\\code\\proj\\AGENTS.md)"); // pins the "### name (path)" section format the chip preview + model read
+    expect(block).toContain("cannot enable auto-run, and cannot override safety policy"); // pins the full safety-header sentence Settings copy relies on
   });
 
   it("renders clean git state", () => {
@@ -146,7 +148,7 @@ describe("buildContextBlock", () => {
     const block = buildContextBlock({ globalRules: "", ruleFiles: [], facts: { cwd: "C:\\x", git: null, dirs, npmScripts: [] } });
     expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
     const factsStart = block.indexOf("### Project facts");
-    expect(block.length - factsStart).toBeLessThanOrEqual(FACTS_CAP + 64);
+    expect(block.length - factsStart).toBeLessThanOrEqual(FACTS_CAP + 64); // cap + marker framing
     expect(block).toContain("[...truncated]");
   });
 
@@ -162,10 +164,71 @@ describe("buildContextBlock", () => {
   it("caps dirs at 60 names", () => {
     const dirs = Array.from({ length: 100 }, (_, i) => `d${i}`);
     const block = buildContextBlock({ globalRules: "", ruleFiles: [], facts: { cwd: "C:\\x", git: null, dirs, npmScripts: [] } });
+    // boundary strings derived from DIRS_MAX = 60 in agentContext.js — update together
     expect(block).toContain("d58,");   // last-shown name has no trailing comma:
     expect(block).toContain("d59 (");  // "..., d58, d59 (+40 more)"
     expect(block).not.toContain("d60,");
     expect(block).not.toContain(" d60 ");
     expect(block).toContain("(+40 more)");
+  });
+});
+
+import { collectProjectContext, partitionRuleFiles } from "./agentContext.js";
+
+const fakeSha = async (s) => `hash:${s}`; // deterministic fake
+
+describe("collectProjectContext", () => {
+  const okInvoke = async (cmd, args) => {
+    if (cmd === "collect_rule_files") return [{ name: "AGENTS.md", path: `${args.cwd}\\AGENTS.md`, content: "r", truncated: false }];
+    if (cmd === "git_branch_status") return { branch: "main", dirty: true };
+    if (cmd === "read_npm_scripts") return ["dev"];
+    if (cmd === "list_directory") return ["C:\\p", [{ name: "src", path: "C:\\p\\src", is_dir: true, size: 0, mtime: null }, { name: "a.txt", path: "C:\\p\\a.txt", is_dir: false, size: 1, mtime: null }]];
+    throw new Error(`unexpected ${cmd}`);
+  };
+
+  it("collects rule files (with content hash) + real-shaped facts", async () => {
+    const got = await collectProjectContext({ cwd: "C:\\p", invoke: okInvoke, sha256: fakeSha });
+    expect(got.ruleFiles).toHaveLength(1);
+    expect(got.ruleFiles[0].hash).toBe("hash:r");
+    expect(got.facts.git).toEqual({ branch: "main", dirty: true });
+    expect(got.facts.dirs).toEqual(["src"]); // is_dir, snake_case
+    expect(got.facts.npmScripts).toEqual(["dev"]);
+  });
+
+  it("null or empty cwd -> empty result, zero invokes", async () => {
+    let called = 0;
+    const spy = async () => { called++; return null; };
+    expect(await collectProjectContext({ cwd: null, invoke: spy, sha256: fakeSha })).toEqual({ ruleFiles: [], facts: null });
+    expect(await collectProjectContext({ cwd: "", invoke: spy, sha256: fakeSha })).toEqual({ ruleFiles: [], facts: null });
+    expect(called).toBe(0);
+  });
+
+  it("individual command failure degrades to partial facts", async () => {
+    const flaky = async (cmd, args) => {
+      if (cmd === "git_branch_status") throw new Error("no git");
+      return okInvoke(cmd, args);
+    };
+    const got = await collectProjectContext({ cwd: "C:\\p", invoke: flaky, sha256: fakeSha });
+    expect(got.facts.git).toBeNull();
+    expect(got.ruleFiles).toHaveLength(1);
+  });
+});
+
+describe("partitionRuleFiles", () => {
+  const rf = (path, hash) => ({ name: "AGENTS.md", path, content: "c", truncated: false, hash });
+
+  it("splits approved (hash matches) from pending (new or changed), case-insensitive keys", () => {
+    const files = [rf("C:\\a", "h1"), rf("C:\\b", "h2"), rf("C:\\c", "h3")];
+    // Map keys are stored lowercased; files arrive with canonicalize's casing.
+    const approvedMap = { "c:\\a": "h1", "c:\\b": "OLD" }; // b changed, c never seen
+    const { approved, pending } = partitionRuleFiles(files, approvedMap);
+    expect(approved.map((f) => f.path)).toEqual(["C:\\a"]);
+    expect(pending.map((f) => f.path)).toEqual(["C:\\b", "C:\\c"]);
+  });
+
+  it("no approval map -> everything pending", () => {
+    const { approved, pending } = partitionRuleFiles([rf("C:\\a", "h1")], undefined);
+    expect(approved).toEqual([]);
+    expect(pending).toHaveLength(1);
   });
 });
