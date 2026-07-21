@@ -1,7 +1,6 @@
 // (C)
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen } from "@backend";
-import { GITHUB_URL, DISCORD_URL, openExternal } from "../../appMeta.js";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
 import SnippetsDrawer from "./SnippetsDrawer";
@@ -10,7 +9,6 @@ import SshPasswordModal from "./SshPasswordModal";
 import SftpBrowser from "./SftpBrowser";
 import TunnelsModal from "./TunnelsModal";
 import SerialModal from "./SerialModal";
-import MobaMenuBar from "./MobaMenuBar";
 import AgentDashboard from "./AgentDashboard";
 import DiffView from "./DiffView";
 import ModelPicker from "./ModelPicker";
@@ -29,8 +27,8 @@ import RemoteControlModal from "./RemoteControlModal.jsx";
 import FKeyBar from "./chrome/FKeyBar.jsx";
 import DockTabStrip from "./chrome/DockTabStrip.jsx";
 import StatusBar from "./chrome/StatusBar.jsx";
+import MenuBar from "./chrome/MenuBar.jsx";
 import { PROVIDERS, findProvider } from "./providers.js";
-import { IconMoon, IconSun, IconExit } from "./icons.jsx";
 import {
   SLocal, SSsh, SSerial, SSplit, SSplitRow, SSplitCol, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch, SPulse,
   SMouse, SWindows, SFolder, SLock, SKey, SRocket, SGear, SBot, SDoc, SClock, SLayout, SBroadcast, STarget, SPlug, SPhone, SRecord, SStop, SReset,
@@ -781,85 +779,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // setters and module-level imports are stable and intentionally omitted from
   // the dep lists; the deps below are exactly the reactive values + hook
   // useCallbacks each array reads.
-  const menuBarMenus = useMemo(() => [
-    {
-      label: "Terminal",
-      items: [
-        { label: "New tab", shortcut: "Ctrl+Shift+T", action: () => addTab(state.activePanelId) },
-        { label: "Launch screen (home tab)", action: () => addHomeTab(state.activePanelId) },
-        { label: "New panel", disabled: !canAddPanel, action: () => addPanel() },
-        { divider: true },
-        { label: "Split right", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-        { label: "Split down", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
-        { divider: true },
-        { label: "Close tab", shortcut: "Ctrl+Shift+W", action: () => { const p = state.panels.find((x) => x.id === state.activePanelId); if (p && p.tabs.length > 1 && p.activeTabId) closeTab(p.id, p.activeTabId); } },
-        { label: "New window", action: async () => { try { const id = `${Date.now().toString(36)}`.slice(-6); await invoke("spawn_new_window", { windowId: id }); } catch (e) { toast.error(`New window failed: ${e}`); } } },
-      ],
-    },
-    {
-      label: "Sessions",
-      items: [
-        { label: "New session…", action: () => setDialog({ mode: "add" }) },
-        { label: "Import from ~/.ssh/config…", action: () => importSshConfig() },
-        { label: "SSH keys…", action: () => setSshKeysOpen(true) },
-        { divider: true },
-        { label: "Sessions panel", action: () => selectRibbon("sessions") },
-        { label: "File browser", action: () => selectRibbon("files") },
-        { label: "Port forwarding…", disabled: !activeTab?.connection, action: () => openTunnels() },
-        { label: "Serial console…", action: () => setSerialOpen(true) },
-        { label: "VNC remote desktop…", action: () => setVncOpen(true) },
-        { label: "RDP remote desktop…", action: () => setRdpOpen(true) },
-        { label: "Network tools (ping · traceroute · ports · DNS)…", action: () => setNetToolsOpen(true) },
-      ],
-    },
-    {
-      label: "Tools",
-      items: [
-        { label: "Snippets panel", action: () => selectRibbon("snippets") },
-        { label: "Keystroke macros…", action: () => setMacrosOpen(true) },
-        { label: "Ask AI — natural language → command", shortcut: "Ctrl+I", action: () => setAskOpen(true) },
-        { label: "Summarize this session (AI)", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
-        { label: "Command history search…", shortcut: "Cmd+R", action: () => setHistoryOpen(true) },
-        { label: "Models — pick provider + model…", action: () => setModelsOpen(true) },
-        { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
-        { label: "Broadcast targets… (choose terminals)", action: () => setBroadcastGroupOpen(true) },
-        { divider: true },
-        { label: "Remote control (phone)…", action: () => setRemoteOpen(true) },
-        { label: "MCP servers…", action: () => setMcpOpen(true) },
-        { label: "Setup checker…", action: () => setSetupOpen(true) },
-        { label: "Command palette", shortcut: "Ctrl+K", action: () => setCommandPaletteOpen(true) },
-      ],
-    },
-    {
-      label: "View",
-      items: [
-        { label: ribbon ? "Hide tools panel" : "Show snippets panel", action: () => selectRibbon(ribbon ? null : "snippets") },
-        { label: "Workspaces — save / restore layout…", action: () => setWorkspacesOpen(true) },
-        { divider: true },
-        { label: "Skins & appearance…", action: () => setSettingsOpen(true) },
-      ],
-    },
-    {
-      label: "Settings",
-      items: [
-        { label: "Settings…", shortcut: "Ctrl+,", action: () => setSettingsOpen(true) },
-        { label: "Master password…", action: () => setMasterPwOpen(true) },
-      ],
-    },
-    {
-      label: "Help",
-      items: [
-        { label: "GitHub repository", action: () => openExternal(GITHUB_URL) },
-        { label: "Pluto Discord", action: () => openExternal(DISCORD_URL) },
-      ],
-    },
-  ], [
-    addTab, addHomeTab, addPanel, canAddPanel, splitPane, closeTab,
-    activeTabId, activeTab, state.panels, state.activePanelId,
-    toast, importSshConfig, selectRibbon, openTunnels,
-    broadcast, toggleBroadcast, ribbon,
-  ]);
-
   const toolbarGroups = useMemo(() => [
     {
       caption: "Connect",
@@ -990,17 +909,47 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     <div className="phn-page" data-phn-skin={headerSkinId} data-phn-theme={customThemeActive ? "custom" : undefined} style={{ height: "100%", position: "relative" }}>
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* MobaXterm menu bar — classic dropdown menus wired to existing actions. */}
-      <MobaMenuBar
-        brand={<><span className="moba-brand-dot" />Pluto</>}
-        right={
-          <>
-            {activeDims && <span className="moba-mb-dim">{activeDims.cols}×{activeDims.rows}</span>}
-            <span className="moba-mb-model"><span className="moba-mb-modeldot" />{userSt?.activeModel?.model || "claude"}</span>
-            <button className="moba-mb-icon" onClick={toggleTheme} title="Toggle dark / light chrome (Ctrl+\\)">{headerSkinId === "moba-light" ? <IconSun size={14} /> : <IconMoon size={14} />}</button>
-            <button className="moba-mb-icon" onClick={exitApp} title="Quit (closes all sessions)"><IconExit size={14} /></button>
-          </>
-        }
-        menus={menuBarMenus}
+      <MenuBar
+        addTab={addTab}
+        addHomeTab={addHomeTab}
+        addPanel={addPanel}
+        canAddPanel={canAddPanel}
+        splitPane={splitPane}
+        closeTab={closeTab}
+        activeTabId={activeTabId}
+        activeTab={activeTab}
+        panels={state.panels}
+        activePanelId={state.activePanelId}
+        importSshConfig={importSshConfig}
+        selectRibbon={selectRibbon}
+        openTunnels={openTunnels}
+        broadcast={broadcast}
+        toggleBroadcast={toggleBroadcast}
+        ribbon={ribbon}
+        activeDims={activeDims}
+        activeModelName={activeModelName}
+        toggleTheme={toggleTheme}
+        headerSkinId={headerSkinId}
+        exitApp={exitApp}
+        setDialog={setDialog}
+        setSshKeysOpen={setSshKeysOpen}
+        setSerialOpen={setSerialOpen}
+        setVncOpen={setVncOpen}
+        setRdpOpen={setRdpOpen}
+        setNetToolsOpen={setNetToolsOpen}
+        setMacrosOpen={setMacrosOpen}
+        setAskOpen={setAskOpen}
+        setSummary={setSummary}
+        setHistoryOpen={setHistoryOpen}
+        setModelsOpen={setModelsOpen}
+        setBroadcastGroupOpen={setBroadcastGroupOpen}
+        setRemoteOpen={setRemoteOpen}
+        setMcpOpen={setMcpOpen}
+        setSetupOpen={setSetupOpen}
+        setCommandPaletteOpen={setCommandPaletteOpen}
+        setWorkspacesOpen={setWorkspacesOpen}
+        setSettingsOpen={setSettingsOpen}
+        setMasterPwOpen={setMasterPwOpen}
       />
       {/* MobaXterm grouped icon toolbar — captioned button groups, themed via
           the active skin's --phn-* vars (see MobaToolbar.jsx + terminals.css). */}
