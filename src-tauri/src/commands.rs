@@ -991,6 +991,369 @@ pub fn transcript_append(
     Ok(())
 }
 
+// ── Transcript read/list (Stream D share prep) ─────────────────────
+// (C) Dir-scoped, DATED read-side companion to transcript_append above.
+// Mirrors the notebook IO shape (Stream C, ~:1250-1367): a narrow surface
+// scoped under <data_dir>/terminals/transcripts/, name-gated, no arbitrary
+// paths. Two differences from notebook_path, both intentional:
+//   1. A transcript is DATED — on-disk layout is transcripts/{date}/{name}.md,
+//      one file per (date, name) pair, so list/read/read_all all reason
+//      about a date component too.
+//   2. `name` here is a bare stem (e.g. "myproject-a1b2c3") that never
+//      carries ".md" from the caller — transcript_append appends the
+//      extension itself — so, unlike notebook_path, we must NOT require a
+//      ".md" suffix on the input name.
+//
+// AUDIT: validation is FULL-STRING reconstruction-equality against
+// safe_filename's own output, never a substring/regex shape match. An
+// unanchored `\d{4}-\d{2}-\d{2}` match would accept
+// "../../etc/2024-01-01" (a validly-shaped date IS present as a substring)
+// while the whole string still escapes the transcripts dir once joined.
+// Reconstruction-equality closes that: safe_filename maps every character
+// outside [A-Za-z0-9_-] to '_', so any '.', '/', or '\\' anywhere in the
+// input breaks equality with the sanitized output and the whole value is
+// rejected outright — never silently rewritten, same posture as
+// notebook_path.
+
+// A date is valid iff it is exactly "YYYY-MM-DD" shaped (10 bytes, every
+// byte already inside safe_filename's allowlist so sanitizing is a no-op)
+// AND it parses as a genuine calendar date — rejects shape-only garbage
+// like "2020-13-99" that would survive a regex but isn't a real day.
+fn transcript_date_valid(date: &str) -> bool {
+    date.len() == 10
+        && safe_filename(date) == date
+        && chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok()
+}
+
+// A name is valid iff sanitizing it is a no-op and it isn't empty (an empty
+// stem would resolve to a bare ".md" file — never a legal transcript name).
+fn transcript_name_valid(name: &str) -> bool {
+    !name.is_empty() && safe_filename(name) == name
+}
+
+fn transcripts_dir(app: &AppHandle) -> PathBuf {
+    get_data_dir(app).join("terminals").join("transcripts")
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+pub struct TranscriptEntry {
+    pub date: String,
+    pub name: String,
+}
+
+// Read one file, rejecting a symlinked target instead of following it —
+// `symlink_metadata` reports the link itself (never the thing it points to),
+// so `file_type().is_file()` is false for a symlink even when its target is
+// an ordinary file, and a missing path surfaces as an Err here (not a panic
+// or a silent None). Lossy-decodes like `scrollback_load`: a transcript is
+// ANSI-stripped PTY output and can carry stray non-UTF8 bytes, so one bad
+// byte must never fail the whole share.
+fn transcript_read_file_lossy(path: &std::path::Path) -> Result<String, String> {
+    let meta = fs::symlink_metadata(path).map_err(|_| "transcript not found".to_string())?;
+    if !meta.file_type().is_file() {
+        return Err("transcript not found".into());
+    }
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+// Sync core: walk transcripts/ one date-dir deep. A missing transcripts/ dir
+// is not an error, just an empty share picker (mirrors notebook_list_sync's
+// "missing/empty dir -> empty library" posture) — unlike notebook_list_sync
+// this does NOT create the dir, since transcript_append already creates it
+// on first write and list is meant to be a read-only walk. Each date
+// directory is itself name-gated (skips any stray non-date directory
+// dropped into transcripts/) and each ".md" file inside is
+// is_file+non-symlink+name-gated — the SAME gates read/read_all use, so any
+// entry list returns is guaranteed readable. Sorted newest-date-first.
+fn transcript_list_sync(dir: &std::path::Path) -> Vec<TranscriptEntry> {
+    let mut dates: Vec<String> = fs::read_dir(dir)
+        .map(|read| {
+            read.flatten()
+                .filter(|ent| ent.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .map(|ent| ent.file_name().to_string_lossy().into_owned())
+                .filter(|d| transcript_date_valid(d))
+                .collect()
+        })
+        .unwrap_or_default();
+    dates.sort();
+    dates.reverse(); // newest-date-first
+
+    let mut out: Vec<TranscriptEntry> = Vec::new();
+    for date in dates {
+        let date_dir = dir.join(&date);
+        let mut names: Vec<String> = fs::read_dir(&date_dir)
+            .map(|read| {
+                read.flatten()
+                    .filter(|ent| {
+                        fs::symlink_metadata(ent.path())
+                            .map(|m| m.file_type().is_file())
+                            .unwrap_or(false)
+                    })
+                    .filter_map(|ent| {
+                        let fname = ent.file_name().to_string_lossy().into_owned();
+                        let stem = fname.strip_suffix(".md")?.to_string();
+                        if transcript_name_valid(&stem) { Some(stem) } else { None }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort_by_key(|n| n.to_lowercase());
+        out.extend(
+            names
+                .into_iter()
+                .map(|name| TranscriptEntry { date: date.clone(), name }),
+        );
+    }
+    out
+}
+
+// Sync core: read one dated transcript. Both date and name are validated
+// full-string before touching the filesystem; an invalid shape is an Err,
+// never a silent empty result. Absent file -> Err (matches
+// notebook_read_sync: the caller decides what "no transcript here" means,
+// never silently reseeded here).
+fn transcript_read_sync(dir: &std::path::Path, date: &str, name: &str) -> Result<String, String> {
+    if !transcript_date_valid(date) {
+        return Err("invalid transcript date".into());
+    }
+    if !transcript_name_valid(name) {
+        return Err("invalid transcript name".into());
+    }
+    let path = dir.join(date).join(format!("{name}.md"));
+    transcript_read_file_lossy(&path)
+}
+
+// Sync core: concatenate every dated file for `name` across ALL dates,
+// oldest-first (dates are fixed-width YYYY-MM-DD, so a lexical sort IS a
+// chronological one), each prefixed with a `\n--- <date> ---\n` header —
+// the "whole session" a transcript share reads. `name` is validated
+// full-string up front; each per-date read reuses the same
+// symlink-rejecting lossy reader as transcript_read_sync, so a symlinked
+// file for one date among several genuine ones is skipped rather than
+// aborting the whole concatenation (list already excludes it from the
+// picker; this is defense in depth for a direct call). No dated file found
+// at all -> Err.
+fn transcript_read_all_sync(dir: &std::path::Path, name: &str) -> Result<String, String> {
+    if !transcript_name_valid(name) {
+        return Err("invalid transcript name".into());
+    }
+    let mut dates: Vec<String> = fs::read_dir(dir)
+        .map(|read| {
+            read.flatten()
+                .filter(|ent| ent.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .map(|ent| ent.file_name().to_string_lossy().into_owned())
+                .filter(|d| transcript_date_valid(d))
+                .collect()
+        })
+        .unwrap_or_default();
+    dates.sort(); // oldest-first
+
+    let mut out = String::new();
+    let mut found = false;
+    for date in &dates {
+        let path = dir.join(date).join(format!("{name}.md"));
+        if let Ok(content) = transcript_read_file_lossy(&path) {
+            found = true;
+            out.push_str(&format!("\n--- {date} ---\n"));
+            out.push_str(&content);
+        }
+    }
+    if !found {
+        return Err("no transcript found for this name".into());
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn transcript_list(app: AppHandle) -> Vec<TranscriptEntry> {
+    transcript_list_sync(&transcripts_dir(&app))
+}
+
+#[tauri::command]
+pub async fn transcript_read(app: AppHandle, date: String, name: String) -> Result<String, String> {
+    transcript_read_sync(&transcripts_dir(&app), &date, &name)
+}
+
+#[tauri::command]
+pub async fn transcript_read_all(app: AppHandle, name: String) -> Result<String, String> {
+    transcript_read_all_sync(&transcripts_dir(&app), &name)
+}
+
+#[cfg(test)]
+mod transcript_read_tests {
+    use super::*;
+    use std::fs;
+
+    fn write_dated(dir: &std::path::Path, date: &str, name: &str, content: &str) {
+        let date_dir = dir.join(date);
+        fs::create_dir_all(&date_dir).unwrap();
+        fs::write(date_dir.join(format!("{name}.md")), content).unwrap();
+    }
+
+    #[test]
+    fn list_on_missing_dir_returns_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("does-not-exist-yet");
+        let got = transcript_list_sync(&dir);
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn list_on_empty_existing_dir_returns_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let got = transcript_list_sync(tmp.path());
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn read_all_concatenates_oldest_first_with_separators() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_dated(tmp.path(), "2024-01-02", "proj-abc123", "second\n");
+        write_dated(tmp.path(), "2024-01-01", "proj-abc123", "first\n");
+        let got = transcript_read_all_sync(tmp.path(), "proj-abc123").unwrap();
+        assert_eq!(
+            got,
+            "\n--- 2024-01-01 ---\nfirst\n\n--- 2024-01-02 ---\nsecond\n"
+        );
+    }
+
+    #[test]
+    fn list_is_newest_date_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_dated(tmp.path(), "2024-01-01", "a", "x");
+        write_dated(tmp.path(), "2024-02-01", "b", "y");
+        let got = transcript_list_sync(tmp.path());
+        let dates: Vec<&str> = got.iter().map(|e| e.date.as_str()).collect();
+        assert_eq!(dates, vec!["2024-02-01", "2024-01-01"]);
+    }
+
+    #[test]
+    fn traversal_date_rejected_full_string_not_substring() {
+        // Shape-valid AS A SUBSTRING ("2024-01-01" sits inside the string) but
+        // the WHOLE string escapes the transcripts dir — a naive unanchored
+        // regex/contains check would accept this; full-string
+        // reconstruction-equality must not.
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(transcript_read_sync(tmp.path(), "../../etc/2024-01-01", "name").is_err());
+        assert!(!transcript_date_valid("../../etc/2024-01-01"));
+    }
+
+    #[test]
+    fn traversal_name_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        for bad in ["a/b", "../x"] {
+            assert!(
+                transcript_read_sync(tmp.path(), "2024-01-01", bad).is_err(),
+                "expected rejection for {bad:?}"
+            );
+            assert!(
+                transcript_read_all_sync(tmp.path(), bad).is_err(),
+                "expected rejection for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_calendar_date_rejected() {
+        // Shape-valid (10 chars, digits+hyphens) but not a REAL date.
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(!transcript_date_valid("2020-13-99"));
+        assert!(transcript_read_sync(tmp.path(), "2020-13-99", "name").is_err());
+    }
+
+    #[test]
+    fn name_with_dotdot_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        for bad in ["..", "a..b", "..name"] {
+            assert!(!transcript_name_valid(bad), "expected rejection for {bad:?}");
+            assert!(
+                transcript_read_all_sync(tmp.path(), bad).is_err(),
+                "expected rejection for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn symlinked_md_file_is_not_listed() {
+        // Ports rule_file_tests::symlinked_rule_file_is_skipped /
+        // notebook_io_tests::symlinked_md_file_is_not_listed's exact pattern:
+        // symlink creation on Windows needs Developer Mode / privilege; if the
+        // OS refuses, the vector doesn't exist in this environment — pass
+        // trivially rather than failing the whole suite on an unrelated box.
+        let tmp = tempfile::tempdir().unwrap();
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
+        let date_dir = tmp.path().join("2024-01-01");
+        fs::create_dir_all(&date_dir).unwrap();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&secret, date_dir.join("linked.md")).is_ok();
+        #[cfg(not(windows))]
+        let made = std::os::unix::fs::symlink(&secret, date_dir.join("linked.md")).is_ok();
+        if !made { return; }
+        let got = transcript_list_sync(tmp.path());
+        assert!(got.is_empty(), "symlinked .md file must never be listed");
+    }
+
+    #[test]
+    fn read_direct_on_symlinked_target_is_err() {
+        // Read-path symlink check — NOT just the list-exclusion case: even
+        // called directly against the exact (date, name), a symlinked file
+        // must be rejected rather than followed.
+        let tmp = tempfile::tempdir().unwrap();
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
+        let date_dir = tmp.path().join("2024-01-01");
+        fs::create_dir_all(&date_dir).unwrap();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&secret, date_dir.join("linked.md")).is_ok();
+        #[cfg(not(windows))]
+        let made = std::os::unix::fs::symlink(&secret, date_dir.join("linked.md")).is_ok();
+        if !made { return; }
+        assert!(transcript_read_sync(tmp.path(), "2024-01-01", "linked").is_err());
+        assert!(transcript_read_all_sync(tmp.path(), "linked").is_err());
+    }
+
+    #[test]
+    fn single_date_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_dated(tmp.path(), "2024-03-04", "solo-name", "hello world\n");
+        let got = transcript_read_sync(tmp.path(), "2024-03-04", "solo-name").unwrap();
+        assert_eq!(got, "hello world\n");
+    }
+
+    #[test]
+    fn absent_read_is_err() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(transcript_read_sync(tmp.path(), "2024-03-04", "nope").is_err());
+        assert!(transcript_read_all_sync(tmp.path(), "nope").is_err());
+    }
+
+    #[test]
+    fn invalid_utf8_byte_reads_lossy_not_err() {
+        let tmp = tempfile::tempdir().unwrap();
+        let date_dir = tmp.path().join("2024-05-06");
+        fs::create_dir_all(&date_dir).unwrap();
+        let mut bytes = b"before-".to_vec();
+        bytes.push(0xFF); // invalid standalone UTF-8 byte
+        bytes.extend_from_slice(b"-after");
+        fs::write(date_dir.join("lossy-name.md"), &bytes).unwrap();
+        let got = transcript_read_sync(tmp.path(), "2024-05-06", "lossy-name");
+        assert!(got.is_ok(), "invalid UTF-8 byte must lossy-decode, not error");
+        assert!(got.unwrap().contains("before-"));
+    }
+
+    #[test]
+    fn non_canonical_name_on_disk_excluded_from_list() {
+        // Mirrors notebook_io_tests::non_canonical_name_on_disk_is_excluded_from_list_and_read:
+        // a stray .md file with a space in the stem must not surface in list.
+        let tmp = tempfile::tempdir().unwrap();
+        write_dated(tmp.path(), "2024-01-01", "has space", "hi");
+        let got = transcript_list_sync(tmp.path());
+        assert!(got.is_empty(), "non-canonical stem must not be listed");
+    }
+}
+
 // ── Recent files for the project sidebar ──────────────────────────
 // Pulls from git status (currently modified) + git log (recently committed),
 // then a directory walk fallback for non-git folders. Filters lockfiles,
