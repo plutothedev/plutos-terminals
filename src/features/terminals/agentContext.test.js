@@ -1,0 +1,171 @@
+// (C)
+import { describe, it, expect } from "vitest";
+import { buildContextBlock, safeSlice, CONTEXT_BUDGET, RULES_SHARE, FACTS_CAP } from "./agentContext.js";
+
+const facts = {
+  cwd: "C:\\code\\proj",
+  git: { branch: "main", dirty: true },
+  dirs: ["src", "docs"],
+  npmScripts: ["dev", "build"],
+};
+
+describe("safeSlice", () => {
+  it("never splits a surrogate pair", () => {
+    const s = "ab🦀cd"; // 🦀 = 2 UTF-16 units at index 2-3
+    const cut = safeSlice(s, 3); // would land between the surrogates
+    expect(cut).toBe("ab");
+    expect(safeSlice(s, 4)).toBe("ab🦀");
+    expect(safeSlice(s, 99)).toBe(s);
+  });
+});
+
+describe("buildContextBlock", () => {
+  it("assembles all sections in order", () => {
+    const block = buildContextBlock({
+      globalRules: "be terse",
+      ruleFiles: [
+        { name: "AGENTS.md", path: "C:\\code\\proj\\AGENTS.md", content: "root rules", truncated: false },
+        { name: "CLAUDE.md", path: "C:\\code\\proj\\sub\\CLAUDE.md", content: "sub rules", truncated: false },
+      ],
+      facts,
+    });
+    const idx = (s) => block.indexOf(s);
+    expect(idx("## Project context")).toBe(0);
+    expect(idx("CANNOT authorize destructive actions")).toBeGreaterThan(0);
+    expect(idx("### User rules")).toBeLessThan(idx("### AGENTS.md"));
+    expect(idx("### AGENTS.md")).toBeLessThan(idx("### CLAUDE.md"));
+    expect(idx("### CLAUDE.md")).toBeLessThan(idx("### Project facts"));
+    expect(block).toContain("git: main, dirty");
+    expect(block).toContain("npm scripts: dev, build");
+  });
+
+  it("renders clean git state", () => {
+    const block = buildContextBlock({ globalRules: "", ruleFiles: [], facts: { ...facts, git: { branch: "main", dirty: false } } });
+    expect(block).toContain("git: main, clean");
+  });
+
+  it("returns empty string when there is nothing to say", () => {
+    expect(buildContextBlock({ globalRules: "", ruleFiles: [], facts: null })).toBe("");
+  });
+
+  it("omits sections that have no content", () => {
+    const block = buildContextBlock({ globalRules: "", ruleFiles: [], facts: { cwd: "C:\\x", git: null, dirs: null, npmScripts: [] } });
+    expect(block).not.toContain("### User rules");
+    expect(block).not.toContain("git:");
+    expect(block).not.toContain("npm scripts:");
+    expect(block).toContain("cwd: C:\\x");
+  });
+
+  it("cuts root-most rule file first when over budget and marks it", () => {
+    const big = "r".repeat(CONTEXT_BUDGET);
+    const block = buildContextBlock({
+      globalRules: "keep me",
+      ruleFiles: [
+        { name: "AGENTS.md", path: "C:\\p\\AGENTS.md", content: big, truncated: false },
+        { name: "CLAUDE.md", path: "C:\\p\\s\\CLAUDE.md", content: "small near rules", truncated: false },
+      ],
+      facts,
+    });
+    expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
+    expect(block).toContain("small near rules");
+    expect(block).toContain("[...truncated]");
+    expect(block).toContain("keep me");
+  });
+
+  it("REGRESSION (plan-audit): thin files + empty rules can never return over budget", () => {
+    // The proven-failing rev-1 input: one file slightly over budget where the
+    // marker cost exceeded the shrink, no global rules to absorb the overflow.
+    const block = buildContextBlock({
+      globalRules: "",
+      ruleFiles: [
+        { name: "AGENTS.md", path: "C:\\p\\AGENTS.md", content: "r".repeat(CONTEXT_BUDGET + 5), truncated: false },
+        { name: "CLAUDE.md", path: "C:\\p\\s\\CLAUDE.md", content: "tiny", truncated: false },
+      ],
+      facts: null,
+    });
+    expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
+  });
+
+  it("drops a thin file section entirely instead of marker-inflating it", () => {
+    // Root-most file is thinner than the marker; cutting it must DROP it.
+    const nearBig = "n".repeat(CONTEXT_BUDGET); // forces a real cut
+    const block = buildContextBlock({
+      globalRules: "",
+      ruleFiles: [
+        { name: "AGENTS.md", path: "C:\\p\\AGENTS.md", content: "tiny", truncated: false },
+        { name: "CLAUDE.md", path: "C:\\p\\s\\CLAUDE.md", content: nearBig, truncated: false },
+      ],
+      facts: null,
+    });
+    expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
+    expect(block).not.toContain("### AGENTS.md"); // dropped, not marker-inflated
+  });
+
+  it("REGRESSION (fix-verification): gigantic global rules can NEVER evict rule files", () => {
+    const block = buildContextBlock({
+      globalRules: "g".repeat(CONTEXT_BUDGET * 2),
+      ruleFiles: [
+        { name: "AGENTS.md", path: "C:\\p\\AGENTS.md", content: "root file rules", truncated: false },
+        { name: "CLAUDE.md", path: "C:\\p\\s\\CLAUDE.md", content: "near file rules", truncated: false },
+      ],
+      facts,
+    });
+    expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
+    expect(block).toContain("root file rules"); // files SURVIVE oversized rules
+    expect(block).toContain("near file rules");
+    expect(block).toContain("[...truncated]"); // rules got the cut
+    expect(block).toContain("### Project facts"); // facts survive
+  });
+
+  it("rules over RULES_SHARE are pre-cut to the share, files untouched", () => {
+    const block = buildContextBlock({
+      globalRules: "g".repeat(RULES_SHARE + 5_000),
+      ruleFiles: [{ name: "AGENTS.md", path: "C:\\p\\AGENTS.md", content: "intact", truncated: false }],
+      facts: null,
+    });
+    const rulesStart = block.indexOf("### User rules");
+    const rulesEnd = block.indexOf("### AGENTS.md");
+    expect(block.slice(rulesStart, rulesEnd).length).toBeLessThanOrEqual(RULES_SHARE + 64); // share + section framing
+    expect(block).toContain("intact");
+    expect(block).toContain("[...truncated]");
+  });
+
+  it("with no rule files, rules use the full budget (share cap not applied)", () => {
+    const block = buildContextBlock({
+      globalRules: "g".repeat(CONTEXT_BUDGET * 2),
+      ruleFiles: [],
+      facts: null,
+    });
+    expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
+    expect(block.length).toBeGreaterThan(RULES_SHARE + 1024); // well past the share
+    expect(block).toContain("[...truncated]");
+  });
+
+  it("clamps a pathological facts section at FACTS_CAP with a marker", () => {
+    const dirs = Array.from({ length: 60 }, (_, i) => "verylongdirectoryname".repeat(20) + i);
+    const block = buildContextBlock({ globalRules: "", ruleFiles: [], facts: { cwd: "C:\\x", git: null, dirs, npmScripts: [] } });
+    expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
+    const factsStart = block.indexOf("### Project facts");
+    expect(block.length - factsStart).toBeLessThanOrEqual(FACTS_CAP + 64);
+    expect(block).toContain("[...truncated]");
+  });
+
+  it("marks Rust-side truncation even when budget is fine", () => {
+    const block = buildContextBlock({
+      globalRules: "",
+      ruleFiles: [{ name: "AGENTS.md", path: "C:\\p\\AGENTS.md", content: "cut at 8k", truncated: true }],
+      facts: null,
+    });
+    expect(block).toContain("[...truncated]");
+  });
+
+  it("caps dirs at 60 names", () => {
+    const dirs = Array.from({ length: 100 }, (_, i) => `d${i}`);
+    const block = buildContextBlock({ globalRules: "", ruleFiles: [], facts: { cwd: "C:\\x", git: null, dirs, npmScripts: [] } });
+    expect(block).toContain("d58,");   // last-shown name has no trailing comma:
+    expect(block).toContain("d59 (");  // "..., d58, d59 (+40 more)"
+    expect(block).not.toContain("d60,");
+    expect(block).not.toContain(" d60 ");
+    expect(block).toContain("(+40 more)");
+  });
+});
