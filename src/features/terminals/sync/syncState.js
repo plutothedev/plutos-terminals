@@ -5,7 +5,7 @@
 // delete tombstones are DERIVED by diffing the current read against a stored
 // snapshot (deriveLocal) — no per-write stamping anywhere in the app.
 export const SOURCES = [
-  { store: "userSt", fields: ["keybindings", "activeModel", "themeFollowOS", "themeDark", "themeLight"], collections: ["customThemes"] },
+  { store: "userSt", fields: ["keybindings", "activeModel", "themeFollowOS", "themeDark", "themeLight", "agentRules", "agentContextEnabled"], collections: ["customThemes"] },
   { store: "st", fields: ["headerSkin", "promptEditor", "promptEditorVim"], collections: ["snippets"] },
   { store: "macros", fields: [], collections: ["macros"] },
 ];
