@@ -126,6 +126,8 @@ function TerminalPanel({
   promptEditorVim,
   tabAutoApprove,
   tabProjectNames,
+  userSt = {},          // threaded through to TerminalPane for the Stream D share modal
+  saveUser = () => {},  // (pass-through only — TerminalPanel itself does not read them)
   homeApi,
   onActivate,
   onAddTab,
@@ -547,6 +549,8 @@ function TerminalPanel({
                       autoApprove={isRoot ? (tabAutoApprove?.[tab.id] || false) : false}
                       onActivityChange={(state) => onTabActivityChange?.(node.id, state)}
                       onCostUpdate={(c) => onTabCostUpdate?.(node.id, c)}
+                      userSt={userSt}
+                      saveUser={saveUser}
                     />
                     {multi && (
                       <>

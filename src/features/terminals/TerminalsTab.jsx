@@ -938,6 +938,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onClosePane={closePane}
               onActivatePane={activatePane}
               onSetPaneRatio={setPaneRatio}
+              userSt={userSt}
+              saveUser={saveUser}
             />
           ))}
         </div>

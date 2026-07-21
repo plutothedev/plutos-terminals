@@ -17,6 +17,7 @@ import { buildWelcomeBanner } from "./welcomeBanner.js";
 import { buildPosixShellInit, buildPowerShellInit } from "./shellIntegration.js";
 import { resolveEnvFromUserState } from "./spawnEnv.js";
 import PromptEditor from "./PromptEditor.jsx";
+import ShareModal from "./ShareModal.jsx";
 import { MONO_STACK } from "./fonts.js";
 import {
   registerPtyWriter,
@@ -182,7 +183,10 @@ function stripAnsi(s) {
   return s.replace(ANSI_RE, "");
 }
 
-function todayDate() {
+// Exported so the block/transcript share handlers (Stream D) can stamp the
+// share filename's date at click time — the modal and buildShare stay pure and
+// never call `new Date()` themselves (deterministic filename contract).
+export function todayDate() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -225,6 +229,8 @@ export default function TerminalPane({
   onCostUpdate,
   promptEditor = false, // opt-in app-owned prompt editor (Milestone 2, slice 1)
   promptEditorVim = false, // vim keybindings inside the prompt editor
+  userSt = {},          // user store (Stream D share history + shared-modal contract)
+  saveUser = () => {},  // functional user-store writer, threaded from TerminalsTab
 }) {
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -256,6 +262,7 @@ export default function TerminalPane({
   const [blockMenu, setBlockMenu] = useState(null); // right-click block actions { block, x, y }
   const [stickyBlock, setStickyBlock] = useState(null); // command pinned at top while scrolled into its output
   const [explainBlock, setExplainBlock] = useState(null); // explainer popover target
+  const [shareTarget, setShareTarget] = useState(null); // { kind, title, rawText, dateStamp } | null — open share preview (Stream D)
   const startCommandsRef = useRef(startCommands);
   startCommandsRef.current = startCommands;
   const systemPromptRef = useRef(systemPrompt);
@@ -1783,6 +1790,12 @@ export default function TerminalPane({
               { label: "Copy output", on: () => copyToClipboard(blockText(blockMenu.block, "output")) },
               { label: "Copy command + output", on: () => copyToClipboard(blockText(blockMenu.block, "both")) },
               { label: "Re-run command", on: () => blockMenu.block.command && writeToTab(tabId, blockMenu.block.command + "\r"), dis: !blockMenu.block.command },
+              { label: "Share block…", on: () => setShareTarget({
+                  kind: "block",
+                  title: blockMenu.block.command || "block",
+                  rawText: blockText(blockMenu.block, "both"), // re-reads the buffer NOW, before the menu closes
+                  dateStamp: todayDate(),                      // stamp the share filename's date at click time
+                }) },
             ].map((it, i) => (
               <button key={i} disabled={it.dis} onClick={() => { it.on(); setBlockMenu(null); }}
                 style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none",
@@ -1875,6 +1888,18 @@ export default function TerminalPane({
         onClose={() => setExplainBlock(null)}
         onRun={(cmd) => writeToTab(tabId, cmd.replace(/\n+$/, "") + "\r")}
       />
+      {shareTarget && (
+        <ShareModal
+          open
+          kind={shareTarget.kind}
+          title={shareTarget.title}
+          rawText={shareTarget.rawText}
+          dateStamp={shareTarget.dateStamp}
+          onClose={() => setShareTarget(null)}
+          saveUser={saveUser}
+          userSt={userSt}
+        />
+      )}
     </div>
   );
 }
