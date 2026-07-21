@@ -4,30 +4,14 @@ import { invoke, listen } from "@backend";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
 import SnippetsDrawer from "./SnippetsDrawer";
-import ProjectDialog from "./ProjectDialog";
-import SshPasswordModal from "./SshPasswordModal";
 import SftpBrowser from "./SftpBrowser";
-import TunnelsModal from "./TunnelsModal";
-import SerialModal from "./SerialModal";
 import AgentDashboard from "./AgentDashboard";
-import DiffView from "./DiffView";
-import ModelPicker from "./ModelPicker";
-import SshKeysModal from "./SshKeysModal";
-import MacrosModal from "./MacrosModal";
-import MasterPasswordModal from "./MasterPasswordModal";
 import MobaToolbar from "./MobaToolbar";
-import AskBar from "./AskBar";
-import AgentMode from "./AgentMode";
-import SessionSummary from "./SessionSummary";
-import HistorySearch from "./HistorySearch";
-import WorkspacesModal from "./WorkspacesModal";
-import BroadcastGroupModal from "./BroadcastGroupModal";
-import NetToolsModal from "./NetToolsModal";
-import RemoteControlModal from "./RemoteControlModal.jsx";
 import FKeyBar from "./chrome/FKeyBar.jsx";
 import DockTabStrip from "./chrome/DockTabStrip.jsx";
 import StatusBar from "./chrome/StatusBar.jsx";
 import MenuBar from "./chrome/MenuBar.jsx";
+import ModalHost from "./chrome/ModalHost.jsx";
 import { PROVIDERS, findProvider } from "./providers.js";
 import {
   SLocal, SSsh, SSerial, SSplit, SSplitRow, SSplitCol, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch, SPulse,
@@ -36,13 +20,6 @@ import {
 import LocalFileBrowser from "./LocalFileBrowser";
 import DockAssistant from "./DockAssistant";
 import DockMonitor from "./DockMonitor";
-import VncConnectModal from "./VncConnectModal";
-import RdpConnectModal from "./RdpConnectModal";
-import OnboardingOverlay from "./OnboardingOverlay";
-import SettingsModal from "../../components/SettingsModal.jsx";
-import McpInstaller from "../../components/McpInstaller.jsx";
-import SetupChecker from "../../components/SetupChecker.jsx";
-import CommandPalette from "../../components/CommandPalette.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
@@ -75,7 +52,7 @@ import {
 import { isPrimaryWindow } from "./storageKeys.js";
 import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds, getPtyId } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, getTabText, getPtyId } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
 import { reconcile } from "./paneRegistry.js";
 import { allRenderedPaneIds } from "./paneIds.js";
@@ -1117,182 +1094,94 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         )}
       </div>
 
-      <TunnelsModal
-        open={tunnelsOpen}
-        host={activeTab?.connection?.host}
-        user={activeTab?.connection?.user}
+      {/* Modal / overlay layer — pure JSX re-home; every flag/payload/handler
+          stays in this component and passes through. See chrome/ModalHost.jsx. */}
+      <ModalHost
+        tunnelsOpen={tunnelsOpen}
+        setTunnelsOpen={setTunnelsOpen}
         forwards={forwards}
-        busy={tunnelBusy}
-        error={tunnelError}
-        onStart={startForward}
-        onStartSocks={startSocks}
-        onStop={stopForward}
-        onClose={() => setTunnelsOpen(false)}
-      />
-
-      <SerialModal
-        open={serialOpen}
-        onConnect={connectSerial}
-        onClose={() => setSerialOpen(false)}
-      />
-
-      <VncConnectModal
-        open={vncOpen || !!vncLaunch}
-        initial={vncLaunch?.project?.vnc || null}
-        lockConnection={!!vncLaunch}
-        title={vncLaunch ? `Connect — ${vncLaunch.project.name}` : undefined}
-        onConnect={vncLaunch ? launchVnc : connectVnc}
-        onSaveSession={vncLaunch ? undefined : (rec) => saveQuickConnection({ type: "vnc", ...rec })}
-        onClose={() => { setVncOpen(false); setVncLaunch(null); }}
-      />
-
-      <RdpConnectModal
-        open={rdpOpen || !!rdpLaunch}
-        initial={rdpLaunch?.project?.rdp || null}
-        lockConnection={!!rdpLaunch}
-        title={rdpLaunch ? `Connect — ${rdpLaunch.project.name}` : undefined}
-        onConnect={rdpLaunch ? launchRdp : connectRdp}
-        onSaveSession={rdpLaunch ? undefined : (rec) => saveQuickConnection({ type: "rdp", ...rec })}
-        onClose={() => { setRdpOpen(false); setRdpLaunch(null); }}
-      />
-
-      <ProjectDialog
-        open={!!dialog}
-        initial={dialogInitial}
-        existingFolders={[...new Set(projects.map((p) => p.folder).filter(Boolean))]}
-        onClose={() => setDialog(null)}
-        onSave={handleSaveDialog}
-      />
-
-      <SshPasswordModal
-        open={!!sshPrompt}
-        host={sshPrompt?.project?.connection?.host}
-        user={sshPrompt?.project?.connection?.user}
-        onSubmit={submitSshPassword}
-        onCancel={() => setSshPrompt(null)}
-      />
-
-      <SettingsModal
-        open={settingsOpen}
+        tunnelBusy={tunnelBusy}
+        tunnelError={tunnelError}
+        startForward={startForward}
+        startSocks={startSocks}
+        stopForward={stopForward}
+        serialOpen={serialOpen}
+        setSerialOpen={setSerialOpen}
+        connectSerial={connectSerial}
+        vncOpen={vncOpen}
+        setVncOpen={setVncOpen}
+        vncLaunch={vncLaunch}
+        setVncLaunch={setVncLaunch}
+        connectVnc={connectVnc}
+        launchVnc={launchVnc}
+        rdpOpen={rdpOpen}
+        setRdpOpen={setRdpOpen}
+        rdpLaunch={rdpLaunch}
+        setRdpLaunch={setRdpLaunch}
+        connectRdp={connectRdp}
+        launchRdp={launchRdp}
+        saveQuickConnection={saveQuickConnection}
+        dialog={dialog}
+        setDialog={setDialog}
+        dialogInitial={dialogInitial}
+        handleSaveDialog={handleSaveDialog}
+        projects={projects}
+        sshPrompt={sshPrompt}
+        setSshPrompt={setSshPrompt}
+        submitSshPassword={submitSshPassword}
+        settingsOpen={settingsOpen}
+        setSettingsOpen={setSettingsOpen}
         st={st}
         save={save}
         userSt={userSt}
         saveUser={saveUser}
-        onClose={() => setSettingsOpen(false)}
-      />
-
-      <DiffView
-        open={!!diffWorktree}
-        worktree={diffWorktree}
-        onClose={() => setDiffWorktree(null)}
-        onDiscard={discardWorktree}
-      />
-
-      <ModelPicker
-        open={modelsOpen}
-        userSt={userSt}
-        saveUser={saveUser}
-        onClose={() => setModelsOpen(false)}
-      />
-
-      <AskBar
-        open={askOpen}
-        shellName={shellName}
-        cwd={activeTab?.cwd}
-        onClose={() => setAskOpen(false)}
-        onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
-        onInsert={(cmd) => insertSnippet(cmd)}
-      />
-
-      <AgentMode
-        open={agentOpen}
-        onClose={() => setAgentOpen(false)}
-        tabId={activeTab?.activePaneId || activeTabId}
-        cwd={activeTab?.cwd || null}
-        shellName={shellName}
-        userSt={userSt}
-        saveUser={saveUser}
-      />
-
-      <SessionSummary
-        open={!!summary}
-        text={summary?.text || ""}
-        onClose={() => setSummary(null)}
-      />
-
-      <HistorySearch
-        open={historyOpen}
-        history={historyOpen ? getCommandHistory() : []}
-        onClose={() => setHistoryOpen(false)}
-        onInsert={(cmd) => insertSnippet(cmd)}
-        onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
-      />
-
-      <WorkspacesModal
-        open={workspacesOpen}
+        diffWorktree={diffWorktree}
+        setDiffWorktree={setDiffWorktree}
+        discardWorktree={discardWorktree}
+        modelsOpen={modelsOpen}
+        setModelsOpen={setModelsOpen}
+        askOpen={askOpen}
+        setAskOpen={setAskOpen}
+        agentOpen={agentOpen}
+        setAgentOpen={setAgentOpen}
+        summary={summary}
+        setSummary={setSummary}
+        historyOpen={historyOpen}
+        setHistoryOpen={setHistoryOpen}
+        workspacesOpen={workspacesOpen}
+        setWorkspacesOpen={setWorkspacesOpen}
         workspaces={workspaces}
-        onClose={() => setWorkspacesOpen(false)}
-        onSave={saveWorkspace}
-        onLoad={loadWorkspace}
-        onDelete={deleteWorkspace}
-      />
-
-      <BroadcastGroupModal
-        open={broadcastGroupOpen}
+        saveWorkspace={saveWorkspace}
+        loadWorkspace={loadWorkspace}
+        deleteWorkspace={deleteWorkspace}
+        broadcastGroupOpen={broadcastGroupOpen}
+        setBroadcastGroupOpen={setBroadcastGroupOpen}
         panels={state.panels}
-        liveTabIds={broadcastGroupOpen ? getLiveTabIds() : []}
-        current={bcastTargets}
-        onClose={() => setBroadcastGroupOpen(false)}
-        onApply={applyBroadcastGroup}
-        onUseAllVisible={useAllVisibleBroadcast}
-      />
-
-      <NetToolsModal
-        open={netToolsOpen}
-        initialHost={activeTab?.connection?.host || ""}
-        onClose={() => setNetToolsOpen(false)}
-      />
-
-      <RemoteControlModal open={remoteOpen} onClose={() => setRemoteOpen(false)} />
-
-      <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
-
-      <MacrosModal
-        open={macrosOpen}
-        canReplay={!!activeTabId}
+        bcastTargets={bcastTargets}
+        applyBroadcastGroup={applyBroadcastGroup}
+        useAllVisibleBroadcast={useAllVisibleBroadcast}
+        netToolsOpen={netToolsOpen}
+        setNetToolsOpen={setNetToolsOpen}
+        remoteOpen={remoteOpen}
+        setRemoteOpen={setRemoteOpen}
+        sshKeysOpen={sshKeysOpen}
+        setSshKeysOpen={setSshKeysOpen}
+        macrosOpen={macrosOpen}
+        setMacrosOpen={setMacrosOpen}
+        masterPwOpen={masterPwOpen}
+        setMasterPwOpen={setMasterPwOpen}
+        mcpOpen={mcpOpen}
+        setMcpOpen={setMcpOpen}
+        setupOpen={setupOpen}
+        setSetupOpen={setSetupOpen}
+        commandPaletteOpen={commandPaletteOpen}
+        setCommandPaletteOpen={setCommandPaletteOpen}
+        paletteCommands={paletteCommands}
+        activeTab={activeTab}
         activeTabId={activeTabId}
-        onReplay={(data) => activeTabId && writeToTab(activeTabId, data)}
-        onClose={() => setMacrosOpen(false)}
+        shellName={shellName}
+        insertSnippet={insertSnippet}
       />
-
-      <MasterPasswordModal
-        open={masterPwOpen}
-        userSt={userSt}
-        saveUser={saveUser}
-        onClose={() => setMasterPwOpen(false)}
-      />
-
-      <McpInstaller
-        open={mcpOpen}
-        onClose={() => setMcpOpen(false)}
-      />
-
-      <SetupChecker
-        open={setupOpen}
-        onClose={() => setSetupOpen(false)}
-      />
-
-      <CommandPalette
-        open={commandPaletteOpen}
-        commands={paletteCommands}
-        onClose={() => setCommandPaletteOpen(false)}
-      />
-
-      {!userSt?.terminalsOnboarded && (
-        <OnboardingOverlay
-          onDismiss={() => saveUser({ ...userSt, terminalsOnboarded: true })}
-        />
-      )}
 
       {/* Status bar — bottom strip with version, claude availability, cost. Skin-controlled. */}
       <StatusBar
