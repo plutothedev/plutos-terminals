@@ -690,7 +690,8 @@ export default function TerminalPane({
     // ── First mount: create the terminal, handlers, and PTY. ──
     let ptyId = null;
     let unlistenData = null;
-    let jumpFwdId = null; // jump-host tunnel; killed by the destroy hooks / orphan guard
+    // (jump-host tunnel id lives at entry.jumpFwdId — single-ownership
+    // teardown via its dedicated destroy hook + the spawn-catch fast path)
     let restoringScrollback = false; // suppress OSC 133 while replaying old output
     let unlistenExit = null;
     const cmdsAtSpawn = Array.isArray(startCommandsRef.current) ? [...startCommandsRef.current] : [];
@@ -1092,8 +1093,17 @@ export default function TerminalPane({
               bastionAuth: j.auth || { method: "agent" },
               targetHost: connection.host, targetPort: connection.port || 22,
             });
-            jumpFwdId = jf.id;
             entry.jumpFwdId = jf.id;
+            // SINGLE owner of tunnel teardown, registered the moment the
+            // tunnel exists — covers destroy in every later window (ssh_spawn
+            // in flight, ssh_spawn THROWING, setup, parked). The null-out
+            // keeps it idempotent with the fast-stop in the spawn catch.
+            registerDestroyHook(tabId, () => {
+              if (entry.jumpFwdId) {
+                invoke("port_forward_stop", { id: entry.jumpFwdId }).catch(() => {});
+                entry.jumpFwdId = null;
+              }
+            });
             connectHost = "127.0.0.1";
             connectPort = jf.local_port;
           }
@@ -1116,13 +1126,13 @@ export default function TerminalPane({
         }
         // Orphan guard (decision 6): if the entry was destroyed while the
         // spawn was in flight (mid-spawn unmount, StrictMode's synthetic first
-        // mount, instant close), nothing owns this PTY — kill it (and any jump
-        // tunnel) on arrival. Identity check, not truthiness: a close-then-
-        // reopen may already have minted a FRESH entry (with its own spawn)
-        // under the same id, and this stale spawn must never adopt it.
+        // mount, instant close), nothing owns this PTY — kill it on arrival.
+        // (Any jump tunnel was already stopped by its dedicated destroy hook.)
+        // Identity check, not truthiness: a close-then-reopen may already have
+        // minted a FRESH entry (with its own spawn) under the same id, and
+        // this stale spawn must never adopt it.
         if (getEntry(tabId) !== entry) {
           await invoke("pty_kill", { id }).catch(() => {});
-          if (jumpFwdId) invoke("port_forward_stop", { id: jumpFwdId }).catch(() => {});
           return;
         }
         ptyId = id;
@@ -1130,13 +1140,12 @@ export default function TerminalPane({
         entry.spawnState = "live"; // from here on, unmount parks instead of destroying
         // Registered the moment the PTY exists — BEFORE any later await — so a
         // destroy landing in the listen()/setup windows below still kills the
-        // process, stops the tunnel, and force-resolves any waiting agent
-        // capture (unregisterPty). LIFO: runs after the listener-detach hook,
-        // before dispose.
+        // process and force-resolves any waiting agent capture (unregisterPty).
+        // (The jump tunnel has its own dedicated hook — single ownership.)
+        // LIFO: runs after the listener-detach hook, before dispose.
         registerDestroyHook(tabId, () => {
           unregisterPty(tabId);
           invoke("pty_kill", { id }).catch(() => {});
-          if (jumpFwdId) invoke("port_forward_stop", { id: jumpFwdId }).catch(() => {});
         });
 
         // Expose this tab's PTY to the snippets drawer / status bar via the
@@ -1514,6 +1523,15 @@ export default function TerminalPane({
         }
       } catch (err) {
         if (entryLive()) term.writeln(`\r\n\x1b[31m[spawn failed: ${err}]\x1b[0m`);
+        // Fast path: a dead spawn must not hold the jump tunnel open until the
+        // tab closes (ssh_spawn threw AFTER jump_forward_start succeeded).
+        // Null-out keeps the dedicated destroy hook a no-op later — and if the
+        // entry was already destroyed, that hook already ran and nulled this,
+        // so there is no double-stop.
+        if (entry.jumpFwdId) {
+          invoke("port_forward_stop", { id: entry.jumpFwdId }).catch(() => {});
+          entry.jumpFwdId = null;
+        }
       }
     })();
 
