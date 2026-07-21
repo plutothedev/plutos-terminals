@@ -31,15 +31,28 @@ fn notebooks_dir(app: &AppHandle) -> std::path::PathBuf {
     get_data_dir(app).join("notebooks")
 }
 
+// AUDIT-CORRECTED: safe_filename is a MUTATING sanitizer whose allowlist has no
+// '.', so validating the whole name against it rejects every legal *.md name.
+// Validate the STEM only, then re-append a normalized ".md". Also reject the
+// reserved Windows device names (win32-primary app).
+const RESERVED_NAMES: [&str; 22] = ["con","prn","aux","nul",
+    "com1","com2","com3","com4","com5","com6","com7","com8","com9",
+    "lpt1","lpt2","lpt3","lpt4","lpt5","lpt6","lpt7","lpt8","lpt9"];
+
 fn notebook_path(app: &AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
-    let clean = safe_filename(name);
-    if clean.is_empty() || clean != name {
-        return Err("invalid notebook name".into());
-    }
-    if !clean.to_lowercase().ends_with(".md") {
+    let lower = name.to_lowercase();
+    if name.len() < 4 || !lower.ends_with(".md") {
         return Err("notebook name must end in .md".into());
     }
-    Ok(notebooks_dir(app).join(clean))
+    let stem = &name[..name.len() - 3];
+    let clean = safe_filename(stem);
+    if clean.is_empty() || clean != stem {
+        return Err("invalid notebook name".into());
+    }
+    if RESERVED_NAMES.contains(&clean.to_lowercase().as_str()) {
+        return Err("reserved name".into());
+    }
+    Ok(notebooks_dir(app).join(format!("{clean}.md")))
 }
 
 #[tauri::command]
@@ -52,9 +65,9 @@ pub async fn notebook_read(app: AppHandle, name: String) -> Result<String, Strin
 pub async fn notebook_write(app: AppHandle, name: String, content: String) -> Result<(), String> { /* notebook_path; create_dir_all; tmp write; rename (write_store pattern) */ }
 ```
 
-(The implementer writes the real bodies; `safe_filename` already exists in this file — check its exact semantics first: if it MUTATES rather than validates, the `clean != name` comparison is the validation gate — a name that changes under sanitization is rejected, not silently rewritten.)
+(The implementer writes the real bodies. `safe_filename` at `commands.rs:736-746` is confirmed a MUTATING sanitizer with an ASCII-alnum/`_`/`-` allowlist and NO `.` — which is exactly why the gate validates the stem, never the full name. UI rule, Task C-3: the name prompt appends `.md` ITSELF — the user types a stem; the Rust check is the backstop, not the UX. A name that changes under sanitization is rejected, never silently rewritten.)
 
-- [ ] TDD: `#[cfg(test)] mod notebook_io_tests` FIRST (tempdir-based, mirroring `rule_file_tests`' style): list on empty/missing dir → `[]`; write-then-read roundtrip; write is atomic (tmp file gone after; content replaced not appended); traversal names rejected (`"../x.md"`, `"a/b.md"`, `"..\\x.md"`, empty, no-extension); overwrite works. NOTE: the commands take `AppHandle` — for testability split sync cores (`notebook_*_sync(dir: &Path, ...)`) like `collect_rule_files_sync`, and test the cores.
+- [ ] TDD: `#[cfg(test)] mod notebook_io_tests` FIRST (tempdir-based, mirroring `rule_file_tests`' style): list on empty/missing dir → `[]`; write-then-read roundtrip for a LEGAL name (`"notes.md"` — this test alone would have caught the rev-1 gate bug); write is atomic (tmp file gone after; content replaced not appended); traversal names rejected (`"../x.md"`, `"a/b.md"`, `"..\\x.md"`, empty, no-extension, `"a.MD"` accepted case-insensitively but stored as `.md`); reserved names rejected (`"con.md"`, `"NUL.md"`, `"com1.md"`); overwrite works. NOTE: the commands take `AppHandle` — for testability split sync cores (`notebook_*_sync(dir: &Path, ...)`) like `collect_rule_files_sync`, and test the cores (`notebook_path` core takes the dir, not the app).
 - [ ] Implement; register all three in `lib.rs`'s `generate_handler!`.
 - [ ] Full gates (incl. cargo test) + commit `feat(notebooks): dir-scoped atomic notebook IO commands`.
 
@@ -73,8 +86,10 @@ Pure functions, no Tauri imports:
   ````
   NEVER touches anything outside the owned fence range; idempotent (writing the same output twice = byte-identical); user prose and non-runnable fences untouched (pin with tests).
 - `setFrontmatterTarget(md, paneId) -> md'` — writes/updates the `targetPane` frontmatter key, creating the frontmatter block if absent.
+- `splitRunnableLines(code, lang) -> { lines } | { notRunnable: reason }` — the audit-mandated line-runnability guard + splitter for C-4's per-line execution: drops empties and sh-family `#` comments; returns `notRunnable` when any line ends with `\`, the code contains `<<`, or (sh-family) compound-keyword imbalance (`do`/`done`, `then`/`fi`, `{`/`}` counts) is detected.
+- `runBlockLines(lines, runOne) -> { output, exit, timedOut }` — sequential executor over an injected `runOne(line) -> Promise<captureResult>` (fake-able): concatenates outputs (each prefixed `$ <line>` when >1 line), stops at first nonzero/timeout exit.
 
-- [ ] TDD: tests FIRST — parse (mixed doc: prose, runnable + non-runnable fences, nested backticks in prose, existing output fences, output fence NOT owned when a prose paragraph intervenes), writeOutput (replace, insert-after, idempotence, never-touch-prose pinned by full-document equality, the 256KB slice + marker, timeout exit label), frontmatter roundtrip, CRLF tolerance (files may carry \r\n — parse both, write back preserving the document's dominant line ending).
+- [ ] TDD: tests FIRST — parse (mixed doc: prose, runnable + non-runnable fences, nested backticks in prose, existing output fences, output fence NOT owned when a prose paragraph intervenes), writeOutput (replace, insert-after, idempotence, never-touch-prose pinned by full-document equality, the 256KB slice + marker, timeout exit label), frontmatter roundtrip, CRLF tolerance (parse both, write back preserving the document's dominant line ending), PLUS the audit's adversarial set: (a) two runnable blocks back-to-back with no prose between (block 2 must not be mistaken for block 1's output; `block.index` stays correct after a writeOutput insert shifts lines), (b) an output fence immediately after a NON-runnable fence stays untouched, (c) 4-plus-backtick fences parse or are cleanly ignored (never misparse), (d) literal "```output" mid-paragraph is NOT treated as a fence (scanner is line-anchored), (e) output fence at EOF with no trailing newline. And for the new helpers: splitRunnableLines (comments/empties dropped; each notRunnable trigger: trailing backslash, heredoc, do/done imbalance) + runBlockLines with a fake runOne (ordering, prefixing, stop-on-nonzero, stop-on-timeout, single-line no-prefix).
 - [ ] Implement; gates; commit `feat(notebooks): pure markdown block model — parse, owned output fences, frontmatter target`.
 
 ### Task C-3: `tab.notebook` type plumbing
@@ -93,10 +108,17 @@ Pure functions, no Tauri imports:
 
 **Files:** Create `src/features/terminals/NotebookView.jsx` (replaces the C-3 stub); Modify nothing else.
 
-- **Editor:** lazy Monaco exactly per the RemoteEditor pattern (`RemoteEditor.jsx:38-51`): `await import("./monacoSetup.js")` then `@monaco-editor/react`; `language="markdown"`; textarea fallback on load failure. Content state: local string, loaded via `notebook_read` on mount; dirty flag; Ctrl+S → `notebook_write`; save-on-unmount (cleanup writes if dirty — fire-and-forget invoke with catch).
+- **Editor:** lazy Monaco exactly per the RemoteEditor pattern (`RemoteEditor.jsx:38-51`): `await import("./monacoSetup.js")` then `@monaco-editor/react`; `language="markdown"`; textarea fallback on load failure. Content state: local string + a `contentRef` mirror (RemoteEditor's `textRef` precedent — all async writers read the ref). Loaded via `notebook_read` on mount; dirty flag; Ctrl+S → `notebook_write`; **debounced autosave (2 s after last edit)** + save-on-unmount (audit warning: fire-and-forget unmount saves are the exact pattern the v0.1.29 scrollback fix retired because tray→Quit kills the process before the invoke lands — the debounce bounds the exposure to ≤2 s of edits; the residual hard-quit gap is DOCUMENTED in the changelog, not silent).
+- **Open-dedupe (audit warning):** the open flow reuses the `focusOrAddHomeTab` pattern (`useWorkspaceTree.js:99-109`): if a tab with `tab.notebook?.name === name` exists in any panel, focus it instead of minting a duplicate (two live views of one file = last-writer-wins clobber).
+- **Missing-file semantics (audit warning):** creation flow passes `isNew: true` → template seed. A RESTORED tab whose `notebook_read` errs shows an empty editor + a warning banner ("notebook file not found — it may have been moved or deleted"), NEVER a silent template reseed over a file that used to have content.
 - **Run rail:** a slim right-hand rail listing `parseBlocks()` results (lang + first line of code + Run button + the owned output's exit badge if present). NO Monaco glyph-margin widgets (API risk; the rail is the v1 surface). Buttons disabled while a run is in flight (one at a time).
 - **Run flow:** resolve target pane: frontmatter `targetPane` if that pane id is in `getLiveTabIds()` (import from ptyBridge), else `activeTab?.activePaneId || activeTabId` — passed down as a `defaultTargetId` prop from TerminalPanel? NO — TerminalPanel doesn't know it; simplest correct: NotebookView receives nothing and computes nothing global — it gets `defaultTargetId` via a small prop added at the ternary arm (`TerminalPanel` has `panel` but not the active-tab resolution...). DECISION (keep it simple and honest): the rail has an explicit target-pane dropdown fed by `getLiveTabIds()` (ptyBridge), defaulting to the frontmatter value when live, else the first live id; the picker writes back to frontmatter via `setFrontmatterTarget` on change. No hidden global resolution.
-- Execute: `const r = await runAndCapture(targetId, block.code.trim())` (multi-line blocks: send as-is — the shell handles multi-line strings the same way pasted input does; document this); then `setContent(writeOutput(content, block.index, { output: r?.output ?? "(no output captured)", exit: r?.timedOut ? "timeout" : (r?.exit ?? "?"), timestamp: new Date().toISOString().slice(0, 16).replace("T", " ") }))` + mark dirty. **Run All:** sequential for-of; stop when a block's exit is nonzero/timeout; progress in the rail.
+- Execute — AUDIT-CORRECTED (the rev-1 "send as-is" premise was false: without bracketed paste, every embedded newline submits its line as a SEPARATE command with its own OSC PlutoCmd, so a whole-block `runAndCapture` NEVER correlates and every multi-line Run would hang to the 120 s timeout). v1 semantics, implemented in a pure helper `runBlockLines` in `notebookModel.js` (unit-tested with a fake runAndCapture):
+  1. Split `block.code` into lines; drop empty lines and (for sh-family langs) pure-`#` comment lines.
+  2. **Line-runnability guard:** if ANY line ends with `\`, or the block contains `<<` (heredoc), or the lang is sh-family and the block contains an unterminated compound keyword (a lone `do`, `then`, `{` opener heuristic: count `do`/`done`, `then`/`fi`, `{`/`}` imbalance), the block is NOT line-runnable: the rail shows an explicit "multi-line construct — not runnable in v1" disabled state. No silent hang, ever.
+  3. Otherwise run each line SEQUENTIALLY via `runAndCapture(targetId, line)` (unchanged ptyBridge; exact per-line correlation; cd/env continuity preserved because it is the same live pane). Concatenate outputs in order (each prefixed by `$ <line>` when the block has >1 line). Stop at the first nonzero/timeout exit; that becomes the block's exit.
+  4. Single-line blocks behave exactly as before: one capture, no prefix.
+  Then write the fence via a LATEST-CONTENT REF (audit warning: `setContent(writeOutput(contentRef.current, ...))` — the run can take minutes; closing over the render-time `content` would clobber edits made during the run; mirror RemoteEditor's `textRef` pattern) with `{ output, exit: timedOut ? "timeout" : exit, timestamp }` + mark dirty. **Run All:** sequential for-of; stop when a block's exit is nonzero/timeout; progress in the rail; skips not-line-runnable blocks with a visible "skipped" state.
 - Empty/new notebook: `notebook_read` Err → seed with a template (title + one example block + a comment that output fences are overwritten on rerun).
 
 - [ ] Gates (no unit tests for the component — model/IO layers carry the coverage; C-6 smoke is the UI net); commit `feat(notebooks): NotebookView — lazy Monaco editor, run rail, capture-to-fence`.
@@ -107,8 +129,8 @@ Pure functions, no Tauri imports:
 
 - **Sync:** `syncState.js:8` userSt entry gains `collections: ["customThemes", "savedPrompts"]` (COLLECTION — per-item merge; NOT a field). Test: extend the positive lock test (agent-fields pattern) asserting `savedPrompts` in the userSt COLLECTIONS and NOT in fields.
 - **Data:** `{ id, name, body, tags: [] }`; `useSavedPrompts({ userSt, saveUser })` with add/update/remove via functional `saveUser`.
-- **PromptSlashMenu:** props `{ prompts, inputValue, onInsert }` — renders a floating list when `inputValue` starts with `/` (filter = fuzzy on name/tags via simple includes-scoring; ArrowUp/Down + Enter select; Escape closes; selection calls `onInsert(prompt.body)` which replaces the input value). Pure-ish component, unit-testable filter function exported separately (`filterPrompts(prompts, query)` + tests).
-- **Wiring:** DockAssistant textarea + AgentMode goal Input each render the menu when their local value starts with `/` and prompts exist. Keyboard handling must not break Enter-to-send when the menu is closed (guard on menu-open).
+- **PromptSlashMenu:** props `{ prompts, inputValue, onInsert }` — renders a floating list when `inputValue` starts with `/` (filter = fuzzy on name/tags via simple includes-scoring; ArrowUp/Down + Enter select; Escape closes; selection calls `onInsert(prompt.body)` which replaces the input value AND explicitly closes the menu — audit note: a body that itself starts with "/" must not re-open it; open-state is not purely derived). Pure-ish component; unit-testable pieces exported separately (`filterPrompts(prompts, query)` + a keyboard-decision helper `menuKeyAction(key, menuOpen) -> "select"|"close"|"passthrough"`) with tests — including the audit-mandated case pinning that Enter with the menu OPEN selects (and does NOT reach the host input's Enter-to-send: the host's onKeyDown consults the helper before firing send/start; DockAssistant.jsx:108 and AgentMode.jsx:226 are the two guarded sites).
+- **Wiring:** DockAssistant textarea + AgentMode goal Input each render the menu when their local value starts with `/` and prompts exist. Keyboard guard per the helper above; Enter-to-send unchanged when the menu is closed.
 
 - [ ] TDD: syncState lock test + `filterPrompts` tests red→green; gates; commit `feat(prompts): saved prompts library — synced collection, drawer section, slash-menu inserts`.
 
