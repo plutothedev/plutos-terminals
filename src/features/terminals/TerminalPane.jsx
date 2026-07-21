@@ -19,6 +19,7 @@ import { resolveEnvFromUserState } from "./spawnEnv.js";
 import PromptEditor from "./PromptEditor.jsx";
 import ShareModal from "./ShareModal.jsx";
 import { MONO_STACK } from "./fonts.js";
+import { blockOutputText } from "./blockText";
 import {
   registerPtyWriter,
   unregisterPty,
@@ -1648,14 +1649,7 @@ export default function TerminalPane({
   const blockText = (block, which) => {
     if (which === "command") return block.command || "";
     const t = termRef.current; if (!t) return "";
-    const buf = t.buffer.active;
-    const end = block.endLine != null ? block.endLine : block.startLine;
-    let out = "";
-    for (let i = block.startLine + 1; i <= end && i < buf.length; i++) {
-      const line = buf.getLine(i);
-      if (line) out += line.translateToString(true) + "\n";
-    }
-    out = out.replace(/\s+$/, "");
+    const out = blockOutputText(t.buffer.active, block.startLine, block.endLine);
     if (which === "output") return out;
     return (block.command ? block.command + "\n" : "") + out; // both
   };
