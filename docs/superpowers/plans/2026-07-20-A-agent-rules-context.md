@@ -823,7 +823,7 @@ export function buildContextBlock({ globalRules, ruleFiles, facts }) {
     out = assemble();
   }
   if (out.length > CONTEXT_BUDGET && rulesText) {
-    const overhead = assemble().length - rulesSectionFor(rulesText, false).length;
+    const overhead = assemble().length - rulesSectionFor(rulesText, rulesCut).length;
     const room = Math.max(0, CONTEXT_BUDGET - overhead - TRUNC.length - "\n### User rules\n\n".length);
     rulesText = safeSlice(rulesText, room);
     rulesCut = true;
