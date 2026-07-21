@@ -26,6 +26,7 @@ import WorkspacesModal from "./WorkspacesModal";
 import BroadcastGroupModal from "./BroadcastGroupModal";
 import NetToolsModal from "./NetToolsModal";
 import RemoteControlModal from "./RemoteControlModal.jsx";
+import FKeyBar from "./chrome/FKeyBar.jsx";
 import { PROVIDERS, findProvider } from "./providers.js";
 import { IconMoon, IconSun, IconExit } from "./icons.jsx";
 import {
@@ -1432,23 +1433,19 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       </div>
 
       {/* F-key quick-action bar (MobaXterm-style) */}
-      <div className="phn-fnbar">
-        {[
-          { k: "F1", l: "Help", fn: () => openExternal(GITHUB_URL) },
-          { k: "F2", l: "Tab", fn: () => addTab(state.activePanelId) },
-          { k: "F3", l: "Split", fn: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-          { k: "F4", l: "SFTP", fn: () => selectRibbon("files") },
-          { k: "⌘K", l: "Palette", fn: () => setCommandPaletteOpen(true) },
-          { k: "⌘I", l: "Ask AI", fn: () => setAskOpen(true) },
-          { k: "⌘R", l: "History", fn: () => setHistoryOpen(true) },
-          { k: "⌘M", l: "Models", fn: () => setModelsOpen(true) },
-          { k: "F9", l: "Macro", fn: () => setMacrosOpen(true) },
-        ].map((b) => (
-          <button key={b.k} className="phn-fn" onClick={b.fn} title={`${b.k} — ${b.l}`}>
-            <b>{b.k}</b> {b.l}
-          </button>
-        ))}
-      </div>
+      <FKeyBar
+        addTab={addTab}
+        activePanelId={state.activePanelId}
+        activeTabId={activeTabId}
+        activeTab={activeTab}
+        splitPane={splitPane}
+        selectRibbon={selectRibbon}
+        setCommandPaletteOpen={setCommandPaletteOpen}
+        setAskOpen={setAskOpen}
+        setHistoryOpen={setHistoryOpen}
+        setModelsOpen={setModelsOpen}
+        setMacrosOpen={setMacrosOpen}
+      />
       </div>
     </div>
   );
