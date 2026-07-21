@@ -138,7 +138,14 @@ export default function PromptSlashMenu({ items, selectedIndex = 0, onInsert }) 
     };
     measure();
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    // Capture-phase scroll: re-measure when any ancestor scroller moves the
+    // anchor while the menu stays open (e.g. scrolling the AgentMode modal),
+    // which a plain window "resize" listener would miss.
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
   }, []);
 
   return (
