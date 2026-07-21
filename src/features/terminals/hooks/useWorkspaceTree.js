@@ -101,8 +101,10 @@ export function useWorkspaceTree({ state, persist, toast }) {
   // wins clobber; same rationale as focusOrAddHomeTab, generalized across
   // panels since a notebook is identified by name, not by panel). Otherwise
   // opens a fresh tab in `panelId` mirroring addHomeTab: no PTY spawns —
-  // NotebookView reads the file on mount.
-  const addNotebookTab = useCallback((panelId, name) => {
+  // NotebookView reads the file on mount. Optional `label` lets a caller show
+  // the user's friendly typed text on the tab while `name` stays the sanitized,
+  // gate-valid filename bound to disk (New notebook…); defaults to the filename.
+  const addNotebookTab = useCallback((panelId, name, label) => {
     const st = stateRef.current;
     for (const p of st.panels) {
       const existing = p.tabs.find(t => t.notebook?.name === name);
@@ -117,7 +119,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
     // tab (rehydrated from persisted state, never through here) is NOT marked,
     // so a missing file there warns instead of silently reseeding.
     markNotebookNew(name);
-    const newTab = { id: freshId("tab"), label: name, notebook: { name }, cwd: null, startCommands: [] };
+    const newTab = { id: freshId("tab"), label: label || name, notebook: { name }, cwd: null, startCommands: [] };
     const panels = st.panels.map(p =>
       p.id === panelId ? { ...p, tabs: [...p.tabs, newTab], activeTabId: newTab.id } : p
     );

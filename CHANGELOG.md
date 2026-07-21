@@ -16,6 +16,18 @@
   PATs, provider `sk-`/`sk_` keys, Slack tokens (incl. xapp), spanning PEM
   private-key blobs (with an unpaired-BEGIN fallback), and JWTs; used to mask
   the agent context block.
+- **Notebooks** — a new tab type: runnable markdown documents. Shell code
+  blocks get a Run button that sends the command to a chosen terminal pane and
+  writes the captured output back into the document as an `output` fence
+  (rerun overwrites it). Files are plain `.md` under an app-data notebooks
+  folder (git-friendly, atomic saves, 2s autosave). Editor is Monaco with a
+  plain-textarea fallback. Nothing runs without an explicit click. v1 runs
+  single-line commands; multi-line blocks are shown but not run (v1.1). New /
+  Open notebook live in the Terminal menu; typed names are sanitized to a safe
+  filename.
+- **Saved Prompts** — a reusable AI-prompt library (Settings drawer), synced
+  across machines. Type `/` in the AI assistant or agent goal box to fuzzy-
+  search and insert a saved prompt.
 
 ### Changed
 - Moving a tab to another panel now keeps its live terminal: the running
@@ -39,18 +51,6 @@
   command list now live in focused `chrome/` modules (behavior-identical;
   every moved block byte-verified). TerminalsTab.jsx shrank from 1,448 to
   ~1,090 lines. Dead code swept (MobaRibbon, unused icons, orphaned handlers).
-
-### Added
-- **Notebooks** — a new tab type: runnable markdown documents. Shell code
-  blocks get a Run button that sends the command to a chosen terminal pane and
-  writes the captured output back into the document as an `output` fence
-  (rerun overwrites it). Files are plain `.md` under an app-data notebooks
-  folder (git-friendly, atomic saves, 2s autosave). Editor is Monaco with a
-  plain-textarea fallback. Nothing runs without an explicit click. v1 runs
-  single-line commands; multi-line blocks are shown but not run (v1.1).
-- **Saved Prompts** — a reusable AI-prompt library (Settings drawer), synced
-  across machines. Type `/` in the AI assistant or agent goal box to fuzzy-
-  search and insert a saved prompt.
 
 ## v0.5.0 — Security hardening + reliability pass (2026-07-06)
 

@@ -31,7 +31,7 @@
 // write (a "block changed during run" note) rather than misattribute. No silent
 // misattribution either way.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { invoke } from "@backend";
+import { noteWrite, readNotebook } from "./notebookIo.js";
 import { parseBlocks, writeOutput, setFrontmatterTarget, runnableKind } from "./notebookModel.js";
 import { runAndCapture, getLiveTabIds, subscribeBridge, getBridgeVersion } from "./ptyBridge.js";
 import { useToast } from "../../components/Toast.jsx";
@@ -233,7 +233,7 @@ export default function NotebookView({ name, tabId, visible }) {
     savingRef.current = true;
     setSaving(true);
     try {
-      await invoke("notebook_write", { name, content: snapshot });
+      await noteWrite(name, snapshot);
       savedRef.current = snapshot;
       setSavedContent(snapshot);
     } catch (e) {
@@ -267,7 +267,10 @@ export default function NotebookView({ name, tabId, visible }) {
     setRunStatus({});
     setContent(null);
     contentRef.current = null;
-    invoke("notebook_read", { name })
+    // readNotebook (not a bare invoke) waits for any in-flight write to the SAME
+    // name to land before reading — so a close->reopen of one notebook loads the
+    // closing view's final content, never a pre-edit snapshot.
+    readNotebook(name)
       .then((text) => {
         if (!alive) return;
         const s = typeof text === "string" ? text : "";
@@ -348,7 +351,13 @@ export default function NotebookView({ name, tabId, visible }) {
       mountedRef.current = false;
       clearTimeout(autosaveTimer.current);
       if (dirtyRef.current && contentRef.current != null) {
-        invoke("notebook_write", { name: nameRef.current, content: contentRef.current }).catch(() => {});
+        // Final flush through noteWrite so a reopen of this name serializes
+        // behind it (see readNotebook). A valid name won't fail the gate here
+        // (the New-notebook path sanitizes up front), but a genuine disk error
+        // must NOT vanish silently — log it instead of swallowing.
+        noteWrite(nameRef.current, contentRef.current).catch((e) => {
+          try { console.error("notebook final save failed", e); } catch { /* console unavailable */ }
+        });
       }
     };
   }, []);
