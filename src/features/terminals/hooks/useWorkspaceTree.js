@@ -277,11 +277,11 @@ export function useWorkspaceTree({ state, persist, toast }) {
     persist({ ...st, panels, activePanelId: panelId });
   }, [persist]);
 
-  // Move a tab from its current panel to a different one. PTY in the source
-  // panel gets killed (TerminalPane unmount), a fresh one spawns in the
-  // target panel — startCommands re-run, scrollback replays from the disk
-  // file so context isn't lost. v2 (preserve PTY across moves) would need
-  // a connection registry outside React's lifecycle.
+  // Move a tab from its current panel to a different one. Pure tree surgery:
+  // the pane's id never leaves the tree, so the pane registry (paneRegistry.js)
+  // parks the live xterm+PTY on unmount and re-attaches it in the target
+  // panel — the session, scrollback, blocks, and counters all survive the
+  // move. Teardown is the reconcile sweep's job, never this function's.
   const moveTab = useCallback((tabId, tgtPanelId) => {
     const st = stateRef.current;
     const srcPanel = st.panels.find(p => p.tabs.some(t => t.id === tabId));

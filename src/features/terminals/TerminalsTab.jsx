@@ -433,7 +433,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, [activeTabId, broadcast, toast]);
 
   // Active terminal size for the status bar (cols × rows), reported by
-  // TerminalPane via the bridge. bumpDims above forces re-read on change.
+  // TerminalPane via the bridge. The bridgeVersion subscription (top of the
+  // component) re-renders us on every bridge change, forcing this re-read.
   const activeDims = activeTabId ? getTabDims(activeTabId) : null;
 
   // ── Phone companion: publish the live session list ──────────────────────────

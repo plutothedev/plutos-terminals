@@ -184,8 +184,8 @@ function TerminalPanel({
 
   // Tab drag between panels. Mouse-event based (HTML5 drag is broken in
   // WebView2 per the code-rule memo). On drop over a different panel, the
-  // tab is moved via onMoveTab — the underlying PTY is killed and a fresh
-  // one spawns in the target panel (scrollback replays from disk).
+  // tab is moved via onMoveTab — the live terminal survives the move (the
+  // pane registry re-parents the same xterm+PTY into the target panel).
   const handleTabMouseDown = (tab, e) => {
     if (e.button !== 0) return;
     if (renamingId === tab.id) return;

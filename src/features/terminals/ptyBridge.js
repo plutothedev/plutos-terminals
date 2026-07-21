@@ -133,20 +133,13 @@ export function getTabDims(tabId) {
   return dims.get(tabId) || null;
 }
 
-export function onDimsChange(cb) {
-  dimsListeners.add(cb);
-  return () => dimsListeners.delete(cb);
-}
-
 // ── Bridge version (useSyncExternalStore surface, #27) ──────────────────────
 // getBridgeVersion/subscribeBridge give React's useSyncExternalStore a
 // (subscribe, getSnapshot) pair instead of a bespoke bump-state effect.
-// Deliberately single-channel: subscribeBridge adds to the SAME dimsListeners
-// Set that onDimsChange does — there is no separate "version changed" notify
-// path. Every event that already calls emitDims (dims resize, ptyId
-// assign/clear, unregister) bumps bridgeVersion AND fires both kinds of
-// listeners identically, so a useSyncExternalStore consumer never misses a
-// change an onDimsChange consumer would have seen, or vice versa.
+// Single-channel: every event that already calls emitDims (dims resize,
+// ptyId assign/clear, unregister) bumps bridgeVersion and fires every
+// subscriber, so a consumer never misses a change. (The old onDimsChange
+// callback API was deleted once its last consumer moved here.)
 
 export function getBridgeVersion() {
   return bridgeVersion;
