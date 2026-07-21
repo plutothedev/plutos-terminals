@@ -27,6 +27,7 @@ import BroadcastGroupModal from "./BroadcastGroupModal";
 import NetToolsModal from "./NetToolsModal";
 import RemoteControlModal from "./RemoteControlModal.jsx";
 import FKeyBar from "./chrome/FKeyBar.jsx";
+import DockTabStrip from "./chrome/DockTabStrip.jsx";
 import { PROVIDERS, findProvider } from "./providers.js";
 import { IconMoon, IconSun, IconExit } from "./icons.jsx";
 import {
@@ -1128,23 +1129,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           <>
             <div className="moba-splitter" title="Drag to resize" onMouseDown={startDockResize} style={{ cursor: "col-resize" }}><span className="moba-grip"><i></i><i></i><i></i></span></div>
             <div className="moba-rightdock" style={{ width: dockWidth }}>
-              <div className="moba-rd-tabs">
-                {[
-                  { id: "files", label: "SFTP", icon: <SFolder size={13} /> },
-                  { id: "assistant", label: "Assistant", icon: <SAsk size={13} /> },
-                  { id: "monitor", label: "Monitor", icon: <SPulse size={13} /> },
-                ].map((t) => (
-                  <span
-                    key={t.id}
-                    className={dockTab === t.id ? "moba-rd-tab active" : "moba-rd-tab"}
-                    onClick={() => setDockTab(t.id)}
-                    title={t.label}
-                  >
-                    <span style={{ display: "inline-flex" }}>{t.icon}</span> {t.label}
-                  </span>
-                ))}
-                <button className="moba-rd-collapse" onClick={() => collapseDock(true)} title="Collapse panel">›</button>
-              </div>
+              <DockTabStrip dockTab={dockTab} setDockTab={setDockTab} collapseDock={collapseDock} />
               <div className="moba-rd-body">
                 {dockTab === "assistant" ? (
                   <DockAssistant onSendToTerminal={sendToActiveTerminal} shellName={shellName} cwd={activeTab?.cwd} />
