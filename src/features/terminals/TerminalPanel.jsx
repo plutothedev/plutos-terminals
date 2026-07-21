@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { invoke } from "@backend";
-import TerminalPane, { todayDate } from "./TerminalPane";
+import TerminalPane, { todayDate, transcriptName } from "./TerminalPane";
 import VncView from "./VncView";
 import RdpView from "./RdpView";
 import MobaHomeScreen from "./MobaHomeScreen";
@@ -22,14 +22,8 @@ const ACCENT = "var(--phn-link, #7c9cf5)";
 const ACCENT_FALLBACK = "#7c9cf5"; // for drag ghost (DOM-built outside React)
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
-// Transcript filename stem for a tab's root session. Mirrors TerminalPane's
-// private transcriptName (the write side) so "Share transcript" reads back the
-// same "<project-or-tab>-<last6ofTabId>" name the PTY output was appended under.
-function transcriptName(projectName, tabId) {
-  const base = projectName ? `${projectName}` : "tab";
-  const short = (tabId || "").slice(-6);
-  return `${base}-${short}`;
-}
+// transcriptName (the "<project-or-tab>-<last6ofTabId>" stem) is imported from
+// TerminalPane, the write side, so the read side can't silently drift from it.
 
 // Activity colors mirror Moon Dev: yellow while running, green when finished.
 const DOT_ACTIVE = "#FBBF24";

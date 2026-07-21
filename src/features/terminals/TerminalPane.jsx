@@ -192,7 +192,9 @@ export function todayDate() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function transcriptName(projectName, tabId) {
+// Exported so TerminalPanel (the read side of Share transcript) shares this exact
+// stem instead of duplicating it. Format: "<project-or-tab>-<last6ofTabId>".
+export function transcriptName(projectName, tabId) {
   const base = projectName ? `${projectName}` : "tab";
   const short = (tabId || "").slice(-6);
   return `${base}-${short}`;
