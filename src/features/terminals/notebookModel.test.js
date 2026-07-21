@@ -193,6 +193,52 @@ describe("parseBlocks", () => {
     const b = blocks[0];
     expect(md.slice(b.start, b.end)).toBe(["```sh", "echo hi", "```", ""].join("\n"));
   });
+
+  // REGRESSION (quality review 2026-07-21): a bare ``` is only ever a
+  // CLOSER, never an opener — a stray close-shaped line must not swallow
+  // the next real block as its own "body".
+  it("a stray bare ``` line (no lang) is inert and does not swallow the following block", () => {
+    const md = ["```", "```sh", "echo hi", "```"].join("\n");
+    const { blocks } = parseBlocks(md);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].lang).toBe("sh");
+    expect(blocks[0].code.trim()).toBe("echo hi");
+  });
+
+  // REGRESSION (quality review 2026-07-21): pluto's own vault page format
+  // uses a bare leading `---` as a section divider, not YAML frontmatter.
+  // Frontmatter detection must require a closer BEFORE the first code
+  // fence, or this swallows every block in the document.
+  it("a leading --- horizontal rule with no closer before the first fence is not frontmatter", () => {
+    const md = ["---", "", "This is a heading-style divider, not frontmatter.", "", "```sh", "echo hi", "```"].join(
+      "\n"
+    );
+    const { frontmatter, blocks } = parseBlocks(md);
+    expect(frontmatter).toEqual({});
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].code.trim()).toBe("echo hi");
+  });
+
+  // REGRESSION (quality review 2026-07-21): a heredoc body containing a
+  // bare `---` line used to be read as the frontmatter closer, silently
+  // losing the whole block (reproduced with ZERO real frontmatter present).
+  it("a heredoc's bare --- line inside a block is not mistaken for a frontmatter closer", () => {
+    const md = [
+      "---",
+      "just a horizontal rule, not frontmatter",
+      "```sh",
+      "cat <<EOF",
+      "---",
+      "EOF",
+      "```",
+    ].join("\n");
+    const { frontmatter, blocks } = parseBlocks(md);
+    expect(frontmatter).toEqual({});
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].lang).toBe("sh");
+    expect(blocks[0].code).toContain("cat <<EOF");
+    expect(blocks[0].code).toContain("EOF");
+  });
 });
 
 describe("writeOutput", () => {
@@ -298,6 +344,46 @@ describe("writeOutput", () => {
     const md = ["no fences here"].join("\n");
     expect(() => writeOutput(md, 0, args())).toThrow();
   });
+
+  // REGRESSION (quality review 2026-07-21): output is arbitrary command
+  // output — `cat *.md` / `git diff` on a markdown file routinely contains
+  // its own ``` lines. A fixed 3-backtick output fence gets prematurely
+  // closed by an embedded bare ``` in its own content, silently truncating
+  // what's captured AND breaking idempotence (the "orphaned" tail re-parses
+  // as loose prose, so a second write inserts again instead of replacing).
+  it("widens the fence when the output content itself contains a bare ``` line, and stays idempotent", () => {
+    const md = ["```sh", "cat file.md", "```"].join("\n");
+    const weirdOutput = ["some text", "```", "more text after the embedded fence"].join("\n");
+    const once = writeOutput(md, 0, args({ output: weirdOutput }));
+    const { blocks } = parseBlocks(once);
+    expect(blocks[0].outputFence).not.toBeNull();
+    const fenceBody = once.slice(blocks[0].outputFence.start, blocks[0].outputFence.end);
+    expect(fenceBody).toContain("more text after the embedded fence"); // not truncated at the embedded ```
+    const twice = writeOutput(once, 0, args({ output: weirdOutput }));
+    expect(twice).toBe(once); // idempotent even with the wider fence
+  });
+
+  it("widens the fence enough for output containing a longer backtick run than the fence itself", () => {
+    const md = ["```sh", "echo hi", "```"].join("\n");
+    const weirdOutput = "before\n````\nafter"; // a 4-backtick run in the content
+    const out = writeOutput(md, 0, args({ output: weirdOutput }));
+    const { blocks } = parseBlocks(out);
+    expect(blocks[0].outputFence).not.toBeNull();
+    const fenceBody = out.slice(blocks[0].outputFence.start, blocks[0].outputFence.end);
+    expect(fenceBody).toContain("after");
+  });
+
+  // REGRESSION (quality review 2026-07-21): a naive slice(0, 256*1024) can
+  // land mid-surrogate-pair, stranding a lone high surrogate in the file.
+  it("does not split a UTF-16 surrogate pair at the 256KB truncation boundary", () => {
+    const crab = "🦀"; // (crab emoji), 2 UTF-16 units
+    const raw = "x".repeat(256 * 1024 - 1) + crab + "y".repeat(10); // pair straddles the cut
+    const md = ["```sh", "echo hi", "```"].join("\n");
+    const out = writeOutput(md, 0, args({ output: raw }));
+    expect(out).toContain("[...truncated at 256KB]");
+    // No lone (unpaired) high surrogate anywhere in the written document.
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(out)).toBe(false);
+  });
 });
 
 describe("setFrontmatterTarget", () => {
@@ -330,6 +416,18 @@ describe("setFrontmatterTarget", () => {
     const out = setFrontmatterTarget(md, "pane-1");
     expect(out).toContain("trailing prose stays put");
     expect(out).toContain("echo hi");
+  });
+
+  // REGRESSION (quality review 2026-07-21): a STRING replacer interprets
+  // "$&"/"$1"/"$$" in paneId as replacement-pattern tokens, not literal
+  // text -- must use a function replacer so paneId is inserted verbatim.
+  it("treats paneId as a literal string, not a regex replacement pattern", () => {
+    const md = ["---", "targetPane: old", "---", "", "```sh", "echo hi", "```"].join("\n");
+    const weirdId = "pane-$&-$1-$$-weird";
+    const out = setFrontmatterTarget(md, weirdId);
+    const { frontmatter } = parseBlocks(out);
+    expect(frontmatter.targetPane).toBe(weirdId);
+    expect(out).not.toContain("old"); // old value fully replaced, not interpolated into
   });
 });
 

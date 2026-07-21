@@ -5,15 +5,38 @@
 // immediately-following fence of lang `output` (0 or 1 blank line gap, no
 // intervening prose, no non-runnable fence in between) is that block's OWNED
 // output, rewritten in place on rerun — writeOutput never touches anything
-// outside that owned range. Frontmatter is a minimal regex-only leading
-// `---` block understanding a single key (`targetPane`) — no YAML dependency.
+// outside that owned range. Frontmatter is a minimal leading `---` block
+// understanding a single key (`targetPane`) — no YAML dependency.
 //
-// Fence scanning is line-anchored (CommonMark-ish): a line only opens/closes
-// a fence when, after up to 3 leading spaces, it consists of a run of 3+
-// backticks (optionally followed by an info string for the OPEN line only —
-// the CLOSE line must be backticks + trailing whitespace ONLY). A closing
-// run must have at least as many backticks as the opening run, which is what
-// lets a 4-plus-backtick fence safely contain a literal ``` in its body.
+// Fence scanning is a SINGLE linear pass (state machine: either "not inside
+// a fence" or "inside a fence waiting for its close"), CommonMark-ish:
+//   - Only a LANG-BEARING backtick line (3+ backticks + a non-empty first
+//     token) can OPEN a fence. A bare backtick-only line can never open one
+//     — real notebook fences always carry a lang (sh/bash/powershell/pwsh/
+//     cmd/output); treating a bare ``` as an opener means a single stray
+//     close-shaped line anywhere in the document swallows everything up to
+//     the next same-length backtick run as its "body", silently eating real
+//     blocks (REGRESSION, fixed 2026-07-21).
+//   - The OPEN line may carry a trailing info string (CommonMark rule) —
+//     the notebook's own `output` header packs "(<timestamp>, exit <exit>)"
+//     after the lang word, so trailing content must be allowed there.
+//   - The CLOSE line must be backticks and nothing else (only trailing
+//     whitespace), with a run at least as long as the opening run — this is
+//     what lets a wider fence safely contain a literal, shorter backtick run
+//     in its body (4-plus-backtick code fences; output content that itself
+//     contains ``` — see writeOutput's backtick-run sizing below).
+//   - An unclosed fence swallows the rest of the document as its body (real
+//     CommonMark semantics) and is dropped (not a valid block) at EOF.
+//
+// Frontmatter detection is fence-AWARE: a leading `---` line is only ever
+// treated as a frontmatter opener if a matching bare `---` closer is found
+// BEFORE the first code fence in the document. Pluto's own vault page
+// format uses a bare leading `---` as a compiled-truth/timeline divider (not
+// YAML), and a heredoc body (`cat <<EOF` / `---` / `EOF`) inside a code
+// fence can contain a `---` line too — without this guard either pattern
+// can make the parser swallow real code fences into "frontmatter",
+// silently losing every block in the document (REGRESSION, fixed
+// 2026-07-21).
 //
 // runnableKind is deliberately NOT a shell lexer (DESIGN DECISION 2026-07-21,
 // post three audit rounds): it reduces code to "runnable lines" (drop blanks
@@ -36,12 +59,10 @@ const TRUNCATE_MARKER = "[...truncated at 256KB]";
 // continuation — only sh/bash treat trailing "\" as line continuation.
 const CONTINUATION_CHAR = { sh: "\\", bash: "\\", powershell: "`", pwsh: "`", cmd: "^" };
 
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?/;
 const TARGET_PANE_RE = /^targetPane:[ \t]*(.*?)[ \t]*$/m;
+const DASH_LINE_RE = /^---[ \t]*$/;
 
-// OPEN allows a full info string after the lang token (CommonMark rule; the
-// notebook's own `output` fence header packs "(<timestamp>, exit <exit>)"
-// after the lang word, so trailing content must be permitted here).
+// OPEN allows a full info string after the lang token (CommonMark rule).
 const FENCE_OPEN_RE = /^ {0,3}(`{3,})[ \t]*([^\s`]*).*$/;
 // CLOSE must be backticks and nothing else (only trailing spaces/tabs).
 const FENCE_CLOSE_RE = /^ {0,3}(`{3,})[ \t]*$/;
@@ -57,6 +78,37 @@ function dominantEOL(text) {
     }
   }
   return crlf > lf ? "\r\n" : "\n";
+}
+
+// Slice that never strands a lone UTF-16 high surrogate at the cut point
+// (mirrors agentContext.js's safeSlice — same failure mode, same fix).
+function safeSlice(s, n) {
+  if (s.length <= n) return s;
+  let end = n;
+  const code = s.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  return s.slice(0, end);
+}
+
+// Longest run of consecutive backticks anywhere in `s`. Used to size a
+// freshly-written fence wide enough that no backtick run already present in
+// the content can be mistaken for (or prematurely trigger) its close.
+function longestBacktickRun(s) {
+  let max = 0;
+  let cur = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "`") {
+      cur++;
+      if (cur > max) max = cur;
+    } else {
+      cur = 0;
+    }
+  }
+  return max;
+}
+
+function isDashLine(t) {
+  return DASH_LINE_RE.test(t);
 }
 
 // Splits into lines carrying absolute char offsets. Each line's `end`
@@ -90,59 +142,73 @@ function matchFenceClose(line, minTicks) {
   return !!m && m[1].length >= minTicks;
 }
 
-function parseFrontmatter(text) {
-  const m = FRONTMATTER_RE.exec(text);
-  if (!m) return { frontmatter: {}, bodyStart: 0 };
-  const frontmatter = {};
-  const tp = TARGET_PANE_RE.exec(m[1]);
-  if (tp) frontmatter.targetPane = tp[1];
-  return { frontmatter, bodyStart: m[0].length };
+// Single linear pass over the document's lines producing every fenced
+// region (any lang) in document order. O(n) in line count — no re-scanning
+// from each candidate open, which is what made the old implementation
+// quadratic on documents with many close-shaped lines (re-parsed on every
+// notebook edit).
+function scanFences(text) {
+  const lines = splitLines(text);
+  const fences = [];
+  let open = null; // { ticks, lang, openIdx } while inside a fence, else null
+  for (let i = 0; i < lines.length; i++) {
+    const lineText = lines[i].text;
+    if (open) {
+      if (matchFenceClose(lineText, open.ticks)) {
+        fences.push({
+          lang: open.lang,
+          code: text.slice(lines[open.openIdx].end, lines[i].start),
+          start: lines[open.openIdx].start,
+          end: lines[i].end,
+          openIdx: open.openIdx,
+          closeIdx: i,
+        });
+        open = null;
+      }
+      // else: ordinary content line, still inside the open fence.
+      continue;
+    }
+    const candidate = matchFenceOpen(lineText);
+    if (candidate && candidate.lang) open = { ticks: candidate.ticks, lang: candidate.lang, openIdx: i };
+    // A bare (empty-lang) backtick-only line here is inert — never an opener.
+  }
+  // `open` left non-null at EOF means an unterminated fence: real CommonMark
+  // semantics say it swallows the rest of the document; we simply don't
+  // record it as a fence (not a valid block either way).
+  return { fences, lines };
 }
 
-// All fenced regions in document order (any lang), scanned only from
-// `fromOffset` onward so frontmatter content is never mistaken for a fence.
-function scanFences(text, fromOffset) {
-  const lines = splitLines(text);
-  let idx = lines.findIndex((l) => l.start >= fromOffset);
-  if (idx === -1) idx = lines.length;
-  const fences = [];
-  while (idx < lines.length) {
-    const open = matchFenceOpen(lines[idx].text);
-    if (!open) {
-      idx++;
-      continue;
+// Detects a real frontmatter block: the document's first line must be a
+// bare `---`, AND a matching bare `---` closer must appear at a line whose
+// start precedes the first fence in the document (fence-aware — see the
+// module header for why). Returns null when there is no frontmatter.
+function detectFrontmatter(fences, lines, text) {
+  if (!lines.length || !isDashLine(lines[0].text)) return null;
+  const firstFenceStart = fences.length ? fences[0].start : Infinity;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].start >= firstFenceStart) return null; // hit a real fence before any closer
+    if (isDashLine(lines[i].text)) {
+      return { contentStart: lines[0].end, contentEnd: lines[i].start, blockEnd: lines[i].end };
     }
-    let closeIdx = -1;
-    for (let k = idx + 1; k < lines.length; k++) {
-      if (matchFenceClose(lines[k].text, open.ticks)) {
-        closeIdx = k;
-        break;
-      }
-    }
-    if (closeIdx === -1) {
-      // Unterminated fence: not a valid block. Treat the open line as
-      // ordinary text and keep scanning (never crash, never misparse).
-      idx++;
-      continue;
-    }
-    fences.push({
-      lang: open.lang,
-      code: text.slice(lines[idx].end, lines[closeIdx].start),
-      start: lines[idx].start,
-      end: lines[closeIdx].end,
-      openIdx: idx,
-      closeIdx,
-    });
-    idx = closeIdx + 1;
   }
-  return { fences, lines };
+  return null;
 }
 
 export function parseBlocks(md) {
   const text = String(md ?? "");
-  const { frontmatter, bodyStart } = parseFrontmatter(text);
-  const { fences, lines } = scanFences(text, bodyStart);
+  const { fences, lines } = scanFences(text);
+  const fm = detectFrontmatter(fences, lines, text);
 
+  const frontmatter = {};
+  if (fm) {
+    const tp = TARGET_PANE_RE.exec(text.slice(fm.contentStart, fm.contentEnd));
+    if (tp) frontmatter.targetPane = tp[1];
+  }
+
+  // NOTE: fences never need filtering by the frontmatter boundary here — by
+  // construction, detectFrontmatter only returns non-null when its closer
+  // line starts strictly before fences[0].start, so every fence already
+  // starts at or after the frontmatter's end.
   const blocks = [];
   let runnableIndex = 0;
   for (let fi = 0; fi < fences.length; fi++) {
@@ -177,12 +243,19 @@ export function writeOutput(md, blockIndex, { output, exit, timestamp }) {
 
   const NL = dominantEOL(text);
   const raw = String(output ?? "");
-  const sliced = raw.length > MAX_OUTPUT_CHARS ? raw.slice(0, MAX_OUTPUT_CHARS) : raw;
-  const withMarker = raw.length > MAX_OUTPUT_CHARS ? `${sliced}\n${TRUNCATE_MARKER}` : sliced;
+  const needsTruncation = raw.length > MAX_OUTPUT_CHARS;
+  const sliced = needsTruncation ? safeSlice(raw, MAX_OUTPUT_CHARS) : raw;
+  const withMarker = needsTruncation ? `${sliced}\n${TRUNCATE_MARKER}` : sliced;
   const content = withMarker.replace(/\r\n|\r|\n/g, NL);
 
-  const header = `\`\`\`output (${timestamp}, exit ${exit})`;
-  const newFence = `${header}${NL}${content}${NL}\`\`\`${NL}`;
+  // Size the fence wider than any backtick run already present in the
+  // content (which is arbitrary command output — `cat *.md`/`git diff` on
+  // markdown routinely contains its own ``` fences) so the written fence
+  // can never be mis-closed by its own body on the next parse.
+  const ticks = Math.max(3, longestBacktickRun(content) + 1);
+  const marker = "`".repeat(ticks);
+  const header = `${marker}output (${timestamp}, exit ${exit})`;
+  const newFence = `${header}${NL}${content}${NL}${marker}${NL}`;
 
   if (block.outputFence) {
     return text.slice(0, block.outputFence.start) + newFence + text.slice(block.outputFence.end);
@@ -195,18 +268,23 @@ export function writeOutput(md, blockIndex, { output, exit, timestamp }) {
 export function setFrontmatterTarget(md, paneId) {
   const text = String(md ?? "");
   const NL = dominantEOL(text);
-  const m = FRONTMATTER_RE.exec(text);
-  if (!m) {
+  const { fences, lines } = scanFences(text);
+  const fm = detectFrontmatter(fences, lines, text);
+
+  if (!fm) {
     return `---${NL}targetPane: ${paneId}${NL}---${NL}${text}`;
   }
-  let fmContent = m[1];
+  let fmContent = text.slice(fm.contentStart, fm.contentEnd);
   if (TARGET_PANE_RE.test(fmContent)) {
-    fmContent = fmContent.replace(TARGET_PANE_RE, `targetPane: ${paneId}`);
+    // Function replacer: paneId is inserted LITERALLY. A string replacer
+    // interprets "$&"/"$1"/"$$" etc. in paneId as replacement patterns,
+    // corrupting the frontmatter (REGRESSION, fixed 2026-07-21).
+    fmContent = fmContent.replace(TARGET_PANE_RE, () => `targetPane: ${paneId}`);
   } else {
     const sep = fmContent.length && !/[\r\n]$/.test(fmContent) ? NL : "";
     fmContent = `${fmContent}${sep}targetPane: ${paneId}`;
   }
-  return `---${NL}${fmContent}${NL}---${NL}${text.slice(m[0].length)}`;
+  return `---${NL}${fmContent}${NL}---${NL}${text.slice(fm.blockEnd)}`;
 }
 
 export function runnableKind(code, lang) {
