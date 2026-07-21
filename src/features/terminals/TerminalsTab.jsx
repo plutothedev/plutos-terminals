@@ -62,6 +62,19 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const toast = useToast();
   const confirm = useConfirm();
 
+  // Stable toast bridge for the memo'd terminal tree. TerminalPanel is memo'd
+  // (and its panes aren't individually memo'd), so it must NOT subscribe to the
+  // toast context directly, since that would re-render every pane on every toast
+  // fired anywhere in the app (why TerminalPane keeps copy-to-clipboard silent).
+  // A ref holds the latest toast api behind this stable callback, so
+  // TerminalPanel keeps a constant `notify` prop and its React.memo stays intact.
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  const notify = useCallback((variant, message) => {
+    const fn = toastRef.current?.[variant] || toastRef.current?.info;
+    fn?.(message);
+  }, []);
+
   // Dialog: null = closed; { mode: "add" } or { mode: "edit", projectId }
   const [dialog, setDialog] = useState(null);
 
@@ -75,6 +88,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     setupOpen, setSetupOpen, commandPaletteOpen, setCommandPaletteOpen,
     broadcastGroupOpen, setBroadcastGroupOpen, netToolsOpen, setNetToolsOpen,
     serialOpen, setSerialOpen, vncOpen, setVncOpen, rdpOpen, setRdpOpen,
+    sharesOpen, setSharesOpen,
   } = useSimpleModals();
 
   // Payload modals (carry state; extracted in later steps).
@@ -806,6 +820,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         setWorkspacesOpen={setWorkspacesOpen}
         setSettingsOpen={setSettingsOpen}
         setMasterPwOpen={setMasterPwOpen}
+        setSharesOpen={setSharesOpen}
       />
       {/* MobaXterm grouped icon toolbar — captioned button groups, themed via
           the active skin's --phn-* vars (see MobaToolbar.jsx + terminals.css). */}
@@ -938,8 +953,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onClosePane={closePane}
               onActivatePane={activatePane}
               onSetPaneRatio={setPaneRatio}
-              userSt={userSt}
               saveUser={saveUser}
+              notify={notify}
             />
           ))}
         </div>
@@ -1059,6 +1074,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         commandPaletteOpen={commandPaletteOpen}
         setCommandPaletteOpen={setCommandPaletteOpen}
         paletteCommands={paletteCommands}
+        sharesOpen={sharesOpen}
+        setSharesOpen={setSharesOpen}
         activeTab={activeTab}
         activeTabId={activeTabId}
         shellName={shellName}

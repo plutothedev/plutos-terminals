@@ -21,6 +21,7 @@ export default function MenuBar({
   setMacrosOpen, setAskOpen, setSummary, setHistoryOpen, setModelsOpen,
   setBroadcastGroupOpen, setRemoteOpen, setMcpOpen, setSetupOpen,
   setCommandPaletteOpen, setWorkspacesOpen, setSettingsOpen, setMasterPwOpen,
+  setSharesOpen,
 }) {
   const toast = useToast();
   const prompt = usePrompt();
@@ -107,6 +108,7 @@ export default function MenuBar({
         { label: broadcast ? "Turn off broadcast (MultiExec)" : "Broadcast (MultiExec)", action: () => toggleBroadcast() },
         { label: "Broadcast targets… (choose terminals)", action: () => setBroadcastGroupOpen(true) },
         { divider: true },
+        { label: "My shares (shared gists)…", action: () => setSharesOpen(true) },
         { label: "Remote control (phone)…", action: () => setRemoteOpen(true) },
         { label: "MCP servers…", action: () => setMcpOpen(true) },
         { label: "Setup checker…", action: () => setSetupOpen(true) },

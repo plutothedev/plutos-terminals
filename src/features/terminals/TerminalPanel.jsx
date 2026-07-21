@@ -1,9 +1,11 @@
 import { memo, useMemo, useRef, useState } from "react";
-import TerminalPane from "./TerminalPane";
+import { invoke } from "@backend";
+import TerminalPane, { todayDate } from "./TerminalPane";
 import VncView from "./VncView";
 import RdpView from "./RdpView";
 import MobaHomeScreen from "./MobaHomeScreen";
 import NotebookView from "./NotebookView";
+import ShareModal from "./ShareModal.jsx";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
 import "./terminals.css";
 
@@ -19,6 +21,15 @@ const TAB_FG_ACTIVE = "var(--phn-text-active, #E6E6E6)";
 const ACCENT = "var(--phn-link, #7c9cf5)";
 const ACCENT_FALLBACK = "#7c9cf5"; // for drag ghost (DOM-built outside React)
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
+
+// Transcript filename stem for a tab's root session. Mirrors TerminalPane's
+// private transcriptName (the write side) so "Share transcript" reads back the
+// same "<project-or-tab>-<last6ofTabId>" name the PTY output was appended under.
+function transcriptName(projectName, tabId) {
+  const base = projectName ? `${projectName}` : "tab";
+  const short = (tabId || "").slice(-6);
+  return `${base}-${short}`;
+}
 
 // Activity colors mirror Moon Dev: yellow while running, green when finished.
 const DOT_ACTIVE = "#FBBF24";
@@ -126,8 +137,8 @@ function TerminalPanel({
   promptEditorVim,
   tabAutoApprove,
   tabProjectNames,
-  userSt = {},          // threaded through to TerminalPane for the Stream D share modal
-  saveUser = () => {},  // (pass-through only — TerminalPanel itself does not read them)
+  saveUser = () => {},  // functional user-store writer, threaded to TerminalPane's ShareModal
+  notify = () => {},    // stable toast bridge (variant, message); see TerminalsTab. Keeps this memo'd tree off the toast context
   homeApi,
   onActivate,
   onAddTab,
@@ -179,6 +190,30 @@ function TerminalPanel({
   const [hoverTabId, setHoverTabId] = useState(null);
   // Right-click tab context menu: { x, y, tabId } or null.
   const [tabCtxMenu, setTabCtxMenu] = useState(null);
+
+  // Share preview target for the tab menu's "Share transcript" (Stream D). A
+  // per-panel ShareModal opened from the tab context menu with the whole-session
+  // transcript, mirroring TerminalPane's block-share flow. null = closed.
+  const [shareTarget, setShareTarget] = useState(null);
+
+  // "Share transcript": read the whole session transcript for this tab's root
+  // session (all dated files concatenated, oldest first) and open the share
+  // preview. An empty / whitespace-only or unreadable transcript means nothing
+  // was recorded, so just notify and open no modal (fail-closed: nothing leaves).
+  const shareTranscript = async (tab) => {
+    const name = transcriptName(tabProjectNames?.[tab.id] || null, tab.id);
+    let rawText = "";
+    try {
+      rawText = await invoke("transcript_read_all", { name });
+    } catch {
+      rawText = "";
+    }
+    if (!rawText || !rawText.trim()) {
+      notify("info", "Nothing recorded yet.");
+      return;
+    }
+    setShareTarget({ kind: "transcript", title: tab.label || "transcript", rawText, dateStamp: todayDate() });
+  };
 
   // Transient divider ratios during an active drag, keyed by splitId. Kept out
   // of app state so a drag doesn't hammer localStorage; committed on mouseup.
@@ -549,7 +584,6 @@ function TerminalPanel({
                       autoApprove={isRoot ? (tabAutoApprove?.[tab.id] || false) : false}
                       onActivityChange={(state) => onTabActivityChange?.(node.id, state)}
                       onCostUpdate={(c) => onTabCostUpdate?.(node.id, c)}
-                      userSt={userSt}
                       saveUser={saveUser}
                     />
                     {multi && (
@@ -703,6 +737,7 @@ function TerminalPanel({
               {item("Duplicate", () => h.duplicate(tab.id))}
               {onDetachTab && !tab.home && item("Detach to new window", () => h.detach(tab.id))}
               {onSplitPane && item("Split right", () => onSplitPane(tab.id, tab.activePaneId || tab.id, "row"))}
+              {!tab.home && !tab.vnc && !tab.rdp && !tab.notebook && item("Share transcript…", () => shareTranscript(tab))}
               <div style={{ height: 1, background: BORDER_DIM, margin: "4px 0" }} />
               {item("Close others", () => h.closeOthers(tab.id), { disabled: !multi })}
               {item("Close", () => h.closeTab(tab.id), { disabled: !multi, danger: true })}
@@ -710,6 +745,17 @@ function TerminalPanel({
           </>
         );
       })()}
+      {shareTarget && (
+        <ShareModal
+          open
+          kind={shareTarget.kind}
+          title={shareTarget.title}
+          rawText={shareTarget.rawText}
+          dateStamp={shareTarget.dateStamp}
+          onClose={() => setShareTarget(null)}
+          saveUser={saveUser}
+        />
+      )}
     </div>
   );
 }

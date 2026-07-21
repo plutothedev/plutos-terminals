@@ -140,6 +140,17 @@ test("SOURCES carries the agent settings fields", () => {
   expect(u.fields).not.toContain("approvedRuleFiles");
 });
 
+test("SOURCES keeps share history machine-local (never synced)", () => {
+  // Stream D: gist share history lives in userSt.shareHistory but must NOT ride
+  // sync. A gist is created against one machine's keychain token / gh CLI, so it
+  // is only listed and revocable where it was made, so syncing the list would
+  // surface un-revocable rows on other machines. Mirrors the approvedRuleFiles
+  // machine-local lock above; red if someone adds shareHistory to SOURCES.
+  const u = SOURCES.find((s) => s.store === "userSt");
+  expect(u.fields).not.toContain("shareHistory");
+  expect(u.collections).not.toContain("shareHistory");
+});
+
 test("SOURCES carries savedPrompts as a userSt COLLECTION, not a field", () => {
   // Saved prompts are a growing, concurrently-editable list (same shape problem
   // as customThemes): a `fields` entry merges whole-value last-write-wins and

@@ -229,8 +229,7 @@ export default function TerminalPane({
   onCostUpdate,
   promptEditor = false, // opt-in app-owned prompt editor (Milestone 2, slice 1)
   promptEditorVim = false, // vim keybindings inside the prompt editor
-  userSt = {},          // user store (Stream D share history + shared-modal contract)
-  saveUser = () => {},  // functional user-store writer, threaded from TerminalsTab
+  saveUser = () => {},  // functional user-store writer, threaded from TerminalsTab for ShareModal
 }) {
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -1897,7 +1896,6 @@ export default function TerminalPane({
           dateStamp={shareTarget.dateStamp}
           onClose={() => setShareTarget(null)}
           saveUser={saveUser}
-          userSt={userSt}
         />
       )}
     </div>

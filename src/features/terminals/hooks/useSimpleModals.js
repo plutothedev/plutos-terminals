@@ -31,6 +31,7 @@ export function useSimpleModals() {
   const [serialOpen, setSerialOpen] = useState(false);
   const [vncOpen, setVncOpen] = useState(false);
   const [rdpOpen, setRdpOpen] = useState(false);
+  const [sharesOpen, setSharesOpen] = useState(false); // "My shares" gist list (Stream D)
   return {
     settingsOpen, setSettingsOpen,
     mcpOpen, setMcpOpen,
@@ -48,5 +49,6 @@ export function useSimpleModals() {
     serialOpen, setSerialOpen,
     vncOpen, setVncOpen,
     rdpOpen, setRdpOpen,
+    sharesOpen, setSharesOpen,
   };
 }

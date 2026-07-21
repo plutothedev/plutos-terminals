@@ -18,6 +18,7 @@ import AgentMode from "../AgentMode";
 import SessionSummary from "../SessionSummary";
 import HistorySearch from "../HistorySearch";
 import WorkspacesModal from "../WorkspacesModal";
+import SharesModal from "../SharesModal.jsx";
 import BroadcastGroupModal from "../BroadcastGroupModal";
 import NetToolsModal from "../NetToolsModal";
 import RemoteControlModal from "../RemoteControlModal.jsx";
@@ -68,6 +69,8 @@ export default function ModalHost({
   mcpOpen, setMcpOpen, setupOpen, setSetupOpen,
   // command palette
   commandPaletteOpen, setCommandPaletteOpen, paletteCommands,
+  // "My shares" gist list (Stream D)
+  sharesOpen, setSharesOpen,
   // shared session context
   activeTab, activeTabId, shellName, insertSnippet,
 }) {
@@ -191,6 +194,13 @@ export default function ModalHost({
         onSave={saveWorkspace}
         onLoad={loadWorkspace}
         onDelete={deleteWorkspace}
+      />
+
+      <SharesModal
+        open={sharesOpen}
+        shareHistory={userSt?.shareHistory}
+        saveUser={saveUser}
+        onClose={() => setSharesOpen(false)}
       />
 
       <BroadcastGroupModal

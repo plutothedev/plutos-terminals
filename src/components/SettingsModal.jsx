@@ -12,6 +12,7 @@ import KeybindingsSection from "../features/terminals/KeybindingsSection.jsx";
 import ThemesSection from "../features/terminals/ThemesSection.jsx";
 import SyncSection from "../features/terminals/SyncSection.jsx";
 import AgentSection from "../features/terminals/AgentSection.jsx";
+import SharingSection from "../features/terminals/SharingSection.jsx";
 import { SMoon, SSun } from "../features/terminals/toolbarIcons.jsx";
 
 export default function SettingsModal({ open, st, save, userSt, saveUser, onClose }) {
@@ -120,6 +121,12 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
       {saveUser && (
         <Field label="Agent" hint="Project context + global rules for Agent Mode">
           <AgentSection userSt={userSt} saveUser={saveUser} />
+        </Field>
+      )}
+
+      {saveUser && (
+        <Field label="Sharing" hint="GitHub token for Share block / Share transcript (gist scope, kept in the OS keychain)">
+          <SharingSection />
         </Field>
       )}
 
