@@ -17,6 +17,22 @@
   private-key blobs (with an unpaired-BEGIN fallback), and JWTs; used to mask
   the agent context block.
 
+### Changed
+- Moving a tab to another panel now keeps its live terminal: the running
+  process, scrollback, scroll position, command blocks, cost/token counters,
+  and any in-flight agent command all survive the move (previously the
+  session was killed and respawned, retyping start commands). A pane
+  registry outside React owns each terminal; closing a tab/pane/panel,
+  loading a workspace, resetting the workspace, locking the app, or a
+  crashed UI still tear sessions down fully.
+
+### Fixed
+- Agent-mode command capture no longer aborts when its tab is moved between
+  panels mid-command.
+- Cost/token telemetry no longer jumps backward after moving a tab.
+- Jump-host tunnels are torn down on every abort path of an SSH connection
+  (previously a spawn interrupted at the wrong moment could leak the tunnel).
+
 ## v0.5.0 — Security hardening + reliability pass (2026-07-06)
 
 Bundles the remote-sessions-parity work (SSH/SFTP/RDP/VNC/tunnels, phone
