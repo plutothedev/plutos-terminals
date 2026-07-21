@@ -66,6 +66,36 @@ describe("paneRegistry", () => {
     expect(R.getEntry("p3")).toBeNull();
   });
 
+  it("reentrancy: a destroy hook re-creating the same id mid-teardown yields a FRESH entry that survives", async () => {
+    const R = await load();
+    R.destroyAll();
+    const doomed = R.ensureEntry("z1");
+    let duringTeardown = null;
+    let fresh = null;
+    let reentered = false;
+    R.registerDestroyHook("z1", () => {
+      if (reentered) return; // the nested destroy below re-runs this hook once
+      reentered = true;
+      // Mid-teardown the dying entry is STILL mapped — a bare ensureEntry
+      // returns it, not a fresh one (pinned below, outside the hook, because
+      // destroyEntry's per-hook try/catch would swallow a failing expect):
+      duringTeardown = R.ensureEntry("z1");
+      // A reentrant close-then-reopen (destroy → ensure) is what mints the
+      // fresh replacement under the same id while the outer teardown is
+      // still unwinding:
+      R.destroyEntry("z1");
+      fresh = R.ensureEntry("z1");
+    });
+    R.destroyEntry("z1");
+    expect(duringTeardown).toBe(doomed);
+    expect(fresh).not.toBeNull();
+    expect(fresh).not.toBe(doomed);
+    // The delete-by-identity guard in destroyEntry must NOT wipe the hook's
+    // replacement out of the map: after the outer destroy returns, getEntry
+    // yields the FRESH entry — not null.
+    expect(R.getEntry("z1")).toBe(fresh);
+  });
+
   it("reconcile destroys exactly the ids missing from the live set", async () => {
     const R = await load();
     R.destroyAll();

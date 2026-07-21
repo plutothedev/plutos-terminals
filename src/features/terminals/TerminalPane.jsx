@@ -32,6 +32,14 @@ import {
   recordCommand,
   reportBlockDone,
 } from "./ptyBridge.js";
+import {
+  ensureEntry,
+  getEntry,
+  attachHost,
+  detachHost,
+  registerDestroyHook,
+  destroyEntry,
+} from "./paneRegistry.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
 // rather than an mp3 asset so there's nothing to bundle. Two-note ascending
@@ -185,7 +193,13 @@ function transcriptName(projectName, tabId) {
   return `${base}-${short}`;
 }
 
-// One terminal pane: spawns its own PTY on mount, kills it on unmount.
+// One terminal pane. B1: the xterm instance, its host DOM element, and the PTY
+// session are owned by the pane REGISTRY (paneRegistry.js), keyed by this
+// pane's leaf id — the first mount creates them, and unmount PARKS by default
+// (detach the host, keep the session) so a move between panels re-attaches the
+// live terminal instead of kill+respawn. Real closes are the reconcile sweep's
+// job (TerminalsTab destroys entries whose pane id left the tree); only a
+// mid-spawn unmount destroys inline (decision 6).
 // `visible` toggles display so a hidden tab keeps its PTY + scrollback alive.
 // `startCommands` is captured at mount and auto-typed after the shell init.
 // `xtermTheme` is the xterm.js theme object (background / foreground / cursor /
@@ -231,7 +245,11 @@ export default function TerminalPane({
   const [searchQuery, setSearchQuery] = useState("");
   // Command blocks (OSC 133): track the block boundaries the shell marks so we
   // can flag a failed command + feed it to the AI explainer.
-  const currentBlockRef = useRef(null); // the open block { startLine, command, endLine, exit, el } between A and D
+  // The open block between A and D lives at entry.blocks.current (registry —
+  // survives pane moves). These two refs are POINTED at the registry entry's
+  // arrays (entry.blocks.list / entry.blocks.decorations) by the main effect on
+  // every mount — the arrays are only ever mutated in place (push/shift/splice)
+  // so every fiber's ref aliases the same shared containers.
   const blocksRef = useRef([]);         // finished blocks (capped) for right-click actions
   const blockDecorationsRef = useRef([]); // xterm decorations tinting each command block
   const [failedBlock, setFailedBlock] = useState(null);  // banner: most recent failure
@@ -245,10 +263,10 @@ export default function TerminalPane({
   const xtermThemeRef = useRef(xtermTheme);
   xtermThemeRef.current = xtermTheme;
 
-  // Activity tracking refs.
+  // Activity tracking refs. (The user-has-typed gate lives at
+  // entry.counters.userHasTyped — it must survive pane moves.)
   const activityRef = useRef("idle");
   const bytesSinceSeenRef = useRef(0);
-  const userHasTypedRef = useRef(false);
   // Welcome-banner re-render on resize: a fresh local shell's banner is baked
   // into scrollback at boot width and can't reflow, so splitting the pane garbles
   // it. While the pane is still untouched we reprint it at the new width.
@@ -274,10 +292,18 @@ export default function TerminalPane({
   const lastNotifyAtRef = useRef(0);
 
   // "Away" = this tab isn't the one you're looking at, or the app window isn't
-  // focused. Used to gate OS notifications + the done audio cue.
-  const isAway = () =>
-    !visibleRef.current ||
-    (typeof document !== "undefined" && document.hasFocus && !document.hasFocus());
+  // focused. Used to gate OS notifications + the done audio cue. Visibility is
+  // read through entry.ui (repointed every mount) because this helper is
+  // captured by create-once handlers — a dead fiber's visibleRef would freeze
+  // at its park-time value (decision 4).
+  const isAway = () => {
+    const ui = entryRef.current?.ui;
+    const vis = ui ? ui.isVisible() : visibleRef.current;
+    return (
+      !vis ||
+      (typeof document !== "undefined" && document.hasFocus && !document.hasFocus())
+    );
+  };
   const notifyOS = (title, body) => {
     invoke("notify", { title, body }).catch(() => {});
   };
@@ -286,15 +312,24 @@ export default function TerminalPane({
   const projectNameRef = useRef(projectName);
   projectNameRef.current = projectName;
 
+  // Registry entry for this pane id (paneRegistry.js). Set by the main effect
+  // on every mount and left pointing at the entry afterwards, so the
+  // component-body helpers captured by create-once handlers (handleChunk →
+  // appendScrollback / checkAutoApprove / checkCost, setActivity, isAway)
+  // resolve the DURABLE entry — not per-fiber state — no matter which mount's
+  // closure is running.
+  const entryRef = useRef(null);
+
   // Scrollback / transcript buffers — populated from the PTY stream.
-  const scrollbackChunksRef = useRef([]); // [{s, len}]
-  const scrollbackBytesRef = useRef(0);
+  // (The scrollback chunk list + byte count live at entry.counters.* so a
+  // moved pane keeps its analysis buffers; transcript machinery stays
+  // per-mount — see the flush destroy hook for the tail.)
   const transcriptBufRef = useRef("");
   const transcriptTimerRef = useRef(null);
   const transcriptDateRef = useRef(todayDate());
 
-  // Auto-approve state.
-  const recentOutRef = useRef("");
+  // Auto-approve state. (The recent-output match buffer lives at
+  // entry.counters.recentOut so it survives pane moves.)
   const lastApproveAtRef = useRef(0);
 
   // Boot-conceal gate: while set ({ buf, timer }), incoming PTY chunks are
@@ -306,13 +341,11 @@ export default function TerminalPane({
   // never leave the pane blank.
   const concealRef = useRef(null);
 
-  // Cost tracker state — only emit when the latest seen value changes.
-  const lastCostRef = useRef({ tokens: 0, cost: 0 });
-  // Sticky model family detected from the welcome banner. Held across
-  // checkCost calls so the family signal survives the banner scrolling out
-  // of the 10KB cost-scan window. Initialized to null; first banner hit
-  // locks it in.
-  const familyRef = useRef(null);
+  // Cost tracker state — only emit when the latest seen value changes. The
+  // last-seen {tokens, cost} and the sticky model family (held across
+  // checkCost calls so the family signal survives the banner scrolling out of
+  // the 10KB cost-scan window) both live at entry.counters.* — cost telemetry
+  // must not jump backward after a pane move (B1 bug fix 2).
   // Coalesces the expensive cost scan (10KB tail + several regexes) to at most
   // one run per animation frame. A high-throughput burst fires the pty:// listener
   // hundreds of times/sec; checkCost reads the accumulated scrollback buffer (not
@@ -325,7 +358,9 @@ export default function TerminalPane({
     if (activityRef.current === next) return;
     const prev = activityRef.current;
     activityRef.current = next;
-    try { onActivityRef.current?.(next); } catch {}
+    // Report through entry.ui so the CURRENT fiber's callback gets the event
+    // even when this closure belongs to an earlier mount (decision 4).
+    try { (entryRef.current?.ui?.onActivity ?? onActivityRef.current)?.(next); } catch {}
     // v0.1.25: audio cue when an agent transitions from working to done.
     // Soft Web-Audio-generated tone — no asset to bundle. Only fires when
     // the tab is NOT currently visible (you don't need a ding for the tab
@@ -350,12 +385,13 @@ export default function TerminalPane({
   };
 
   const appendScrollback = (chunk) => {
-    if (!chunk) return;
-    scrollbackChunksRef.current.push(chunk);
-    scrollbackBytesRef.current += chunk.length;
-    while (scrollbackBytesRef.current > SCROLLBACK_MAX_BYTES && scrollbackChunksRef.current.length > 1) {
-      const dropped = scrollbackChunksRef.current.shift();
-      scrollbackBytesRef.current -= dropped.length;
+    const e = entryRef.current;
+    if (!chunk || !e) return;
+    e.counters.scrollbackChunks.push(chunk);
+    e.counters.scrollbackBytes += chunk.length;
+    while (e.counters.scrollbackBytes > SCROLLBACK_MAX_BYTES && e.counters.scrollbackChunks.length > 1) {
+      const dropped = e.counters.scrollbackChunks.shift();
+      e.counters.scrollbackBytes -= dropped.length;
     }
   };
 
@@ -382,13 +418,14 @@ export default function TerminalPane({
   };
 
   const checkAutoApprove = (ptyId) => {
-    if (!ptyId) return;
+    const e = entryRef.current;
+    if (!ptyId || !e) return;
     const now = Date.now();
     // Trim recent buffer to last 2KB for cheap pattern matching.
-    if (recentOutRef.current.length > AUTO_APPROVE_BUFFER_BYTES) {
-      recentOutRef.current = recentOutRef.current.slice(-AUTO_APPROVE_BUFFER_BYTES);
+    if (e.counters.recentOut.length > AUTO_APPROVE_BUFFER_BYTES) {
+      e.counters.recentOut = e.counters.recentOut.slice(-AUTO_APPROVE_BUFFER_BYTES);
     }
-    const text = stripAnsi(recentOutRef.current);
+    const text = stripAnsi(e.counters.recentOut);
     // Heuristic: a Claude permission prompt has the arrow on option 1, a "Yes"
     // option, an "(esc)" hint, AND the "Do you want …?" question. Requiring the
     // question anchors the match to Claude's real permission framing so arbitrary
@@ -404,11 +441,11 @@ export default function TerminalPane({
     // auto-confirm there, so the watching user can intervene before a
     // destructive tool-use runs.
     if (!isAway()) return;
-    if (autoApproveRef.current) {
+    if (e.ui ? e.ui.isAutoApprove() : autoApproveRef.current) {
       if (now - lastApproveAtRef.current < AUTO_APPROVE_DEBOUNCE_MS) return;
       lastApproveAtRef.current = now;
       invoke("pty_write", { id: ptyId, data: "1\r" }).catch(() => {});
-      recentOutRef.current = ""; // don't re-match the same prompt
+      e.counters.recentOut = ""; // don't re-match the same prompt
     } else if (now - lastNotifyAtRef.current > 15000) {
       // Auto-approve off + you're elsewhere → ping that a session needs you.
       lastNotifyAtRef.current = now;
@@ -417,20 +454,22 @@ export default function TerminalPane({
   };
 
   const checkCost = () => {
+    const e = entryRef.current;
+    if (!e) return;
     // Scan the LAST ~10KB of scrollback rather than the 2KB recent buffer —
     // the welcome banner with "38.1k tokens" and /cost summaries scroll out
     // of the recent buffer fast on a busy session.
     let bytes = 0;
     const parts = [];
-    for (let i = scrollbackChunksRef.current.length - 1; i >= 0; i--) {
-      const chunk = scrollbackChunksRef.current[i];
+    for (let i = e.counters.scrollbackChunks.length - 1; i >= 0; i--) {
+      const chunk = e.counters.scrollbackChunks[i];
       parts.unshift(chunk);
       bytes += chunk.length;
       if (bytes >= COST_SCAN_BYTES) break;
     }
     const text = stripAnsi(parts.join(""));
 
-    let next = { ...lastCostRef.current };
+    let next = { ...e.counters.lastCost };
     let changed = false;
 
     // Cost: only update if higher (cumulative session figure).
@@ -462,12 +501,12 @@ export default function TerminalPane({
     // `next.tokens` (which never decreases) rather than `bestTokens` (the
     // snapshot in the current 10KB window, which can drop as banners scroll
     // out).
-    if (!familyRef.current) {
+    if (!e.counters.family) {
       const detected = detectFamily(text);
-      if (detected) familyRef.current = detected;
+      if (detected) e.counters.family = detected;
     }
     if (next.tokens > 0) {
-      const family = familyRef.current || DEFAULT_FAMILY;
+      const family = e.counters.family || DEFAULT_FAMILY;
       const rate = FAMILY_BLENDED_RATE_PER_M[family] || FAMILY_BLENDED_RATE_PER_M[DEFAULT_FAMILY];
       const estimated = (next.tokens * rate) / 1_000_000;
       if (estimated > next.cost) {
@@ -477,8 +516,8 @@ export default function TerminalPane({
     }
 
     if (changed) {
-      lastCostRef.current = next;
-      try { onCostRef.current?.(next); } catch {}
+      e.counters.lastCost = next;
+      try { (e.ui?.onCost ?? onCostRef.current)?.(next); } catch {}
     }
   };
 
@@ -486,10 +525,172 @@ export default function TerminalPane({
     const container = containerRef.current;
     if (!container) return;
 
+    // ── Registry attach (B1): the entry owns the xterm + PTY; this mount is a
+    // slot. First mount creates everything; a re-attach (pane moved between
+    // panels, or a cwd-prop change re-running this effect) re-parents the live
+    // host and skips creation, handler registration, and the spawn IIFE — the
+    // isFirstMount gate is what keeps start-commands from being retyped into a
+    // live shell (B1 bug fix 3).
+    const entry = ensureEntry(tabId);
+    const isFirstMount = !entry.term;
+    attachHost(tabId, container);
+    entryRef.current = entry;
+    // Liveness for create-once closures: "this pane's entry still exists AND
+    // is still the one we were built for". Identity (not truthiness) so a
+    // stray late callback from a closed pane can never touch a reopened pane's
+    // fresh entry under the same id.
+    const entryLive = () => getEntry(tabId) === entry;
+
+    // Per-MOUNT liveness — only this mount's observers + fonts.ready refit use
+    // it. Create-once code (listeners, handlers, the spawn IIFE) uses
+    // entryLive() instead: it must keep working while the pane is parked.
     let alive = true;
+
+    // Shared-container refs alias the entry's arrays (mutated in place only —
+    // push/shift/splice — so every fiber's ref can point at the same object).
+    blocksRef.current = entry.blocks.list;
+    blockDecorationsRef.current = entry.blocks.decorations;
+
+    // (3b') Per-mount UI pointer table — decision 4. Create-once handlers (OSC
+    // parsers, onData/onResize/onScroll, handleChunk) outlive this fiber; any
+    // per-fiber setter/ref they closed over would go permanently dead after
+    // the first move. They call entry.ui.* at event time instead, and EVERY
+    // mount overwrites this table with the current fiber's functions. While
+    // the pane is parked, calls land on the previous fiber's setters — React
+    // 18 silently no-ops setState on unmounted fibers — and resume against the
+    // live fiber after the next repoint. Known cosmetic gap: UI-derived state
+    // (shellCwd/atPrompt/altScreen/stickyBlock/failedBlock) changed during a
+    // parked window is lost until the next event after re-attach.
+    const prevUi = entry.ui;
+    if (prevUi) {
+      // Banner-redraw state is armed once, by the first mount's spawn IIFE,
+      // but stored per-fiber; hand it forward so the "reprint banner at new
+      // width" arm still works after a move.
+      bannerRedrawRef.current = prevUi.bannerRedraw.get();
+      bannerColsRef.current = prevUi.bannerCols.get();
+    }
+    entry.ui = {
+      setFailedBlock,
+      setShellCwd,
+      setAtPrompt,
+      setStickyBlock,
+      setAltScreen,
+      setSearchOpen,
+      // The OSC-133 "A" prompt-editor arm (settle timer + capture): per-fiber
+      // timer + capture fn, so the whole arm routes through the table.
+      capturePrompt: () => {
+        if (!peEnabledRef.current) return;
+        clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = setTimeout(() => captureRef.current?.(), 70);
+      },
+      cancelPromptSettle: () => clearTimeout(settleTimerRef.current),
+      isAutoApprove: () => autoApproveRef.current,
+      isVisible: () => visibleRef.current,
+      isActive: () => activeRef.current,
+      onCost: (next) => onCostRef.current?.(next),
+      onActivity: (a) => onActivityRef.current?.(a),
+      resizeReprint: (cols) => { bannerRedrawRef.current?.(cols); },
+      bannerRedraw: { get: () => bannerRedrawRef.current, set: (fn) => { bannerRedrawRef.current = fn; } },
+      bannerCols: { get: () => bannerColsRef.current, set: (v) => { bannerColsRef.current = v; } },
+      // The activity state machine (activityRef / bytesSinceSeen / doneTimer)
+      // is create-once — it lives in the FIRST mount's closures alongside
+      // handleChunk. Carry its reset forward on every repoint so the current
+      // fiber's visibility effect resets the machine that actually runs (a
+      // fresh per-fiber reset would no-op and leave the activity dot stuck
+      // after a move).
+      resetActivity: prevUi?.resetActivity ?? (() => {
+        bytesSinceSeenRef.current = 0;
+        clearDoneTimer();
+        setActivity("idle");
+      }),
+    };
+
+    // Cleanup is park-by-default: detach the host and leave the entry (xterm,
+    // PTY, counters) alive for the next mount. Only a mid-spawn unmount
+    // destroys (decision 6) — there is nothing live to hand off, and the
+    // in-flight spawn's orphan guard kills the PTY on arrival. Real closes are
+    // the reconcile sweep's job (TerminalsTab); lock/crash is destroyAll's.
+    // Every step tolerates the entry being ALREADY gone — ErrorBoundary's
+    // componentDidCatch destroyAll typically runs BEFORE a crashed pane's own
+    // cleanup flushes.
+    const paneCleanup = (vis, ro) => () => {
+      alive = false;
+      vis.disconnect();
+      ro.disconnect();
+      clearDoneTimer();
+      clearTimeout(bannerRedrawTimerRef.current); // pending banner reprint must not fire post-unmount
+      if (concealRef.current) {
+        clearTimeout(concealRef.current.timer);
+        concealRef.current = null;
+      }
+      if (costRafRef.current) {
+        cancelAnimationFrame(costRafRef.current);
+        costRafRef.current = 0;
+      }
+      if (transcriptTimerRef.current) {
+        clearInterval(transcriptTimerRef.current);
+        transcriptTimerRef.current = null;
+      }
+      flushTranscript();
+      detachHost(tabId);
+      const e = getEntry(tabId);
+      if (e && e === entry && e.spawnState === "starting") destroyEntry(tabId); // mid-spawn: no live handoff (decision 6)
+      // otherwise: park. The PTY, xterm, event listeners, and bridge
+      // registrations stay live on the entry; the destroy hooks own their
+      // teardown (the old six-statement close block dissolved into them).
+      termRef.current = null;
+      fitRef.current = null;
+    };
+
+    if (!isFirstMount) {
+      // ── Re-attach: restore this fiber's component refs from the entry. ──
+      termRef.current = entry.term;
+      fitRef.current = entry.fit;
+      searchAddonRef.current = entry.search;
+      // Observers get a refit-ONLY callback — NEVER the first mount's
+      // openIfVisible: its body does term.open + loadAddon(new ImageAddon())
+      // unconditionally, and reusing it would stack a duplicate ImageAddon per
+      // move (audit HIGH). One exception lives inside: a pane that parked
+      // BEFORE ever becoming visible (a background tab moved before its first
+      // view) was never open()ed — the first mount's deferred open died with
+      // its observers, so it happens here instead, and ImageAddon still loads
+      // exactly once per terminal lifetime (only on this never-opened path).
+      const refitOnly = () => {
+        if (!alive || !container.clientWidth || !container.clientHeight) return;
+        const t = entry.term;
+        if (!t) return;
+        if (!t.element) {
+          try {
+            t.open(entry.host);
+            t.loadAddon(new ImageAddon());
+          } catch { /* ignore */ }
+        }
+        try { entry.fit?.fit(); } catch {}
+      };
+      const vis = new IntersectionObserver((entries) => {
+        if (entries.some((en) => en.isIntersecting)) refitOnly();
+      });
+      vis.observe(container);
+      const ro = new ResizeObserver(refitOnly);
+      ro.observe(container);
+      // One-shot restore: refit to the new slot, repaint, refocus-if-active
+      // (mirrors the visibility effect's show path).
+      if (container.clientWidth && container.clientHeight) {
+        try { entry.fit?.fit(); } catch {}
+      }
+      try {
+        if (entry.term?.element) entry.term.refresh(0, entry.term.rows - 1);
+      } catch {}
+      if (activeRef.current && visibleRef.current) {
+        try { entry.term?.focus(); } catch {}
+      }
+      return paneCleanup(vis, ro);
+    }
+
+    // ── First mount: create the terminal, handlers, and PTY. ──
     let ptyId = null;
     let unlistenData = null;
-    let jumpFwdId = null; // jump-host tunnel to tear down on unmount
+    let jumpFwdId = null; // jump-host tunnel; killed by the destroy hooks / orphan guard
     let restoringScrollback = false; // suppress OSC 133 while replaying old output
     let unlistenExit = null;
     const cmdsAtSpawn = Array.isArray(startCommandsRef.current) ? [...startCommandsRef.current] : [];
@@ -516,11 +717,28 @@ export default function TerminalPane({
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;
+    // The registry owns these create-once objects from here on; a later mount
+    // restores its component refs from the entry instead of re-creating.
+    entry.term = term;
+    entry.fit = fit;
+    entry.search = searchAddon;
+    // Destroy hooks run LIFO — dispose is registered FIRST so it runs LAST
+    // (after the listener-detach and pty-kill hooks registered further down).
+    registerDestroyHook(tabId, () => {
+      try { term.dispose(); } catch {}
+    });
+    // Transcript tail: the transcript buffer + flush belong to THIS mount's
+    // fiber (deliberately not migrated to the entry), but after a move the
+    // later fibers' cleanups flush their own — empty — buffers. This hook
+    // flushes the owning fiber's tail on real destroy (close/lock/crash).
+    registerDestroyHook(tabId, () => {
+      try { flushTranscript(); } catch {}
+    });
     // The "find" shortcut opens the find overlay (intercepted before the PTY).
     // Combo is user-remappable; read it live from the shared keybinding cache.
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type === "keydown" && actionForEvent(ev) === "find") {
-        setSearchOpen(true);
+        entry.ui.setSearchOpen(true); // via the table — this handler outlives the fiber
         return false;
       }
       // Jump between command blocks (Blocks slice 4): Alt+Up / Alt+Down scrolls the
@@ -597,7 +815,7 @@ export default function TerminalPane({
       const here = buf.baseY + buf.cursorY;
       if (data === "A" || data.startsWith("A;")) {
         const b = { startLine: here, command: null, endLine: null, exit: 0, el: null, deco: null };
-        currentBlockRef.current = b;
+        entry.blocks.current = b;
         blocksRef.current.push(b);
         if (blocksRef.current.length > 200) {
           // Evict the oldest block AND its xterm decoration — without the
@@ -612,14 +830,12 @@ export default function TerminalPane({
         }
         // App-owned prompt editor: the prompt is (re)opening. Once the prompt
         // string finishes printing and the cursor settles, capture the input
-        // origin and show the editor. Re-armed on every prompt.
-        if (peEnabledRef.current) {
-          clearTimeout(settleTimerRef.current);
-          settleTimerRef.current = setTimeout(() => captureRef.current?.(), 70);
-        }
+        // origin and show the editor. Re-armed on every prompt. Routed through
+        // entry.ui — the settle timer + capture fn belong to the CURRENT fiber.
+        entry.ui.capturePrompt();
       } else if (data === "D" || data.startsWith("D;")) {
-        const blk = currentBlockRef.current;
-        currentBlockRef.current = null;
+        const blk = entry.blocks.current;
+        entry.blocks.current = null;
         if (!blk) return true; // first D (after our init) — no block open
         const exit = data.includes(";") ? parseInt(data.split(";")[1], 10) : 0;
         const ok = Number.isNaN(exit) || exit === 0;
@@ -665,7 +881,7 @@ export default function TerminalPane({
             if (line) text += line.translateToString(true) + "\n";
           }
           text = text.replace(/\n{3,}/g, "\n\n").trim();
-          if (text) setFailedBlock({ exitCode: exit, text, key: `${here}:${Date.now()}` });
+          if (text) entry.ui.setFailedBlock({ exitCode: exit, text, key: `${here}:${Date.now()}` });
         }
       }
       return true; // handled (don't pass the OSC through to the screen)
@@ -681,7 +897,7 @@ export default function TerminalPane({
           const bin = atob(data.slice("PlutoCwd=".length));
           const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
           const dir = new TextDecoder().decode(bytes);
-          if (dir) setShellCwd((prev) => (prev === dir ? prev : dir));
+          if (dir) entry.ui.setShellCwd((prev) => (prev === dir ? prev : dir));
         } catch { /* ignore */ }
         return true;
       }
@@ -694,10 +910,10 @@ export default function TerminalPane({
         recordCommand(cmd);
         // A command was submitted → leave prompt state (hide the editor) until
         // the next prompt re-arms it.
-        clearTimeout(settleTimerRef.current);
-        setAtPrompt(false);
+        entry.ui.cancelPromptSettle();
+        entry.ui.setAtPrompt(false);
         // Tag the open block with the command it's running (for block copy/re-run).
-        if (currentBlockRef.current) currentBlockRef.current.command = cmd;
+        if (entry.blocks.current) entry.blocks.current.command = cmd;
       } catch { /* malformed payload — ignore */ }
       return true;
     });
@@ -705,14 +921,14 @@ export default function TerminalPane({
     // output, pin that block's command at the top so you know what produced it.
     const updateSticky = () => {
       const buf = term.buffer.active;
-      if (buf.viewportY >= buf.baseY) { setStickyBlock(null); return; } // at the live bottom
+      if (buf.viewportY >= buf.baseY) { entry.ui.setStickyBlock(null); return; } // at the live bottom
       const top = buf.viewportY;
       let found = null;
       for (const b of blocksRef.current) {
         const end = b.endLine != null ? b.endLine : b.startLine;
         if (b.command && b.startLine < top && top <= end) found = b;
       }
-      setStickyBlock(found);
+      entry.ui.setStickyBlock(found);
     };
     term.onScroll(updateSticky);
     termRef.current = term;
@@ -739,7 +955,7 @@ export default function TerminalPane({
     const openIfVisible = () => {
       if (opened || !alive || !container.clientWidth || !container.clientHeight) return;
       opened = true;
-      term.open(container);
+      term.open(entry.host); // registry-owned host — the xterm DOM moves with it across slots
       try { term.loadAddon(new ImageAddon()); } catch { /* ignore */ }
       safeFit();
     };
@@ -773,7 +989,7 @@ export default function TerminalPane({
       if (!id) return false;
       try {
         const saved = await invoke("scrollback_load", { tabId: id });
-        if (saved && alive) {
+        if (saved && entryLive()) {
           // Suppress OSC 133 while the old bytes replay; clear once parsed.
           restoringScrollback = true;
           term.write(saved, () => { restoringScrollback = false; });
@@ -877,6 +1093,7 @@ export default function TerminalPane({
               targetHost: connection.host, targetPort: connection.port || 22,
             });
             jumpFwdId = jf.id;
+            entry.jumpFwdId = jf.id;
             connectHost = "127.0.0.1";
             connectPort = jf.local_port;
           }
@@ -897,14 +1114,36 @@ export default function TerminalPane({
         } else {
           id = await invoke("pty_spawn", { cwd: cwd || null, cols, rows, extraEnv, tabId });
         }
-        if (!alive) {
+        // Orphan guard (decision 6): if the entry was destroyed while the
+        // spawn was in flight (mid-spawn unmount, StrictMode's synthetic first
+        // mount, instant close), nothing owns this PTY — kill it (and any jump
+        // tunnel) on arrival. Identity check, not truthiness: a close-then-
+        // reopen may already have minted a FRESH entry (with its own spawn)
+        // under the same id, and this stale spawn must never adopt it.
+        if (getEntry(tabId) !== entry) {
           await invoke("pty_kill", { id }).catch(() => {});
+          if (jumpFwdId) invoke("port_forward_stop", { id: jumpFwdId }).catch(() => {});
           return;
         }
         ptyId = id;
+        entry.ptyId = id;
+        entry.spawnState = "live"; // from here on, unmount parks instead of destroying
+        // Registered the moment the PTY exists — BEFORE any later await — so a
+        // destroy landing in the listen()/setup windows below still kills the
+        // process, stops the tunnel, and force-resolves any waiting agent
+        // capture (unregisterPty). LIFO: runs after the listener-detach hook,
+        // before dispose.
+        registerDestroyHook(tabId, () => {
+          unregisterPty(tabId);
+          invoke("pty_kill", { id }).catch(() => {});
+          if (jumpFwdId) invoke("port_forward_stop", { id: jumpFwdId }).catch(() => {});
+        });
 
         // Expose this tab's PTY to the snippets drawer / status bar via the
         // bridge. Writer closes over the local ptyId; dims reported below.
+        // Bridge registrations are REGISTRY-lifetime (decision 7): they
+        // survive parks and are torn down only by the destroy hook above — so
+        // runAndCapture survives a mid-run move (B1 bug fix 1).
         registerPtyWriter(tabId, (data) => {
           if (ptyId) invoke("pty_write", { id: ptyId, data }).catch(() => {});
         }, visibleRef.current);
@@ -941,7 +1180,7 @@ export default function TerminalPane({
           // Feed the various analysis buffers.
           appendScrollback(payload);
           appendTranscript(payload);
-          recentOutRef.current += payload;
+          entry.counters.recentOut += payload;
           // Cheap (2KB + 3 regexes) and safety-relevant — keep synchronous so it
           // fires on every chunk even while the window is hidden.
           checkAutoApprove(ptyId);
@@ -951,18 +1190,19 @@ export default function TerminalPane({
           if (!costRafRef.current) {
             costRafRef.current = requestAnimationFrame(() => {
               costRafRef.current = 0;
-              if (alive) checkCost();
+              if (entryLive()) checkCost();
             });
           }
 
           // Activity tracking: only count when user isn't watching this tab.
-          if (visibleRef.current) return;
+          // Visibility reads go through entry.ui (the current fiber's ref).
+          if (entry.ui.isVisible()) return;
           bytesSinceSeenRef.current += payload.length;
-          if (bytesSinceSeenRef.current >= ACTIVITY_BYTE_THRESHOLD && userHasTypedRef.current) {
+          if (bytesSinceSeenRef.current >= ACTIVITY_BYTE_THRESHOLD && entry.counters.userHasTyped) {
             setActivity("active");
             clearDoneTimer();
             doneTimerRef.current = setTimeout(() => {
-              if (alive && !visibleRef.current) setActivity("done");
+              if (entryLive() && !entry.ui.isVisible()) setActivity("done");
             }, DONE_TIMEOUT_MS);
           }
         };
@@ -976,11 +1216,11 @@ export default function TerminalPane({
           if (!c) return;
           clearTimeout(c.timer);
           concealRef.current = null;
-          if (c.buf && alive) handleChunk(c.buf);
+          if (c.buf && entryLive()) handleChunk(c.buf);
         };
 
         unlistenData = await listen(`pty://${id}`, (e) => {
-          if (!alive) return;
+          if (!entryLive()) return; // registry-lifetime: keeps streaming while parked
           const payload = e.payload || "";
           const c = concealRef.current;
           if (c) {
@@ -1002,17 +1242,27 @@ export default function TerminalPane({
           }
           handleChunk(payload);
         });
-        // If the pane unmounted while listen() was in flight, cleanup already
-        // ran (and saw unlistenData undefined) — detach immediately or it leaks.
-        if (!alive) { try { unlistenData(); } catch {} return; }
+        // If the entry was destroyed while listen() was in flight, the destroy
+        // hooks already ran (and saw unlistenData undefined) — detach
+        // immediately or it leaks. (The PTY itself was killed by the destroy
+        // hook registered at spawn.)
+        if (!entryLive()) { try { unlistenData(); } catch {} return; }
 
         unlistenExit = await listen(`pty-exit://${id}`, () => {
-          if (!alive) return;
+          if (!entryLive()) return;
           const msg = serial ? "[serial port closed]" : connection ? "[ssh disconnected]" : "[process exited]";
           term.writeln(`\r\n\x1b[90m${msg}\x1b[0m`);
         });
         // Same late-resolution guard as unlistenData above.
-        if (!alive) { try { unlistenExit(); } catch {} return; }
+        if (!entryLive()) { try { unlistenExit(); } catch {} return; }
+
+        // Both listeners live — detach only on real destroy. LIFO runs this
+        // hook FIRST: stop consuming events, then the spawn hook kills the
+        // PTY, then dispose.
+        registerDestroyHook(tabId, () => {
+          try { unlistenData(); } catch {}
+          try { unlistenExit(); } catch {}
+        });
 
         // Both listeners are live — tell the backend it may begin streaming.
         // EVERY transport (local, SSH, serial) now gates its first emit on this
@@ -1023,12 +1273,12 @@ export default function TerminalPane({
         invoke("pty_ready", { id }).catch((e) => console.warn("pty_ready failed", e));
 
         term.onData((data) => {
-          if (!alive || !ptyId) return;
-          userHasTypedRef.current = true;
+          if (!entryLive() || !ptyId) return;
+          entry.counters.userHasTyped = true;
           recordInput(tabId, data); // macro recording (no-op unless armed for this tab)
           // Clear the auto-approve match buffer when the user types — they
           // intend to answer the prompt themselves.
-          recentOutRef.current = "";
+          entry.counters.recentOut = "";
           // MultiExec: when broadcast is on, fan the keystroke out to every
           // visible terminal (this pane included, since it's visible) rather
           // than writing only to our own PTY — so it lands exactly once here.
@@ -1040,7 +1290,7 @@ export default function TerminalPane({
         });
 
         term.onResize(({ cols, rows }) => {
-          if (alive && ptyId) {
+          if (entryLive() && ptyId) {
             setTabDims(tabId, cols, rows);
             invoke("pty_resize", {
               id: ptyId,
@@ -1048,14 +1298,18 @@ export default function TerminalPane({
               rows: Math.max(rows, MIN_ROWS),
             }).catch(() => {});
           }
-          // Reprint the welcome banner at the new width while the pane is still
-          // untouched (e.g. just split). Debounced so a flurry of resize events
-          // collapses to one reprint; bannerColsRef guards against redundant runs.
-          if (bannerRedrawRef.current && !userHasTypedRef.current && cols !== bannerColsRef.current) {
+          // Reprint the welcome banner at the new width while the pane is
+          // still untouched (e.g. just split). Debounced so a flurry of resize
+          // events collapses to one reprint; the last-drawn width guards
+          // against redundant runs. The armed fn + width live behind entry.ui
+          // (per-fiber refs handed forward on re-attach), and the deferred
+          // body reads entry.term — the registry-owned instance — never this
+          // mount's termRef, which is nulled at park.
+          if (entry.ui.bannerRedraw.get() && !entry.counters.userHasTyped && cols !== entry.ui.bannerCols.get()) {
             clearTimeout(bannerRedrawTimerRef.current);
             bannerRedrawTimerRef.current = setTimeout(() => {
-              const t = termRef.current;
-              if (t && !userHasTypedRef.current && bannerRedrawRef.current) bannerRedrawRef.current(t.cols);
+              const t = entry.term;
+              if (t && !entry.counters.userHasTyped && entry.ui.bannerRedraw.get()) entry.ui.resizeReprint(t.cols);
             }, 200);
           }
         });
@@ -1065,10 +1319,18 @@ export default function TerminalPane({
         try {
           term.buffer.onBufferChange(() => {
             const alt = term.buffer.active.type === "alternate";
-            setAltScreen(alt);
-            if (alt) { clearTimeout(settleTimerRef.current); setAtPrompt(false); }
+            entry.ui.setAltScreen(alt);
+            if (alt) { entry.ui.cancelPromptSettle(); entry.ui.setAtPrompt(false); }
           });
         } catch { /* older xterm — feature degrades to prompt-state only */ }
+
+        // Defensive latch (decision 9): the whole spawn IIFE is first-mount-
+        // only, so this setup region can never run twice for one entry — the
+        // isFirstMount gate is the real start-command suppressor. Kept as
+        // belt-and-suspenders + self-documentation. Set BEFORE the region so a
+        // mid-setup throw can never allow a second pass at typing commands.
+        if (entry.setupDone) return;
+        entry.setupDone = true;
 
         // Pre-flight check (v0.1.14): if any startCommand invokes `claude` and
         // the CLI isn't on PATH, the shell would respond "claude is not
@@ -1088,7 +1350,7 @@ export default function TerminalPane({
               const v = await invoke("check_command_version", { name: "claude" });
               claudeAvailable = !!v;
             } catch {}
-            if (!claudeAvailable && alive) {
+            if (!claudeAvailable && entryLive()) {
               term.writeln("");
               term.writeln("\x1b[33m[pluto's terminals]\x1b[0m \x1b[31mClaude CLI not found on PATH.\x1b[0m");
               term.writeln("\x1b[2m  Install:  \x1b[0m\x1b[36mnpm install -g @anthropic-ai/claude-code\x1b[0m");
@@ -1103,7 +1365,7 @@ export default function TerminalPane({
         if (!skipPackCommands && cmdsAtSpawn.length > 0) {
           await new Promise(r => setTimeout(r, 600));
           for (let i = 0; i < cmdsAtSpawn.length; i++) {
-            if (!alive || !ptyId) break;
+            if (!entryLive() || !ptyId) break;
             try {
               await invoke("pty_write", { id: ptyId, data: cmdsAtSpawn[i] + "\r" });
             } catch {}
@@ -1121,7 +1383,7 @@ export default function TerminalPane({
         // serial tabs and for tabs that launch their own app via startCommands.
         // Detects zsh/bash at runtime. Windows shells keep their default.
         const isWindowsUA = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
-        if (!connection && !serial && cmdsAtSpawn.length === 0 && alive && ptyId) {
+        if (!connection && !serial && cmdsAtSpawn.length === 0 && entryLive() && ptyId) {
           // Arm the boot-conceal gate BEFORE the shell's first output: the pane
           // stays clean (restored tabs: just the replayed scrollback) instead of
           // flashing the startup banner + the echoed wall of setup code. The
@@ -1146,7 +1408,7 @@ export default function TerminalPane({
           // refresh). Leading space on POSIX so a shell with ignorespace skips it
           // in history.
           const sendBannerDisplay = async (cols) => {
-            if (!alive || !ptyId) return;
+            if (!entryLive() || !ptyId) return;
             try {
               const raw = buildWelcomeBanner({ paneCols: cols });
               const p = await invoke("write_welcome_file", { content: raw });
@@ -1155,7 +1417,7 @@ export default function TerminalPane({
               const cmd = isWindowsUA
                 ? `Clear-Host; Get-Content -Raw -Encoding utf8 -LiteralPath '${lit.replace(/'/g, "''")}'`
                 : ` clear; cat '${lit.replace(/'/g, "'\\''")}'`;
-              bannerColsRef.current = cols;
+              entry.ui.bannerCols.set(cols); // via the table — this closure outlives its fiber
               await invoke("pty_write", { id: ptyId, data: cmd + "\r" });
             } catch { /* best-effort refresh */ }
           };
@@ -1177,7 +1439,7 @@ export default function TerminalPane({
             // Pure builders extracted to shellIntegration.js — output bytes
             // identical to the old inline PowerShell equivalents.
             const { psEnc, psPrompt, psHist, psComplete } = buildPowerShellInit();
-            if (alive && ptyId) {
+            if (entryLive() && ptyId) {
               try { await invoke("pty_write", { id: ptyId, data: `${psEnc}; ${psPrompt}` + "\r" }); } catch {}
               try { await invoke("pty_write", { id: ptyId, data: psHist + "\r" }); } catch {}
               try { await invoke("pty_write", { id: ptyId, data: psComplete + "\r" }); } catch {}
@@ -1215,7 +1477,7 @@ export default function TerminalPane({
                 if (p) display = `${shMarker}; clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
               } catch { /* no file → just clear */ }
             }
-            if (alive && ptyId) {
+            if (entryLive() && ptyId) {
               try { await invoke("pty_write", { id: ptyId, data: promptSetup + "\r" }); } catch {}
               try { await invoke("pty_write", { id: ptyId, data: cmdCapture + "\r" }); } catch {}
               try { await invoke("pty_write", { id: ptyId, data: display + "\r" }); } catch {}
@@ -1223,12 +1485,14 @@ export default function TerminalPane({
           }
           // Arm banner re-render on resize, but only for a plain local shell with
           // no pack commands / system prompt (those make the pane "busy" — never
-          // a clean banner to refresh). userHasTypedRef gates it live: once the
-          // user touches the pane we stop reprinting.
+          // a clean banner to refresh). The userHasTyped counter gates it live:
+          // once the user touches the pane we stop reprinting. Armed THROUGH the
+          // table — a move may already have repointed entry.ui to a newer fiber
+          // by the time this IIFE reaches here.
           if (!restored && !connection && !serial && cmdsAtSpawn.length === 0
               && !(systemPromptRef.current && systemPromptRef.current.trim())) {
-            bannerRedrawRef.current = sendBannerDisplay;
-            bannerColsRef.current = term.cols;
+            entry.ui.bannerRedraw.set(sendBannerDisplay);
+            entry.ui.bannerCols.set(term.cols);
           }
         }
 
@@ -1237,63 +1501,31 @@ export default function TerminalPane({
         // then type the system prompt as the first user message. Turns
         // packs from "tab labels" into actual specialized agents.
         const sysPrompt = systemPromptRef.current;
-        if (!skipPackCommands && sysPrompt && typeof sysPrompt === "string" && sysPrompt.trim().length > 0 && alive && ptyId) {
+        if (!skipPackCommands && sysPrompt && typeof sysPrompt === "string" && sysPrompt.trim().length > 0 && entryLive() && ptyId) {
           // 2s lets `claude` finish initializing + render its prompt before
           // we paste. If Claude isn't ready yet, the input buffers and gets
           // consumed once the REPL is alive.
           await new Promise(r => setTimeout(r, 2000));
-          if (alive && ptyId) {
+          if (entryLive() && ptyId) {
             try {
               await invoke("pty_write", { id: ptyId, data: sysPrompt.trim() + "\r" });
             } catch {}
           }
         }
       } catch (err) {
-        if (alive) term.writeln(`\r\n\x1b[31m[spawn failed: ${err}]\x1b[0m`);
+        if (entryLive()) term.writeln(`\r\n\x1b[31m[spawn failed: ${err}]\x1b[0m`);
       }
     })();
 
     const ro = new ResizeObserver(safeFit);
     ro.observe(container);
 
-    return () => {
-      alive = false;
-      vis.disconnect();
-      ro.disconnect();
-      clearDoneTimer();
-      clearTimeout(bannerRedrawTimerRef.current); // pending banner reprint must not fire post-dispose
-      if (concealRef.current) {
-        clearTimeout(concealRef.current.timer);
-        concealRef.current = null;
-      }
-      if (costRafRef.current) {
-        cancelAnimationFrame(costRafRef.current);
-        costRafRef.current = 0;
-      }
-      if (transcriptTimerRef.current) {
-        clearInterval(transcriptTimerRef.current);
-        transcriptTimerRef.current = null;
-      }
-      flushTranscript();
-
-      // v0.1.29: scrollback persistence moved to the Rust PTY reader thread
-      // (see pty.rs::ScrollbackWriter). The renderer-side save here was racy
-      // — invoke() is async, .catch() swallows errors, and tray→Quit fires
-      // app.exit(0) which kills the process before the IPC message reaches
-      // Rust. Even if it had landed, it would have overwritten the rich
-      // byte-level file Rust now owns with a lossy "last 500 lines,
-      // newline-split, ANSI stripped via join" version. So this is now a
-      // no-op — Rust already wrote every chunk to disk as it streamed.
-
-      unregisterPty(tabId);
-      if (unlistenData) unlistenData();
-      if (unlistenExit) unlistenExit();
-      if (ptyId) invoke("pty_kill", { id: ptyId }).catch(() => {});
-      if (jumpFwdId) invoke("port_forward_stop", { id: jumpFwdId }).catch(() => {});
-      try { term.dispose(); } catch {}
-      termRef.current = null;
-      fitRef.current = null;
-    };
+    // v0.1.29 note (still true): scrollback persistence lives on the Rust PTY
+    // reader thread (pty.rs::ScrollbackWriter) — no renderer-side save here.
+    return paneCleanup(vis, ro);
+    // [cwd] dep: a cwd-prop change re-runs this effect → park + re-attach (no
+    // respawn). Live cwd comes from OSC 1337 PlutoCwd; the prop only matters
+    // at first spawn.
   }, [cwd]);
 
   // Report visibility to the bridge so MultiExec broadcast only targets the
@@ -1305,9 +1537,17 @@ export default function TerminalPane({
   // When a hidden pane becomes visible, refit + focus + reset activity.
   useEffect(() => {
     if (!visible) return;
-    clearDoneTimer();
-    bytesSinceSeenRef.current = 0;
-    setActivity("idle");
+    // Reset via entry.ui: the activity machine is create-once (it lives in
+    // the FIRST mount's closures), so a later fiber's local reset would miss
+    // it and leave the dot stuck after a move.
+    const reset = entryRef.current?.ui?.resetActivity;
+    if (reset) {
+      reset();
+    } else {
+      clearDoneTimer();
+      bytesSinceSeenRef.current = 0;
+      setActivity("idle");
+    }
     const t = setTimeout(() => {
       const el = containerRef.current;
       if (el && el.clientWidth && el.clientHeight) {
