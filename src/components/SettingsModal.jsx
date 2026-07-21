@@ -11,6 +11,7 @@ import { wipeAllLocalState } from "../features/terminals/storageKeys.js";
 import KeybindingsSection from "../features/terminals/KeybindingsSection.jsx";
 import ThemesSection from "../features/terminals/ThemesSection.jsx";
 import SyncSection from "../features/terminals/SyncSection.jsx";
+import AgentSection from "../features/terminals/AgentSection.jsx";
 import { SMoon, SSun } from "../features/terminals/toolbarIcons.jsx";
 
 export default function SettingsModal({ open, st, save, userSt, saveUser, onClose }) {
@@ -113,6 +114,12 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
           hint="End-to-end encrypted. Syncs workflows, themes, keybindings, settings, and macros across your machines via a private git repo you control. API keys never sync."
         >
           <SyncSection userSt={userSt} saveUser={saveUser} />
+        </Field>
+      )}
+
+      {saveUser && (
+        <Field label="Agent" hint="Project context + global rules for Agent Mode">
+          <AgentSection userSt={userSt} saveUser={saveUser} />
         </Field>
       )}
 
