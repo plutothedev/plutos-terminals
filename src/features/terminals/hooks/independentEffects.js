@@ -4,10 +4,10 @@
 // status bar / chrome. None touch the workspace tree (state.panels) or
 // persist(), so extracting them shrinks TerminalsTab with zero behavior change.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { invoke } from "@backend";
 import * as recording from "../recording.js";
-import { onDimsChange } from "../ptyBridge.js";
+import { subscribeBridge, getBridgeVersion } from "../ptyBridge.js";
 import { injectHeaderSkinsCss } from "../headerSkins";
 
 // Live system stats (CPU / memory / disk) for the status bar. Polled ~2.5s;
@@ -71,11 +71,11 @@ export function useRecordingState() {
 }
 
 // Force a re-render when any terminal's dimensions change (the status bar reads
-// getTabDims on render). Pure subscription; the bump stays a useState here so a
-// dims change re-renders the consuming component, exactly as before.
+// getTabDims on render), via useSyncExternalStore (#27) instead of a bespoke
+// bump-state effect. Returns the live bridge version so a caller that also
+// needs a change-token (e.g. a memo dep) doesn't need its own subscription.
 export function useDimsListener() {
-  const [, bumpDims] = useState(0);
-  useEffect(() => onDimsChange(() => bumpDims((v) => v + 1)), []);
+  return useSyncExternalStore(subscribeBridge, getBridgeVersion);
 }
 
 // Inject the header-skin CSS once on mount (idempotent inside injectHeaderSkinsCss).

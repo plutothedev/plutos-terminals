@@ -14,6 +14,7 @@ const ptyIds = new Map(); // tabId -> live pty channel id ("pty-…", from pty_s
 const dims = new Map(); // tabId -> { cols, rows }
 const visible = new Set(); // tabIds whose pane is currently shown
 const dimsListeners = new Set(); // () => void
+let bridgeVersion = 0; // bumped once per emitDims() call — see subscribeBridge below
 
 // MultiExec broadcast mode (module-level, so per-window). When on, a keystroke
 // or snippet goes to every visible terminal rather than just the focused one.
@@ -24,6 +25,7 @@ let broadcastMode = false;
 let broadcastTargets = null;
 
 function emitDims() {
+  bridgeVersion++;
   for (const cb of dimsListeners) {
     try {
       cb();
@@ -132,6 +134,25 @@ export function getTabDims(tabId) {
 }
 
 export function onDimsChange(cb) {
+  dimsListeners.add(cb);
+  return () => dimsListeners.delete(cb);
+}
+
+// ── Bridge version (useSyncExternalStore surface, #27) ──────────────────────
+// getBridgeVersion/subscribeBridge give React's useSyncExternalStore a
+// (subscribe, getSnapshot) pair instead of a bespoke bump-state effect.
+// Deliberately single-channel: subscribeBridge adds to the SAME dimsListeners
+// Set that onDimsChange does — there is no separate "version changed" notify
+// path. Every event that already calls emitDims (dims resize, ptyId
+// assign/clear, unregister) bumps bridgeVersion AND fires both kinds of
+// listeners identically, so a useSyncExternalStore consumer never misses a
+// change an onDimsChange consumer would have seen, or vice versa.
+
+export function getBridgeVersion() {
+  return bridgeVersion;
+}
+
+export function subscribeBridge(cb) {
   dimsListeners.add(cb);
   return () => dimsListeners.delete(cb);
 }

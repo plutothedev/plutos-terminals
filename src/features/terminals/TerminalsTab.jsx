@@ -78,7 +78,7 @@ import {
 import { isPrimaryWindow } from "./storageKeys.js";
 import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds, getPtyId, onDimsChange } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabDims, getTabText, getCommandHistory, getLiveTabIds, getPtyId } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
 import { reconcile } from "./paneRegistry.js";
 import { allRenderedPaneIds } from "./paneIds.js";
@@ -130,7 +130,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const { broadcast, bcastTargets, toggleBroadcast, applyBroadcastGroup, useAllVisibleBroadcast } = useBroadcastMode(toast);
 
   // Re-render the status bar when the active terminal's dimensions change.
-  useDimsListener();
+  // The returned version also drives the sessionListJson memo below (#27) —
+  // one bridge subscription instead of two.
+  const bridgeVersion = useDimsListener();
 
   // Recording state for the status-bar indicator + command-palette labels
   // (recordingCapHit = MAX_EVENTS auto-stop reached).
@@ -442,8 +444,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // set changes. Each entry pairs the live channel id (for `pty://` subscribe +
   // write/resize) with the tabId (the scrollback key). Harmless when the server
   // is off — it just stashes the JSON for the next `list_sessions` RPC.
-  const [bridgeTick, setBridgeTick] = useState(0);
-  useEffect(() => onDimsChange(() => setBridgeTick((n) => (n + 1) % 1e9)), []);
   const sessionListJson = useMemo(() => {
     const out = [];
     for (const panel of state.panels) {
@@ -467,10 +467,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       }
     }
     return JSON.stringify(out);
-    // bridgeTick re-derives when a pane spawns/dies (getPtyId changes); equal
+    // bridgeVersion re-derives when a pane spawns/dies (getPtyId changes); equal
     // JSON short-circuits the push effect below (string identity).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.panels, state.activePanelId, bridgeTick]);
+  }, [state.panels, state.activePanelId, bridgeVersion]);
   useEffect(() => {
     // Only the primary window owns the companion's session mirror. Secondary
     // (?w=) windows have their own per-window layout; if they pushed too, the two

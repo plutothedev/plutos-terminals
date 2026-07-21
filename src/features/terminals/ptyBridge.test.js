@@ -2,12 +2,18 @@
 // Locks the Native-Agent-Mode capture path in ptyBridge, including the
 // 2026-07-01 fix: closing a tab (unregisterPty) with an in-flight runAndCapture
 // must resolve it immediately instead of hanging until the 120s timeout.
+// Also locks the bridgeVersion/subscribeBridge surface (#27): a
+// useSyncExternalStore-compatible subscription that piggybacks on the same
+// dimsListeners notify path emitDims already drives.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   registerPtyWriter,
   unregisterPty,
   runAndCapture,
   reportBlockDone,
+  getBridgeVersion,
+  subscribeBridge,
+  setTabDims,
 } from "./ptyBridge.js";
 
 beforeEach(() => vi.useFakeTimers());
@@ -49,5 +55,33 @@ describe("ptyBridge runAndCapture", () => {
     reportBlockDone("t4", { command: "two", output: "ok" });
     expect((await second).output).toBe("ok");
     unregisterPty("t4");
+  });
+});
+
+describe("ptyBridge bridge version (#27 useSyncExternalStore surface)", () => {
+  it("bumps the version when setTabDims changes a tab's dimensions", () => {
+    const before = getBridgeVersion();
+    setTabDims("bv1", 80, 24);
+    expect(getBridgeVersion()).toBeGreaterThan(before);
+  });
+
+  it("subscribeBridge fires the subscriber on a dims change", () => {
+    let calls = 0;
+    const unsubscribe = subscribeBridge(() => { calls += 1; });
+    setTabDims("bv2", 100, 40);
+    expect(calls).toBe(1);
+    unsubscribe();
+  });
+
+  it("stops delivering to an unsubscribed callback while the version keeps moving", () => {
+    let calls = 0;
+    const unsubscribe = subscribeBridge(() => { calls += 1; });
+    setTabDims("bv3", 80, 24);
+    expect(calls).toBe(1);
+    const versionAtUnsubscribe = getBridgeVersion();
+    unsubscribe();
+    setTabDims("bv3", 120, 30); // a real dims change — emitDims fires again
+    expect(getBridgeVersion()).toBeGreaterThan(versionAtUnsubscribe); // version still moves
+    expect(calls).toBe(1); // but the unsubscribed callback does not fire again
   });
 });
