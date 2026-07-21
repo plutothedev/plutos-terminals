@@ -1247,6 +1247,108 @@ pub fn list_directory(path: Option<String>) -> Result<(String, Vec<LocalEntry>),
     Ok((resolved.to_string_lossy().into_owned(), entries))
 }
 
+// ── Notebooks (Stream C) ───────────────────────────────────────────
+// (C) Narrow, dir-scoped IO: names are sanitized single-segment filenames under
+// <data_dir>/notebooks/ — no separators, no traversal, no arbitrary paths.
+// Writes are atomic (tmp+rename, same pattern as write_store).
+
+fn notebooks_dir(app: &AppHandle) -> PathBuf {
+    get_data_dir(app).join("notebooks")
+}
+
+// AUDIT-CORRECTED: safe_filename is a MUTATING sanitizer whose allowlist has no
+// '.', so validating the whole name against it rejects every legal *.md name.
+// Validate the STEM only, then re-append a normalized ".md". Also reject the
+// reserved Windows device names (win32-primary app).
+const RESERVED_NAMES: [&str; 22] = [
+    "con", "prn", "aux", "nul",
+    "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+    "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
+
+// Dir-scoped name gate — the audit-corrected core (five audit rounds; do not
+// "simplify" this). Adapted from the plan's `notebook_path(app: &AppHandle,
+// name)` to take `dir: &Path` directly so it is unit-testable without an
+// AppHandle, mirroring `collect_rule_files_sync`; the three command wrappers
+// below pass `notebooks_dir(&app)` in. A name that changes shape under
+// sanitization is rejected outright, never silently rewritten — Task C-3's
+// name prompt appends ".md" itself; this check is the backstop, not the UX.
+fn notebook_path(dir: &std::path::Path, name: &str) -> Result<PathBuf, String> {
+    let lower = name.to_lowercase();
+    if name.len() < 4 || !lower.ends_with(".md") {
+        return Err("notebook name must end in .md".into());
+    }
+    let stem = &name[..name.len() - 3];
+    let clean = safe_filename(stem);
+    if clean.is_empty() || clean != stem {
+        return Err("invalid notebook name".into());
+    }
+    if RESERVED_NAMES.contains(&clean.to_lowercase().as_str()) {
+        return Err("reserved name".into());
+    }
+    Ok(dir.join(format!("{clean}.md")))
+}
+
+// Sync core: create-if-missing + list ".md" FILES only — a directory that
+// happens to be named "*.md" is excluded via file_type() (reports the on-disk
+// type without following symlinks, so a symlinked entry is never listed
+// either), name-sorted. A missing/empty dir is not an error — it's just an
+// empty notebook library.
+fn notebook_list_sync(dir: &std::path::Path) -> Vec<String> {
+    fs::create_dir_all(dir).ok();
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .map(|read| {
+            read.flatten()
+                .filter(|ent| ent.file_type().map(|t| t.is_file()).unwrap_or(false))
+                .map(|ent| ent.file_name().to_string_lossy().into_owned())
+                .filter(|name| name.to_lowercase().ends_with(".md"))
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+// Sync core: read one notebook. A missing file is an Err (not ""); the
+// caller (NotebookView, Task C-4) decides whether that means "new notebook"
+// vs. "restored tab whose file vanished" — never silently reseeded here.
+fn notebook_read_sync(dir: &std::path::Path, name: &str) -> Result<String, String> {
+    let path = notebook_path(dir, name)?;
+    fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+// Sync core: atomic write — tmp file + rename, same pattern as write_store
+// above — so a crash/power-cut mid-write can't leave a truncated or
+// half-written notebook behind, and a rerun always replaces the owned
+// content rather than appending to it.
+fn notebook_write_sync(dir: &std::path::Path, name: &str, content: &str) -> Result<(), String> {
+    let path = notebook_path(dir, name)?;
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let mut tmp_name = path
+        .file_name()
+        .ok_or_else(|| "invalid notebook path".to_string())?
+        .to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = path.with_file_name(tmp_name);
+    fs::write(&tmp, content).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn notebook_list(app: AppHandle) -> Vec<String> {
+    notebook_list_sync(&notebooks_dir(&app))
+}
+
+#[tauri::command]
+pub async fn notebook_read(app: AppHandle, name: String) -> Result<String, String> {
+    notebook_read_sync(&notebooks_dir(&app), &name)
+}
+
+#[tauri::command]
+pub async fn notebook_write(app: AppHandle, name: String, content: String) -> Result<(), String> {
+    notebook_write_sync(&notebooks_dir(&app), &name, &content)
+}
+
 #[cfg(test)]
 mod rule_file_tests {
     use super::*;
@@ -1403,5 +1505,123 @@ mod rule_file_tests {
         let total: usize = got.iter().map(|r| r.content.len()).sum();
         assert!(total <= 32 * 1024 + 8 * 1024, "early stop must bound total near 32KiB");
         assert!(got.len() < 6, "must stop before collecting all 6 files");
+    }
+}
+
+// (C) Notebook IO tests — written before the implementation per plan Task C-1
+// (docs/superpowers/plans/2026-07-21-C-notebooks-prompts.md), mirroring
+// rule_file_tests' style (tempdir-based, no AppHandle needed — the cores
+// under test take `dir: &Path` directly).
+#[cfg(test)]
+mod notebook_io_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn list_on_missing_dir_returns_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("does-not-exist-yet");
+        let got = notebook_list_sync(&dir);
+        assert!(got.is_empty());
+        assert!(dir.is_dir(), "list_sync should create the dir like write_store creates its parent");
+    }
+
+    #[test]
+    fn list_on_empty_existing_dir_returns_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let got = notebook_list_sync(tmp.path());
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn list_returns_md_files_only_sorted_by_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("b.md"), "b").unwrap();
+        fs::write(tmp.path().join("a.md"), "a").unwrap();
+        fs::write(tmp.path().join("notes.txt"), "not a notebook").unwrap();
+        // A directory that happens to be named "*.md" must not be listed as a file.
+        fs::create_dir_all(tmp.path().join("sub.md")).unwrap();
+        let got = notebook_list_sync(tmp.path());
+        assert_eq!(got, vec!["a.md".to_string(), "b.md".to_string()]);
+    }
+
+    #[test]
+    fn write_then_read_roundtrip_for_legal_name() {
+        // "notes.md" is a completely ordinary legal name — this is the exact
+        // case the rev-1 gate bug broke (it validated the WHOLE name,
+        // including the '.', against safe_filename's no-'.' allowlist,
+        // which rejects every *.md name including this one).
+        let tmp = tempfile::tempdir().unwrap();
+        notebook_write_sync(tmp.path(), "notes.md", "# Hello\nworld\n").unwrap();
+        let got = notebook_read_sync(tmp.path(), "notes.md").unwrap();
+        assert_eq!(got, "# Hello\nworld\n");
+    }
+
+    #[test]
+    fn write_is_atomic_no_tmp_file_left_behind() {
+        let tmp = tempfile::tempdir().unwrap();
+        notebook_write_sync(tmp.path(), "notes.md", "content").unwrap();
+        assert!(!tmp.path().join("notes.md.tmp").exists());
+        assert!(tmp.path().join("notes.md").exists());
+    }
+
+    #[test]
+    fn overwrite_replaces_content_not_appends() {
+        let tmp = tempfile::tempdir().unwrap();
+        notebook_write_sync(tmp.path(), "notes.md", "first").unwrap();
+        notebook_write_sync(tmp.path(), "notes.md", "second").unwrap();
+        let got = notebook_read_sync(tmp.path(), "notes.md").unwrap();
+        assert_eq!(got, "second", "second write must replace, not append");
+    }
+
+    #[test]
+    fn traversal_names_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        for bad in ["../x.md", "a/b.md", "..\\x.md"] {
+            assert!(notebook_path(tmp.path(), bad).is_err(), "expected rejection for {bad:?}");
+        }
+    }
+
+    #[test]
+    fn empty_and_no_extension_names_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        for bad in ["", "notes"] {
+            assert!(notebook_path(tmp.path(), bad).is_err(), "expected rejection for {bad:?}");
+        }
+    }
+
+    #[test]
+    fn uppercase_extension_accepted_and_normalized_to_lowercase() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = notebook_path(tmp.path(), "a.MD").unwrap();
+        assert_eq!(path, tmp.path().join("a.md"));
+    }
+
+    #[test]
+    fn reserved_device_names_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        for bad in ["con.md", "NUL.md", "com1.md"] {
+            assert!(notebook_path(tmp.path(), bad).is_err(), "expected rejection for {bad:?}");
+        }
+    }
+
+    #[test]
+    fn reaudit_edge_set_rejected() {
+        // Pinned by the plan's five audit rounds: each of these has a stem
+        // that is empty/dots/whitespace once the trailing 3 bytes are sliced
+        // off, and safe_filename mutates every one of them, so the
+        // `clean != stem` check catches all five: "..md" (stem "."),
+        // "...md" (stem ".."), bare ".md" (len<4), " .md", "a..md".
+        let tmp = tempfile::tempdir().unwrap();
+        for bad in ["..md", "...md", ".md", " .md", "a..md"] {
+            assert!(notebook_path(tmp.path(), bad).is_err(), "expected rejection for {bad:?}");
+        }
+    }
+
+    #[test]
+    fn console_md_accepted_not_treated_as_reserved_substring() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = notebook_path(tmp.path(), "console.md").unwrap();
+        assert_eq!(path, tmp.path().join("console.md"));
     }
 }
