@@ -3,12 +3,13 @@
 // Models picker. The provider call runs in Rust (llm_complete) so the key never
 // touches the webview. When the model replies with a fenced command you can run
 // or insert it into the active terminal.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { SSend } from "./toolbarIcons.jsx";
-import PromptSlashMenu, { filterPrompts, menuKeyAction } from "./PromptSlashMenu.jsx";
+import PromptSlashMenu from "./PromptSlashMenu.jsx";
+import { usePromptSlashMenu } from "./hooks/usePromptSlashMenu.js";
 
 // First fenced code block in an assistant reply, if any (so we can offer run/insert).
 function extractCmd(text) {
@@ -24,24 +25,10 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
   const [model, setModel] = useState(null);
   const listRef = useRef(null);
 
-  // Saved-prompts "/" menu. `promptMenuClosed` is an EXPLICIT override on top of
-  // the input.startsWith("/") derivation — inserting a prompt whose body itself
-  // starts with "/" must not immediately reopen the menu (see PromptSlashMenu.jsx
-  // header comment). It resets on the next real keystroke (onChange), so typing
-  // further re-evaluates normally.
-  const [promptMenuClosed, setPromptMenuClosed] = useState(false);
-  const [promptMenuIndex, setPromptMenuIndex] = useState(0);
-  const hasPrompts = Array.isArray(prompts) && prompts.length > 0;
-  const promptMenuOpen = !promptMenuClosed && input.startsWith("/") && hasPrompts;
-  const filteredPrompts = useMemo(
-    () => (promptMenuOpen ? filterPrompts(prompts, input.slice(1)) : []),
-    [promptMenuOpen, prompts, input]
-  );
-
-  const insertPrompt = (body) => {
-    setInput(body);
-    setPromptMenuClosed(true); // explicit close — see comment above
-  };
+  // Saved-prompts "/" menu — all index/filter/keyboard state lives in the
+  // shared hook (also consumed by AgentMode.jsx), so this and AgentMode can
+  // never drift into two different clamp implementations again.
+  const promptMenu = usePromptSlashMenu({ value: input, setValue: setInput, prompts });
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -112,12 +99,11 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
       </div>
       {error && <div className="phn-assistant-error">{error}</div>}
       <div className="phn-assistant-input">
-        {promptMenuOpen && (
+        {promptMenu.open && (
           <PromptSlashMenu
-            prompts={prompts}
-            inputValue={input}
-            selectedIndex={promptMenuIndex}
-            onInsert={insertPrompt}
+            items={promptMenu.filtered}
+            selectedIndex={promptMenu.selectedIndex}
+            onInsert={promptMenu.select}
           />
         )}
         {messages.length > 0 && (
@@ -132,41 +118,15 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
         )}
         <textarea
           value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            setPromptMenuClosed(false);
-            setPromptMenuIndex(0);
-          }}
+          onChange={(e) => promptMenu.handleChange(e.target.value)}
           onKeyDown={(e) => {
-            // The slash-menu's Enter/Escape decision is consulted BEFORE the
-            // existing Enter-to-send below, so an open menu's Enter selects a
-            // prompt instead of sending the message. ArrowUp/Down (menu
-            // selection movement) don't compete with any existing behavior
-            // here, so they're handled unconditionally while the menu is open.
-            if (promptMenuOpen) {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setPromptMenuIndex((i) => Math.min(i + 1, Math.max(filteredPrompts.length - 1, 0)));
-                return;
-              }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setPromptMenuIndex((i) => Math.max(i - 1, 0));
-                return;
-              }
-            }
-            const action = menuKeyAction(e.key, promptMenuOpen);
-            if (action === "select") {
-              e.preventDefault();
-              const chosen = filteredPrompts[promptMenuIndex] || filteredPrompts[0];
-              if (chosen) insertPrompt(chosen.body);
-              return;
-            }
-            if (action === "close") {
-              e.preventDefault();
-              setPromptMenuClosed(true);
-              return;
-            }
+            // The slash-menu gets first look at every keydown; if it reports
+            // "handled" (it already preventDefault()'d and did whatever the
+            // key meant — move selection, select, or close) the existing
+            // Enter-to-send below is skipped. When the menu is closed (or open
+            // with zero matches), it always reports "passthrough" with no
+            // side effects, so Enter-to-send is byte-identical to before.
+            if (promptMenu.onKeyDown(e) === "handled") return;
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
           }}
           placeholder={model ? `Message ${model}…` : "Ask the assistant… (Enter to send)"}

@@ -269,7 +269,14 @@
   flex-shrink: 0;
 }
 
-/* ── Saved-prompts "/" slash menu (floats over DockAssistant / AgentMode) ── */
+/* ── Saved-prompts "/" slash menu (floats over DockAssistant / AgentMode) ──
+   Default direction is upward (bottom:100%); PromptSlashMenu.jsx measures
+   available space on mount/resize and swaps in `.phn-prompt-menu--down` +
+   an inline max-height when there isn't enough headroom above (AgentMode's
+   goal input, close to the modal's top edge, is the reported case — see the
+   component's useLayoutEffect for the threshold). max-height here is just the
+   pre-measurement default so there's no flash of an oversized box; the
+   adaptive effect overrides it inline before paint. */
 .phn-prompt-menu {
   position: absolute;
   left: 0;
@@ -284,6 +291,13 @@
   box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.35);
   z-index: 40;
   padding: 4px;
+}
+.phn-prompt-menu--down {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
 }
 .phn-prompt-menu-item {
   padding: 6px 8px;
