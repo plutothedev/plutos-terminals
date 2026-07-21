@@ -27,11 +27,7 @@ import BroadcastGroupModal from "./BroadcastGroupModal";
 import NetToolsModal from "./NetToolsModal";
 import RemoteControlModal from "./RemoteControlModal.jsx";
 import { PROVIDERS, findProvider } from "./providers.js";
-import {
-  IconSession, IconServers, IconTools, IconGames, IconStar, IconView,
-  IconSplit, IconMultiExec, IconTunneling, IconPackages, IconSettings,
-  IconHelp, IconMoon, IconSun, IconExit, IconModels, IconAsk, IconFolder,
-} from "./icons.jsx";
+import { IconMoon, IconSun, IconExit } from "./icons.jsx";
 import {
   SLocal, SSsh, SSerial, SSplit, SSplitRow, SSplitCol, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch, SPulse,
   SMouse, SWindows, SFolder, SLock, SKey, SRocket, SGear, SBot, SDoc, SClock, SLayout, SBroadcast, STarget, SPlug, SPhone, SRecord, SStop, SReset,
