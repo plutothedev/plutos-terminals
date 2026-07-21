@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased (v0.6.0)
+
+### Added
+- Agent mode reads project context before its first turn: AGENTS.md / CLAUDE.md
+  rule files (cwd up to the git root; symlinks skipped; each file requires a
+  one-time in-chip approval of its exact content before it is ever sent, and
+  re-approval when the content changes), git branch + dirty state, top-level
+  dirs, npm scripts, and a global user Rules text (Settings → Agent, cloud-
+  synced). Capped at 16 KB, secret-scanned and masked before it reaches the
+  model, shown in a context chip with an exact-text preview, toggleable.
+  Rule files are data: they cannot authorize destructive actions or enable
+  auto-run.
+- Shared secret scanner (`secretScan`) covering AWS (AKIA/ASIA), GitHub
+  PATs, provider `sk-`/`sk_` keys, Slack tokens (incl. xapp), spanning PEM
+  private-key blobs (with an unpaired-BEGIN fallback), and JWTs; used to mask
+  the agent context block.
+
 ## v0.5.0 — Security hardening + reliability pass (2026-07-06)
 
 Bundles the remote-sessions-parity work (SSH/SFTP/RDP/VNC/tunnels, phone
