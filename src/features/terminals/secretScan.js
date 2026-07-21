@@ -3,7 +3,9 @@
 // anything reaches an LLM provider; Stream D reuses it for gist-share preview.
 // High-confidence shapes only — a false positive masks a harmless string, a
 // false negative ships a secret, so patterns stay conservative but the set is
-// easy to extend. Entropy heuristics live with Stream D (share flow), not here.
+// easy to extend. (A generic high-entropy heuristic was considered for the
+// share flow and dropped for v1: command output legitimately contains hashes/
+// base64/UUIDs, so entropy scanning there is high-false-positive.)
 
 const PATTERNS = [
   { name: "aws-access-key", re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },

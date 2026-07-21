@@ -28,6 +28,14 @@
 - **Saved Prompts** — a reusable AI-prompt library (Settings drawer), synced
   across machines. Type `/` in the AI assistant or agent goal box to fuzzy-
   search and insert a saved prompt.
+- **Share to GitHub gist** — right-click a command block ("Share block...") or a
+  tab ("Share transcript...") to publish it as a gist. A preview shows exactly
+  what will upload, secret-scanned and masked first (API keys, tokens, PEM
+  blocks, JWTs are hidden before anything leaves your machine). Secret-gist by
+  default (note: secret gists are unlisted, not private). The URL is copied to
+  your clipboard; "My shares" (Tools menu) lists and revokes them. Paste a
+  gist-scope token in Settings → Sharing, or use the `gh` CLI. Share history
+  stays on this machine (not synced).
 
 ### Changed
 - Moving a tab to another panel now keeps its live terminal: the running
