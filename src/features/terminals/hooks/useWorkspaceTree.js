@@ -94,6 +94,30 @@ export function useWorkspaceTree({ state, persist, toast }) {
     persist({ ...st, panels, activePanelId: panelId });
   }, [persist]);
 
+  // Open a notebook tab (Stream C). If a notebook with this NAME is already
+  // open in ANY panel (not just `panelId`), focus it there instead of minting
+  // a duplicate — two live tabs on one file would race on save (last-writer-
+  // wins clobber; same rationale as focusOrAddHomeTab, generalized across
+  // panels since a notebook is identified by name, not by panel). Otherwise
+  // opens a fresh tab in `panelId` mirroring addHomeTab: no PTY spawns —
+  // NotebookView reads the file on mount.
+  const addNotebookTab = useCallback((panelId, name) => {
+    const st = stateRef.current;
+    for (const p of st.panels) {
+      const existing = p.tabs.find(t => t.notebook?.name === name);
+      if (existing) {
+        const panels = st.panels.map(pp => pp.id === p.id ? { ...pp, activeTabId: existing.id } : pp);
+        persist({ ...st, panels, activePanelId: p.id });
+        return;
+      }
+    }
+    const newTab = { id: freshId("tab"), label: name, notebook: { name }, cwd: null, startCommands: [] };
+    const panels = st.panels.map(p =>
+      p.id === panelId ? { ...p, tabs: [...p.tabs, newTab], activeTabId: newTab.id } : p
+    );
+    persist({ ...st, panels, activePanelId: panelId });
+  }, [persist]);
+
   // Home button (in each panel's tab strip): focus the panel's existing launch
   // screen if it has one, otherwise open a fresh one.
   const focusOrAddHomeTab = useCallback((panelId) => {
@@ -426,7 +450,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
 
   return {
     setActivePanel, addPanel, closePanel,
-    addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell,
+    addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell, addNotebookTab,
     closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
   };

@@ -16,18 +16,18 @@
 // So `computeLayout(getLayout(tab), ...).panes.map(p => p.node.id)` ===
 // `leafIds(getLayout(tab))`.
 //
-// The one exception: a tab with `home`/`vnc`/`rdp` set renders
-// MobaHomeScreen/VncView/RdpView instead of any TerminalPane (TerminalPanel's
-// per-tab ternary), so it creates no registry entries — it must be excluded
-// here too, or the sweep would treat a stale id from a former TerminalPane as
-// still "live" forever.
+// The one exception: a tab with `home`/`vnc`/`rdp`/`notebook` set renders
+// MobaHomeScreen/VncView/RdpView/NotebookView instead of any TerminalPane
+// (TerminalPanel's per-tab ternary), so it creates no registry entries — it
+// must be excluded here too, or the sweep would treat a stale id from a former
+// TerminalPane as still "live" forever.
 import { getLayout, leafIds } from "./splitTree.js";
 
 export function allRenderedPaneIds(panels) {
   const ids = [];
   for (const panel of panels || []) {
     for (const tab of panel.tabs || []) {
-      if (tab.home || tab.vnc || tab.rdp) continue; // no TerminalPane mounts; no registry entries
+      if (tab.home || tab.vnc || tab.rdp || tab.notebook) continue; // no TerminalPane mounts; no registry entries
       ids.push(...leafIds(getLayout(tab)));
     }
   }

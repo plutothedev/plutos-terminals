@@ -3,6 +3,7 @@ import TerminalPane from "./TerminalPane";
 import VncView from "./VncView";
 import RdpView from "./RdpView";
 import MobaHomeScreen from "./MobaHomeScreen";
+import NotebookView from "./NotebookView";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
 import "./terminals.css";
 
@@ -380,7 +381,7 @@ function TerminalPanel({
               >
                 <span
                   className={tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
-                  title={tab.home ? "Session launch screen" : tab.worktree ? `Agent worktree (${tab.worktree.branch})` : tab.rdp ? "RDP desktop" : tab.vnc ? "VNC desktop" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}
+                  title={tab.home ? "Session launch screen" : tab.worktree ? `Agent worktree (${tab.worktree.branch})` : tab.rdp ? "RDP desktop" : tab.vnc ? "VNC desktop" : tab.notebook ? "Notebook" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}
                   style={{
                     display: "inline-block",
                     width: 6,
@@ -504,6 +505,8 @@ function TerminalPanel({
                 <VncView host={tab.vnc.host} port={tab.vnc.port} tabId={tab.id} visible={tabVisible} />
               ) : tab.rdp ? (
                 <RdpView host={tab.rdp.host} port={tab.rdp.port} username={tab.rdp.username} domain={tab.rdp.domain} tabId={tab.id} visible={tabVisible} />
+              ) : tab.notebook ? (
+                <NotebookView name={tab.notebook.name} tabId={tab.id} visible={tabVisible} />
               ) : (
               <>
               {panes.map(({ node, rect }) => {

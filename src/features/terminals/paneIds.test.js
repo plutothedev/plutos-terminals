@@ -83,6 +83,20 @@ describe("allRenderedPaneIds", () => {
     expect(allRenderedPaneIds(panels)).toEqual(["real-tab"]);
   });
 
+  it("excludes notebook tabs — TerminalPanel renders NotebookView instead of TerminalPane for these, so no registry entry is ever created under their id", () => {
+    const panels = [
+      {
+        id: "panel1",
+        activeTabId: "notebook-tab",
+        tabs: [
+          { id: "notebook-tab", notebook: { name: "notes.md" } },
+          { id: "real-tab" },
+        ],
+      },
+    ];
+    expect(allRenderedPaneIds(panels)).toEqual(["real-tab"]);
+  });
+
   it("returns [] for no panels / panels with no tabs", () => {
     expect(allRenderedPaneIds([])).toEqual([]);
     expect(allRenderedPaneIds([{ id: "p1", tabs: [] }])).toEqual([]);

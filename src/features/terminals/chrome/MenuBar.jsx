@@ -1,14 +1,15 @@
 // (C)
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { invoke } from "@backend";
 import { GITHUB_URL, DISCORD_URL, openExternal } from "../../../appMeta.js";
 import { IconMoon, IconSun, IconExit } from "../icons.jsx";
 import { getTabText } from "../ptyBridge.js";
 import { useToast } from "../../../components/Toast.jsx";
+import { usePrompt } from "../../../components/PromptModal.jsx";
 import MobaMenuBar from "../MobaMenuBar.jsx";
 
 export default function MenuBar({
-  addTab, addHomeTab, addPanel, canAddPanel, splitPane, closeTab,
+  addTab, addHomeTab, addNotebookTab, addPanel, canAddPanel, splitPane, closeTab,
   activeTabId, activeTab, panels, activePanelId,
   importSshConfig, selectRibbon, openTunnels,
   broadcast, toggleBroadcast, ribbon,
@@ -19,12 +20,23 @@ export default function MenuBar({
   setCommandPaletteOpen, setWorkspacesOpen, setSettingsOpen, setMasterPwOpen,
 }) {
   const toast = useToast();
+  const prompt = usePrompt();
+
+  // "New notebook…" (Stream C): prompt for a STEM only — the prompt appends
+  // ".md" itself; the Rust dir-scope gate (notebook_path) is the backstop for
+  // a name that changes shape under sanitization, never a silent rewrite here.
+  const newNotebook = useCallback(async () => {
+    const name = await prompt("New notebook name?", { title: "New notebook", confirmLabel: "create", placeholder: "notebook name" });
+    if (!name || !name.trim()) return;
+    addNotebookTab(activePanelId, `${name.trim()}.md`);
+  }, [prompt, addNotebookTab, activePanelId]);
 
   const menuBarMenus = useMemo(() => [
     {
       label: "Terminal",
       items: [
         { label: "New tab", shortcut: "Ctrl+Shift+T", action: () => addTab(activePanelId) },
+        { label: "New notebook…", action: newNotebook },
         { label: "Launch screen (home tab)", action: () => addHomeTab(activePanelId) },
         { label: "New panel", disabled: !canAddPanel, action: () => addPanel() },
         { divider: true },
@@ -93,7 +105,7 @@ export default function MenuBar({
       ],
     },
   ], [
-    addTab, addHomeTab, addPanel, canAddPanel, splitPane, closeTab,
+    addTab, addHomeTab, newNotebook, addPanel, canAddPanel, splitPane, closeTab,
     activeTabId, activeTab, panels, activePanelId,
     toast, importSshConfig, selectRibbon, openTunnels,
     broadcast, toggleBroadcast, ribbon,

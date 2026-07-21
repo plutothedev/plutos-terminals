@@ -293,7 +293,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // closePane→closeTab, detachTab→closeTab) are internal to the hook.
   const {
     setActivePanel, addPanel, closePanel,
-    addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell,
+    addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell, addNotebookTab,
     closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
   } = useWorkspaceTree({ state, persist, toast });
@@ -761,6 +761,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <MenuBar
         addTab={addTab}
         addHomeTab={addHomeTab}
+        addNotebookTab={addNotebookTab}
         addPanel={addPanel}
         canAddPanel={canAddPanel}
         splitPane={splitPane}
