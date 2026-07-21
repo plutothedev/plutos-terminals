@@ -534,7 +534,7 @@ npm scripts: <s1>, <s2>, ...
 
 Budget rules (audit-hardened, rev 2.1):
 - `CONTEXT_BUDGET` = 16 * 1024 chars for the whole block.
-- **`RULES_SHARE` = 8 * 1024: global Rules text longer than the share is pre-cut to it (marked) BEFORE any file is touched** — an oversized Rules field must never evict approved rule files (verified rev-2 defect).
+- **`RULES_SHARE` = 8 * 1024: when rule files are present, global Rules text longer than the share is pre-cut to it (marked) BEFORE any file is touched** — an oversized Rules field must never evict approved rule files (verified rev-2 defect). With NO rule files there is nothing to evict: the share cap does not apply and Rules may use the full budget (the floor-cut still bounds them).
 - Over budget after that: cut rule-file content **root-most first**. If a file's content is not longer than the marker cost (cutting it cannot shrink the block), **drop that file's whole section** instead of marking it.
 - Remaining global rules cut last, marked (floor-cut only when files alone could not close the gap).
 - `FACTS_CAP` = 2 * 1024: the facts section is clamped with a marker (pathological dir/script names can't blind-slice the block tail).
@@ -678,6 +678,17 @@ describe("buildContextBlock", () => {
     expect(block).toContain("[...truncated]");
   });
 
+  it("with no rule files, rules use the full budget (share cap not applied)", () => {
+    const block = buildContextBlock({
+      globalRules: "g".repeat(CONTEXT_BUDGET * 2),
+      ruleFiles: [],
+      facts: null,
+    });
+    expect(block.length).toBeLessThanOrEqual(CONTEXT_BUDGET);
+    expect(block.length).toBeGreaterThan(RULES_SHARE + 1024); // well past the share
+    expect(block).toContain("[...truncated]");
+  });
+
   it("clamps a pathological facts section at FACTS_CAP with a marker", () => {
     const dirs = Array.from({ length: 60 }, (_, i) => "verylongdirectoryname".repeat(20) + i);
     const block = buildContextBlock({ globalRules: "", ruleFiles: [], facts: { cwd: "C:\\x", git: null, dirs, npmScripts: [] } });
@@ -783,9 +794,11 @@ export function buildContextBlock({ globalRules, ruleFiles, facts }) {
   const entries = files.map((f) => ({ f, content: f.content, cut: false, dropped: false }));
   let rulesText = rules;
   let rulesCut = false;
-  // Rev 2.1: pre-cut oversized rules to their share BEFORE any file is touched —
-  // a giant Rules field must never evict approved rule files (verified defect).
-  if (rulesText.length > RULES_SHARE) {
+  // Rev 2.1: when rule files are present, pre-cut oversized rules to their
+  // share BEFORE any file is touched — a giant Rules field must never evict
+  // approved rule files (verified defect). With no files there is nothing to
+  // evict: rules keep the full budget and the floor-cut below bounds them.
+  if (entries.length && rulesText.length > RULES_SHARE) {
     rulesText = safeSlice(rulesText, RULES_SHARE);
     rulesCut = true;
   }
@@ -824,7 +837,7 @@ export function buildContextBlock({ globalRules, ruleFiles, facts }) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/features/terminals/agentContext.test.js`
-Expected: 13 passed.
+Expected: 14 passed.
 
 - [ ] **Step 5: Full gates + commit**
 
@@ -965,6 +978,8 @@ export async function collectProjectContext({ cwd, invoke, sha256 = sha256Hex })
 export function partitionRuleFiles(ruleFiles, approvedMap) {
   // Keys are lowercased: Windows paths are case-insensitive and canonicalize's
   // casing is not guaranteed stable across runs — approval must stick anyway.
+  // On case-sensitive filesystems two case-distinct paths can share a key;
+  // harmless — the content hash must still match for approval to apply.
   const map = approvedMap || {};
   const approved = [];
   const pending = [];
@@ -978,7 +993,7 @@ export function partitionRuleFiles(ruleFiles, approvedMap) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/features/terminals/agentContext.test.js`
-Expected: 19 passed (13 prior + 6 new).
+Expected: 19 passed (14 prior + 5 new).
 
 - [ ] **Step 5: Full gates + commit**
 
@@ -1039,13 +1054,18 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
 
 State (beside existing useState hooks):
 
+At MODULE scope, above `export default function AgentMode(...)` (stable reference, never recreated per render):
+
 ```jsx
-  const EMPTY_CTX = { block: "", pending: [], masked: 0, hasRules: false, agentsCount: 0, claudeCount: 0, hasGit: false };
+const EMPTY_CTX = { block: "", pending: [], masked: 0, hasRules: false, agentsCount: 0, claudeCount: 0, hasGit: false };
+```
+
+Inside the component, beside the existing useState hooks:
+
+```jsx
   const [ctx, setCtx] = useState(EMPTY_CTX);
   const [ctxOpen, setCtxOpen] = useState(false);
 ```
-
-(`EMPTY_CTX` goes at module scope, above the component, so the reference is stable.)
 
 Run-function prefix — replace the current lines :54-60 region so the running flag flips BEFORE any await:
 
