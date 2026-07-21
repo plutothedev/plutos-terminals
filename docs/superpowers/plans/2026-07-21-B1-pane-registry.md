@@ -233,7 +233,7 @@ git -C C:\Users\pluto\plutos-terminals commit -m "feat(panes): pane registry cor
 
 - [ ] **Step 1 (MANDATORY verification): read `TerminalPanel.jsx` (the pane map, ~:487-628, and the `<TerminalPane>` element ~:531-547) and `splitTree.js` (`leafIds`).** Extract the EXACT derivation of the ids TerminalPanel renders panes with (per tab: the split-tree leaf ids when a layout exists; the pattern for single-pane tabs as the code actually does it — do not guess; if the derivation differs per transport (RDP/VNC render other components), capture only what mounts a TerminalPane OR mounts any component that creates registry entries — for B1 only TerminalPane does). Report the derivation in your task report.
 
-- [ ] **Step 2: write `paneIds.js` + tests.** `allRenderedPaneIds(panels) -> string[]` mirroring the TerminalPanel derivation byte-for-byte (import `leafIds` from `splitTree.js` if that is what TerminalPanel uses). Tests: a panels fixture with (a) a single-pane tab, (b) a split tab with a layout, (c) multiple panels — assert the ids match what the derivation yields, and assert parity with a hand-derived expectation copied from the TerminalPanel logic. (These tests are the guard that a future TerminalPanel change breaks loudly.)
+- [ ] **Step 2: write `paneIds.js` + tests.** `allRenderedPaneIds(panels) -> string[]` mirroring the TerminalPanel derivation byte-for-byte (import `leafIds`/`getLayout` from `splitTree.js` — verified: `getLayout(tab)` returns `tab.layout || { id: tab.id, cwd }` and TerminalPanel maps EVERY tab in a panel, hidden ones included, only toggling display). Tests: a panels fixture with (a) a single-pane tab, (b) a split tab with a layout, (c) multiple panels, **(d) a panel with a non-active (hidden) tab — assert the hidden tab's ids are STILL counted live** (TerminalPanel renders every tab; an "optimization" to active-only would make the sweep kill every background tab's session). Assert parity with a hand-derived expectation copied from the TerminalPanel logic.
 
 - [ ] **Step 3: the sweep effect in TerminalsTab** (place near the other top-level effects; import `reconcile` from paneRegistry and `allRenderedPaneIds` from paneIds):
 
@@ -258,7 +258,9 @@ useEffect(() => {
 }, [welcomeDone, lockHash, unlocked]);
 ```
 
-(Adapt names to the actual App.jsx state; on a locked cold boot this runs with an empty registry — harmless. Import from the registry module.)
+(Names verified against the real App.jsx: `welcomeDone` :341, `lockHash` :344, `unlocked` :123. PLACEMENT: the effect must be declared with the other top-level hooks BEFORE the conditional `return <LockScreen/>` at :345-347 — a hook after a sometimes-taken early return violates the Rules of Hooks. On a locked cold boot it runs with an empty registry — harmless.)
+
+- [ ] **Step 4b: ErrorBoundary destroyAll (re-verification catch).** `App.jsx:82` wraps the tree in `ErrorBoundary`; a caught render crash swaps to fallback UI WITHOUT unmount-driven teardown, and its Reload button reloads the JS realm (killing registry bookkeeping) while the Rust-side PTY child processes keep running as zombies. Wire the registry into `src/components/ErrorBoundary.jsx`: in `componentDidCatch`, call `destroyAll()` (import from the registry module; wrap in try/catch — the boundary must never throw). One-line comment: a crashed tree cannot supervise live sessions.
 
 - [ ] **Step 5: full gates + commit**
 
@@ -302,8 +304,16 @@ entry.ui = {
   isActive: () => activeRef.current,
   onCost: (next) => onCostRef.current?.(next),
   onActivity: (a) => onActivityRef.current?.(a),
+  // Re-verification catch: term.onResize's banner-redraw arm (:1042-1061) reads
+  // bannerRedrawRef/bannerColsRef AND a nested termRef.current inside its
+  // setTimeout — all per-fiber; after one move the "reprint banner at new
+  // width" branch permanently no-ops. Route through the table + entry.term:
+  resizeReprint: (cols) => { bannerRedrawRef.current?.(cols); },
+  bannerCols: { get: () => bannerColsRef.current, set: (v) => { bannerColsRef.current = v; } },
 };
 ```
+
+(The onResize handler's deferred `setTimeout` body must read `entry.term` (registry-owned, stable) instead of the closed-over `termRef.current`, and call `entry.ui.resizeReprint(...)`/use `entry.ui.bannerCols` instead of the raw refs. Enumerate the exact converted lines in the report.)
 
 Then EVERY create-once handler body (OSC 133 at `:591-672`, OSC 1337 at `:676-703`, `updateSticky`/`term.onScroll` at `:706-717`, `term.onBufferChange` at `:1065-1071`, `handleChunk`/`checkAutoApprove`/`checkCost` and the done-timer/activity path) replaces its direct setter/ref reads with `entry.ui.*` calls. Enumerate every replacement in the report. (While parked, these hit the old fiber's setters — React 18 no-ops them silently; the table repoints on the next mount. Documented cosmetic gap: UI-derived state changes during a parked window are lost until the next event after re-attach.)
 
