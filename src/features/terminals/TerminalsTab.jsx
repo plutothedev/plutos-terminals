@@ -12,11 +12,8 @@ import StatusBar from "./chrome/StatusBar.jsx";
 import MenuBar from "./chrome/MenuBar.jsx";
 import ModalHost from "./chrome/ModalHost.jsx";
 import Toolbar from "./chrome/Toolbar.jsx";
+import { usePaletteCommands } from "./chrome/usePaletteCommands.jsx";
 import { PROVIDERS, findProvider } from "./providers.js";
-import {
-  SSsh, SSerial, SSplit, SSplitRow, SSplitCol, STunnel, SAsk, SModels, SSnips, SPulse,
-  SMouse, SWindows, SFolder, SLock, SKey, SRocket, SGear, SBot, SDoc, SClock, SLayout, SBroadcast, STarget, SPlug, SPhone, SRecord, SStop, SReset,
-} from "./toolbarIcons.jsx";
 import LocalFileBrowser from "./LocalFileBrowser";
 import DockAssistant from "./DockAssistant";
 import DockMonitor from "./DockMonitor";
@@ -747,105 +744,21 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       .catch((e) => toast.error(`Couldn't clear keychain: ${e}`));
   }, [forgetSessionPassword, toast]);
 
-  // ── Memoized chrome arrays ──────────────────────────────────────────────
-  // The menu bar, toolbar, and command-palette item arrays were rebuilt inline
-  // on EVERY render — including the 2.5s sysStats poll and per-token cost
-  // telemetry, which don't touch any value these arrays read. Memoizing them
-  // keeps their identity stable across those hot paths so MobaMenuBar /
-  // MobaToolbar / CommandPalette can bail out of re-rendering. All useState
-  // setters and module-level imports are stable and intentionally omitted from
-  // the dep lists; the deps below are exactly the reactive values + hook
-  // useCallbacks each array reads.
-  const paletteCommands = useMemo(() => [
-    { id: "new-tab", icon: "+", label: "New tab in active panel", shortcut: scOf("newTab"), action: () => addTab(state.activePanelId) },
-    { id: "new-session", icon: <SSsh size={14} />, label: "New session", hint: "Save a local folder or an SSH host to the sidebar", action: () => setDialog({ mode: "add" }) },
-    { id: "import-ssh", icon: <SKey size={14} />, label: "Import ~/.ssh/config", hint: "Add every SSH host from your OpenSSH config to the Sessions tree", action: () => importSshConfig() },
-    { id: "ssh-keys", icon: <SKey size={14} />, label: "SSH keys", hint: "List / generate SSH keypairs; copy a public key to a server", action: () => setSshKeysOpen(true) },
-    { id: "macros", icon: <SRecord size={14} />, label: "Keystroke macros", hint: "Record what you type and replay it into the active terminal", action: () => setMacrosOpen(true) },
-    { id: "master-pw", icon: <SLock size={14} />, label: "Master password", hint: "Lock the app behind a password on launch", action: () => setMasterPwOpen(true) },
-    { id: "split-right", icon: <SSplitRow size={14} />, label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-    { id: "split-down", icon: <SSplitCol size={14} />, label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
-    { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
-    { id: "ask", icon: <SAsk size={14} />, label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
-    { id: "agent", icon: <SBot size={14} />, label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal", shortcut: scOf("agentMode"), action: () => setAgentOpen(true) },
-    { id: "summarize", icon: <SDoc size={14} />, label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
-    { id: "history", icon: <SClock size={14} />, label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs", shortcut: scOf("history"), action: () => setHistoryOpen(true) },
-    { id: "workspaces", icon: <SLayout size={14} />, label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
-    { id: "models", icon: <SModels size={14} />, label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
-    { id: "snippets", icon: <SSnips size={14} />, label: "Workflows panel", hint: "Saved parameterized commands — click to run", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-    { id: "files", icon: <SFolder size={14} />, label: "File browser (SFTP) — focus right dock", hint: "Local files, or remote SFTP for an SSH tab, in the right dock (F4)", action: () => focusFilesDock() },
-    { id: "tunnels", icon: <STunnel size={14} />, label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
-    { id: "serial", icon: <SSerial size={14} />, label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
-    { id: "vnc", icon: <SMouse size={14} />, label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
-    { id: "rdp", icon: <SWindows size={14} />, label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
-    { id: "remote-control", icon: <SPhone size={14} />, label: "Remote control (phone)", hint: "Run a private server so your phone can view + type into your terminals over Tailscale", action: () => setRemoteOpen(true) },
-    { id: "broadcast", icon: <SBroadcast size={14} />, label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
-    { id: "broadcast-group", icon: <STarget size={14} />, label: "Broadcast targets… (choose terminals)", hint: "Pick a subset of terminals for MultiExec instead of all visible", action: () => setBroadcastGroupOpen(true) },
-    { id: "nettools", icon: <SSsh size={14} />, label: "Network tools", hint: "Ping, traceroute, TCP port scan, and DNS lookup", action: () => setNetToolsOpen(true) },
-    { id: "toggle-sidebar", icon: <SSplit size={14} />, label: ribbon ? "Hide tools panel" : "Show snippets panel", hint: "Show or hide the Snippets / Agents panel beside the session tree", action: () => selectRibbon(ribbon ? null : "snippets") },
-    { id: "mcps", icon: <SPlug size={14} />, label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
-    { id: "setup", icon: <SRocket size={14} />, label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
-    { id: "settings", icon: <SGear size={14} />, label: "Open settings", hint: "Appearance, keyboard shortcuts, factory reset", shortcut: scOf("settings"), action: () => setSettingsOpen(true) },
-    activeTabRecording
-      ? {
-          id: "stop-recording",
-          icon: <SStop size={14} />,
-          label: "Stop & save recording",
-          hint: `Save .cast file for the active tab (${activeTab?.label || "tab"})`,
-          action: () => stopAndSaveRecording(),
-        }
-      : {
-          id: "start-recording",
-          icon: <SRecord size={14} />,
-          label: "Start recording active tab",
-          hint: `Record terminal output of "${activeTab?.label || "tab"}" as an asciinema .cast file`,
-          action: () => startRecordingActive(),
-        },
-    {
-      id: "new-window",
-      icon: <SWindows size={14} />,
-      label: "Open new window",
-      hint: "Spawns a fresh window with its own independent panel layout, skin, and sessions",
-      action: async () => {
-        try {
-          const id = `${Date.now().toString(36)}`.slice(-6);
-          const label = await invoke("spawn_new_window", { windowId: id });
-          toast.success(`New window opened: ${label}`);
-        } catch (err) {
-          toast.error(`Failed to open new window: ${err}`);
-        }
-      },
-    },
-    {
-      id: "reset-workspace",
-      icon: <SReset size={14} />,
-      label: "Reset workspace",
-      hint: "Clear all panels and tabs (keeps API key, skin, projects)",
-      action: async () => {
-        const ok = await confirm(
-          "Reset workspace? Closes every panel and tab. API key, skin, button style, density, and sessions are kept. The app reloads to a single empty panel.",
-          { title: "Reset workspace?", confirmLabel: "reset", destructive: true }
-        );
-        if (!ok) return;
-        const fresh = defaultState();
-        persist({ ...state, panels: fresh.panels, activePanelId: fresh.activePanelId });
-      },
-    },
-    ...state.panels.map((p, i) => ({
-      id: `panel-${p.id}`,
-      icon: i + 1 < 10 ? `${i + 1}` : "•",
-      label: `Switch to panel ${i + 1}`,
-      hint: `${p.tabs.length} tab${p.tabs.length === 1 ? "" : "s"}${p.id === state.activePanelId ? " · active" : ""}`,
-      shortcut: i < 8 ? scOf(`panel${i + 1}`) : undefined,
-      action: () => setActivePanel(p.id),
-    })),
-  ], [
+  // Command-palette item array — memoized in the hook so its identity stays
+  // stable across the hot-path ticks (2.5s sysStats poll, per-token cost
+  // telemetry) and CommandPalette can bail out of re-rendering. Dep contract
+  // lives in chrome/usePaletteCommands.jsx: 22 args fields + toast/confirm
+  // read from context inside the hook.
+  const paletteCommands = usePaletteCommands({
     scOf, addTab, addPanel, canAddPanel, splitPane, importSshConfig,
     activeTabId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
-    stopAndSaveRecording, startRecordingActive, toast, confirm,
-    persist, state, setActivePanel,
-  ]);
+    stopAndSaveRecording, startRecordingActive, persist, state, setActivePanel,
+    setDialog, setSshKeysOpen, setMacrosOpen, setMasterPwOpen, setAskOpen,
+    setAgentOpen, setSummary, setHistoryOpen, setWorkspacesOpen, setModelsOpen,
+    setSerialOpen, setVncOpen, setRdpOpen, setRemoteOpen, setBroadcastGroupOpen,
+    setNetToolsOpen, setMcpOpen, setSetupOpen, setSettingsOpen,
+  });
 
   return (
     <div className="phn-page" data-phn-skin={headerSkinId} data-phn-theme={customThemeActive ? "custom" : undefined} style={{ height: "100%", position: "relative" }}>
