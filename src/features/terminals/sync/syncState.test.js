@@ -139,3 +139,15 @@ test("SOURCES carries the agent settings fields", () => {
   // (paths are machine-specific; per-machine approval is the safe direction).
   expect(u.fields).not.toContain("approvedRuleFiles");
 });
+
+test("SOURCES carries savedPrompts as a userSt COLLECTION, not a field", () => {
+  // Saved prompts are a growing, concurrently-editable list (same shape problem
+  // as customThemes): a `fields` entry merges whole-value last-write-wins and
+  // would silently clobber one machine's additions with another's. `collections`
+  // merge per-item by id with tombstones (see merge.js), so both machines'
+  // saved prompts survive a sync. Positive lock, mirroring the agent-fields test
+  // above: assert the RIGHT bucket holds it AND the wrong one does not.
+  const u = SOURCES.find((s) => s.store === "userSt");
+  expect(u.collections).toContain("savedPrompts");
+  expect(u.fields).not.toContain("savedPrompts");
+});

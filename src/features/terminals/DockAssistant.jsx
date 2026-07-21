@@ -3,11 +3,12 @@
 // Models picker. The provider call runs in Rust (llm_complete) so the key never
 // touches the webview. When the model replies with a fenced command you can run
 // or insert it into the active terminal.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { SSend } from "./toolbarIcons.jsx";
+import PromptSlashMenu, { filterPrompts, menuKeyAction } from "./PromptSlashMenu.jsx";
 
 // First fenced code block in an assistant reply, if any (so we can offer run/insert).
 function extractCmd(text) {
@@ -15,13 +16,32 @@ function extractCmd(text) {
   return m ? m[1].trim() : null;
 }
 
-export default function DockAssistant({ onSendToTerminal, shellName, cwd }) {
+export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompts }) {
   const [messages, setMessages] = useState([]); // {role:'user'|'assistant', content}
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [model, setModel] = useState(null);
   const listRef = useRef(null);
+
+  // Saved-prompts "/" menu. `promptMenuClosed` is an EXPLICIT override on top of
+  // the input.startsWith("/") derivation — inserting a prompt whose body itself
+  // starts with "/" must not immediately reopen the menu (see PromptSlashMenu.jsx
+  // header comment). It resets on the next real keystroke (onChange), so typing
+  // further re-evaluates normally.
+  const [promptMenuClosed, setPromptMenuClosed] = useState(false);
+  const [promptMenuIndex, setPromptMenuIndex] = useState(0);
+  const hasPrompts = Array.isArray(prompts) && prompts.length > 0;
+  const promptMenuOpen = !promptMenuClosed && input.startsWith("/") && hasPrompts;
+  const filteredPrompts = useMemo(
+    () => (promptMenuOpen ? filterPrompts(prompts, input.slice(1)) : []),
+    [promptMenuOpen, prompts, input]
+  );
+
+  const insertPrompt = (body) => {
+    setInput(body);
+    setPromptMenuClosed(true); // explicit close — see comment above
+  };
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -92,6 +112,14 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd }) {
       </div>
       {error && <div className="phn-assistant-error">{error}</div>}
       <div className="phn-assistant-input">
+        {promptMenuOpen && (
+          <PromptSlashMenu
+            prompts={prompts}
+            inputValue={input}
+            selectedIndex={promptMenuIndex}
+            onInsert={insertPrompt}
+          />
+        )}
         {messages.length > 0 && (
           <button
             className="phn-assistant-clear"
@@ -104,8 +132,43 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd }) {
         )}
         <textarea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setPromptMenuClosed(false);
+            setPromptMenuIndex(0);
+          }}
+          onKeyDown={(e) => {
+            // The slash-menu's Enter/Escape decision is consulted BEFORE the
+            // existing Enter-to-send below, so an open menu's Enter selects a
+            // prompt instead of sending the message. ArrowUp/Down (menu
+            // selection movement) don't compete with any existing behavior
+            // here, so they're handled unconditionally while the menu is open.
+            if (promptMenuOpen) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setPromptMenuIndex((i) => Math.min(i + 1, Math.max(filteredPrompts.length - 1, 0)));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setPromptMenuIndex((i) => Math.max(i - 1, 0));
+                return;
+              }
+            }
+            const action = menuKeyAction(e.key, promptMenuOpen);
+            if (action === "select") {
+              e.preventDefault();
+              const chosen = filteredPrompts[promptMenuIndex] || filteredPrompts[0];
+              if (chosen) insertPrompt(chosen.body);
+              return;
+            }
+            if (action === "close") {
+              e.preventDefault();
+              setPromptMenuClosed(true);
+              return;
+            }
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+          }}
           placeholder={model ? `Message ${model}…` : "Ask the assistant… (Enter to send)"}
           rows={2}
           spellCheck={false}

@@ -87,9 +87,19 @@ export default function SnippetsDrawer({
   snippets,
   onSnippetsChange,
   docked = false,
+  // Saved Prompts (AI-prompt library — separate from shell snippets above; see
+  // hooks/useSavedPrompts.js). No variable-fill machinery: prompts aren't
+  // parameterized like {{var}} snippets are. No onInsert path either — prompts
+  // insert into the AI inputs via PromptSlashMenu, not into the active
+  // terminal (that's what the snippets list above is for).
+  prompts,
+  onAddPrompt,
+  onRemovePrompt,
 }) {
   const editable = typeof onSnippetsChange === "function";
   const items = Array.isArray(snippets) ? snippets : DEFAULT_SNIPPETS;
+  const promptItems = Array.isArray(prompts) ? prompts : [];
+  const promptsEditable = typeof onAddPrompt === "function";
 
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
@@ -100,6 +110,13 @@ export default function SnippetsDrawer({
   const [importing, setImporting] = useState(false);
   const [importText, setImportText] = useState("");
   const [ioMsg, setIoMsg] = useState("");
+
+  // Prompts add-form (name + body + comma-separated tags). Separate toggle
+  // from the snippets add-form above — same grammar, different shape.
+  const [addingPrompt, setAddingPrompt] = useState(false);
+  const [newPromptName, setNewPromptName] = useState("");
+  const [newPromptBody, setNewPromptBody] = useState("");
+  const [newPromptTags, setNewPromptTags] = useState("");
 
   // Import Warp-format workflow YAML (single or multi-doc, or a YAML list). Each
   // file in Warp's library is one workflow; a pasted blob can hold many.
@@ -158,6 +175,20 @@ export default function SnippetsDrawer({
     );
   }, [items, query]);
 
+  // Same filter box as snippets above (shared `query` state) — a separate
+  // search field per section would fragment the one thing the drawer already
+  // has: a single "type to filter everything" input.
+  const filteredPrompts = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return promptItems;
+    return promptItems.filter(
+      (p) =>
+        (p.name || "").toLowerCase().includes(q) ||
+        (p.body || "").toLowerCase().includes(q) ||
+        (Array.isArray(p.tags) ? p.tags.join(" ") : "").toLowerCase().includes(q)
+    );
+  }, [promptItems, query]);
+
   const commitAdd = () => {
     const name = newName.trim();
     const command = newCommand.trim();
@@ -173,6 +204,18 @@ export default function SnippetsDrawer({
 
   const removeSnippet = (id) => {
     onSnippetsChange?.(items.filter((s) => s.id !== id));
+  };
+
+  const commitAddPrompt = () => {
+    const name = newPromptName.trim();
+    const body = newPromptBody.trim();
+    if (!body) return;
+    const tags = newPromptTags.split(",").map((t) => t.trim()).filter(Boolean);
+    onAddPrompt?.({ name: name || body.slice(0, 48), body, tags });
+    setNewPromptName("");
+    setNewPromptBody("");
+    setNewPromptTags("");
+    setAddingPrompt(false);
   };
 
   // In MobaXterm layout the drawer renders inline in the left dock (.moba-dock-panel)
@@ -359,6 +402,119 @@ export default function SnippetsDrawer({
                     removeSnippet(s.id);
                   }}
                   title="Delete snippet"
+                  style={{
+                    position: "absolute",
+                    top: 6,
+                    right: 8,
+                    color: "var(--phn-text-dim, #888)",
+                    fontSize: 12,
+                    lineHeight: 1,
+                    cursor: "pointer",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = "var(--phn-danger, #e08784)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = "var(--phn-text-dim, #888)";
+                  }}
+                >
+                  ×
+                </span>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Saved Prompts — AI-prompt library, separate list from the shell
+          Workflows above. Same grammar (list / add-form / delete), no
+          {{var}}-fill step (prompts aren't parameterized), and no
+          insert-into-terminal click (these insert into the AI inputs via the
+          "/" menu — see PromptSlashMenu.jsx — not here). */}
+      <div className="phn-snippets-section-label">
+        <span>Prompts</span>
+        {promptsEditable && (
+          <button
+            className="phn-snippets-close"
+            onClick={() => setAddingPrompt((v) => !v)}
+            title={addingPrompt ? "Cancel" : "Add a saved prompt"}
+            style={{ fontSize: 16 }}
+          >
+            {addingPrompt ? "−" : "+"}
+          </button>
+        )}
+      </div>
+
+      {addingPrompt && promptsEditable && (
+        <div style={{ padding: "4px 8px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
+          <input
+            className="phn-sidebar-search"
+            value={newPromptName}
+            onChange={(e) => setNewPromptName(e.target.value)}
+            placeholder="Name (optional)"
+            spellCheck={false}
+          />
+          <textarea
+            className="phn-sidebar-search"
+            value={newPromptBody}
+            onChange={(e) => setNewPromptBody(e.target.value)}
+            placeholder="Prompt body"
+            spellCheck={false}
+            rows={4}
+            style={{ fontFamily: "'JetBrains Mono', Menlo, Monaco, monospace", resize: "vertical", minHeight: 64, width: "100%", boxSizing: "border-box" }}
+          />
+          <input
+            className="phn-sidebar-search"
+            value={newPromptTags}
+            onChange={(e) => setNewPromptTags(e.target.value)}
+            placeholder="Tags (comma-separated, optional)"
+            spellCheck={false}
+          />
+          <button
+            className="phn-snippets-close"
+            onClick={commitAddPrompt}
+            disabled={!newPromptBody.trim()}
+            style={{
+              alignSelf: "flex-end",
+              border: "1px solid var(--phn-surface-border, #2b2b2b)",
+              padding: "4px 12px",
+              borderRadius: 4,
+              opacity: newPromptBody.trim() ? 1 : 0.5,
+              cursor: newPromptBody.trim() ? "pointer" : "not-allowed",
+            }}
+          >
+            Save
+          </button>
+        </div>
+      )}
+
+      <div className="phn-snippets-list">
+        {filteredPrompts.length === 0 ? (
+          <div className="phn-snippets-empty">
+            {query
+              ? "No prompts match your filter."
+              : "No saved prompts yet. Use + to add one."}
+          </div>
+        ) : (
+          filteredPrompts.map((p) => (
+            <div
+              key={p.id}
+              className="phn-snippet-item"
+              title={p.body}
+              style={{ position: "relative", cursor: "default" }}
+            >
+              <div className="phn-snippet-name">{p.name || "(untitled)"}</div>
+              <div className="phn-snippet-command">{p.body}</div>
+              {Array.isArray(p.tags) && p.tags.length > 0 && (
+                <div style={{ fontSize: 10, color: "var(--phn-text-dim, #888)", marginTop: 2 }}>{p.tags.join(", ")}</div>
+              )}
+              {promptsEditable && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemovePrompt?.(p.id);
+                  }}
+                  title="Delete prompt"
                   style={{
                     position: "absolute",
                     top: 6,

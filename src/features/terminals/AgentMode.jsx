@@ -7,7 +7,7 @@
 // command is model-chosen from possibly attacker-controlled content and the danger
 // denylist is evadable), as do MCP write/destructive tools (annotation-aware, in
 // code; see agentTools.js).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Textarea } from "../../components/ui.jsx";
 import { invoke } from "@backend";
@@ -19,6 +19,8 @@ import { buildTools, needsApproval, isDangerousCommand, mcpResultToContent } fro
 import { runAgentLoop } from "./agentLoop.js";
 import { collectProjectContext, partitionRuleFiles, buildContextBlock } from "./agentContext.js";
 import { scanSecrets, maskSecrets } from "./secretScan.js";
+import { useSavedPrompts } from "./hooks/useSavedPrompts.js";
+import PromptSlashMenu, { filterPrompts, menuKeyAction } from "./PromptSlashMenu.jsx";
 
 const MAX_STEPS = 14;
 
@@ -39,6 +41,24 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
   const goalRef = useRef(null);
   const scrollRef = useRef(null);
   autoRunRef.current = autoRun;
+
+  // Saved-prompts "/" menu over the goal input — same shared component + gating
+  // as DockAssistant.jsx. `promptMenuClosed` is an explicit override on top of
+  // goal.startsWith("/") so inserting a prompt whose body itself starts with
+  // "/" doesn't immediately reopen the menu (see PromptSlashMenu.jsx).
+  const { prompts } = useSavedPrompts({ userSt, saveUser });
+  const [promptMenuClosed, setPromptMenuClosed] = useState(false);
+  const [promptMenuIndex, setPromptMenuIndex] = useState(0);
+  const hasPrompts = Array.isArray(prompts) && prompts.length > 0;
+  const promptMenuOpen = !promptMenuClosed && goal.startsWith("/") && hasPrompts;
+  const filteredPrompts = useMemo(
+    () => (promptMenuOpen ? filterPrompts(prompts, goal.slice(1)) : []),
+    [promptMenuOpen, prompts, goal]
+  );
+  const insertPrompt = (body) => {
+    setGoal(body);
+    setPromptMenuClosed(true); // explicit close — see comment above
+  };
 
   useEffect(() => {
     if (open) {
@@ -220,10 +240,54 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
           </div>
         );
       })()}
-      <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
+      <div style={{ display: "flex", gap: "var(--phn-sp-2)", position: "relative" }}>
+        {promptMenuOpen && (
+          <PromptSlashMenu
+            prompts={prompts}
+            inputValue={goal}
+            selectedIndex={promptMenuIndex}
+            onInsert={insertPrompt}
+          />
+        )}
         <Input
-          ref={goalRef} value={goal} onChange={(e) => setGoal(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") start(); }}
+          ref={goalRef} value={goal}
+          onChange={(e) => {
+            setGoal(e.target.value);
+            setPromptMenuClosed(false);
+            setPromptMenuIndex(0);
+          }}
+          onKeyDown={(e) => {
+            // The slash-menu's Enter/Escape decision is consulted BEFORE the
+            // existing Enter-to-start below, so an open menu's Enter selects a
+            // prompt instead of starting the agent run. ArrowUp/Down (menu
+            // selection movement) don't compete with any existing behavior
+            // here, so they're handled unconditionally while the menu is open.
+            if (promptMenuOpen) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setPromptMenuIndex((i) => Math.min(i + 1, Math.max(filteredPrompts.length - 1, 0)));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setPromptMenuIndex((i) => Math.max(i - 1, 0));
+                return;
+              }
+            }
+            const action = menuKeyAction(e.key, promptMenuOpen);
+            if (action === "select") {
+              e.preventDefault();
+              const chosen = filteredPrompts[promptMenuIndex] || filteredPrompts[0];
+              if (chosen) insertPrompt(chosen.body);
+              return;
+            }
+            if (action === "close") {
+              e.preventDefault();
+              setPromptMenuClosed(true);
+              return;
+            }
+            if (e.key === "Enter") start();
+          }}
           placeholder="Goal in plain English — e.g. find the largest files in this repo and summarize them"
           disabled={running}
         />

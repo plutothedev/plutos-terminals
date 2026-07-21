@@ -26,6 +26,7 @@ import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, us
 import { useDockResize } from "./hooks/useDockResize.js";
 import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { useSnippets } from "./hooks/useSnippets.js";
+import { useSavedPrompts } from "./hooks/useSavedPrompts.js";
 import { useActiveTab } from "./hooks/useActiveTab.js";
 import { useSimpleModals } from "./hooks/useSimpleModals.js";
 import { useTunnels } from "./hooks/useTunnels.js";
@@ -93,6 +94,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Persisted user snippets (seeded from the starter set; written to the
   // window-independent st.snippets key, not the per-window panel state).
   const { snippets, setSnippets } = useSnippets(st, save);
+  // Saved Prompts (AI-prompt library; synced userSt.savedPrompts collection —
+  // see sync/syncState.js). Read by the SnippetsDrawer "Prompts" section and by
+  // DockAssistant's "/" menu; AgentMode reads it independently (it already has
+  // userSt/saveUser via ModalHost, so it calls useSavedPrompts itself).
+  const { prompts: savedPrompts, addPrompt: addSavedPrompt, removePrompt: removeSavedPrompt } = useSavedPrompts({ userSt, saveUser });
   const [agentOpen, setAgentOpen] = useState(false); // Native Agent Mode modal
 
   // MultiExec broadcast (MobaXterm-style). Transient per-window mode: when on,
@@ -880,6 +886,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 onInsert={insertSnippet}
                 snippets={snippets}
                 onSnippetsChange={setSnippets}
+                prompts={savedPrompts}
+                onAddPrompt={addSavedPrompt}
+                onRemovePrompt={removeSavedPrompt}
               />
             )}
             </div>
@@ -946,7 +955,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               <DockTabStrip dockTab={dockTab} setDockTab={setDockTab} collapseDock={collapseDock} />
               <div className="moba-rd-body">
                 {dockTab === "assistant" ? (
-                  <DockAssistant onSendToTerminal={sendToActiveTerminal} shellName={shellName} cwd={activeTab?.cwd} />
+                  <DockAssistant onSendToTerminal={sendToActiveTerminal} shellName={shellName} cwd={activeTab?.cwd} prompts={savedPrompts} />
                 ) : dockTab === "monitor" ? (
                   <DockMonitor sysStats={sysStats} panels={state.panels} activities={tabActivities} />
                 ) : activeTab?.connection ? (

@@ -254,6 +254,63 @@
   line-height: 1.5;
 }
 
+/* ── Saved Prompts section (inside the same Workflows drawer) ───────────── */
+.phn-snippets-section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--phn-surface-border, #2b2b2b);
+  color: var(--phn-text-dim, #888);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+/* ── Saved-prompts "/" slash menu (floats over DockAssistant / AgentMode) ── */
+.phn-prompt-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--phn-surface-bg, #161616);
+  border: 1px solid var(--phn-surface-border, #2b2b2b);
+  border-radius: 6px;
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.35);
+  z-index: 40;
+  padding: 4px;
+}
+.phn-prompt-menu-item {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.phn-prompt-menu-item:hover,
+.phn-prompt-menu-item.active {
+  background: rgba(255, 255, 255, 0.08);
+}
+.phn-prompt-menu-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--phn-text-active, #e6e6e6);
+}
+.phn-prompt-menu-tags {
+  font-size: 10px;
+  color: var(--phn-text-dim, #888);
+  margin-top: 1px;
+}
+.phn-prompt-menu-empty {
+  padding: 10px;
+  text-align: center;
+  color: var(--phn-text-dim, #777);
+  font-size: 11px;
+}
+
 /* ── MobaXterm status-bar segments (CPU / mem / disk) ────────────────── */
 .moba-stat {
   display: inline-flex;
@@ -909,7 +966,7 @@
 .phn-msg-actions button { background: var(--phn-surface-elevated-bg, #2C3037); border: 1px solid var(--phn-surface-border, #34383F); color: var(--phn-text, #D3D7DD); font: inherit; font-size: 10.5px; padding: 2px 8px; border-radius: 5px; cursor: pointer; }
 .phn-msg-actions button:hover { border-color: var(--phn-link, #7c9cf5); color: var(--phn-text-bright, #F2F4F7); }
 .phn-assistant-error { color: var(--phn-danger, #E0574A); font-size: 11px; padding: 4px 10px; }
-.phn-assistant-input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--phn-surface-border, #34383F); }
+.phn-assistant-input { position: relative; display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--phn-surface-border, #34383F); }
 .phn-assistant-input textarea { flex: 1; resize: none; background: var(--phn-surface-alt-bg, #1E2125); border: 1px solid var(--phn-surface-border, #34383F); border-radius: 6px; color: var(--phn-text-bright, #F2F4F7); font-family: var(--phn-ui-font); font-size: 12px; padding: 6px 8px; outline: none; }
 .phn-assistant-input textarea:focus { border-color: var(--phn-link, #7c9cf5); }
 .phn-assistant-input button { flex-shrink: 0; width: 34px; background: var(--phn-link, #7c9cf5); border: none; border-radius: 6px; color: #fff; font-size: 14px; cursor: pointer; }
