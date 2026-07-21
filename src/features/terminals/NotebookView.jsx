@@ -167,6 +167,12 @@ export default function NotebookView({ name, tabId, visible }) {
   const dirtyRef = useRef(false);
   const nameRef = useRef(name);
   const savingRef = useRef(false);
+  // Guards async run/save continuations that resolve AFTER unmount: a
+  // runAndCapture can take up to 120 s, and if the tab closes meanwhile the
+  // resolved closure must NOT setState or arm a fresh autosave that later writes
+  // stale content over a reopened+edited file (zombie write). Set false on
+  // unmount; every writer checks it after its await.
+  const mountedRef = useRef(true);
   const runningRef = useRef(false);
   const autosaveTimer = useRef(null);
   const fmTargetRef = useRef(null); // frontmatter targetPane read at load
@@ -206,6 +212,11 @@ export default function NotebookView({ name, tabId, visible }) {
   }, [Editor, monacoFailed]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
+  const scheduleAutosave = useCallback(() => {
+    clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => { saveRef.current(); }, AUTOSAVE_MS);
+  }, []);
+
   const save = useCallback(async () => {
     if (savingRef.current) return;
     const snapshot = contentRef.current;
@@ -222,14 +233,16 @@ export default function NotebookView({ name, tabId, visible }) {
     } finally {
       savingRef.current = false;
       setSaving(false);
+      // A save() that arrived while this one held the mutex early-returned and
+      // was dropped. If content moved on during the write it would sit dirty
+      // with no scheduled autosave until the next keystroke — re-arm it. Guarded
+      // on mountedRef so a post-unmount finally can't arm a stale-content write.
+      if (mountedRef.current && contentRef.current != null && contentRef.current !== savedRef.current) {
+        scheduleAutosave();
+      }
     }
-  }, [name, toast]);
+  }, [name, toast, scheduleAutosave]);
   saveRef.current = save;
-
-  const scheduleAutosave = useCallback(() => {
-    clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => { saveRef.current(); }, AUTOSAVE_MS);
-  }, []);
 
   // Single funnel for every content mutation (editor edits, output write-back,
   // frontmatter target change): keep contentRef in lockstep and (re)arm autosave.
@@ -314,8 +327,12 @@ export default function NotebookView({ name, tabId, visible }) {
   }, [visible, save]);
 
   // ── Save-on-unmount when dirty (fire-and-forget; hard-quit gap documented) ──
+  // Also flips mountedRef so in-flight run/save continuations bail instead of
+  // firing a zombie write after this instance is gone. []-deps: cleanup runs
+  // only on true unmount, never on a dependency-driven re-run.
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       clearTimeout(autosaveTimer.current);
       if (dirtyRef.current && contentRef.current != null) {
         invoke("notebook_write", { name: nameRef.current, content: contentRef.current }).catch(() => {});
@@ -345,6 +362,10 @@ export default function NotebookView({ name, tabId, visible }) {
 
     setRunStatus((s) => ({ ...s, [blockIndex]: "running" }));
     const r = await runAndCapture(targetId, theLine);
+    // Unmounted mid-run (tab closed during the up-to-120 s capture): bail BEFORE
+    // any setState / writeOutput / scheduleAutosave, or we'd arm a timer that
+    // later clobbers a reopened+edited file with this instance's stale content.
+    if (!mountedRef.current) return r;
 
     // Defensive reparse-verify (editing is locked during a run, so this should
     // always match; it's the no-silent-misattribution backstop).
@@ -397,11 +418,23 @@ export default function NotebookView({ name, tabId, visible }) {
     try {
       for (const idx of singleIdx) {
         const r = await runOne(idx);
+        if (!mountedRef.current) break; // unmounted mid-batch: stop firing further blocks
         if (isFailure(r)) break; // stop at first nonzero exit / timeout / dead pane
       }
     } finally {
       runningRef.current = false;
       setRunning(false);
+      // Revert the transient "skipped" markers to their steady "runs in v1.1"
+      // rail text; preserve any "changed" discards so the user still sees them.
+      setRunStatus((s) => {
+        let touched = false;
+        const c = {};
+        for (const k in s) {
+          if (s[k] === "skipped") { touched = true; continue; }
+          c[k] = s[k];
+        }
+        return touched ? c : s;
+      });
     }
   }, [targetLive, runOne]);
 
