@@ -2,14 +2,24 @@
 import { describe, it, expect } from "vitest";
 import { scanSecrets, maskSecrets } from "./secretScan.js";
 
+const FAKE_PEM = [
+  "-----BEGIN RSA PRIVATE KEY-----",
+  "MIIBOgIBAAJBAKj34GkxFhD91RaHU1KFwqBSqcHTPYFbUxk2mBjRhkiK5RGbrJmB",
+  "UnwqNSJqDPzO0PyEnAWQdHF/eBg7v6/6zpQCAwEAAQ==",
+  "-----END RSA PRIVATE KEY-----",
+].join("\n");
+
 describe("scanSecrets", () => {
   const cases = [
     ["aws-access-key", "key=AKIAIOSFODNN7EXAMPLE ok"],
+    ["aws-access-key", "ASIAIOSFODNN7EXAMPLE in env"],
     ["github-pat", "token ghp_abcdefghijklmnopqrstuvwxyz0123456789"],
     ["github-fine-grained", "github_pat_11ABCDEFG0_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"],
     ["provider-key", "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwx"],
+    ["provider-key", "STRIPE_SECRET_KEY=sk_live_abcdefghijklmnopqrstuvwx"],
     ["slack-token", "xoxb-123456789012-abcdefghijklmnop"],
-    ["pem-private-key", "-----BEGIN RSA PRIVATE KEY-----"],
+    ["slack-token", "xapp-1-A0123456789-abcdefghijklm"],
+    ["pem-private-key", FAKE_PEM],
     ["jwt", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"],
   ];
   for (const [name, text] of cases) {
@@ -44,6 +54,16 @@ describe("maskSecrets", () => {
     expect(once).toContain("[masked aws-access-key]");
     const twice = maskSecrets(once, scanSecrets(once));
     expect(twice).toBe(once);
+  });
+
+  it("masks a full PEM blob including the body, not just the banner", () => {
+    const text = `before\n${FAKE_PEM}\nafter`;
+    const masked = maskSecrets(text, scanSecrets(text));
+    expect(masked).not.toContain("MIIBOgIBAAJBAKj34GkxFhD91RaHU1KFwqBSqcHTPYFbUxk2mBjRhkiK5RGbrJmB");
+    expect(masked).not.toContain("UnwqNSJqDPzO0PyEnAWQdHF/eBg7v6/6zpQCAwEAAQ==");
+    expect(masked).toContain("[masked pem-private-key]");
+    expect(masked).toContain("before");
+    expect(masked).toContain("after");
   });
 
   it("no hits -> unchanged reference", () => {

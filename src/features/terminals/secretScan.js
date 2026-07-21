@@ -6,12 +6,12 @@
 // easy to extend. Entropy heuristics live with Stream D (share flow), not here.
 
 const PATTERNS = [
-  { name: "aws-access-key", re: /\bAKIA[0-9A-Z]{16}\b/g },
+  { name: "aws-access-key", re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
   { name: "github-pat", re: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/g },
   { name: "github-fine-grained", re: /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g },
-  { name: "provider-key", re: /\bsk-[A-Za-z0-9_-]{20,}\b/g },
-  { name: "slack-token", re: /\bxox[abps]-[A-Za-z0-9-]{10,}\b/g },
-  { name: "pem-private-key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
+  { name: "provider-key", re: /\bsk[-_][A-Za-z0-9_-]{20,}\b/g },
+  { name: "slack-token", re: /\bx(?:ox[abprs]|app)-[A-Za-z0-9-]{10,}\b/g },
+  { name: "pem-private-key", re: /-----BEGIN ([A-Z ]*)PRIVATE KEY-----[\s\S]+?-----END \1PRIVATE KEY-----/g },
   { name: "jwt", re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g },
 ];
 
@@ -30,9 +30,13 @@ export function scanSecrets(text) {
 }
 
 export function maskSecrets(text, hits) {
-  if (!hits || !hits.length) return text;
-  let out = String(text);
+  const out0 = String(text ?? "");
+  if (!hits || !hits.length) return out0;
+  let out = out0;
   // Replace longest-first so overlapping/nested matches can't resurrect bytes.
+  // Assumes no partial (crossing) overlaps: every pattern anchors on a distinct
+  // literal prefix, so matches never partially cross; revisit if a pattern
+  // without a literal prefix is added.
   const uniq = [...new Set(hits.map((h) => h.match))].sort((a, b) => b.length - a.length);
   for (const m of uniq) {
     const name = (hits.find((h) => h.match === m) || {}).name || "secret";
