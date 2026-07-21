@@ -1,0 +1,42 @@
+// (C)
+// Shared secret scanner. Stream A masks the agent context block with it before
+// anything reaches an LLM provider; Stream D reuses it for gist-share preview.
+// High-confidence shapes only — a false positive masks a harmless string, a
+// false negative ships a secret, so patterns stay conservative but the set is
+// easy to extend. Entropy heuristics live with Stream D (share flow), not here.
+
+const PATTERNS = [
+  { name: "aws-access-key", re: /\bAKIA[0-9A-Z]{16}\b/g },
+  { name: "github-pat", re: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/g },
+  { name: "github-fine-grained", re: /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g },
+  { name: "provider-key", re: /\bsk-[A-Za-z0-9_-]{20,}\b/g },
+  { name: "slack-token", re: /\bxox[abps]-[A-Za-z0-9-]{10,}\b/g },
+  { name: "pem-private-key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
+  { name: "jwt", re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g },
+];
+
+export function scanSecrets(text) {
+  const s = String(text || "");
+  const hits = [];
+  for (const { name, re } of PATTERNS) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(s))) {
+      hits.push({ name, match: m[0], index: m.index });
+      if (m.index === re.lastIndex) re.lastIndex++; // zero-width safety
+    }
+  }
+  return hits.sort((a, b) => a.index - b.index);
+}
+
+export function maskSecrets(text, hits) {
+  if (!hits || !hits.length) return text;
+  let out = String(text);
+  // Replace longest-first so overlapping/nested matches can't resurrect bytes.
+  const uniq = [...new Set(hits.map((h) => h.match))].sort((a, b) => b.length - a.length);
+  for (const m of uniq) {
+    const name = (hits.find((h) => h.match === m) || {}).name || "secret";
+    out = out.split(m).join(`[masked ${name}]`);
+  }
+  return out;
+}
