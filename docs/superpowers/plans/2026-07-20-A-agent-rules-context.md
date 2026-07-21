@@ -1215,7 +1215,9 @@ git -C C:\Users\pluto\plutos-terminals commit -m "feat(agent): inject approved+m
 - Create: `src/features/terminals/AgentSection.jsx`
 - Modify: `src/components/SettingsModal.jsx` (imports at :11-13; render after the SyncSection block at :110-117, following its EXACT wrapper pattern)
 
-`userSt` fields: `agentRules` (string, default `""`), `agentContextEnabled` (bool, default `true`), `approvedRuleFiles` (map, written by Task 5's Approve). Plain `userSt` (not secrets; rides cloud sync). Functional `saveUser` only.
+`userSt` fields: `agentRules` (string, default `""`), `agentContextEnabled` (bool, default `true`), `approvedRuleFiles` (map, written by Task 5's Approve). Plain `userSt`, not secrets. Sync scoping (deliberate, locked by test): `agentRules` + `agentContextEnabled` ride cloud sync; **`approvedRuleFiles` is intentionally machine-local and does NOT ride sync** — paths are machine-specific and per-machine approval is the safe direction; do not "fix" this by adding it to SOURCES. Functional `saveUser` only.
+
+Documented tradeoff (whole-stream review): the facts section (git branch/dirty, dir names, npm-script names) is user-influenceable repo text that reaches the model under the single toggle with no per-item TOFU gate, bounded by FACTS_CAP (2 KiB) + secret masking; the tool approval gate in agentTools.js is unchanged, so any resulting action still needs a human click. Accepted for v0.6; revisit only if a concrete abuse shows up.
 
 - [ ] **Step 1: Create the section**
 

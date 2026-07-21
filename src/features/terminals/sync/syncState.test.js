@@ -135,4 +135,7 @@ test("SOURCES carries the agent settings fields", () => {
   const u = SOURCES.find((s) => s.store === "userSt");
   expect(u.fields).toContain("agentRules");
   expect(u.fields).toContain("agentContextEnabled");
+  // Deliberately machine-local: rule-file approvals must NOT ride sync
+  // (paths are machine-specific; per-machine approval is the safe direction).
+  expect(u.fields).not.toContain("approvedRuleFiles");
 });

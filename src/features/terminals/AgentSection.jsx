@@ -47,7 +47,7 @@ export default function AgentSection({ userSt, saveUser }) {
         Inject project context (AGENTS.md / CLAUDE.md, git facts, and your Rules below) into agent runs
       </label>
       <div className="phn-ui-hint" style={{ marginBottom: 6 }}>
-        Rules are included in every agent run, above project rule files, and are sent to your configured model provider. Style and expectations only; rules cannot authorize destructive actions or enable auto-run. Do not paste secrets here. Unchecking the toggle above disables all injected context, including these rules.
+        Rules are included in every agent run, above project rule files, and are sent to your configured model provider. Style and expectations only; rules cannot authorize destructive actions or enable auto-run. Do not paste secrets here. Unchecking the toggle above disables all injected context, including these rules. Project rule files (AGENTS.md / CLAUDE.md) additionally need a one-time per-file approval in the Agent Mode context chip before they are ever sent.
       </div>
       <Textarea
         value={draft}
