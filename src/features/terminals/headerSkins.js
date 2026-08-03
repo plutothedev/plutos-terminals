@@ -186,18 +186,39 @@ export const HEADER_SKINS = [
   {
     id: "moba-light",
     label: "Light",
-    description: "Light grey chrome, same dark terminal as Dark.",
-    // Same terminal palette as Dark — the toggle only changes the chrome.
+    description: "Light chrome and a matching light terminal.",
+    // `light` marks a skin whose terminal is light-on-dark-text. It suppresses
+    // the pure-black terminal override (an OLED tweak that would otherwise
+    // paint a black background under this palette's dark text — unreadable).
+    light: true,
+    // Light terminal palette so the shell matches the chrome instead of sitting
+    // as a dark rectangle inside a light app. Hues follow the One Light family
+    // already shipped as the "Pluto Light" terminal theme (themes.js), which is
+    // tuned for contrast against a near-white background.
+    //
+    // ANSI white/brightWhite deliberately do NOT map to near-white here: on a
+    // light background that renders them invisible (the existing Pluto Light
+    // theme has that flaw — both are #fafafa, the background colour). They map
+    // to greys instead, and every bright* variant is DARKER than its base,
+    // since on a light background more contrast — not more luminance — is what
+    // "bright" has to mean.
+    //
+    // Hues come from the One Light family, then each was darkened until it
+    // cleared WCAG AA (4.5:1) against the background, with bright variants at
+    // 5.5:1 so they stay distinguishable from their base. The stock One Light
+    // values sit at 3.0-3.9 against white — fine for a marketing page, thin for
+    // terminal-sized text (yellow was the worst at 3.06). brightBlack stays
+    // deliberately faint: it is what tools use for de-emphasized text.
     xterm: {
-      background: "#0c0d0e",
-      foreground: "#c6c8cc",
-      cursor: "#c6c8cc",
-      selectionBackground: "rgba(124,156,245,0.30)",
-      black: "#26282b", red: "#e08784", green: "#7fbf8a", yellow: "#d2b36b",
-      blue: "#7c9cf5", magenta: "#c49ad1", cyan: "#6fbcc9", white: "#c6c8cc",
-      brightBlack: "#67696e", brightRed: "#eda3a0", brightGreen: "#9bd3a5",
-      brightYellow: "#e3ca8e", brightBlue: "#9cb5f7", brightMagenta: "#d7b3e2",
-      brightCyan: "#8fd0db", brightWhite: "#eceef0",
+      background: "#fafafa",
+      foreground: "#383a42",
+      cursor: "#526fff",
+      selectionBackground: "rgba(82,111,255,0.20)",
+      black: "#383a42", red: "#c44b3f", green: "#407e3f", yellow: "#976801",
+      blue: "#3a6edd", magenta: "#a626a4", cyan: "#0178ac", white: "#6f737b",
+      brightBlack: "#a0a1a7", brightRed: "#ad4337", brightGreen: "#3a7239",
+      brightYellow: "#865c01", brightBlue: "#315fbe", brightMagenta: "#8e1b8c",
+      brightCyan: "#016b98", brightWhite: "#60646a",
     },
   },
   {
@@ -222,7 +243,9 @@ export const HEADER_SKINS = [
 
 export function getSkinXtermTheme(skinId, opts = {}) {
   const skin = HEADER_SKINS.find((s) => s.id === skinId) || HEADER_SKINS[0];
-  if (opts.pureBlackTerminal) {
+  // pureBlackTerminal is an OLED power tweak; forcing it onto a light skin
+  // would paint a black background under dark text, so light skins opt out.
+  if (opts.pureBlackTerminal && !skin.light) {
     return { ...skin.xterm, background: "#000000" };
   }
   return skin.xterm;
