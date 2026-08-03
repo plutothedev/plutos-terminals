@@ -57,6 +57,13 @@
   for wrapped lines changed (this is what keeps a wrapped secret scannable
   for the share flow's masking too).
 
+### Security
+- Secret masking now covers a private key that was cut in half by a size
+  limit, in both directions — previously a PEM block missing its `BEGIN`
+  line was not detected at all, and one missing its `END` line had only its
+  banner masked while the key material itself went through. Affects the
+  gist-share preview/upload and the agent context block.
+
 ### Fixed
 - Agent-mode command capture no longer aborts when its tab is moved between
   panels mid-command.
