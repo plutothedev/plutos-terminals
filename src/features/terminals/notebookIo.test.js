@@ -154,3 +154,41 @@ describe("noteWrite — same-name writes are strictly serialized", () => {
     await flush();
   });
 });
+
+// Cloud-sync payload guard: saved prompts and agent rules ride the synced
+// surface, which is re-encrypted whole on every push, so one pasted file would
+// inflate every future sync on every machine.
+describe("sync payload clamps", () => {
+  it("a pasted file in a prompt body is truncated, not synced whole", async () => {
+    const { normalizePrompt, PROMPT_BODY_MAX, PROMPT_NAME_MAX, PROMPT_TAGS_MAX, PROMPT_TAG_MAX } =
+      await import("./hooks/useSavedPrompts.js");
+    const huge = normalizePrompt({
+      name: "n".repeat(5000),
+      body: "x".repeat(PROMPT_BODY_MAX + 500_000),
+      tags: Array(100).fill("t".repeat(200)),
+    });
+    expect(huge.body.length).toBe(PROMPT_BODY_MAX);
+    expect(huge.name.length).toBe(PROMPT_NAME_MAX);
+    expect(huge.tags.length).toBe(PROMPT_TAGS_MAX);
+    expect(huge.tags.every((t) => t.length <= PROMPT_TAG_MAX)).toBe(true);
+  });
+
+  it("an ordinary prompt passes through untouched", async () => {
+    const { normalizePrompt } = await import("./hooks/useSavedPrompts.js");
+    const p = { name: "Review diff", body: "Review the staged diff for bugs.", tags: ["dev"] };
+    expect(normalizePrompt(p)).toEqual(p);
+  });
+
+  it("missing/garbage input does not throw", async () => {
+    const { normalizePrompt } = await import("./hooks/useSavedPrompts.js");
+    expect(normalizePrompt(undefined)).toEqual({ name: "", body: "", tags: [] });
+    expect(normalizePrompt({ tags: "not-an-array" }).tags).toEqual([]);
+  });
+
+  it("agent rules cap sits above the context builder's own rules share", async () => {
+    const { AGENT_RULES_MAX } = await import("./AgentSection.jsx");
+    const { RULES_SHARE } = await import("./agentContext.js");
+    // Clamping below RULES_SHARE would silently shrink what the model can see.
+    expect(AGENT_RULES_MAX).toBeGreaterThanOrEqual(RULES_SHARE);
+  });
+});

@@ -7,6 +7,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Textarea } from "../../components/ui.jsx";
 
+// Rules ride cloud sync, and the engine re-encrypts the WHOLE surface per
+// push, so an accidental paste of a large file here would inflate every
+// future sync on every machine. Clamped on commit — well above any real rules
+// text, and the agent-context builder caps its own share at RULES_SHARE (8KB)
+// anyway, so anything past this was never going to reach the model intact.
+export const AGENT_RULES_MAX = 16 * 1024;
+
 export default function AgentSection({ userSt, saveUser }) {
   const enabled = userSt?.agentContextEnabled !== false;
 
@@ -19,8 +26,9 @@ export default function AgentSection({ userSt, saveUser }) {
   const draftRef = useRef(draft);
 
   const commitRules = () => {
-    if (draftRef.current !== (userSt?.agentRules || "")) {
-      saveUser((prev) => ({ ...prev, agentRules: draftRef.current }));
+    const v = draftRef.current.slice(0, AGENT_RULES_MAX);
+    if (v !== (userSt?.agentRules || "")) {
+      saveUser((prev) => ({ ...prev, agentRules: v }));
     }
   };
 
@@ -29,7 +37,7 @@ export default function AgentSection({ userSt, saveUser }) {
   // the live `prev` (not the possibly-stale `userSt` prop) and returns it
   // unchanged when equal, so a clean close never fires a pointless write.
   useEffect(() => () => {
-    const v = draftRef.current;
+    const v = draftRef.current.slice(0, AGENT_RULES_MAX); // same clamp as commitRules
     saveUser((prev) => ((prev?.agentRules || "") === v ? prev : { ...prev, agentRules: v }));
   }, [saveUser]);
 

@@ -18,16 +18,34 @@ function listOf(store) {
   return Array.isArray(store?.savedPrompts) ? store.savedPrompts : [];
 }
 
+// Saved prompts ride cloud sync, and the sync engine JSON-stringifies and
+// encrypts the WHOLE surface on every push — so one accidental paste of a
+// large file into a prompt body inflates every subsequent sync for every
+// machine, forever (the sync repo keeps a fresh blob per commit). Clamp on the
+// way in. Generous enough that no real prompt hits it; a paste of a whole file
+// does. Same reasoning as the agent-context budget in agentContext.js.
+export const PROMPT_NAME_MAX = 200;
+export const PROMPT_BODY_MAX = 8 * 1024;
+export const PROMPT_TAGS_MAX = 20;
+export const PROMPT_TAG_MAX = 40;
+const clamp = (v, n) => String(v ?? "").slice(0, n);
+
+// Pure so the clamp is testable without mounting the hook.
+export function normalizePrompt(input) {
+  return {
+    name: clamp(input?.name, PROMPT_NAME_MAX),
+    body: clamp(input?.body, PROMPT_BODY_MAX),
+    tags: Array.isArray(input?.tags)
+      ? input.tags.slice(0, PROMPT_TAGS_MAX).map((t) => clamp(t, PROMPT_TAG_MAX))
+      : [],
+  };
+}
+
 export function useSavedPrompts({ userSt, saveUser }) {
   const prompts = listOf(userSt);
 
   const addPrompt = useCallback((input) => {
-    const item = {
-      id: freshId("prompt"),
-      name: String(input?.name || ""),
-      body: String(input?.body || ""),
-      tags: Array.isArray(input?.tags) ? input.tags.map(String) : [],
-    };
+    const item = { id: freshId("prompt"), ...normalizePrompt(input) };
     saveUser((prev) => ({ ...prev, savedPrompts: [...listOf(prev), item] }));
     return item;
   }, [saveUser]);
