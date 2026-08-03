@@ -71,6 +71,13 @@
   Always eyeball the preview before sharing.
 
 ### Fixed
+- Session transcripts are now cleaned up automatically: day-folders older than
+  90 days are removed, and the sweep runs daily rather than only at startup
+  (closing the window hides to the tray, so a long-running app never used to
+  reclaim anything). Previously transcripts grew forever with no way to clear
+  them from inside the app.
+- A failed transcript write is reported to the console instead of being
+  discarded silently.
 - Agent-mode command capture no longer aborts when its tab is moved between
   panels mid-command.
 - Cost/token telemetry no longer jumps backward after moving a tab.
