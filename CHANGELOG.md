@@ -20,22 +20,29 @@
   blocks get a Run button that sends the command to a chosen terminal pane and
   writes the captured output back into the document as an `output` fence
   (rerun overwrites it). Files are plain `.md` under an app-data notebooks
-  folder (git-friendly, atomic saves, 2s autosave). Editor is Monaco with a
-  plain-textarea fallback. Nothing runs without an explicit click. v1 runs
-  single-line commands; multi-line blocks are shown but not run (v1.1). New /
-  Open notebook live in the Terminal menu; typed names are sanitized to a safe
-  filename.
-- **Saved Prompts** — a reusable AI-prompt library (Settings drawer), synced
-  across machines. Type `/` in the AI assistant or agent goal box to fuzzy-
-  search and insert a saved prompt.
+  folder (git-friendly, atomic saves, 2s autosave; same-notebook saves are
+  strictly ordered so a close mid-autosave can't revert your last edit).
+  Editor is Monaco with a plain-textarea fallback. Nothing runs without an
+  explicit click. v1 runs single-line commands; multi-line blocks are shown
+  but not run (v1.1). New / Open notebook live in the Terminal menu; typed
+  names are sanitized to a safe filename. Known limits: a single line with an
+  unclosed quote/paren isn't detected as incomplete and can leave the target
+  pane waiting for more input; killing the app the hard way (Task Manager /
+  kill -9) can drop the final unsaved ~2s of edits.
+- **Saved Prompts** — a reusable AI-prompt library (Tools → Snippets drawer,
+  Prompts section), synced across machines. Type `/` in the AI assistant or
+  agent goal box to fuzzy-search and insert a saved prompt.
 - **Share to GitHub gist** — right-click a command block ("Share block...") or a
   tab ("Share transcript...") to publish it as a gist. A preview shows exactly
   what will upload, secret-scanned and masked first (API keys, tokens, PEM
   blocks, JWTs are hidden before anything leaves your machine). Secret-gist by
   default (note: secret gists are unlisted, not private). The URL is copied to
-  your clipboard; "My shares" (Tools menu) lists and revokes them. Paste a
+  your clipboard; "My shares" (Tools menu) lists and revokes them — a revoke
+  whose delete fails is durably marked "still live" in the list. Paste a
   gist-scope token in Settings → Sharing, or use the `gh` CLI. Share history
-  stays on this machine (not synced).
+  stays on this machine (not synced). Very large shares are truncated to the
+  most recent portion (the preview says so). On a split tab, "Share
+  transcript..." shares the root pane's session.
 
 ### Changed
 - Moving a tab to another panel now keeps its live terminal: the running
@@ -45,6 +52,10 @@
   registry outside React owns each terminal; closing a tab/pane/panel,
   loading a workspace, resetting the workspace, locking the app, or a
   crashed UI still tear sessions down fully.
+- "Copy output" / "Copy command + output" on a block now join soft-wrapped
+  lines instead of inserting a newline at the pane width — the copied bytes
+  for wrapped lines changed (this is what keeps a wrapped secret scannable
+  for the share flow's masking too).
 
 ### Fixed
 - Agent-mode command capture no longer aborts when its tab is moved between
