@@ -1025,10 +1025,15 @@ fn transcript_date_valid(date: &str) -> bool {
         && chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok()
 }
 
-// A name is valid iff sanitizing it is a no-op and it isn't empty (an empty
-// stem would resolve to a bare ".md" file — never a legal transcript name).
+// A name is valid iff sanitizing it is a no-op, it isn't empty (an empty
+// stem would resolve to a bare ".md" file — never a legal transcript name),
+// and it isn't a reserved Windows device name (release-audit fix: win32's
+// legacy DOS-device resolution intercepts "con"/"nul"/… regardless of the
+// ".md" appended later — same RESERVED_NAMES gate notebook_path applies).
 fn transcript_name_valid(name: &str) -> bool {
-    !name.is_empty() && safe_filename(name) == name
+    !name.is_empty()
+        && safe_filename(name) == name
+        && !RESERVED_NAMES.contains(&name.to_lowercase().as_str())
 }
 
 fn transcripts_dir(app: &AppHandle) -> PathBuf {
@@ -1272,6 +1277,26 @@ mod transcript_read_tests {
                 "expected rejection for {bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn reserved_device_names_rejected() {
+        // Release-audit fix: win32's legacy DOS-device resolution intercepts
+        // "con"/"nul"/"com1"/… regardless of the ".md" extension appended
+        // later, so a transcript name that IS a device name silently breaks
+        // recording (nul) or errors weirdly (con). Same RESERVED_NAMES gate
+        // the notebook path already applies, case-insensitively.
+        let tmp = tempfile::tempdir().unwrap();
+        for bad in ["con", "CON", "nul", "com1", "LPT9"] {
+            assert!(!transcript_name_valid(bad), "expected rejection for {bad:?}");
+            assert!(
+                transcript_read_all_sync(tmp.path(), bad).is_err(),
+                "expected rejection for {bad:?}"
+            );
+        }
+        // Near-misses stay valid — the gate is exact-match, not substring.
+        assert!(transcript_name_valid("console"));
+        assert!(transcript_name_valid("con-1"));
     }
 
     #[test]
@@ -1686,8 +1711,15 @@ fn notebook_list_sync(dir: &std::path::Path) -> Vec<String> {
 // Sync core: read one notebook. A missing file is an Err (not ""); the
 // caller (NotebookView, Task C-4) decides whether that means "new notebook"
 // vs. "restored tab whose file vanished" — never silently reseeded here.
+// Rejects a symlinked target instead of following it (release-audit fix:
+// list excludes symlinks, but a direct invoke bypasses the picker — the read
+// path must hold the same line transcript_read_file_lossy does).
 fn notebook_read_sync(dir: &std::path::Path, name: &str) -> Result<String, String> {
     let path = notebook_path(dir, name)?;
+    let meta = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+    if !meta.file_type().is_file() {
+        return Err("notebook not found".into());
+    }
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
@@ -1697,6 +1729,15 @@ fn notebook_read_sync(dir: &std::path::Path, name: &str) -> Result<String, Strin
 // content rather than appending to it.
 fn notebook_write_sync(dir: &std::path::Path, name: &str, content: &str) -> Result<(), String> {
     let path = notebook_path(dir, name)?;
+    // Defense-in-depth twin of the read-side symlink check: a destination that
+    // exists but is not a regular file (symlink, dir) is never mutated — the
+    // rename would replace the link rather than write through it, but a
+    // notebook name that is secretly a link is not a state we accept.
+    if let Ok(meta) = fs::symlink_metadata(&path) {
+        if !meta.file_type().is_file() {
+            return Err("notebook path is not a regular file".into());
+        }
+    }
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let mut tmp_name = path
         .file_name()
@@ -2035,6 +2076,51 @@ mod notebook_io_tests {
         assert!(
             notebook_read_sync(tmp.path(), "my notes.md").is_err(),
             "list and read must agree: reject it too"
+        );
+    }
+
+    #[test]
+    fn read_direct_on_symlinked_target_is_err() {
+        // Release-audit fix: the list-exclusion alone is not enough — a direct
+        // invoke("notebook_read", { name }) bypasses the picker's filter, so
+        // the READ path itself must reject a symlinked file instead of
+        // following it (same contract as transcript_read_file_lossy).
+        let tmp = tempfile::tempdir().unwrap();
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&secret, tmp.path().join("linked.md")).is_ok();
+        #[cfg(not(windows))]
+        let made = std::os::unix::fs::symlink(&secret, tmp.path().join("linked.md")).is_ok();
+        if !made { return; }
+        assert!(
+            notebook_read_sync(tmp.path(), "linked.md").is_err(),
+            "read must reject a symlinked notebook, never follow it"
+        );
+    }
+
+    #[test]
+    fn write_onto_symlinked_target_is_err_and_target_untouched() {
+        // Defense-in-depth twin of the read check: writing to a name whose
+        // on-disk entry is a symlink is rejected outright (the rename would
+        // replace the link, not write through it — but a notebook name that
+        // is secretly a link is never a state we accept or mutate).
+        let tmp = tempfile::tempdir().unwrap();
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&secret, tmp.path().join("linked.md")).is_ok();
+        #[cfg(not(windows))]
+        let made = std::os::unix::fs::symlink(&secret, tmp.path().join("linked.md")).is_ok();
+        if !made { return; }
+        assert!(
+            notebook_write_sync(tmp.path(), "linked.md", "overwrite").is_err(),
+            "write must reject a symlinked destination"
+        );
+        assert_eq!(
+            fs::read_to_string(&secret).unwrap(),
+            "PRIVATE KEY MATERIAL",
+            "symlink target must be untouched"
         );
     }
 }
