@@ -13,7 +13,7 @@ a built-in AI assistant and agent mode across 16+ LLM providers, a Warp-style
 prompt editor, an SFTP file browser, a live system monitor, SSH/serial sessions,
 port forwarding, and remote desktops (RDP/VNC) — all in the same place.
 
-**[⬇ Download the latest release](https://github.com/plutothedev/plutos-terminals/releases/latest)** — macOS `.dmg` · Windows `.msi`/`.exe` · Linux `.AppImage`/`.deb`
+**[⬇ Download the latest release](https://github.com/plutothedev/plutos-terminals/releases/latest)** — macOS `.dmg` · Windows `.msi` · Linux `.AppImage`/`.deb`
 
 ---
 
@@ -127,7 +127,7 @@ monochrome stroke icons (plus importable custom themes).
 1. Go to the **[Releases page](https://github.com/plutothedev/plutos-terminals/releases/latest)**.
 2. Download the file for your OS:
    - **macOS** — `.dmg` (Apple Silicon + Intel universal)
-   - **Windows** — `.msi` installer or standalone `.exe`
+   - **Windows** — `.msi` installer
    - **Linux** — `.AppImage` (portable) or `.deb`
 3. Install and launch.
 
