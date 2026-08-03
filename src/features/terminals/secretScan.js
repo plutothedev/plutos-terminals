@@ -25,13 +25,19 @@ const BEGIN_BANNER_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----/g;
 const END_BANNER_RE = /-----END [A-Z ]*PRIVATE KEY-----/g;
 
 // A PEM body line: base64 with optional padding, long enough that ordinary
-// prose can't be mistaken for one. Used to EXTEND an unpaired banner over the
+// prose can't be mistaken for one, and tolerant of the horizontal whitespace
+// raw PTY output pads lines with. Used to EXTEND an unpaired banner over the
 // key material next to it — flagging a banner while shipping its base64 raw
 // was the actual leak (a banner is public boilerplate; the body is the key).
-// Documented residual: a final body line shorter than 16 chars is not spanned;
-// <16 base64 chars (~11 bytes) is not reconstructable key material.
-const BODY_AFTER_RE = /(?:\r?\n[A-Za-z0-9+/]{16,}={0,2})+/y; // sticky: from the banner forward
-const BODY_BEFORE_RE = /(?:[A-Za-z0-9+/]{16,}={0,2}\r?\n)+$/; // anchored: back from the banner
+// Documented residuals, all verified by hand: a body line shorter than 16
+// chars is not spanned (<16 base64 chars ~ 11 bytes, not reconstructable key
+// material); a BLANK line inside a body stops the walk (PEM bodies have none,
+// and nothing in our own truncation path inserts one); and a fragment with
+// BOTH banners severed is undetectable by design — identifying bare base64
+// would need the entropy heuristic this module deliberately dropped as
+// high-false-positive on command output.
+const BODY_AFTER_RE = /(?:\r?\n[ \t]*[A-Za-z0-9+/]{16,}={0,2}[ \t]*)+/y; // sticky: banner forward
+const BODY_BEFORE_RE = /(?:[ \t]*[A-Za-z0-9+/]{16,}={0,2}[ \t]*\r?\n)+$/; // anchored: banner back
 
 // Grow an unpaired banner match to cover the adjacent key body.
 function spanForward(s, index, banner) {

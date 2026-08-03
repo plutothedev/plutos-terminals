@@ -115,6 +115,21 @@ describe("scanSecrets — bisected PEM blocks (upstream truncation)", () => {
     expect(hits[0].name).toBe("pem-private-key");
   });
 
+  it("body lines carrying terminal padding (trailing spaces) are still spanned", () => {
+    // Real-world shape: raw PTY output pads lines to the pane width, so a
+    // captured key's body lines can carry trailing spaces/tabs. Requiring a
+    // body line to end exactly at the newline let the whole body through.
+    const withPad = `${BODY_A}   \n${BODY_B}\t\n-----END RSA PRIVATE KEY-----\n`;
+    const maskedPad = maskSecrets(withPad, scanSecrets(withPad));
+    expect(maskedPad).not.toContain(BODY_A);
+    expect(maskedPad).not.toContain(BODY_B);
+
+    const dangling = `-----BEGIN RSA PRIVATE KEY-----\n${BODY_A}  \n${BODY_B}   \n`;
+    const maskedDangling = maskSecrets(dangling, scanSecrets(dangling));
+    expect(maskedDangling).not.toContain(BODY_A);
+    expect(maskedDangling).not.toContain(BODY_B);
+  });
+
   it("TWO separately-bisected keys in one text: both bodies masked", () => {
     // Re-review catch: suppressing an unpaired END whenever ANY earlier BEGIN
     // exists is distance-blind. Mismatched key types mean the paired pattern
