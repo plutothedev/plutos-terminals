@@ -4,7 +4,7 @@
 // session/tab with its activity state, blocked ones first, under a summary
 // line. Read-only; no extra polling of its own.
 
-import { ACTIVITY_RANK, activityCounts } from "./hooks/useTabTelemetry.js";
+import { ACTIVITY_RANK, tabStatus } from "./hooks/useTabTelemetry.js";
 
 function loadColor(p) {
   return p < 60 ? "#6FB85C" : p < 85 ? "#E0A93C" : "#E0574A";
@@ -32,13 +32,17 @@ export default function DockMonitor({ sysStats, panels, activities }) {
   (panels || []).forEach((pan) =>
     (pan.tabs || []).forEach((t) => sessions.push(t))
   );
-  const counts = activityCounts(sessions, activities);
+  // Status per SESSION, not per pane id: a split tab's second pane has its own
+  // leaf id, so keying off tab.id alone made this dock silently disagree with
+  // the Agent dashboard (it would miss a blocked pane entirely and undercount
+  // "needs you"). tabStatus walks every leaf through the shared rollup.
+  const statusOf = (t) => tabStatus(t, activities);
+  const counts = { waiting: 0, active: 0, done: 0, idle: 0 };
+  for (const s of sessions) counts[statusOf(s)] = (counts[statusOf(s)] ?? 0) + 1;
   // Blocked sessions sort to the top — in a fleet, hunting for the one that
   // needs you defeats the point. Sort is stable, so ties keep tab order.
   const ordered = [...sessions].sort(
-    (a, b) =>
-      (ACTIVITY_RANK[activities?.[b.id] || "idle"] ?? 0) -
-      (ACTIVITY_RANK[activities?.[a.id] || "idle"] ?? 0)
+    (a, b) => (ACTIVITY_RANK[statusOf(b)] ?? 0) - (ACTIVITY_RANK[statusOf(a)] ?? 0)
   );
   return (
     <div className="phn-monitor">
@@ -81,7 +85,7 @@ export default function DockMonitor({ sysStats, panels, activities }) {
         <div className="phn-mon-empty">No open sessions.</div>
       ) : (
         ordered.map((s) => {
-          const st = activities?.[s.id] || "idle";
+          const st = statusOf(s);
           const kind = s.home ? "home" : s.worktree ? "agent" : s.rdp ? "rdp" : s.vnc ? "vnc" : s.connection ? "ssh" : s.serial ? "serial" : "local";
           const label = st === "waiting" ? "needs you" : st;
           return (

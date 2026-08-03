@@ -9,7 +9,7 @@
 // everything. It is the only state that is asking something of you, so it must
 // never be masked by a sibling pane that happens to be running.
 import { describe, it, expect } from "vitest";
-import { mergeActivity, activityCounts, ACTIVITY_RANK } from "./hooks/useTabTelemetry.js";
+import { mergeActivity, activityCounts, tabStatus, ACTIVITY_RANK } from "./hooks/useTabTelemetry.js";
 
 describe("mergeActivity", () => {
   it("ranks waiting above every other state", () => {
@@ -50,8 +50,45 @@ describe("mergeActivity", () => {
   });
 });
 
+// A split tab's panes have their OWN leaf ids — only one child keeps the
+// original tab.id. Any surface keying off tab.id alone silently misses the
+// other pane, which is exactly how the Monitor dock came to undercount
+// "needs you" while the Agent dashboard showed it correctly.
+describe("tabStatus — split tabs", () => {
+  const unsplit = { id: "t1" };
+  const split = {
+    id: "t2",
+    layout: { id: "root", dir: "row", a: { id: "t2" }, b: { id: "pane-2" } },
+  };
+
+  it("an unsplit tab reads its own id", () => {
+    expect(tabStatus(unsplit, { t1: "waiting" })).toBe("waiting");
+    expect(tabStatus(unsplit, {})).toBe("idle");
+  });
+
+  it("sees a blocked pane that is NOT the one holding tab.id", () => {
+    expect(tabStatus(split, { "pane-2": "waiting" })).toBe("waiting");
+  });
+
+  it("waiting in either pane beats a sibling that is merely running", () => {
+    expect(tabStatus(split, { t2: "active", "pane-2": "waiting" })).toBe("waiting");
+    expect(tabStatus(split, { t2: "waiting", "pane-2": "active" })).toBe("waiting");
+  });
+
+  it("falls back to the loudest remaining state when nothing is blocked", () => {
+    expect(tabStatus(split, { t2: "done", "pane-2": "active" })).toBe("active");
+    expect(tabStatus(split, { "pane-2": "done" })).toBe("done");
+  });
+});
+
 describe("activityCounts", () => {
   const tabs = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+
+  it("counts a split tab once, by its loudest pane", () => {
+    const split = { id: "s", layout: { id: "r", dir: "row", a: { id: "s" }, b: { id: "s2" } } };
+    const counts = activityCounts([split], { s2: "waiting" });
+    expect(counts).toEqual({ waiting: 1, active: 0, done: 0, idle: 0 });
+  });
 
   it("counts each state across the fleet", () => {
     const counts = activityCounts(tabs, { a: "waiting", b: "active", c: "done" });

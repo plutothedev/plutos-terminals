@@ -6,22 +6,8 @@
 import { useState } from "react";
 import { getLayout, leafIds } from "./splitTree";
 import { SBot, SAgents, SLink, SSerial, SWindows, SLocal, SAsk } from "./toolbarIcons.jsx";
-import { mergeActivity } from "./hooks/useTabTelemetry.js";
+import { tabStatus } from "./hooks/useTabTelemetry.js";
 import "./terminals.css";
-
-// A tab's status = the loudest of its panes (waiting > active > done > idle),
-// through the shared mergeActivity so this and the project/dock rollups cannot
-// drift apart. "waiting" outranks everything: a session blocked on your
-// approval is the only one asking for something, and it must never hide behind
-// a sibling pane that happens to be running.
-export function tabStatus(tab, tabActivities) {
-  let best = "idle";
-  for (const id of leafIds(getLayout(tab))) {
-    best = mergeActivity(best, tabActivities?.[id] || "idle");
-    if (best === "waiting") break; // nothing outranks it
-  }
-  return best;
-}
 
 function tabCostTokens(tab, tabCosts) {
   let cost = 0, tokens = 0;
@@ -38,7 +24,7 @@ const DOT = { waiting: "#E0A93C", active: "#FBBF24", done: "#34D399", idle: "#5a
 const LABEL = { waiting: "needs you", active: "working", done: "done", idle: "idle" };
 
 export default function AgentDashboard({ panels, activePanelId, tabActivities, tabCosts, onFocusTab, onReviewDiff, onSummarize }) {
-  const [filter, setFilter] = useState("all"); // all | active | done
+  const [filter, setFilter] = useState("all"); // all | waiting | active | done
 
   const rows = [];
   let total = 0, totalTokens = 0, working = 0, waiting = 0;
@@ -55,10 +41,14 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
       rows.push({ panel, tab, status, cost, tokens, isActive });
     }
   }
+  // The "needs you" pill only renders while something is waiting, so a filter
+  // left selected as the last agent unblocks would leave no pill highlighted
+  // and an empty list with no explanation. Fall back to "all" in that case.
+  const effectiveFilter = filter === "waiting" && waiting === 0 ? "all" : filter;
   // Blocked sessions float to the top of every view: the whole point of a fleet
   // list is that you should never have to hunt for the one that needs you.
   // Array.prototype.sort is stable, so everything else keeps its panel/tab order.
-  const shown = (filter === "all" ? rows : rows.filter((r) => r.status === filter))
+  const shown = (effectiveFilter === "all" ? rows : rows.filter((r) => r.status === effectiveFilter))
     .slice()
     .sort((a, b) => (b.status === "waiting" ? 1 : 0) - (a.status === "waiting" ? 1 : 0));
 
@@ -66,9 +56,9 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
     <button
       onClick={() => setFilter(id)}
       style={{
-        background: filter === id ? "var(--phn-accent-subtle, rgba(74,168,192,0.18))" : "transparent",
-        border: `1px solid ${filter === id ? "var(--phn-link, #7c9cf5)" : "var(--phn-surface-border, #2a2a2a)"}`,
-        color: filter === id ? "var(--phn-link, #7c9cf5)" : "var(--phn-text-dim, #888)",
+        background: effectiveFilter === id ? "var(--phn-accent-subtle, rgba(74,168,192,0.18))" : "transparent",
+        border: `1px solid ${effectiveFilter === id ? "var(--phn-link, #7c9cf5)" : "var(--phn-surface-border, #2a2a2a)"}`,
+        color: effectiveFilter === id ? "var(--phn-link, #7c9cf5)" : "var(--phn-text-dim, #888)",
         borderRadius: 4, padding: "1px 7px", fontSize: 9.5, cursor: "pointer",
         fontFamily: "var(--phn-ui-font)",
       }}

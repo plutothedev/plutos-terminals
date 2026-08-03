@@ -8,6 +8,7 @@
 // rollups. Inputs: the workspace state + the project list.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getLayout, leafIds } from "../splitTree";
 
 // Rollup precedence when several tabs map to one project (or one summary row).
 // "waiting" ranks highest on purpose: among a fleet of agents, the one blocked
@@ -19,12 +20,24 @@ export function mergeActivity(a, b) {
   return (ACTIVITY_RANK[b] ?? 0) > (ACTIVITY_RANK[a] ?? 0) ? b : (a ?? "idle");
 }
 
-// Fleet counts for the Monitor's summary line. Tabs with no recorded state are
-// idle (handleTabActivityChange drops idle entries to keep the map small).
+// A TAB's status = the loudest of its panes. Split tabs matter here: only one
+// child keeps the original tab.id after a split, so anything keying off tab.id
+// alone silently misses the other pane's state. Every fleet surface goes
+// through this.
+export function tabStatus(tab, activities) {
+  let best = "idle";
+  for (const id of leafIds(getLayout(tab))) {
+    best = mergeActivity(best, activities?.[id] || "idle");
+    if (best === "waiting") break; // nothing outranks it
+  }
+  return best;
+}
+
+// Fleet counts for the Monitor's summary line, per tab (not per pane).
 export function activityCounts(tabs, activities) {
   const counts = { waiting: 0, active: 0, done: 0, idle: 0 };
   for (const t of tabs || []) {
-    const st = activities?.[t.id] || "idle";
+    const st = tabStatus(t, activities);
     if (counts[st] === undefined) counts.idle += 1;
     else counts[st] += 1;
   }

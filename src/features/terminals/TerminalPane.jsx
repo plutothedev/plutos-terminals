@@ -446,6 +446,26 @@ export default function TerminalPane({
     });
   };
 
+  // The prompt heuristic, extracted so BOTH the auto-approve pass and the
+  // visibility reset can ask the same question. A Claude permission prompt has
+  // the arrow on option 1, a "Yes" option, an "(esc)" hint, AND the
+  // "Do you want …?" question. Requiring the question anchors the match to
+  // Claude's real permission framing so arbitrary attacker-influenced output
+  // that merely echoes "❯ 1." / "Yes" / "(esc)" can't forge an
+  // auto-confirmation (defense-in-depth atop the away-gate). All four markers
+  // are still required together — this is a pure move, not a loosening.
+  const hasPendingPrompt = () => {
+    const e = entryRef.current;
+    if (!e) return false;
+    const text = stripAnsi(e.counters.recentOut);
+    return (
+      /❯\s*1[.)]/.test(text) &&
+      /\bYes\b/.test(text) &&
+      (/\(esc\)/i.test(text) || /\[esc\]/i.test(text)) &&
+      /Do you want\b/i.test(text)
+    );
+  };
+
   const checkAutoApprove = (ptyId) => {
     const e = entryRef.current;
     if (!ptyId || !e) return;
@@ -454,17 +474,7 @@ export default function TerminalPane({
     if (e.counters.recentOut.length > AUTO_APPROVE_BUFFER_BYTES) {
       e.counters.recentOut = e.counters.recentOut.slice(-AUTO_APPROVE_BUFFER_BYTES);
     }
-    const text = stripAnsi(e.counters.recentOut);
-    // Heuristic: a Claude permission prompt has the arrow on option 1, a "Yes"
-    // option, an "(esc)" hint, AND the "Do you want …?" question. Requiring the
-    // question anchors the match to Claude's real permission framing so arbitrary
-    // attacker-influenced output that merely echoes "❯ 1." / "Yes" / "(esc)"
-    // can't forge an auto-confirmation (defense-in-depth atop the away-gate).
-    const hasArrow = /❯\s*1[.)]/.test(text);
-    const hasYes = /\bYes\b/.test(text);
-    const hasEsc = /\(esc\)/i.test(text) || /\[esc\]/i.test(text);
-    const hasProceed = /Do you want\b/i.test(text);
-    if (!(hasArrow && hasYes && hasEsc && hasProceed)) {
+    if (!hasPendingPrompt()) {
       // No prompt in the recent buffer any more: whatever we were blocked on is
       // resolved (answered here, answered elsewhere, or scrolled out as the
       // agent resumed), so stop reporting "waiting". This runs on every output
@@ -650,7 +660,12 @@ export default function TerminalPane({
       resetActivity: prevUi?.resetActivity ?? (() => {
         bytesSinceSeenRef.current = 0;
         clearDoneTimer();
-        setActivity("idle");
+        // Looking at a tab clears its "you haven't seen this" states — but NOT
+        // "waiting". A blocked session is still blocked after you glance at it,
+        // and since the check only re-runs on new PTY output (of which a parked
+        // process produces none), forcing idle here would drop the flag
+        // permanently without anything having been answered.
+        setActivity(hasPendingPrompt() ? "waiting" : "idle");
       }),
     };
 
@@ -1219,7 +1234,18 @@ export default function TerminalPane({
         // survive parks and are torn down only by the destroy hook above — so
         // runAndCapture survives a mid-run move (B1 bug fix 1).
         registerPtyWriter(tabId, (data) => {
-          if (ptyId) invoke("pty_write", { id: ptyId, data }).catch(() => {});
+          if (!ptyId) return;
+          // Anything written to this PTY is a potential answer to a pending
+          // prompt, so un-block here rather than only in term.onData — that
+          // covered local typing alone, leaving MultiExec broadcast, snippet
+          // insertion, macro replay, the prompt editor and agent steps to
+          // strand the session as "needs you" after they had already answered
+          // it. Every one of those routes through this writer.
+          if (entryLive()) {
+            entryRef.current.counters.recentOut = "";
+            if (activityRef.current === "waiting") setActivity("active");
+          }
+          invoke("pty_write", { id: ptyId, data }).catch(() => {});
         }, visibleRef.current);
         // Publish the live channel id so the phone companion can subscribe to
         // `pty://<id>` and write/resize this session. Cleared by unregisterPty.
@@ -1335,6 +1361,13 @@ export default function TerminalPane({
           if (!entryLive()) return;
           const msg = serial ? "[serial port closed]" : connection ? "[ssh disconnected]" : "[process exited]";
           term.writeln(`\r\n\x1b[90m${msg}\x1b[0m`);
+          // A dead process is not waiting on anyone. Without this, a session
+          // killed (OOM, kill -9, dropped SSH) while blocked on a prompt stays
+          // "needs you" forever: the way out of waiting only runs on new PTY
+          // output, and a dead PTY produces none. It also permanently inflates
+          // the fleet counts for a session that no longer exists.
+          entry.counters.recentOut = ""; // the prompt died with the process
+          setActivity("done");
         });
         // Same late-resolution guard as unlistenData above.
         if (!entryLive()) { try { unlistenExit(); } catch {} return; }
