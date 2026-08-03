@@ -239,6 +239,48 @@ describe("scanSecrets — bisected PEM blocks (upstream truncation)", () => {
       expect(m).toContain("$ echo done");
     });
 
+    // Property test. Four review rounds each found a leak a targeted test had
+    // missed, so this asserts the INVARIANT over randomized shapes rather than
+    // another hand-picked case: in a text that carries a private-key banner,
+    // no standalone key-shaped line survives into the output. Deterministic
+    // seed — a failure is reproducible, not a flake.
+    it("no key-shaped line survives in any banner-bearing text (fuzz)", () => {
+      let seed = 12345;
+      const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+      const pick = (a) => a[Math.floor(rnd() * a.length)];
+      const b64 = (n) =>
+        Array.from({ length: n }, () =>
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[Math.floor(rnd() * 64)]
+        ).join("");
+      const KINDS = [
+        () => `-----BEGIN ${pick(["RSA", "EC", "DSA", "OPENSSH", ""])} PRIVATE KEY-----`,
+        () => `-----END ${pick(["RSA", "EC", "DSA", "OPENSSH", ""])} PRIVATE KEY-----`,
+        () => b64(16 + Math.floor(rnd() * 50)),
+        () => b64(16 + Math.floor(rnd() * 50)) + pick(["", "  ", "\t"]),
+        () => "",
+        () => b64(Math.floor(rnd() * 15)),
+        () => `$ ${pick(["ls -la", "git status", "echo hi", "cat f"])}`,
+        () => `--- 2026-08-0${Math.floor(rnd() * 9)} ---`,
+        () => b64(30) + "\tXX",
+      ];
+      const KEYISH = /^[A-Za-z0-9+/]{16,}={0,2}$/;
+      const BANNER = /-----(BEGIN|END) [A-Z ]*PRIVATE KEY-----/;
+      let checked = 0;
+      for (let iter = 0; iter < 1500; iter++) {
+        const lines = Array.from({ length: 3 + Math.floor(rnd() * 25) }, () => pick(KINDS)());
+        if (!lines.some((l) => BANNER.test(l))) continue;
+        const text = lines.join(pick(["\n", "\r\n"]));
+        const masked = maskSecrets(text, scanSecrets(text));
+        for (const l of lines) {
+          const t = l.trim();
+          if (!KEYISH.test(t)) continue;
+          checked++;
+          expect(masked, `key-shaped line survived:\n${text}`).not.toContain(t);
+        }
+      }
+      expect(checked).toBeGreaterThan(1000); // the corpus actually exercised the invariant
+    });
+
     it("ordinary output between two keys is never swallowed", () => {
       const t = `${A}\n-----END RSA PRIVATE KEY-----\n$ real command output\n-----BEGIN EC PRIVATE KEY-----\n${Bb}\n`;
       const m = maskOf(t);
