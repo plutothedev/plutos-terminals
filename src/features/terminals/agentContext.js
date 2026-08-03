@@ -7,6 +7,8 @@
 // control. The controls are: agentTools.js code-side gating (untouched), the
 // TOFU per-content-hash approval gate (later tasks), and secretScan masking.
 
+import { scanSecrets, maskSecrets } from "./secretScan.js";
+
 export const CONTEXT_BUDGET = 16 * 1024; // chars, whole block, hard-capped
 export const RULES_SHARE = 8 * 1024; // oversized global Rules can never evict rule files
 export const FACTS_CAP = 2 * 1024; // facts section clamp
@@ -100,6 +102,35 @@ export function buildContextBlock({ globalRules, ruleFiles, facts }) {
   }
   // Hard backstop: NEVER return over budget, whatever the accounting above did.
   return out.length > CONTEXT_BUDGET ? safeSlice(out, CONTEXT_BUDGET) : out;
+}
+
+// Release-audit fix (mask-BEFORE-cut): buildContextBlock cuts to budget, and
+// every secretScan pattern needs the full secret to match — so scanning the
+// already-cut output let a secret straddling the cut boundary ship as a raw,
+// unmatchable fragment. Mask each input first (a bisected PLACEHOLDER carries
+// no secret bytes), assemble+cut on masked text, then post-scan the assembled
+// block so facts (cwd/dirs/npm scripts) are covered too. Masking can expand
+// text past what buildContextBlock accounted for, so the final safeSlice
+// re-asserts the hard cap. Returns { text, hits } — hits carry every secret
+// seen across all inputs (union for the chip's unique-masked count).
+export function buildSafeContextBlock({ globalRules, ruleFiles, facts }) {
+  const hits = [];
+  const maskInput = (s) => {
+    const str = String(s ?? "");
+    if (!str) return str;
+    const h = scanSecrets(str);
+    hits.push(...h);
+    return maskSecrets(str, h);
+  };
+  const rules = maskInput(globalRules);
+  const files = (Array.isArray(ruleFiles) ? ruleFiles : []).map((f) => ({
+    ...f,
+    content: maskInput(f.content),
+  }));
+  const block = buildContextBlock({ globalRules: rules, ruleFiles: files, facts });
+  const post = scanSecrets(block);
+  hits.push(...post);
+  return { text: safeSlice(maskSecrets(block, post), CONTEXT_BUDGET), hits };
 }
 
 const quiet = async (p) => { try { return await p; } catch { return null; } };

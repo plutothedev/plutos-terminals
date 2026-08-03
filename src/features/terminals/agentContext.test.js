@@ -1,6 +1,14 @@
 // (C)
 import { describe, it, expect } from "vitest";
-import { buildContextBlock, safeSlice, CONTEXT_BUDGET, RULES_SHARE, FACTS_CAP } from "./agentContext.js";
+import {
+  buildContextBlock,
+  buildSafeContextBlock,
+  safeSlice,
+  CONTEXT_BUDGET,
+  RULES_SHARE,
+  FACTS_CAP,
+} from "./agentContext.js";
+import { scanSecrets, maskSecrets } from "./secretScan.js";
 
 const facts = {
   cwd: "C:\\code\\proj",
@@ -230,5 +238,65 @@ describe("partitionRuleFiles", () => {
     const { approved, pending } = partitionRuleFiles([rf("C:\\a", "h1")], undefined);
     expect(approved).toEqual([]);
     expect(pending).toHaveLength(1);
+  });
+});
+
+// Release-audit pin: masking must happen BEFORE the budget cut. The old call
+// site (assemble+cut, then scan) let a secret straddling the cut boundary
+// survive as an unmatchable raw fragment in the text sent to the LLM.
+describe("buildSafeContextBlock — masks before the budget cut", () => {
+  const KEY = "AKIAABCDEFGHIJKLMNOP"; // 20 chars, matches the aws-access-key pattern
+
+  const mkInput = (pos) => ({
+    globalRules: "",
+    ruleFiles: [
+      {
+        name: "CLAUDE.md",
+        path: "C:\\p\\CLAUDE.md",
+        // filler + newline-bounded key (the aws pattern is \b-anchored) +
+        // enough tail that the budget cut lands in this file
+        content: "x".repeat(pos) + "\n" + KEY + "\n" + "y".repeat(CONTEXT_BUDGET),
+        truncated: false,
+      },
+    ],
+    facts: null,
+  });
+
+  it("a secret straddling the cut boundary never ships partially unmasked", () => {
+    // Self-calibrating: slide the key until the OLD ordering demonstrably
+    // leaks a raw "AKIA…" fragment — proving this exact input is the failure
+    // case — then require the new API to leak nothing on that same input.
+    let leakInput = null;
+    for (let pos = CONTEXT_BUDGET - 600; pos < CONTEXT_BUDGET + 200; pos += 1) {
+      const input = mkInput(pos);
+      const cut = buildContextBlock(input);
+      const oldOrder = maskSecrets(cut, scanSecrets(cut));
+      if (/AKIA[A-Z]*/.test(oldOrder)) {
+        leakInput = input;
+        break;
+      }
+    }
+    expect(leakInput).not.toBeNull(); // the old ordering IS leaky on this construction
+
+    const { text, hits } = buildSafeContextBlock(leakInput);
+    expect(text).not.toMatch(/AKIA/); // no raw fragment survives, boundary or not
+    expect(text.length).toBeLessThanOrEqual(CONTEXT_BUDGET); // hard cap still holds
+    expect(hits.some((h) => h.match === KEY)).toBe(true); // the key was seen + counted
+  });
+
+  it("secrets inside facts are still masked (post-assembly scan)", () => {
+    const { text } = buildSafeContextBlock({
+      globalRules: "",
+      ruleFiles: [],
+      facts: { cwd: `C:\\p\\${KEY}`, git: null, dirs: null, npmScripts: [] },
+    });
+    expect(text).not.toContain(KEY);
+    expect(text).toContain("[masked");
+  });
+
+  it("returns empty text for empty input like buildContextBlock", () => {
+    const { text, hits } = buildSafeContextBlock({ globalRules: "", ruleFiles: [], facts: null });
+    expect(text).toBe("");
+    expect(hits).toEqual([]);
   });
 });

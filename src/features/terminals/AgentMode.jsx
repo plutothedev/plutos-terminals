@@ -17,8 +17,7 @@ import { runAndCapture } from "./ptyBridge.js";
 import { toolTurn } from "./llmTools.js";
 import { buildTools, needsApproval, isDangerousCommand, mcpResultToContent } from "./agentTools.js";
 import { runAgentLoop } from "./agentLoop.js";
-import { collectProjectContext, partitionRuleFiles, buildContextBlock } from "./agentContext.js";
-import { scanSecrets, maskSecrets } from "./secretScan.js";
+import { collectProjectContext, partitionRuleFiles, buildSafeContextBlock } from "./agentContext.js";
 import { useSavedPrompts } from "./hooks/useSavedPrompts.js";
 import { usePromptSlashMenu } from "./hooks/usePromptSlashMenu.js";
 import PromptSlashMenu from "./PromptSlashMenu.jsx";
@@ -82,9 +81,10 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
       try {
         const { ruleFiles, facts } = await collectProjectContext({ cwd, invoke });
         const { approved, pending } = partitionRuleFiles(ruleFiles, userSt?.approvedRuleFiles);
-        const raw = buildContextBlock({ globalRules: userSt?.agentRules, ruleFiles: approved, facts });
-        const hits = scanSecrets(raw);
-        contextBlock = maskSecrets(raw, hits);
+        // Mask-before-cut: inputs are masked prior to budget assembly so a
+        // secret straddling the cut boundary can never ship as a raw fragment.
+        const { text, hits } = buildSafeContextBlock({ globalRules: userSt?.agentRules, ruleFiles: approved, facts });
+        contextBlock = text;
         // Chip segments come from STRUCTURED data, not regex over the block —
         // a rule file whose prose contains "git:" must not fake a segment.
         setCtx({
