@@ -62,7 +62,13 @@
   limit, in both directions — previously a PEM block missing its `BEGIN`
   line was not detected at all, and one missing its `END` line had only its
   banner masked while the key material itself went through. Affects the
-  gist-share preview/upload and the agent context block.
+  gist-share preview/upload and the agent context block. Masking recognizes
+  key material next to a banner even when the capture is messy (terminal
+  padding, blank or short lines inside the block, several partial keys in
+  one transcript). It still cannot recognize a fragment where *both* banner
+  lines were cut away — nothing in it identifies bare base64 on sight, by
+  design, since ordinary command output is full of hashes and base64.
+  Always eyeball the preview before sharing.
 
 ### Fixed
 - Agent-mode command capture no longer aborts when its tab is moved between

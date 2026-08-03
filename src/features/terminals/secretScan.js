@@ -136,6 +136,15 @@ export function scanSecrets(text) {
 // user "N secrets masked in the upload above" about text that isn't there.
 // Counts placeholders per name (they're indistinguishable once masked) and
 // keeps that many hits of that name.
+//
+// CONTRACT: the returned COUNT (and the set of names) is authoritative; the
+// per-hit IDENTITY is not. When two distinct secrets share a pattern name and
+// only some survive, the kept entries are the first N of that name by scan
+// order, which may not be the ones whose placeholders remain. Today every
+// consumer only counts or groups by name (ShareModal's secretNameCounts,
+// AgentMode's unique-match tally), so this is inert — but do not build
+// "which file did this secret come from" on hits[].match/.index without
+// fixing the attribution first.
 export function visibleHits(finalText, hits) {
   const text = String(finalText ?? "");
   const names = new Set((hits || []).map((h) => h.name));
