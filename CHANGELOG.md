@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (v0.6.0)
+## v0.6.0 — Agent context, notebooks, saved prompts, gist sharing (2026-08-03)
 
 ### Added
 - Agent mode reads project context before its first turn: AGENTS.md / CLAUDE.md
