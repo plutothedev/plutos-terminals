@@ -39,6 +39,15 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
       // Already Rust-redacted (share.rs redact()) before crossing IPC, so no
       // token or Authorization bytes can ride this string to the toast.
       toast.error(String(e));
+      // Spec'd durable marker (release-audit fix): a 4s toast is the only
+      // signal otherwise — once it fades, a failed revoke is indistinguishable
+      // from a never-revoked share, and the gist is still live on GitHub.
+      saveUser?.((prev) => ({
+        ...prev,
+        shareHistory: (prev?.shareHistory || []).map((s) =>
+          s.id === entry.id ? { ...s, deleteFailed: true } : s
+        ),
+      }));
     } finally {
       setRevoking(null);
     }
@@ -63,6 +72,11 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
                   {s.date ? ` · ${s.date}` : ""}
                   {s.htmlUrl ? ` · ${s.htmlUrl}` : ""}
                 </div>
+                {s.deleteFailed && (
+                  <div style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-danger, #e08784)", whiteSpace: "nowrap" }}>
+                    delete failed — still live; retry revoke or remove it on GitHub
+                  </div>
+                )}
               </div>
               {confirmRevoke === s.id ? (
                 <>

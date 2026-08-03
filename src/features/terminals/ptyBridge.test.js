@@ -47,14 +47,26 @@ describe("ptyBridge runAndCapture", () => {
     await expect(runAndCapture("t3", "ls")).resolves.toBeNull();
   });
 
-  it("a new capture supersedes a stale pending one on the same tab", async () => {
+  it("a new capture supersedes a stale pending one — evicted resolves {evicted}, not null", async () => {
+    // Supersede stays (an agent stop can leave a stale pending entry that the
+    // next run must clear), but the evicted caller gets a DISTINGUISHABLE
+    // result: null means pane-closed; {evicted:true} means another capture
+    // took the pane (release-audit fix — cross-feature agent/notebook runs
+    // were indistinguishable from a closed pane).
     registerPtyWriter("t4", () => {});
     const first = runAndCapture("t4", "one");
     const second = runAndCapture("t4", "two"); // replaces the first
-    await expect(first).resolves.toBeNull();
+    await expect(first).resolves.toEqual({ evicted: true });
     reportBlockDone("t4", { command: "two", output: "ok" });
     expect((await second).output).toBe("ok");
     unregisterPty("t4");
+  });
+
+  it("pane-closed still resolves null (evicted and closed stay distinguishable)", async () => {
+    registerPtyWriter("t5", () => {});
+    const p = runAndCapture("t5", "one");
+    unregisterPty("t5");
+    await expect(p).resolves.toBeNull();
   });
 });
 

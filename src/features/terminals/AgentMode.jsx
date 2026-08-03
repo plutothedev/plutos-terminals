@@ -123,6 +123,11 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
         const cmd = String(call.args?.command || "").trim();
         if (!cmd) return { content: "empty command", isError: true };
         const result = await runAndCapture(tabId, cmd);
+        if (result?.evicted) {
+          // Another capture took the pane (e.g. a notebook run) — tell the
+          // model the step failed rather than feeding it "(no output captured)".
+          return { content: "(capture superseded by another run on this pane)", isError: true };
+        }
         return { content: (result?.output || "").slice(-3000) || "(no output captured)", isError: false };
       }
       const out = await invoke("mcp_call_tool", { server: m.server, tool: m.tool, args: call.args || {} });

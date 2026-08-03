@@ -133,9 +133,11 @@ function nowStamp() {
 }
 
 // A run's exit counts as a failure (stops Run All) when the pane timed out, the
-// numeric exit is nonzero, or nothing was captured (r === null — dead writer).
+// numeric exit is nonzero, nothing was captured (r === null — dead writer), or
+// the capture was evicted by another run taking the pane ({evicted:true}).
 function isFailure(r) {
   if (r == null) return true;
+  if (r.evicted) return true;
   if (r.timedOut) return true;
   return typeof r.exit === "number" && r.exit !== 0;
 }
@@ -398,8 +400,15 @@ export default function NotebookView({ name, tabId, visible }) {
       return r;
     }
 
+    // Spec'd diagnostic markers: a closed pane and an evicted capture must not
+    // masquerade as generic "(no output captured)".
     const next = writeOutput(contentRef.current, blockIndex, {
-      output: r?.output ?? "(no output captured)",
+      output:
+        r === null
+          ? "(pane closed)"
+          : r?.evicted
+            ? "(capture superseded by another run on this pane)"
+            : (r?.output ?? "(no output captured)"),
       exit: r?.timedOut ? "timeout" : (r?.exit ?? "?"),
       timestamp: nowStamp(),
     });

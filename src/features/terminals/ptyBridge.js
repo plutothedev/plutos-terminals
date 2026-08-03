@@ -242,7 +242,11 @@ export function reportBlockDone(tabId, block) {
 export function runAndCapture(tabId, command, timeoutMs = 120000) {
   return new Promise((resolve) => {
     const prev = pendingCapture.get(tabId);
-    if (prev) { pendingCapture.delete(tabId); prev.resolve(null); }
+    // Supersede a pending capture (an agent stop can strand one), but resolve
+    // the evicted caller with {evicted:true} — DISTINCT from the pane-closed
+    // null — so a cross-feature collision (agent step vs notebook run on the
+    // same pane) surfaces honestly instead of masquerading as a closed pane.
+    if (prev) { pendingCapture.delete(tabId); prev.resolve({ evicted: true }); }
     const entry = { resolve, command };
     pendingCapture.set(tabId, entry);
     const ok = writeToTab(tabId, command + "\r");
