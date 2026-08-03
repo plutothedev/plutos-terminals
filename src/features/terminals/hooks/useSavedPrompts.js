@@ -32,16 +32,9 @@ export function useSavedPrompts({ userSt, saveUser }) {
     return item;
   }, [saveUser]);
 
-  const updatePrompt = useCallback((id, patch) => {
-    saveUser((prev) => ({
-      ...prev,
-      savedPrompts: listOf(prev).map((p) => (p.id === id ? { ...p, ...patch } : p)),
-    }));
-  }, [saveUser]);
-
   const removePrompt = useCallback((id) => {
     saveUser((prev) => ({ ...prev, savedPrompts: listOf(prev).filter((p) => p.id !== id) }));
   }, [saveUser]);
 
-  return { prompts, addPrompt, updatePrompt, removePrompt };
+  return { prompts, addPrompt, removePrompt };
 }

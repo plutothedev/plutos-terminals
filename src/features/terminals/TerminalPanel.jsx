@@ -7,6 +7,7 @@ import MobaHomeScreen from "./MobaHomeScreen";
 import NotebookView from "./NotebookView";
 import ShareModal from "./ShareModal.jsx";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
+import { isSpecialTab } from "./paneIds.js";
 import "./terminals.css";
 
 // Colors come from the active app skin via CSS vars on <html>. Module-level
@@ -539,7 +540,15 @@ function TerminalPanel({
               ) : tab.notebook ? (
                 <NotebookView name={tab.notebook.name} tabId={tab.id} visible={tabVisible} />
               ) : (
+              /* Dev drift-guard (release-audit): this arm must be reached ONLY
+                 for plain terminal tabs. If isSpecialTab() (paneIds.js — the
+                 registry sweep's exclusion predicate) says special but no
+                 ternary arm above claimed the tab, the two files have drifted
+                 and the sweep would mistreat this tab's panes. */
               <>
+              {import.meta.env.DEV && isSpecialTab(tab)
+                ? console.warn(`[panes] special tab ${tab.id} fell through to the TerminalPane arm — TerminalPanel's ternary is missing a type isSpecialTab() knows`)
+                : null}
               {panes.map(({ node, rect }) => {
                 const isRoot = node.id === tab.id;
                 const paneActive = node.id === tabActivePaneId;

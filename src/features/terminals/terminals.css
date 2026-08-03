@@ -591,38 +591,9 @@
 .moba-menu-item:hover:not(:disabled) .moba-menu-shortcut { color: var(--phn-text-dim, #9a9da3); }
 .moba-menu-divider { height: 1px; background: var(--phn-surface-border, #1c1d20); margin: 4px 0; }
 
-/* ── MobaXterm layout: vertical ribbon + docked left panel ───────────── */
-.moba-ribbon {
-  width: 34px;
-  flex-shrink: 0;
-  background: var(--phn-surface-alt-bg, #25272b);
-  border-right: 1px solid var(--phn-surface-border, #1c1d20);
-  display: flex;
-  flex-direction: column;
-}
-.moba-ribbon-tab {
-  background: transparent;
-  border: none;
-  border-left: 2px solid transparent;
-  cursor: pointer;
-  color: var(--phn-text-dim, #8a9099);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  padding: 12px 2px;
-  font-family: var(--phn-ui-font);
-  font-size: 10px;
-  transition: color 0.12s ease, background 0.12s ease;
-}
-.moba-ribbon-tab:hover { color: var(--phn-text-active, #fff); background: rgba(255, 255, 255, 0.04); }
-.moba-ribbon-tab.active {
-  color: var(--phn-link, #7c9cf5);
-  background: var(--phn-surface-bg, #2b2d31);
-  border-left-color: var(--phn-link, #7c9cf5);
-}
-.moba-ribbon-icon { font-size: 14px; line-height: 1; }
-.moba-ribbon-label { writing-mode: vertical-rl; letter-spacing: 0.5px; }
+/* ── MobaXterm layout: docked left panel ─────────────────────────────── */
+/* (.moba-ribbon styles removed with MobaRibbon.jsx — B2 dead-code sweep
+   covered .jsx/.js imports only; the CSS was the leftover half.) */
 
 .moba-dock {
   width: 240px;

@@ -32,7 +32,7 @@
 // misattribution either way.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { noteWrite, readNotebook } from "./notebookIo.js";
-import { parseBlocks, writeOutput, setFrontmatterTarget, runnableKind } from "./notebookModel.js";
+import { parseBlocks, writeOutput, setFrontmatterTarget, runnableKind, runnableLines } from "./notebookModel.js";
 import { runAndCapture, getLiveTabIds, subscribeBridge, getBridgeVersion } from "./ptyBridge.js";
 import { useToast } from "../../components/Toast.jsx";
 
@@ -56,7 +56,6 @@ function consumeNotebookNew(name) {
   return had;
 }
 
-const SH_FAMILY = new Set(["sh", "bash"]);
 const AUTOSAVE_MS = 2000;
 
 function baseName(name) {
@@ -77,23 +76,9 @@ function seedTemplate(name) {
   );
 }
 
-// Reduce a block's code to its runnable lines exactly as notebookModel does
-// (drop blanks + sh-family `#` comments) — used only for DISPLAY: the single
-// runnable line to send, and the count that picks the "multi-line" vs
-// "incomplete line" label. Mirrors the model's private reduction; kept local
-// because the model exports functions, not the line reducer.
-function runnableLines(code, lang) {
-  const isSh = SH_FAMILY.has(lang);
-  return String(code ?? "")
-    .split(/\r\n|\r|\n/)
-    .map((l) => l.replace(/[ \t]+$/, ""))
-    .filter((l) => {
-      const t = l.trim();
-      if (t === "") return false;
-      if (isSh && t.startsWith("#")) return false;
-      return true;
-    });
-}
+// runnableLines now comes from notebookModel.js (release-audit dedupe): the
+// reduction that picks the line to SEND is the same code that classifies
+// runnability — the two can no longer drift apart.
 
 // A block v1 will actually SEND to a pane: classified "single" AND carrying
 // exactly one runnable line. runnableKind also returns "single" for a block
@@ -275,6 +260,11 @@ export default function NotebookView({ name, tabId, visible }) {
     readNotebook(name)
       .then((text) => {
         if (!alive) return;
+        // A "New notebook" name that collided with an existing file lands here
+        // (the read succeeds and loads the existing content — correct); clear
+        // its pending-new marker or it leaks in the module Set for the app's
+        // lifetime (release-audit minor).
+        consumeNotebookNew(name);
         const s = typeof text === "string" ? text : "";
         contentRef.current = s;
         savedRef.current = s;

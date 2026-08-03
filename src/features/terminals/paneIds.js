@@ -23,11 +23,20 @@
 // TerminalPane as still "live" forever.
 import { getLayout, leafIds } from "./splitTree.js";
 
+// THE single source of truth for "this tab renders a special view, not
+// TerminalPanes" (release-audit hardening). TerminalPanel's render ternary
+// must dispatch on exactly these flags; its panes arm dev-warns through this
+// predicate, so adding a type here without a ternary arm fails loudly in dev
+// instead of silently letting the registry sweep treat the tab wrong.
+export function isSpecialTab(tab) {
+  return !!(tab && (tab.home || tab.vnc || tab.rdp || tab.notebook));
+}
+
 export function allRenderedPaneIds(panels) {
   const ids = [];
   for (const panel of panels || []) {
     for (const tab of panel.tabs || []) {
-      if (tab.home || tab.vnc || tab.rdp || tab.notebook) continue; // no TerminalPane mounts; no registry entries
+      if (isSpecialTab(tab)) continue; // no TerminalPane mounts; no registry entries
       ids.push(...leafIds(getLayout(tab)));
     }
   }

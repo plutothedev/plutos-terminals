@@ -195,7 +195,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
             <span
               role={expandable ? "button" : undefined}
               tabIndex={expandable ? 0 : -1}
-              aria-expanded={ctxOpen}
+              aria-expanded={expandable ? ctxOpen : undefined}
               onClick={() => expandable && setCtxOpen((v) => !v)}
               onKeyDown={(e) => {
                 if (!expandable) return;

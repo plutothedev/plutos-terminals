@@ -287,17 +287,26 @@ export function setFrontmatterTarget(md, paneId) {
   return `---${NL}${fmContent}${NL}---${NL}${text.slice(fm.blockEnd)}`;
 }
 
-export function runnableKind(code, lang) {
-  const rawLines = String(code ?? "").split(/\r\n|\r|\n/);
+// The line reducer, EXPORTED as the single source of truth (release-audit
+// fix): NotebookView imports this instead of hand-copying the reduction —
+// runnability classification and the line actually sent to the pane can
+// never drift apart. Trailing whitespace is trimmed (the suffix checks in
+// runnableKind depend on it); leading indent is preserved.
+export function runnableLines(code, lang) {
   const isShFamily = SH_FAMILY.has(lang);
-  const runnable = rawLines
-    .map((l) => l.replace(/[ \t]+$/, "")) // trailing-whitespace trim, for suffix checks below
+  return String(code ?? "")
+    .split(/\r\n|\r|\n/)
+    .map((l) => l.replace(/[ \t]+$/, ""))
     .filter((l) => {
       const t = l.trim();
       if (t === "") return false;
       if (isShFamily && t.startsWith("#")) return false;
       return true;
     });
+}
+
+export function runnableKind(code, lang) {
+  const runnable = runnableLines(code, lang);
 
   if (runnable.length === 0) return "single"; // nothing to run; trivially not incomplete
   if (runnable.length > 1) return "multiline";

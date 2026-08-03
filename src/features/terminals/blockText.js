@@ -13,6 +13,10 @@ export function blockOutputText(buf, startLine, endLine) {
   for (let i = startLine + 1; i <= end && i < buf.length; i++) {
     const line = buf.getLine(i);
     if (!line) continue;
+    // NOTE: at i === end this peeks ONE row past the block boundary. Assumed
+    // safe because OSC-133 block ends are shell-controlled: the D marker closes
+    // the block's true last content row, so the row after `end` never wraps
+    // back into it. The wrap-continuity invariant above rests on this.
     const next = buf.getLine(i + 1);
     const wrapsIntoNext = !!(next && next.isWrapped);
     out += line.translateToString(!wrapsIntoNext);

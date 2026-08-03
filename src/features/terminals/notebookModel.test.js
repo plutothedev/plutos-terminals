@@ -1,6 +1,6 @@
 // (C)
 import { describe, it, expect } from "vitest";
-import { parseBlocks, writeOutput, setFrontmatterTarget, runnableKind } from "./notebookModel.js";
+import { parseBlocks, writeOutput, setFrontmatterTarget, runnableKind, runnableLines } from "./notebookModel.js";
 
 describe("parseBlocks", () => {
   it("prose-only doc has no blocks and empty frontmatter", () => {
@@ -529,5 +529,34 @@ describe("runnableKind", () => {
       expect(runnableKind("ls |", "sh")).toBe("multiline");
       expect(runnableKind("Get-ChildItem |", "powershell")).toBe("multiline");
     });
+  });
+});
+
+// Release-audit pin: the line reducer is EXPORTED and is the single source of
+// truth — NotebookView imports it instead of hand-copying the reduction (the
+// copies were byte-identical, but nothing enforced that; a drift would desync
+// "is this runnable" from "what line actually gets sent").
+describe("runnableLines", () => {
+  it("drops blank lines and sh-family # comments", () => {
+    expect(runnableLines("# comment\n\necho hi\n", "sh")).toEqual(["echo hi"]);
+    expect(runnableLines("# c\n\n  \n", "bash")).toEqual([]);
+  });
+
+  it("keeps # lines for non-sh languages", () => {
+    expect(runnableLines("# not a comment here\nGet-ChildItem", "powershell"))
+      .toEqual(["# not a comment here", "Get-ChildItem"]);
+  });
+
+  it("trims trailing whitespace but preserves leading indent", () => {
+    expect(runnableLines("  indented cmd   \n", "sh")).toEqual(["  indented cmd"]);
+  });
+
+  it("agrees with runnableKind: a single-kind block has at most one runnable line", () => {
+    for (const code of ["echo hi", "# c\necho hi", "", "a\nb"]) {
+      const kind = runnableKind(code, "sh");
+      const lines = runnableLines(code, "sh");
+      if (kind === "single") expect(lines.length).toBeLessThanOrEqual(1);
+      else expect(lines.length).toBeGreaterThanOrEqual(1);
+    }
   });
 });

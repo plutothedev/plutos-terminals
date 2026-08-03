@@ -108,6 +108,10 @@ export function getEntry(paneId) {
 export function attachHost(paneId, slotEl) {
   const entry = registry.get(paneId);
   if (!entry) return;
+  // Implicit re-parent (attach to a new slot without a prior detach) is the
+  // DELIBERATE pane-move mechanism — pinned by test. A same-id collision
+  // between two live consumers is indistinguishable from a move in here, so
+  // no runtime guard; the drift-guard lives at the tab level (isSpecialTab).
   slotEl.appendChild(entry.host); // re-parents implicitly if already attached elsewhere
   entry.currentSlot = slotEl;
 }

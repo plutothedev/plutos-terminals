@@ -14,6 +14,7 @@ import { invoke } from "@backend";
 import Modal, { MODAL_COLORS } from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { buildShare } from "./shareText.js";
+import { scanSecrets, maskSecrets } from "./secretScan.js";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const DANGER = "var(--phn-danger, #e08784)";
@@ -73,7 +74,12 @@ export default function ShareModal({ open, kind, title, rawText, dateStamp, onCl
       const res = await invoke("gist_create", { filename, content: masked, public: isPublic });
       try { await navigator.clipboard?.writeText(res.htmlUrl); } catch { /* clipboard is best-effort */ }
       toast.success("Gist created, URL copied");
-      const entry = { id: res.id, url: res.url, htmlUrl: res.htmlUrl, title, date: dateStamp, public: isPublic };
+      // Mask the stored title too (release-audit minor): it's the raw block
+      // command, which can itself embed a secret (`curl -H "Bearer sk-..."`).
+      // Never uploaded either way — this keeps the masked-everywhere invariant
+      // for what persists to local disk in userSt.
+      const safeTitle = maskSecrets(title, scanSecrets(title));
+      const entry = { id: res.id, url: res.url, htmlUrl: res.htmlUrl, title: safeTitle, date: dateStamp, public: isPublic };
       // Machine-local history (NOT synced — see D-5). Functional form so a
       // concurrent saveUser can't clobber a just-appended entry.
       saveUser?.((prev) => ({ ...prev, shareHistory: [...(prev?.shareHistory || []), entry] }));
