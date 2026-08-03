@@ -62,18 +62,25 @@ export function toNotebookName(input) {
   return { ok: true, name: `${stem}.md` };
 }
 
-// ── In-flight write registry (close->reopen serialization) ────────────────────
-const inflightWrites = new Map(); // name -> Promise (the latest write for that name)
+// ── Per-name write queue (write-write + close->reopen serialization) ──────────
+const inflightWrites = new Map(); // name -> Promise (tail of that name's write queue)
 
-// Write a notebook, tracking the in-flight promise per name so a concurrent
-// readNotebook(name) can await it. Returns the (tracked) write promise — it
-// rejects on a backend error exactly like a bare invoke, so callers keep their
-// existing try/catch or .catch handling.
+// Write a notebook, CHAINED behind any write already in flight for the same
+// name — never fire two notebook_write invokes for one name concurrently. The
+// unmount flush bypasses NotebookView's savingRef mutex, and the Rust side has
+// no per-path lock (fixed .tmp name, multi-thread runtime), so two concurrent
+// writes race their renames and the STALE one can land last, silently reverting
+// the user's final edit. Queueing per name makes call order = land order.
+// A failed predecessor never blocks the queue (its rejection was surfaced to
+// its own caller; we swallow it here and proceed to disk truth).
+// Returns this write's promise — it rejects on a backend error exactly like a
+// bare invoke, so callers keep their existing try/catch or .catch handling.
 export function noteWrite(name, content) {
-  const p = invoke("notebook_write", { name, content });
-  // Clear the registry only if THIS write is still the latest for the name — a
-  // newer write may have replaced us while in flight, and we must not strand its
-  // readers by deleting its entry.
+  const prev = inflightWrites.get(name) || Promise.resolve();
+  const p = prev.catch(() => {}).then(() => invoke("notebook_write", { name, content }));
+  // Clear the registry only if THIS write is still the queue tail for the name —
+  // a newer write may have chained behind us while in flight, and we must not
+  // strand its readers by deleting its entry.
   const tracked = p.finally(() => {
     if (inflightWrites.get(name) === tracked) inflightWrites.delete(name);
   });

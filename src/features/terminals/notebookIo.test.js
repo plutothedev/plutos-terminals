@@ -3,8 +3,11 @@
 // stem the Rust gate (notebook_path / safe_filename in commands.rs) accepts
 // byte-for-byte, or be rejected with a reason. These are the cases the
 // whole-stream review flagged as silently unsavable under the old ".md"-append.
-import { describe, it, expect } from "vitest";
-import { sanitizeNotebookStem, toNotebookName } from "./notebookIo.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { sanitizeNotebookStem, toNotebookName, noteWrite } from "./notebookIo.js";
+import { invoke } from "@backend";
+
+vi.mock("@backend", () => ({ invoke: vi.fn() }));
 
 describe("sanitizeNotebookStem", () => {
   it("collapses a space run to a single dash", () => {
@@ -84,5 +87,70 @@ describe("toNotebookName — pinned gate-charset cases", () => {
 
   it("accepts a single valid character (>= gate minimum after .md)", () => {
     expect(toNotebookName("a")).toEqual({ ok: true, name: "a.md" });
+  });
+});
+
+// Pins the write-write serialization contract: two overlapping noteWrite calls
+// for the SAME name must land in call order — the unmount flush bypasses
+// NotebookView's savingRef mutex, so without this queue an autosave still in
+// flight can rename over the flush's newer content (silent last-edit loss).
+describe("noteWrite — same-name writes are strictly serialized", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  it("does not start a second write for a name until the first lands", async () => {
+    const calls = [];
+    const resolvers = [];
+    invoke.mockImplementation((_cmd, args) => {
+      calls.push(args.content);
+      return new Promise((res) => resolvers.push(res));
+    });
+
+    const w1 = noteWrite("race-a.md", "old");
+    const w2 = noteWrite("race-a.md", "new");
+    await flush();
+    expect(calls).toEqual(["old"]); // "new" must NOT be in flight yet
+
+    resolvers[0]();
+    await w1;
+    await flush();
+    expect(calls).toEqual(["old", "new"]); // started only after "old" landed
+
+    resolvers[1]();
+    await w2;
+  });
+
+  it("a failed predecessor does not block the next write", async () => {
+    const calls = [];
+    invoke.mockImplementation((_cmd, args) => {
+      calls.push(args.content);
+      return args.content === "bad" ? Promise.reject(new Error("disk")) : Promise.resolve();
+    });
+
+    const w1 = noteWrite("race-b.md", "bad");
+    const w2 = noteWrite("race-b.md", "good");
+    await expect(w1).rejects.toThrow("disk"); // caller still sees its own error
+    await w2;
+    expect(calls).toEqual(["bad", "good"]);
+  });
+
+  it("writes to different names are not serialized against each other", async () => {
+    const calls = [];
+    const resolvers = [];
+    invoke.mockImplementation((_cmd, args) => {
+      calls.push(args.name);
+      return new Promise((res) => resolvers.push(res));
+    });
+
+    noteWrite("race-c.md", "x");
+    noteWrite("race-d.md", "y");
+    await flush();
+    expect(calls).toEqual(["race-c.md", "race-d.md"]); // both in flight at once
+
+    resolvers.forEach((res) => res());
+    await flush();
   });
 });
