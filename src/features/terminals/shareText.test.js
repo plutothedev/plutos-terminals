@@ -1,6 +1,6 @@
 // (C)
 import { describe, it, expect } from "vitest";
-import { buildShare } from "./shareText.js";
+import { buildShare, SHARE_CAP } from "./shareText.js";
 
 const AWS_KEY = "AKIAIOSFODNN7EXAMPLE";
 
@@ -55,14 +55,46 @@ describe("buildShare", () => {
     expect(b.filename).toBe("plutos-terminal-share-2026-12-31.txt");
   });
 
-  it("returns ONLY {filename, masked, hits} -- no raw property, no extras", () => {
+  it("returns ONLY {filename, masked, hits, truncated} -- no raw property, no extras", () => {
     const result = buildShare("block", "some raw text", "2026-07-21");
-    expect(Object.keys(result).sort()).toEqual(["filename", "hits", "masked"]);
+    expect(Object.keys(result).sort()).toEqual(["filename", "hits", "masked", "truncated"]);
     expect(result.raw).toBeUndefined();
   });
 
   it("does not export a slugFilename function", async () => {
     const mod = await import("./shareText.js");
     expect(mod.slugFilename).toBeUndefined();
+  });
+});
+
+// Release-audit pin: the share pipeline had NO size bound — a multi-day
+// transcript ran unbounded through scan/render/POST. buildShare now caps the
+// UPLOAD text (preview === upload still holds: the cap lives inside here).
+describe("buildShare — size cap", () => {
+  it("caps oversized input keeping the newest tail, with a truncation marker", () => {
+    const raw = "start-sentinel\n" + "x".repeat(SHARE_CAP + 50_000) + "\nend-sentinel";
+    const { masked, truncated } = buildShare("transcript", raw, "2026-08-03");
+    expect(truncated).toBe(true);
+    expect(masked.length).toBeLessThanOrEqual(SHARE_CAP + 200); // marker allowance
+    expect(masked).toContain("end-sentinel"); // newest output survives
+    expect(masked).not.toContain("start-sentinel"); // oldest is what's dropped
+    expect(masked.startsWith("[truncated")).toBe(true);
+  });
+
+  it("a secret bisected by the cut never ships raw bytes (mask runs before the cut)", () => {
+    const KEY = "AKIAIOSFODNN7EXAMPLE"; // 20 chars
+    // Tail after the key ≈ SHARE_CAP - 10, so a naive cut-then-mask would slice
+    // mid-key and ship an unmatchable raw fragment. Masked-first, the cut can
+    // only bisect a placeholder — zero secret bytes either way.
+    const raw = "y".repeat(60_000) + "\n" + KEY + "\n" + "z".repeat(SHARE_CAP - 10);
+    const { masked } = buildShare("block", raw, "2026-08-03");
+    expect(masked).not.toMatch(/AKIA/);
+    expect(masked).not.toContain(KEY);
+  });
+
+  it("under-cap input is untouched and reports truncated=false", () => {
+    const { masked, truncated } = buildShare("block", "small", "2026-08-03");
+    expect(truncated).toBe(false);
+    expect(masked).toBe("small");
   });
 });

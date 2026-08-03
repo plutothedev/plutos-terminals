@@ -18,10 +18,34 @@
 
 import { scanSecrets, maskSecrets } from "./secretScan.js";
 
+// Release-audit fix: the share pipeline had no size bound anywhere — a
+// multi-day transcript ran unbounded through the scan, the preview <pre>, and
+// the gist POST (30s reqwest timeout + GitHub's own gist ceiling). The upload
+// text is now capped here, INSIDE buildShare, so the load-bearing
+// preview===upload invariant is untouched. Mask runs BEFORE the cut (same
+// ordering rule as the agent-context fix): the cut can only ever bisect a
+// placeholder, never strand a raw secret fragment the scanner can't match.
+// The cut keeps the TAIL — for a terminal transcript the newest output is
+// what the user is sharing; the dropped part is the oldest.
+export const SHARE_CAP = 256 * 1024; // chars of masked upload text
+const TRUNC_NOTE =
+  "[truncated: content exceeded the share size cap — showing the most recent portion]\n";
+
+// Tail-safe slice: never strand a LOW surrogate at the start of the kept tail.
+function tailSlice(s, n) {
+  if (s.length <= n) return s;
+  let start = s.length - n;
+  const code = s.charCodeAt(start);
+  if (code >= 0xdc00 && code <= 0xdfff) start += 1;
+  return s.slice(start);
+}
+
 export function buildShare(kind, rawText, dateStamp) {
   const hits = scanSecrets(rawText);
-  const masked = maskSecrets(rawText, hits);
+  let masked = maskSecrets(rawText, hits);
+  const truncated = masked.length > SHARE_CAP;
+  if (truncated) masked = TRUNC_NOTE + tailSlice(masked, SHARE_CAP);
   const ext = kind === "transcript" ? "md" : "txt";
   const filename = `plutos-terminal-share-${dateStamp}.${ext}`;
-  return { filename, masked, hits };
+  return { filename, masked, hits, truncated };
 }

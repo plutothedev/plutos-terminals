@@ -46,7 +46,9 @@ export default function ShareModal({ open, kind, title, rawText, dateStamp, onCl
 
   // LOAD-BEARING: compute ONCE per open. The exact `masked` rendered below is
   // the exact `masked` uploaded — never re-derived, never rawText, never title.
-  const { filename, masked, hits } = useMemo(
+  // The size cap lives INSIDE buildShare, so a truncated preview is still
+  // byte-identical to the upload.
+  const { filename, masked, hits, truncated } = useMemo(
     () => buildShare(kind, rawText, dateStamp),
     [kind, rawText, dateStamp]
   );
@@ -107,6 +109,12 @@ export default function ShareModal({ open, kind, title, rawText, dateStamp, onCl
         <code style={{ fontFamily: M, color: FG }}>{filename}</code>. Detected secrets are masked.
         The original unmasked text and the command title are never sent.
       </div>
+
+      {truncated && (
+        <div style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.5, marginBottom: 8, fontFamily: M }}>
+          Content exceeded the share size cap — only the most recent portion is shown and uploaded.
+        </div>
+      )}
 
       {/* THE upload, verbatim. This exact string is what gist_create receives. */}
       <pre style={{

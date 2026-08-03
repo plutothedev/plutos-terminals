@@ -1140,6 +1140,20 @@ fn transcript_read_sync(dir: &std::path::Path, date: &str, name: &str) -> Result
 // picker; this is defense in depth for a direct call). No dated file found
 // at all -> Err.
 fn transcript_read_all_sync(dir: &std::path::Path, name: &str) -> Result<String, String> {
+    transcript_read_all_capped(dir, name, TRANSCRIPT_READ_CAP)
+}
+
+// Release-audit fix: the whole-session concat had no size bound — a long-lived
+// project pulled multiple MB into JS memory, through 7 regex passes, into one
+// <pre>, and into a 30s-timeout gist POST. Budgeted walk instead: accumulate
+// whole days NEWEST-first until the byte budget is spent (the newest output is
+// what a share is about), then assemble the kept days oldest-first with the
+// unchanged header format. First kept day over budget on its own keeps its
+// TAIL at a char boundary. Every drop is disclosed with an omission note.
+const TRANSCRIPT_READ_CAP: usize = 1024 * 1024; // bytes of assembled content
+const TRANSCRIPT_OMITTED_NOTE: &str = "\n--- [earlier transcript omitted: size cap] ---\n";
+
+fn transcript_read_all_capped(dir: &std::path::Path, name: &str, cap: usize) -> Result<String, String> {
     if !transcript_name_valid(name) {
         return Err("invalid transcript name".into());
     }
@@ -1152,20 +1166,47 @@ fn transcript_read_all_sync(dir: &std::path::Path, name: &str) -> Result<String,
                 .collect()
         })
         .unwrap_or_default();
-    dates.sort(); // oldest-first
+    dates.sort(); // oldest-first (fixed-width dates: lexical == chronological)
 
-    let mut out = String::new();
+    // Collect newest-first under the budget; keep a CONTIGUOUS newest run
+    // (stop at the first day that doesn't fit — no gaps mid-transcript).
+    let mut kept: Vec<(String, String)> = Vec::new();
+    let mut used = 0usize;
     let mut found = false;
-    for date in &dates {
+    let mut omitted = false;
+    for date in dates.iter().rev() {
         let path = dir.join(date).join(format!("{name}.md"));
-        if let Ok(content) = transcript_read_file_lossy(&path) {
-            found = true;
-            out.push_str(&format!("\n--- {date} ---\n"));
-            out.push_str(&content);
+        let Ok(content) = transcript_read_file_lossy(&path) else { continue };
+        found = true;
+        let header_len = date.len() + 10; // "\n--- {date} ---\n"
+        if used + header_len + content.len() > cap {
+            if kept.is_empty() {
+                // The single newest day alone exceeds the budget: keep its
+                // tail (newest bytes), aligned up to a char boundary.
+                let budget = cap.saturating_sub(header_len).min(content.len());
+                let mut start = content.len() - budget;
+                while start < content.len() && !content.is_char_boundary(start) {
+                    start += 1;
+                }
+                kept.push((date.clone(), content[start..].to_string()));
+            }
+            omitted = true;
+            break;
         }
+        used += header_len + content.len();
+        kept.push((date.clone(), content));
     }
     if !found {
         return Err("no transcript found for this name".into());
+    }
+
+    let mut out = String::new();
+    if omitted {
+        out.push_str(TRANSCRIPT_OMITTED_NOTE);
+    }
+    for (date, content) in kept.iter().rev() {
+        out.push_str(&format!("\n--- {date} ---\n"));
+        out.push_str(content);
     }
     Ok(out)
 }
@@ -1345,6 +1386,47 @@ mod transcript_read_tests {
         write_dated(tmp.path(), "2024-03-04", "solo-name", "hello world\n");
         let got = transcript_read_sync(tmp.path(), "2024-03-04", "solo-name").unwrap();
         assert_eq!(got, "hello world\n");
+    }
+
+    #[test]
+    fn read_all_cap_drops_oldest_days_first_with_omission_note() {
+        // Release-audit fix: the whole-session concat had no size bound. The
+        // cap keeps the NEWEST contiguous run of whole days; the kept days
+        // still render oldest-first with the same headers.
+        let tmp = tempfile::tempdir().unwrap();
+        write_dated(tmp.path(), "2024-01-01", "n", "oldest");
+        write_dated(tmp.path(), "2024-01-02", "n", "middle");
+        write_dated(tmp.path(), "2024-01-03", "n", "newest");
+        let day = |content: &str| content.len() + "2024-01-03".len() + 10; // header cost
+        let cap = day("newest") + day("middle"); // fits two days, not three
+        let got = transcript_read_all_capped(tmp.path(), "n", cap).unwrap();
+        assert!(got.contains("newest") && got.contains("middle"));
+        assert!(!got.contains("oldest"));
+        assert!(got.contains("omitted"), "must disclose the drop: {got:?}");
+        assert!(got.find("middle").unwrap() < got.find("newest").unwrap(), "kept days stay oldest-first");
+    }
+
+    #[test]
+    fn read_all_cap_single_oversized_day_keeps_tail() {
+        // A single newest day bigger than the whole budget keeps its TAIL
+        // (newest output) rather than erroring or returning nothing.
+        let tmp = tempfile::tempdir().unwrap();
+        let content = format!("{}{}", "H".repeat(100), "T".repeat(50));
+        write_dated(tmp.path(), "2024-01-03", "n", &content);
+        let got = transcript_read_all_capped(tmp.path(), "n", 80).unwrap();
+        assert!(got.contains(&"T".repeat(50)), "tail must survive: {got:?}");
+        assert!(!got.contains(&"H".repeat(50)), "head must be dropped: {got:?}");
+        assert!(got.contains("omitted"));
+    }
+
+    #[test]
+    fn read_all_under_cap_is_byte_identical_to_uncapped() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_dated(tmp.path(), "2024-01-01", "n", "small");
+        let capped = transcript_read_all_capped(tmp.path(), "n", 1024).unwrap();
+        let uncapped = transcript_read_all_sync(tmp.path(), "n").unwrap();
+        assert_eq!(capped, uncapped);
+        assert!(!capped.contains("omitted"));
     }
 
     #[test]
