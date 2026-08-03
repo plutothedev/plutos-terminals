@@ -281,7 +281,9 @@ describe("buildSafeContextBlock — masks before the budget cut", () => {
     const { text, hits } = buildSafeContextBlock(leakInput);
     expect(text).not.toMatch(/AKIA/); // no raw fragment survives, boundary or not
     expect(text.length).toBeLessThanOrEqual(CONTEXT_BUDGET); // hard cap still holds
-    expect(hits.some((h) => h.match === KEY)).toBe(true); // the key was seen + counted
+    // Reported hits describe the INJECTED block: counted exactly when the
+    // placeholder survived the budget cut, never otherwise.
+    expect(hits.some((h) => h.match === KEY)).toBe(text.includes("[masked aws-access-key]"));
   });
 
   it("secrets inside facts are still masked (post-assembly scan)", () => {

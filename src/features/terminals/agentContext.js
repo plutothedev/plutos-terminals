@@ -7,7 +7,7 @@
 // control. The controls are: agentTools.js code-side gating (untouched), the
 // TOFU per-content-hash approval gate (later tasks), and secretScan masking.
 
-import { scanSecrets, maskSecrets } from "./secretScan.js";
+import { scanSecrets, maskSecrets, visibleHits } from "./secretScan.js";
 
 export const CONTEXT_BUDGET = 16 * 1024; // chars, whole block, hard-capped
 export const RULES_SHARE = 8 * 1024; // oversized global Rules can never evict rule files
@@ -130,7 +130,11 @@ export function buildSafeContextBlock({ globalRules, ruleFiles, facts }) {
   const block = buildContextBlock({ globalRules: rules, ruleFiles: files, facts });
   const post = scanSecrets(block);
   hits.push(...post);
-  return { text: safeSlice(maskSecrets(block, post), CONTEXT_BUDGET), hits };
+  // Report only the hits whose placeholder survives: the budget loop can DROP
+  // a whole rule-file section, and the chip's count describes the injected
+  // block, so counting a secret from dropped text would overstate it.
+  const text = safeSlice(maskSecrets(block, post), CONTEXT_BUDGET);
+  return { text, hits: visibleHits(text, hits) };
 }
 
 const quiet = async (p) => { try { return await p; } catch { return null; } };

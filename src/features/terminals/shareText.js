@@ -16,7 +16,7 @@
 // deterministic function of its inputs (same contract as the injected-`now`
 // pattern used on the Rust side).
 
-import { scanSecrets, maskSecrets } from "./secretScan.js";
+import { scanSecrets, maskSecrets, visibleHits } from "./secretScan.js";
 
 // Release-audit fix: the share pipeline had no size bound anywhere — a
 // multi-day transcript ran unbounded through the scan, the preview <pre>, and
@@ -41,11 +41,14 @@ function tailSlice(s, n) {
 }
 
 export function buildShare(kind, rawText, dateStamp) {
-  const hits = scanSecrets(rawText);
-  let masked = maskSecrets(rawText, hits);
+  const found = scanSecrets(rawText);
+  let masked = maskSecrets(rawText, found);
   const truncated = masked.length > SHARE_CAP;
   if (truncated) masked = TRUNC_NOTE + tailSlice(masked, SHARE_CAP);
   const ext = kind === "transcript" ? "md" : "txt";
   const filename = `plutos-terminal-share-${dateStamp}.${ext}`;
-  return { filename, masked, hits, truncated };
+  // Report only what survives the cut — the modal says these were masked "in
+  // the upload above", so counting a secret whose placeholder was discarded
+  // would be a false claim in a security-critical UI.
+  return { filename, masked, hits: visibleHits(masked, found), truncated };
 }

@@ -114,6 +114,27 @@ describe("scanSecrets — bisected PEM blocks (upstream truncation)", () => {
     expect(hits.length).toBe(1);
     expect(hits[0].name).toBe("pem-private-key");
   });
+
+  it("TWO separately-bisected keys in one text: both bodies masked", () => {
+    // Re-review catch: suppressing an unpaired END whenever ANY earlier BEGIN
+    // exists is distance-blind. Mismatched key types mean the paired pattern
+    // never bridges them, so key 2's headless body must still be flagged on
+    // its own. (Key 1 tail-severed, key 2 head-severed, unrelated output
+    // between them — exactly what a capped multi-day transcript looks like.)
+    const text = [
+      "-----BEGIN EC PRIVATE KEY-----",
+      BODY_A,
+      "$ unrelated command output",
+      "--- 2026-08-03 ---",
+      BODY_B,
+      "-----END RSA PRIVATE KEY-----",
+      "",
+    ].join("\n");
+    const masked = maskSecrets(text, scanSecrets(text));
+    expect(masked).not.toContain(BODY_A);
+    expect(masked).not.toContain(BODY_B);
+    expect(masked).toContain("$ unrelated command output"); // no over-masking between them
+  });
 });
 
 describe("maskSecrets", () => {

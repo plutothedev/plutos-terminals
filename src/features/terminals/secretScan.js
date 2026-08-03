@@ -74,20 +74,43 @@ export function scanSecrets(text) {
     if (bm.index === BEGIN_BANNER_RE.lastIndex) BEGIN_BANNER_RE.lastIndex++; // zero-width safety
   }
   // Unpaired END: the mirror case, and the one a head-dropping truncation
-  // produces. Skip an END already covered by a paired hit OR already swallowed
-  // by an unpaired-BEGIN span (a mismatched-type pair flags once, from BEGIN).
+  // produces. Skip an END already covered by a paired hit, or one that belongs
+  // to the SAME block as an unpaired BEGIN — which means CONTIGUOUS with that
+  // BEGIN's span (only whitespace between them), NOT merely "some BEGIN exists
+  // earlier". Re-review catch: the earlier distance-blind test silently skipped
+  // a second, separately-bisected key later in the same text.
   const beginSpans = hits.filter((h) => h.name === "pem-unpaired-begin");
   END_BANNER_RE.lastIndex = 0;
   let em;
   while ((em = END_BANNER_RE.exec(s))) {
-    const inBeginSpan = beginSpans.some((h) => em.index >= h.index && em.index < h.index + h.match.length);
-    const hasBeginBefore = beginSpans.some((h) => h.index < em.index) || pemHits.some((h) => h.index < em.index);
-    if (!covered(em.index) && !inBeginSpan && !hasBeginBefore) {
-      hits.push({ name: "pem-unpaired-end", ...spanBackward(s, em.index, em[0]) });
-    }
+    const back = spanBackward(s, em.index, em[0]);
+    const sameBlock = beginSpans.some((h) => {
+      const spanEnd = h.index + h.match.length;
+      return em.index >= h.index && (back.index <= spanEnd || /^\s*$/.test(s.slice(spanEnd, back.index)));
+    });
+    if (!covered(em.index) && !sameBlock) hits.push({ name: "pem-unpaired-end", ...back });
     if (em.index === END_BANNER_RE.lastIndex) END_BANNER_RE.lastIndex++; // zero-width safety
   }
   return hits.sort((a, b) => a.index - b.index);
+}
+
+// Keep only the hits whose placeholder actually SURVIVES into `finalText`.
+// Both callers mask before they cut to a budget, so a secret living only in
+// the dropped region is masked-then-discarded — counting it would tell the
+// user "N secrets masked in the upload above" about text that isn't there.
+// Counts placeholders per name (they're indistinguishable once masked) and
+// keeps that many hits of that name.
+export function visibleHits(finalText, hits) {
+  const text = String(finalText ?? "");
+  const names = new Set((hits || []).map((h) => h.name));
+  const out = [];
+  for (const name of names) {
+    const ph = `[masked ${name}]`;
+    let count = 0;
+    for (let i = text.indexOf(ph); i !== -1; i = text.indexOf(ph, i + ph.length)) count++;
+    out.push(...hits.filter((h) => h.name === name).slice(0, count));
+  }
+  return out.sort((a, b) => a.index - b.index);
 }
 
 export function maskSecrets(text, hits) {

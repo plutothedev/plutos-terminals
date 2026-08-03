@@ -99,6 +99,28 @@ describe("buildShare — size cap", () => {
   });
 });
 
+// Re-review catch: hits were computed pre-cut, so the modal could claim
+// "N secrets masked in the upload above" for a secret whose placeholder the
+// tail-cut discarded. Report only what survives into the uploaded text.
+describe("buildShare — reported hits reflect the FINAL upload text", () => {
+  const KEY = "AKIAIOSFODNN7EXAMPLE";
+
+  it("a secret dropped by the tail-cut is not counted", () => {
+    const raw = `old output\n${KEY}\n` + "z".repeat(SHARE_CAP + 50_000);
+    const { masked, hits } = buildShare("transcript", raw, "2026-08-03");
+    expect(masked).not.toContain("[masked aws-access-key]"); // placeholder was cut away
+    expect(hits).toEqual([]); // ...so nothing is claimed about it
+    expect(masked).not.toContain(KEY); // and the raw value is nowhere either
+  });
+
+  it("a secret surviving in the kept tail is still counted", () => {
+    const raw = "z".repeat(SHARE_CAP + 50_000) + `\n${KEY}\n`;
+    const { masked, hits } = buildShare("transcript", raw, "2026-08-03");
+    expect(masked).toContain("[masked aws-access-key]");
+    expect(hits.length).toBe(1);
+  });
+});
+
 // Release-audit CRITICAL (found by the fix-round re-review): the Rust
 // transcript cap severs whole days BEFORE any JS masking runs, so buildShare
 // can receive a PEM whose BEGIN was dropped. This exercises text shaped like
