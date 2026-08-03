@@ -434,7 +434,14 @@ export default function TerminalPane({
       date: transcriptDateRef.current,
       name,
       content: buf,
-    }).catch(() => {});
+    }).catch((e) => {
+      // The buffer was cleared above, so a swallowed failure loses this chunk
+      // of history permanently and silently (disk full, permissions). Same rule
+      // the notebook save path already follows: a genuine disk error must be
+      // visible somewhere. Log rather than toast — this fires every few seconds
+      // per pane, and a toast storm would be worse than the gap.
+      console.error("Pluto's Terminals: transcript flush failed", e);
+    });
   };
 
   const checkAutoApprove = (ptyId) => {

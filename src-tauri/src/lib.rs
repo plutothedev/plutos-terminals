@@ -223,6 +223,7 @@ pub fn run() {
             commands::transcript_list,
             commands::transcript_read,
             commands::transcript_read_all,
+            commands::transcript_sweep,
             commands::recent_files,
             commands::check_command_version,
             commands::mcp_install,

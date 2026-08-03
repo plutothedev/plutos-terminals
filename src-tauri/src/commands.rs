@@ -789,7 +789,8 @@ pub fn scrollback_delete(app: AppHandle, tab_id: String) -> Result<(), String> {
 }
 
 // ── Scrollback GC: keep-set + age sweep ───────────────────────────
-// Per-tab scrollback files (100KB cap each) otherwise accumulate forever as
+// Per-tab scrollback files (10MB cap each, tail-truncated to 5MB — see
+// SCROLLBACK_FILE_MAX_BYTES/KEEP_BYTES in pty.rs) otherwise accumulate forever as
 // tabs are closed. A file is deleted ONLY when it is BOTH (a) not owned by any
 // currently-open tab — the caller passes the union of open tab ids across every
 // window as a KEEP-list — AND (b) not written in `max_age` (default 30 days).
@@ -1224,6 +1225,117 @@ pub async fn transcript_read(app: AppHandle, date: String, name: String) -> Resu
 #[tauri::command]
 pub async fn transcript_read_all(app: AppHandle, name: String) -> Result<String, String> {
     transcript_read_all_sync(&transcripts_dir(&app), &name)
+}
+
+// ── Transcript GC: age sweep over whole date-dirs ─────────────────
+// transcript_append writes forever with no rotation, so an active user's
+// transcripts dir grows without bound (a busy day is single-digit MB per pane)
+// and nothing in the UI reveals it exists. Mirrors the scrollback sweep, with
+// one difference: transcripts are already partitioned into YYYY-MM-DD dirs, so
+// age comes from the DIRECTORY NAME rather than an mtime — deterministic, and
+// immune to a stray touch bumping a whole day. No keep-set is needed: today's
+// dir can never be older than the retention window. `today` is injected for
+// testability, matching the injected-now pattern used elsewhere in this file.
+const TRANSCRIPT_RETENTION_DAYS: u64 = 90;
+
+fn sweep_stale_transcripts(
+    dir: &std::path::Path,
+    max_age_days: u64,
+    today: chrono::NaiveDate,
+) -> usize {
+    let mut removed = 0usize;
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return 0, // no transcripts dir yet — nothing to sweep
+    };
+    for entry in entries.flatten() {
+        // file_type() reports the on-disk type without following symlinks, so a
+        // symlinked "dir" is never recursively removed.
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !transcript_date_valid(&name) {
+            continue; // not a dir we created — leave it alone
+        }
+        let Ok(date) = chrono::NaiveDate::parse_from_str(&name, "%Y-%m-%d") else { continue };
+        // A future-dated dir (clock skew) counts as fresh, never stale.
+        let age = today.signed_duration_since(date).num_days();
+        if age > max_age_days as i64 && fs::remove_dir_all(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+#[tauri::command]
+pub async fn transcript_sweep(app: AppHandle, max_age_days: Option<u64>) -> Result<usize, String> {
+    let days = max_age_days.unwrap_or(TRANSCRIPT_RETENTION_DAYS).max(1);
+    Ok(sweep_stale_transcripts(
+        &transcripts_dir(&app),
+        days,
+        chrono::Local::now().date_naive(),
+    ))
+}
+
+#[cfg(test)]
+mod transcript_sweep_tests {
+    use super::*;
+    use std::fs;
+
+    fn day(dir: &std::path::Path, date: &str) {
+        let d = dir.join(date);
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("proj-abc123.md"), "content").unwrap();
+    }
+    fn today() -> chrono::NaiveDate {
+        chrono::NaiveDate::from_ymd_opt(2026, 8, 3).unwrap()
+    }
+
+    #[test]
+    fn removes_only_dirs_past_the_retention_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        day(tmp.path(), "2026-08-03"); // today
+        day(tmp.path(), "2026-07-05"); // 29 days
+        day(tmp.path(), "2026-01-01"); // way past
+        let removed = sweep_stale_transcripts(tmp.path(), 90, today());
+        assert_eq!(removed, 1);
+        assert!(tmp.path().join("2026-08-03").is_dir());
+        assert!(tmp.path().join("2026-07-05").is_dir());
+        assert!(!tmp.path().join("2026-01-01").exists());
+    }
+
+    #[test]
+    fn boundary_is_exclusive_exactly_at_the_window_is_kept() {
+        let tmp = tempfile::tempdir().unwrap();
+        day(tmp.path(), "2026-05-05"); // exactly 90 days before 2026-08-03
+        assert_eq!(sweep_stale_transcripts(tmp.path(), 90, today()), 0);
+        assert!(tmp.path().join("2026-05-05").is_dir());
+    }
+
+    #[test]
+    fn a_future_dated_dir_is_never_swept() {
+        let tmp = tempfile::tempdir().unwrap();
+        day(tmp.path(), "2027-01-01"); // clock skew
+        assert_eq!(sweep_stale_transcripts(tmp.path(), 90, today()), 0);
+        assert!(tmp.path().join("2027-01-01").is_dir());
+    }
+
+    #[test]
+    fn foreign_dirs_and_files_are_left_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("not-a-date")).unwrap();
+        fs::write(tmp.path().join("2026-01-01.md"), "a file, not a dir").unwrap();
+        assert_eq!(sweep_stale_transcripts(tmp.path(), 90, today()), 0);
+        assert!(tmp.path().join("not-a-date").is_dir());
+        assert!(tmp.path().join("2026-01-01.md").is_file());
+    }
+
+    #[test]
+    fn missing_dir_is_not_an_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(sweep_stale_transcripts(&tmp.path().join("nope"), 90, today()), 0);
+    }
 }
 
 #[cfg(test)]

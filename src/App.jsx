@@ -309,14 +309,26 @@ function AppInner() {
   // v0.1.20 (the picker was removed; one canonical look across all skins).
   useEffect(() => { injectHeaderSkinsCss(); }, []);
 
-  // Scrollback GC: once per launch (primary window only), reclaim scrollback
-  // files whose tab is no longer open in ANY window AND untouched for 30+ days.
-  // The keep-set (every open tab id) is a safety exclusion, so a live tab's
-  // history is never swept; best-effort, never blocks boot.
+  // Disk GC (primary window only), on boot and then daily: reclaim scrollback
+  // files whose tab is no longer open in ANY window AND untouched for 30+ days,
+  // and transcript day-folders past their retention window. The scrollback
+  // keep-set (every open tab id) is a safety exclusion, so a live tab's history
+  // is never swept; best-effort, never blocks boot.
+  //
+  // It repeats because closing the window HIDES the app to the tray rather than
+  // quitting (see lib.rs) — a boot-only sweep never fires again across a
+  // weeks-long resident session, which is exactly when the files pile up.
   useEffect(() => {
     if (!isPrimaryWindow()) return;
-    invoke("scrollback_sweep", { keepTabIds: allOpenTabIds() })
-      .catch((e) => console.warn("Pluto's Terminals: scrollback sweep failed", e));
+    const sweep = () => {
+      invoke("scrollback_sweep", { keepTabIds: allOpenTabIds() })
+        .catch((e) => console.warn("Pluto's Terminals: scrollback sweep failed", e));
+      invoke("transcript_sweep", {})
+        .catch((e) => console.warn("Pluto's Terminals: transcript sweep failed", e));
+    };
+    sweep();
+    const id = setInterval(sweep, 24 * 60 * 60 * 1000);
+    return () => clearInterval(id);
   }, []);
 
   // v4.0 one-time migration: force the "moba" (MobaXterm) LAYOUT once so everyone
