@@ -94,7 +94,22 @@ export function scanSecrets(text) {
   // is no "does this END belong to that BEGIN" question to get wrong, and no
   // bound whose far side could be stranded.
   const pemHits = hits.filter((h) => h.name === "pem-private-key");
-  const covered = (i) => pemHits.some((h) => i >= h.index && i < h.index + h.match.length);
+  // Binary search, not a linear .some(): this runs per banner line, and a
+  // linear re-scan is O(banners x pairedHits) — 574 ms on 10k well-formed
+  // blocks, the same quadratic shape the line-classified rewrite was meant to
+  // retire, just moved into the coverage lookup. Paired matches come from one
+  // global regex pass, so they are index-ascending and non-overlapping: the
+  // last match starting at or before `i` is the only one that can contain it.
+  const covered = (i) => {
+    let lo = 0;
+    let hi = pemHits.length - 1;
+    let best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (pemHits[mid].index <= i) { best = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return best >= 0 && i < pemHits[best].index + pemHits[best].match.length;
+  };
   const lines = classifyLines(s);
   if (!lines.some((l) => l.kind === "begin" || l.kind === "end")) {
     return hits.sort((a, b) => a.index - b.index);

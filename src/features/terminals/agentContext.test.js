@@ -296,6 +296,20 @@ describe("buildSafeContextBlock — masks before the budget cut", () => {
     expect(text).toContain("[masked");
   });
 
+  it("masks a secret in facts before the FACTS_CAP clamp can bisect it", () => {
+    // facts was the last input still cut before it was scanned: factsSection
+    // clamps to FACTS_CAP, so a token straddling that boundary survived as an
+    // unmatchable fragment. Slide the key across the boundary; nothing raw.
+    for (let pad = FACTS_CAP - 80; pad < FACTS_CAP + 20; pad += 7) {
+      const { text } = buildSafeContextBlock({
+        globalRules: "",
+        ruleFiles: [],
+        facts: { cwd: "C:\\p", git: null, dirs: ["d".repeat(pad), KEY], npmScripts: [] },
+      });
+      expect(text).not.toMatch(/AKIA/);
+    }
+  });
+
   it("returns empty text for empty input like buildContextBlock", () => {
     const { text, hits } = buildSafeContextBlock({ globalRules: "", ruleFiles: [], facts: null });
     expect(text).toBe("");

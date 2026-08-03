@@ -127,7 +127,18 @@ export function buildSafeContextBlock({ globalRules, ruleFiles, facts }) {
     ...f,
     content: maskInput(f.content),
   }));
-  const block = buildContextBlock({ globalRules: rules, ruleFiles: files, facts });
+  // Facts get masked up front too: factsSection() clamps to FACTS_CAP, so this
+  // was the one input still cut BEFORE it was scanned — a token in a branch
+  // name or an oddly named directory straddling that boundary could survive as
+  // an unmatchable fragment, the same shape as the rule-file bug above.
+  const safeFacts = facts && {
+    ...facts,
+    cwd: maskInput(facts.cwd),
+    git: facts.git && { ...facts.git, branch: maskInput(facts.git.branch) },
+    dirs: Array.isArray(facts.dirs) ? facts.dirs.map(maskInput) : facts.dirs,
+    npmScripts: Array.isArray(facts.npmScripts) ? facts.npmScripts.map(maskInput) : facts.npmScripts,
+  };
+  const block = buildContextBlock({ globalRules: rules, ruleFiles: files, facts: safeFacts });
   const post = scanSecrets(block);
   hits.push(...post);
   // Report only the hits whose placeholder survives: the budget loop can DROP

@@ -169,6 +169,18 @@ describe("scanSecrets — bisected PEM blocks (upstream truncation)", () => {
       expect(m).not.toContain(Bb);
     });
 
+    it("stays fast with many WELL-FORMED blocks (paired-hit lookup is not quadratic)", () => {
+      // The unpaired-banner perf test below leaves pemHits empty, so it never
+      // exercised the paired-hit coverage lookup. With thousands of paired
+      // blocks a re-scan-from-zero per banner is O(P^2): measured 574 ms at
+      // 10k blocks before the lookup became a binary search.
+      const text = `-----BEGIN A PRIVATE KEY-----\n${"M".repeat(40)}\n-----END A PRIVATE KEY-----\n`.repeat(10000);
+      const t0 = Date.now();
+      const hits = scanSecrets(text);
+      expect(hits.length).toBe(10000);
+      expect(Date.now() - t0).toBeLessThan(150);
+    });
+
     it("stays fast with many unpaired END banners (no quadratic backward scan)", () => {
       const text = Array(300).fill(`${A}\n-----END RSA PRIVATE KEY-----\n$ cmd\n`).join("");
       const t0 = Date.now();
