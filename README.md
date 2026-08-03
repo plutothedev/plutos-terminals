@@ -52,8 +52,35 @@ monochrome stroke icons (plus importable custom themes).
   then run. Auto-detects whether you typed a command or a request.
 - **Agent Mode** (`Ctrl+Shift+A`) — describe a goal; an in-app agent runs the
   commands in your terminal, streaming its reasoning live.
+- **Project-aware agents** — before its first turn, Agent Mode can read your
+  repo's `AGENTS.md` / `CLAUDE.md` rules, git branch and dirty state, top-level
+  dirs, and npm scripts. Every rule file needs a one-time approval of its exact
+  content (and re-approval when that content changes), the whole block is capped
+  and secret-scanned before it reaches the model, and rule files are treated as
+  data — they cannot authorize destructive actions or enable auto-run.
+- **Saved prompts** — a reusable prompt library that syncs across your machines.
+  Type `/` in the assistant or the agent goal box to fuzzy-search and insert one.
 - **One-click Fix** — when a command fails, get an AI-suggested fix you can run.
 - **AI error explainer** and **session summaries**.
+
+### Notebooks
+- **Runnable markdown documents**, as a tab type. Shell blocks get a Run button
+  that sends the command to a terminal pane you pick, then writes the captured
+  output back into the document as an `output` fence (a rerun overwrites it).
+- **Plain `.md` files** in an app-data folder — git-friendly, atomic saves, 2s
+  autosave. Monaco editor, with a plain-textarea fallback.
+- **Nothing runs without an explicit click.** v1 runs single-line commands;
+  multi-line blocks are shown but not run yet.
+
+### Sharing
+- **Share a command block or a whole session transcript** as a GitHub gist,
+  straight from the right-click menu.
+- **You see exactly what uploads.** The preview is byte-for-byte the upload,
+  secret-scanned and masked first, so API keys, tokens, JWTs and private-key
+  material are hidden before anything leaves your machine. Secret gists by
+  default — note that means unlisted, not private.
+- **"My shares"** lists and revokes what you have published. That history stays
+  on the machine that made it and never syncs.
 
 ### Private & local-first
 - **Your machine, your data.** No account, no sign-up, no telemetry. Your sessions,
