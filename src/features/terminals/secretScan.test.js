@@ -176,6 +176,57 @@ describe("scanSecrets — bisected PEM blocks (upstream truncation)", () => {
       expect(Date.now() - t0).toBeLessThan(500); // was ~545 ms at this size, ~77 s at 256 KB
     });
 
+    it("a long run of gap lines mid-body does not strand the far side", () => {
+      const m = maskOf(`-----BEGIN RSA PRIVATE KEY-----\n${A}\n\n\n\n${Bb}`);
+      expect(m).not.toContain(A);
+      expect(m).not.toContain(Bb);
+    });
+
+    it("a body far longer than any line bound is fully masked", () => {
+      const body = Array(450).fill(A);
+      const m = maskOf(`-----BEGIN RSA PRIVATE KEY-----\n${body.join("\n")}`);
+      expect(m).not.toContain(A);
+    });
+
+    it("two banners sharing one line still cover the body below", () => {
+      const m = maskOf(`-----BEGIN RSA PRIVATE KEY----- -----END RSA PRIVATE KEY-----\n${A}`);
+      expect(m).not.toContain(A);
+    });
+
+    it("a corrupted line inside a body does not strand what follows", () => {
+      const m = maskOf(`-----BEGIN RSA PRIVATE KEY-----\n${A}\tXX\n${Bb}`);
+      expect(m).not.toContain(Bb);
+    });
+
+    // The gate that keeps the run-based span from over-masking: no banner in
+    // the text means ordinary base64/hash output is left completely alone.
+    it("a transcript with no private-key banner is returned untouched", () => {
+      const t = [
+        "$ sha256sum f.bin",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "ZGVwbG95bWVudC1hcnRpZmFjdC1jaGVja3N1bS1wYXlsb2FkLXYx",
+      ].join("\n");
+      expect(maskOf(t)).toBe(t);
+    });
+
+    it("ordinary command output survives even in a transcript that DOES carry a key", () => {
+      const t = [
+        "$ git log --oneline",
+        "4a17675 fix(security): line-classified PEM fallback",
+        "$ sha256sum f.bin",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  f.bin",
+        "-----BEGIN RSA PRIVATE KEY-----",
+        A,
+        "-----END RSA PRIVATE KEY-----",
+        "$ echo done",
+      ].join("\n");
+      const m = maskOf(t);
+      expect(m).not.toContain(A);
+      expect(m).toContain("4a17675 fix(security): line-classified PEM fallback");
+      expect(m).toContain("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  f.bin");
+      expect(m).toContain("$ echo done");
+    });
+
     it("ordinary output between two keys is never swallowed", () => {
       const t = `${A}\n-----END RSA PRIVATE KEY-----\n$ real command output\n-----BEGIN EC PRIVATE KEY-----\n${Bb}\n`;
       const m = maskOf(t);

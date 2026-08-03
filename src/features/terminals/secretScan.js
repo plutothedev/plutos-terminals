@@ -43,8 +43,13 @@ const BODY_LINE_RE = /^[A-Za-z0-9+/]{16,}={0,2}$/;
 // A line that interrupts a body without ending it: blank, or a short base64
 // remnant (a key's final line, or a truncation artifact).
 const GAP_LINE_RE = /^[A-Za-z0-9+/]*={0,2}$/;
-const MAX_GAP_LINES = 2; // consecutive interruptions tolerated inside one body
-const MAX_SPAN_LINES = 400; // bounds worst-case work; a PEM key is ~30-70 lines
+// Deliberately NO gap/length bounds on a run. Every bounded variant of this
+// walk stranded the far side of a body: 3+ blank lines mid-key, a body longer
+// than the line cap, a corrupted line splitting a block. The gate is instead
+// PRESENCE: only a text that actually contains a private-key banner gets its
+// key-shaped line runs masked, and within such a text the module's stated
+// tradeoff applies — a false positive masks a harmless string, a false
+// negative ships a key. Ordinary prose is not base64-dense, so it survives.
 
 // Split once into lines with their absolute offsets, classifying each.
 function classifyLines(s) {
@@ -68,21 +73,7 @@ function classifyLines(s) {
   return out;
 }
 
-// Walk out from a banner line over body lines, tolerating a bounded run of
-// gap lines. `step` is +1 (forward from BEGIN) or -1 (backward from END).
-// Returns the index of the furthest BODY line claimed, or the banner's own
-// line when no body is adjacent.
-function walkBody(lines, bannerLine, step) {
-  let last = bannerLine;
-  let gap = 0;
-  for (let i = bannerLine + step, n = 0; i >= 0 && i < lines.length && n < MAX_SPAN_LINES; i += step, n++) {
-    const k = lines[i].kind;
-    if (k === "body") { last = i; gap = 0; continue; }
-    if (k === "gap" && gap < MAX_GAP_LINES) { gap++; continue; }
-    break; // "other" content, another banner, or too many gaps: the body ended
-  }
-  return last;
-}
+const isKeyish = (k) => k === "body" || k === "begin" || k === "end";
 
 export function scanSecrets(text) {
   const s = String(text ?? "");
@@ -95,38 +86,36 @@ export function scanSecrets(text) {
       if (m.index === re.lastIndex) re.lastIndex++; // zero-width safety
     }
   }
-  // Unpaired-banner fallback: one pass over classified lines. Each banner not
-  // already inside a paired hit claims its adjacent body; overlapping claims
-  // MERGE into one span, which is what makes the two directions agree without
-  // a "does this END belong to that BEGIN" heuristic (the previous version's
-  // guess suppressed a genuinely separate second key).
+  // Unpaired-banner fallback, one pass over classified lines. Gate: the text
+  // must contain a private-key banner at all — a transcript with no banner
+  // anywhere keeps its ordinary base64 output untouched. Inside such a text,
+  // every maximal RUN of key-shaped lines (banner or body, gap lines allowed
+  // through the middle) is one span. Runs subsume both directions, so there
+  // is no "does this END belong to that BEGIN" question to get wrong, and no
+  // bound whose far side could be stranded.
   const pemHits = hits.filter((h) => h.name === "pem-private-key");
   const covered = (i) => pemHits.some((h) => i >= h.index && i < h.index + h.match.length);
   const lines = classifyLines(s);
-  const spans = [];
+  if (!lines.some((l) => l.kind === "begin" || l.kind === "end")) {
+    return hits.sort((a, b) => a.index - b.index);
+  }
   for (let i = 0; i < lines.length; i++) {
-    const { kind, start, end } = lines[i];
-    if (kind !== "begin" && kind !== "end") continue;
-    if (covered(start)) continue;
-    const far = walkBody(lines, i, kind === "begin" ? 1 : -1);
-    spans.push(
-      kind === "begin"
-        ? { from: start, to: lines[far].end, name: "pem-unpaired-begin" }
-        : { from: lines[far].start, to: end, name: "pem-unpaired-end" }
-    );
-  }
-  spans.sort((a, b) => a.from - b.from);
-  for (const sp of spans) {
-    const prev = hits[hits.length - 1];
-    const mergeable = prev && prev.pemSpan && sp.from <= prev.index + prev.match.length;
-    if (mergeable) {
-      const to = Math.max(prev.index + prev.match.length, sp.to);
-      prev.match = s.slice(prev.index, to);
-      continue;
+    if (!isKeyish(lines[i].kind) || covered(lines[i].start)) continue;
+    let last = i;
+    let j = i + 1;
+    for (; j < lines.length; j++) {
+      if (covered(lines[j].start)) break; // a well-formed block owns its own text
+      if (isKeyish(lines[j].kind)) { last = j; continue; }
+      if (lines[j].kind === "gap") continue; // blank / short remnant: keep going
+      break; // real content ends the run
     }
-    hits.push({ name: sp.name, match: s.slice(sp.from, sp.to), index: sp.from, pemSpan: true });
+    // Name by what the run opens with, so the common shapes read naturally.
+    const name = lines[i].kind === "end" ? "pem-unpaired-end"
+      : lines[i].kind === "begin" ? "pem-unpaired-begin"
+      : "pem-key-material"; // a bare body run next to a banner elsewhere
+    hits.push({ name, match: s.slice(lines[i].start, lines[last].end), index: lines[i].start });
+    i = last;
   }
-  for (const h of hits) delete h.pemSpan;
   return hits.sort((a, b) => a.index - b.index);
 }
 
