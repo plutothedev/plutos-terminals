@@ -130,6 +130,61 @@ describe("scanSecrets — bisected PEM blocks (upstream truncation)", () => {
     expect(maskedDangling).not.toContain(BODY_B);
   });
 
+  // Round-3 adversarial findings. Each of these shipped a raw key body through
+  // the real buildShare path; they are the reason the fallback moved from
+  // regex line-adjacency to a line-classified scan.
+  describe("adjacency edge cases that previously leaked", () => {
+    const A = "A".repeat(40);
+    const Bb = "B".repeat(40);
+    const maskOf = (t) => maskSecrets(t, scanSecrets(t));
+
+    it("a second key separated from an earlier banner by blank lines is still flagged", () => {
+      const t = `-----BEGIN RSA PRIVATE KEY-----\n${A}\n\n\n${Bb}\n-----END EC PRIVATE KEY-----\n`;
+      const m = maskOf(t);
+      expect(m).not.toContain(A);
+      expect(m).not.toContain(Bb);
+    });
+
+    it("a blank line inside a body does not strand the far side (forward)", () => {
+      const m = maskOf(`-----BEGIN RSA PRIVATE KEY-----\n${A}\n\n${Bb}`);
+      expect(m).not.toContain(A);
+      expect(m).not.toContain(Bb);
+    });
+
+    it("a short line inside a body does not strand the far side (backward)", () => {
+      const m = maskOf(`${A}\nABCDEFGHIJKLMNO\n${Bb}\n-----END RSA PRIVATE KEY-----`);
+      expect(m).not.toContain(A);
+      expect(m).not.toContain(Bb);
+    });
+
+    it("padding on the BEGIN banner's own line does not defeat the span", () => {
+      const m = maskOf(`-----BEGIN RSA PRIVATE KEY----- \n${A}\n${Bb}`);
+      expect(m).not.toContain(A);
+      expect(m).not.toContain(Bb);
+    });
+
+    it("padding on the END banner's own line does not defeat the span", () => {
+      const m = maskOf(`${A}\n${Bb}\n -----END RSA PRIVATE KEY-----`);
+      expect(m).not.toContain(A);
+      expect(m).not.toContain(Bb);
+    });
+
+    it("stays fast with many unpaired END banners (no quadratic backward scan)", () => {
+      const text = Array(300).fill(`${A}\n-----END RSA PRIVATE KEY-----\n$ cmd\n`).join("");
+      const t0 = Date.now();
+      scanSecrets(text);
+      expect(Date.now() - t0).toBeLessThan(500); // was ~545 ms at this size, ~77 s at 256 KB
+    });
+
+    it("ordinary output between two keys is never swallowed", () => {
+      const t = `${A}\n-----END RSA PRIVATE KEY-----\n$ real command output\n-----BEGIN EC PRIVATE KEY-----\n${Bb}\n`;
+      const m = maskOf(t);
+      expect(m).not.toContain(A);
+      expect(m).not.toContain(Bb);
+      expect(m).toContain("$ real command output");
+    });
+  });
+
   it("TWO separately-bisected keys in one text: both bodies masked", () => {
     // Re-review catch: suppressing an unpaired END whenever ANY earlier BEGIN
     // exists is distance-blind. Mismatched key types mean the paired pattern

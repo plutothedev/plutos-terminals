@@ -17,39 +17,71 @@ const PATTERNS = [
   { name: "jwt", re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g },
 ];
 
-// Banner matches for the unpaired-BEGIN / unpaired-END fallbacks (scanSecrets
-// post-pass below). Kept out of PATTERNS: bare-banner entries there would
-// double-hit every well-formed BEGIN...END blob already caught by
-// pem-private-key above.
-const BEGIN_BANNER_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----/g;
-const END_BANNER_RE = /-----END [A-Z ]*PRIVATE KEY-----/g;
+// ── Unpaired-banner fallback (line-classified) ────────────────────────────
+// A banner whose partner never pairs — truncated paste, mismatched key type,
+// or an UPSTREAM truncation that severed the block (the transcript read cap
+// drops whole days BEFORE any masking runs) — is invisible to the spanning
+// pem-private-key pattern above. Flagging the BANNER alone is not enough: a
+// banner is public boilerplate, the body is the key, and maskSecrets replaces
+// exact match text. So the fallback must cover the adjacent body.
+//
+// This is deliberately LINE-CLASSIFIED rather than regex line-adjacency.
+// Three review rounds of adjacency rules each closed one gap and opened the
+// next (padding after the banner, a blank line mid-body, a short line
+// mid-body, a second key past a blank run), and the backward rule was
+// quadratic — a non-sticky `$`-anchored regex re-run over a fresh
+// `slice(0, index)` per END banner (~77 s on a 256 KB share). Classifying
+// every line once, then walking line indices, removes that whole class:
+// no backtracking, no slicing, and "what continues a key body" is one
+// predicate instead of two mirrored regexes.
+const BEGIN_BANNER_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
+const END_BANNER_RE = /-----END [A-Z ]*PRIVATE KEY-----/;
+// A body line: base64 (standard alphabet — PEM never uses base64url), long
+// enough that prose can't be mistaken for one, after stripping the horizontal
+// whitespace raw PTY output pads lines with.
+const BODY_LINE_RE = /^[A-Za-z0-9+/]{16,}={0,2}$/;
+// A line that interrupts a body without ending it: blank, or a short base64
+// remnant (a key's final line, or a truncation artifact).
+const GAP_LINE_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+const MAX_GAP_LINES = 2; // consecutive interruptions tolerated inside one body
+const MAX_SPAN_LINES = 400; // bounds worst-case work; a PEM key is ~30-70 lines
 
-// A PEM body line: base64 with optional padding, long enough that ordinary
-// prose can't be mistaken for one, and tolerant of the horizontal whitespace
-// raw PTY output pads lines with. Used to EXTEND an unpaired banner over the
-// key material next to it — flagging a banner while shipping its base64 raw
-// was the actual leak (a banner is public boilerplate; the body is the key).
-// Documented residuals, all verified by hand: a body line shorter than 16
-// chars is not spanned (<16 base64 chars ~ 11 bytes, not reconstructable key
-// material); a BLANK line inside a body stops the walk (PEM bodies have none,
-// and nothing in our own truncation path inserts one); and a fragment with
-// BOTH banners severed is undetectable by design — identifying bare base64
-// would need the entropy heuristic this module deliberately dropped as
-// high-false-positive on command output.
-const BODY_AFTER_RE = /(?:\r?\n[ \t]*[A-Za-z0-9+/]{16,}={0,2}[ \t]*)+/y; // sticky: banner forward
-const BODY_BEFORE_RE = /(?:[ \t]*[A-Za-z0-9+/]{16,}={0,2}[ \t]*\r?\n)+$/; // anchored: banner back
-
-// Grow an unpaired banner match to cover the adjacent key body.
-function spanForward(s, index, banner) {
-  BODY_AFTER_RE.lastIndex = index + banner.length;
-  const m = BODY_AFTER_RE.exec(s);
-  return m ? { index, match: banner + m[0] } : { index, match: banner };
+// Split once into lines with their absolute offsets, classifying each.
+function classifyLines(s) {
+  const out = [];
+  let start = 0;
+  for (;;) {
+    let nl = s.indexOf("\n", start);
+    const hardEnd = nl === -1 ? s.length : nl;
+    const end = hardEnd > start && s[hardEnd - 1] === "\r" ? hardEnd - 1 : hardEnd;
+    const raw = s.slice(start, end);
+    const t = raw.trim();
+    const kind = BEGIN_BANNER_RE.test(t) ? "begin"
+      : END_BANNER_RE.test(t) ? "end"
+      : BODY_LINE_RE.test(t) ? "body"
+      : GAP_LINE_RE.test(t) ? "gap" // blank or short base64 remnant
+      : "other";
+    out.push({ start, end, kind });
+    if (nl === -1) break;
+    start = nl + 1;
+  }
+  return out;
 }
 
-function spanBackward(s, index, banner) {
-  const m = BODY_BEFORE_RE.exec(s.slice(0, index));
-  if (!m) return { index, match: banner };
-  return { index: index - m[0].length, match: m[0] + banner };
+// Walk out from a banner line over body lines, tolerating a bounded run of
+// gap lines. `step` is +1 (forward from BEGIN) or -1 (backward from END).
+// Returns the index of the furthest BODY line claimed, or the banner's own
+// line when no body is adjacent.
+function walkBody(lines, bannerLine, step) {
+  let last = bannerLine;
+  let gap = 0;
+  for (let i = bannerLine + step, n = 0; i >= 0 && i < lines.length && n < MAX_SPAN_LINES; i += step, n++) {
+    const k = lines[i].kind;
+    if (k === "body") { last = i; gap = 0; continue; }
+    if (k === "gap" && gap < MAX_GAP_LINES) { gap++; continue; }
+    break; // "other" content, another banner, or too many gaps: the body ended
+  }
+  return last;
 }
 
 export function scanSecrets(text) {
@@ -63,40 +95,38 @@ export function scanSecrets(text) {
       if (m.index === re.lastIndex) re.lastIndex++; // zero-width safety
     }
   }
-  // Fail-open gap: a banner whose partner never pairs (truncated paste,
-  // mismatched key type, or an UPSTREAM truncation that severed the block —
-  // e.g. the transcript read cap dropping whole days) is invisible to the
-  // spanning pem-private-key pattern above. Flag from EITHER banner, and span
-  // the adjacent body so the key material is masked, not just the boilerplate.
-  // Only where a paired hit doesn't already cover the banner.
+  // Unpaired-banner fallback: one pass over classified lines. Each banner not
+  // already inside a paired hit claims its adjacent body; overlapping claims
+  // MERGE into one span, which is what makes the two directions agree without
+  // a "does this END belong to that BEGIN" heuristic (the previous version's
+  // guess suppressed a genuinely separate second key).
   const pemHits = hits.filter((h) => h.name === "pem-private-key");
   const covered = (i) => pemHits.some((h) => i >= h.index && i < h.index + h.match.length);
-  BEGIN_BANNER_RE.lastIndex = 0;
-  let bm;
-  while ((bm = BEGIN_BANNER_RE.exec(s))) {
-    if (!covered(bm.index)) {
-      hits.push({ name: "pem-unpaired-begin", ...spanForward(s, bm.index, bm[0]) });
+  const lines = classifyLines(s);
+  const spans = [];
+  for (let i = 0; i < lines.length; i++) {
+    const { kind, start, end } = lines[i];
+    if (kind !== "begin" && kind !== "end") continue;
+    if (covered(start)) continue;
+    const far = walkBody(lines, i, kind === "begin" ? 1 : -1);
+    spans.push(
+      kind === "begin"
+        ? { from: start, to: lines[far].end, name: "pem-unpaired-begin" }
+        : { from: lines[far].start, to: end, name: "pem-unpaired-end" }
+    );
+  }
+  spans.sort((a, b) => a.from - b.from);
+  for (const sp of spans) {
+    const prev = hits[hits.length - 1];
+    const mergeable = prev && prev.pemSpan && sp.from <= prev.index + prev.match.length;
+    if (mergeable) {
+      const to = Math.max(prev.index + prev.match.length, sp.to);
+      prev.match = s.slice(prev.index, to);
+      continue;
     }
-    if (bm.index === BEGIN_BANNER_RE.lastIndex) BEGIN_BANNER_RE.lastIndex++; // zero-width safety
+    hits.push({ name: sp.name, match: s.slice(sp.from, sp.to), index: sp.from, pemSpan: true });
   }
-  // Unpaired END: the mirror case, and the one a head-dropping truncation
-  // produces. Skip an END already covered by a paired hit, or one that belongs
-  // to the SAME block as an unpaired BEGIN — which means CONTIGUOUS with that
-  // BEGIN's span (only whitespace between them), NOT merely "some BEGIN exists
-  // earlier". Re-review catch: the earlier distance-blind test silently skipped
-  // a second, separately-bisected key later in the same text.
-  const beginSpans = hits.filter((h) => h.name === "pem-unpaired-begin");
-  END_BANNER_RE.lastIndex = 0;
-  let em;
-  while ((em = END_BANNER_RE.exec(s))) {
-    const back = spanBackward(s, em.index, em[0]);
-    const sameBlock = beginSpans.some((h) => {
-      const spanEnd = h.index + h.match.length;
-      return em.index >= h.index && (back.index <= spanEnd || /^\s*$/.test(s.slice(spanEnd, back.index)));
-    });
-    if (!covered(em.index) && !sameBlock) hits.push({ name: "pem-unpaired-end", ...back });
-    if (em.index === END_BANNER_RE.lastIndex) END_BANNER_RE.lastIndex++; // zero-width safety
-  }
+  for (const h of hits) delete h.pemSpan;
   return hits.sort((a, b) => a.index - b.index);
 }
 
