@@ -98,3 +98,31 @@ describe("buildShare — size cap", () => {
     expect(masked).toBe("small");
   });
 });
+
+// Release-audit CRITICAL (found by the fix-round re-review): the Rust
+// transcript cap severs whole days BEFORE any JS masking runs, so buildShare
+// can receive a PEM whose BEGIN was dropped. This exercises text shaped like
+// real transcript_read_all_capped output — the omission note + a `--- date ---`
+// header + a headless key body — not a hand-built whole secret.
+describe("buildShare — a PEM bisected upstream by the Rust read cap", () => {
+  const BODY_A = "MIIEowIBAAKCAQEAx7Zk9fQ2vLmN8pQrStUvWxYz0123456789abcdefGHIJKLMN";
+  const BODY_B = "OPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/AAAAAAAAAAAAAA";
+
+  it("masks the surviving key body and flips the button to Share anyway", () => {
+    const rustOutput = [
+      "\n--- [earlier transcript omitted: size cap] ---",
+      "\n--- 2026-08-03 ---",
+      "$ cat ~/.ssh/id_rsa",
+      BODY_A,
+      BODY_B,
+      "-----END RSA PRIVATE KEY-----",
+      "$ echo done",
+      "",
+    ].join("\n");
+    const { masked, hits } = buildShare("transcript", rustOutput, "2026-08-03");
+    expect(masked).not.toContain(BODY_A);
+    expect(masked).not.toContain(BODY_B);
+    expect(hits.length).toBeGreaterThan(0); // hasSecrets -> "Share anyway" + warning row
+    expect(masked).toContain("$ echo done"); // ordinary output survives
+  });
+});

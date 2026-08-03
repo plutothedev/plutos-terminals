@@ -56,7 +56,7 @@ describe("scanSecrets", () => {
     expect(hits[0].name).toBe("pem-private-key");
   });
 
-  it("mismatched BEGIN RSA ... END EC yields no paired hit but the fallback flags the banner", () => {
+  it("mismatched BEGIN RSA ... END EC yields no paired hit but the fallback spans banner + body", () => {
     const text = [
       "-----BEGIN RSA PRIVATE KEY-----",
       "MIIBOgIBAAJBAKj34GkxFhD91RaHU1KFwqBSqcHTPYFbUxk2mBjRhkiK5RGbrJmB",
@@ -66,7 +66,53 @@ describe("scanSecrets", () => {
     expect(hits.filter((h) => h.name === "pem-private-key").length).toBe(0);
     const unpaired = hits.filter((h) => h.name === "pem-unpaired-begin");
     expect(unpaired.length).toBe(1);
-    expect(unpaired[0].match).toBe("-----BEGIN RSA PRIVATE KEY-----");
+    // Contract change (release audit): the fallback covers the KEY BODY, not
+    // just the banner — flagging a banner while shipping the base64 raw was
+    // the actual leak.
+    expect(unpaired[0].match).toContain("-----BEGIN RSA PRIVATE KEY-----");
+    expect(unpaired[0].match).toContain("MIIBOgIBAAJBAKj34GkxFhD91RaHU1KFwqBSqcHTPYFbUxk2mBjRhkiK5RGbrJmB");
+  });
+});
+
+// Release-audit CRITICAL: a PEM bisected by an UPSTREAM truncation (the Rust
+// transcript read cap severs whole days before the text ever reaches this
+// scanner) must not ship its key body raw — in EITHER direction. The
+// unpaired-BEGIN fallback existed but masked only the banner; there was no
+// unpaired-END fallback at all, so an END-kept fragment scored zero hits and
+// uploaded with no warning and no masking.
+describe("scanSecrets — bisected PEM blocks (upstream truncation)", () => {
+  const BODY_A = "MIIEowIBAAKCAQEAx7Zk9fQ2vLmN8pQrStUvWxYz0123456789abcdefGHIJKLMN";
+  const BODY_B = "OPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/AAAAAAAAAAAAAA";
+
+  it("END kept but BEGIN severed: flags a hit and masks the surviving body", () => {
+    const text = `${BODY_A}\n${BODY_B}\n-----END RSA PRIVATE KEY-----\n`;
+    const hits = scanSecrets(text);
+    expect(hits.length).toBeGreaterThan(0); // was ZERO — silent leak
+    const masked = maskSecrets(text, hits);
+    expect(masked).not.toContain(BODY_A);
+    expect(masked).not.toContain(BODY_B);
+  });
+
+  it("BEGIN kept but END severed: masks the body, not just the banner", () => {
+    const text = `-----BEGIN RSA PRIVATE KEY-----\n${BODY_A}\n${BODY_B}\n`;
+    const masked = maskSecrets(text, scanSecrets(text));
+    expect(masked).not.toContain(BODY_A);
+    expect(masked).not.toContain(BODY_B);
+  });
+
+  it("does not swallow ordinary prose adjacent to a bisected block", () => {
+    const text = `before\n-----BEGIN RSA PRIVATE KEY-----\n${BODY_A}\nafter\n`;
+    const masked = maskSecrets(text, scanSecrets(text));
+    expect(masked).not.toContain(BODY_A);
+    expect(masked).toContain("before");
+    expect(masked).toContain("after");
+  });
+
+  it("a whole PEM still produces exactly one paired hit (no fallback double-hit)", () => {
+    const text = `-----BEGIN RSA PRIVATE KEY-----\n${BODY_A}\n${BODY_B}\n-----END RSA PRIVATE KEY-----\n`;
+    const hits = scanSecrets(text);
+    expect(hits.length).toBe(1);
+    expect(hits[0].name).toBe("pem-private-key");
   });
 });
 
@@ -105,13 +151,14 @@ describe("maskSecrets", () => {
     expect(masked).toContain("MIDDLE-MARKER");
   });
 
-  it("dangling BEGIN with no END anywhere -> one pem-unpaired-begin hit; maskSecrets masks the banner", () => {
+  it("dangling BEGIN with no END anywhere -> one pem-unpaired-begin hit; maskSecrets masks banner AND body", () => {
     const text = "before\n-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAKj34GkxFhD91RaHU1KFwqBSqcHTPYFbUxk2mBjRhkiK5RGbrJmB\nafter";
     const hits = scanSecrets(text);
     expect(hits.length).toBe(1);
     expect(hits[0].name).toBe("pem-unpaired-begin");
     const masked = maskSecrets(text, hits);
     expect(masked).not.toContain("-----BEGIN RSA PRIVATE KEY-----");
+    expect(masked).not.toContain("MIIBOgIBAAJBAKj34GkxFhD91RaHU1KFwqBSqcHTPYFbUxk2mBjRhkiK5RGbrJmB");
     expect(masked).toContain("[masked pem-unpaired-begin]");
   });
 
