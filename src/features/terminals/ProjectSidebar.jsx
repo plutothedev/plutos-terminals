@@ -127,6 +127,10 @@ function highlightPanel(el) {
 // Activity tints for project rows (mirror tab dot colors).
 const ACTIVE_FG = "rgba(250,204,21,0.85)";
 const DONE_FG = "#34D399";
+// Blocked-on-you amber, matching the Monitor's waiting dot. Deliberately
+// warmer/more saturated than ACTIVE_FG so "needs you" and "running" stay
+// distinguishable at a glance in a row of projects.
+const WAITING_FG = "#E0A93C";
 
 function ProjectSidebar({
   projects,
@@ -464,12 +468,16 @@ function ProjectSidebar({
             const isRenamingThis = renamingId === p.id;
             const isExpanded = expandedId === p.id;
             const activity = projectActivities?.[p.id];
-            const nameColor = activity === "active" ? ACTIVE_FG : activity === "done" ? DONE_FG : FG;
-            const dotShadow = activity === "active"
-              ? `0 0 6px ${ACTIVE_FG}`
-              : activity === "done"
-                ? `0 0 6px ${DONE_FG}`
-                : "none";
+            // "waiting" (an agent blocked on your approval) gets its own amber,
+            // distinct from the running yellow and the finished green — it is
+            // the state you should act on, so it must not read as either.
+            const activityFg =
+              activity === "waiting" ? WAITING_FG
+                : activity === "active" ? ACTIVE_FG
+                : activity === "done" ? DONE_FG
+                : null;
+            const nameColor = activityFg || FG;
+            const dotShadow = activityFg ? `0 0 6px ${activityFg}` : "none";
             return (
               <div key={p.id}>
               <div

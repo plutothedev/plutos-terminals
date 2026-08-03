@@ -977,4 +977,12 @@
 .phn-mon-row .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .phn-mon-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phn-mon-row .kind { font-size: 9px; color: var(--phn-text-faint, #586068); text-transform: uppercase; letter-spacing: 0.04em; }
-.phn-mon-row .st { font-size: 9.5px; color: var(--phn-text-dim, #8A909A); width: 40px; text-align: right; }
+.phn-mon-row .st { font-size: 9.5px; color: var(--phn-text-dim, #8A909A); width: 58px; text-align: right; }
+
+/* Agent fleet summary: one line answering "what are my agents doing". */
+.phn-mon-fleet { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 2px 2px 6px; }
+.phn-mon-fleet-item { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--phn-text-dim, #8A909A); }
+.phn-mon-fleet-item .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.phn-mon-fleet-quiet { color: var(--phn-text-faint, #586068); }
+/* A blocked session gets a faint amber wash so it reads before the text does. */
+.phn-mon-row.is-waiting { background: rgba(224, 169, 60, 0.10); border-radius: 3px; }

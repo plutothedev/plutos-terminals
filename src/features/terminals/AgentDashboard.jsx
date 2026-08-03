@@ -1,23 +1,26 @@
 // (C)
 // Agent dashboard — a live overview of every session across all panels: status
-// (working / done / idle), Claude /cost + tokens, and git-worktree branch. Click
-// a row to jump to that tab, ✨ to AI-summarize it, diff to review a worktree.
-// Filter by status. The parallel-AI "mission control" (Conductor-style).
+// (needs you / working / done / idle), Claude /cost + tokens, and git-worktree
+// branch. Click a row to jump to that tab, ✨ to AI-summarize it, diff to review
+// a worktree. Filter by status. The parallel-AI "mission control".
 import { useState } from "react";
 import { getLayout, leafIds } from "./splitTree";
 import { SBot, SAgents, SLink, SSerial, SWindows, SLocal, SAsk } from "./toolbarIcons.jsx";
+import { mergeActivity } from "./hooks/useTabTelemetry.js";
 import "./terminals.css";
 
-// A tab's status = the loudest of its panes (active > done > idle). Mirrors
-// aggregateTabActivity in TerminalPanel, but works off the raw per-pane map.
-function tabStatus(tab, tabActivities) {
-  let done = false;
+// A tab's status = the loudest of its panes (waiting > active > done > idle),
+// through the shared mergeActivity so this and the project/dock rollups cannot
+// drift apart. "waiting" outranks everything: a session blocked on your
+// approval is the only one asking for something, and it must never hide behind
+// a sibling pane that happens to be running.
+export function tabStatus(tab, tabActivities) {
+  let best = "idle";
   for (const id of leafIds(getLayout(tab))) {
-    const s = tabActivities?.[id] || "idle";
-    if (s === "active") return "active";
-    if (s === "done") done = true;
+    best = mergeActivity(best, tabActivities?.[id] || "idle");
+    if (best === "waiting") break; // nothing outranks it
   }
-  return done ? "done" : "idle";
+  return best;
 }
 
 function tabCostTokens(tab, tabCosts) {
@@ -31,14 +34,14 @@ function tabCostTokens(tab, tabCosts) {
 
 const fmtTokens = (t) => (t >= 1000 ? `${(t / 1000).toFixed(1)}k` : `${t}`);
 
-const DOT = { active: "#FBBF24", done: "#34D399", idle: "#5a5a5a" };
-const LABEL = { active: "working", done: "done", idle: "idle" };
+const DOT = { waiting: "#E0A93C", active: "#FBBF24", done: "#34D399", idle: "#5a5a5a" };
+const LABEL = { waiting: "needs you", active: "working", done: "done", idle: "idle" };
 
 export default function AgentDashboard({ panels, activePanelId, tabActivities, tabCosts, onFocusTab, onReviewDiff, onSummarize }) {
   const [filter, setFilter] = useState("all"); // all | active | done
 
   const rows = [];
-  let total = 0, totalTokens = 0, working = 0;
+  let total = 0, totalTokens = 0, working = 0, waiting = 0;
   for (const panel of panels) {
     for (const tab of panel.tabs) {
       if (tab.home) continue;
@@ -47,11 +50,17 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
       total += cost;
       totalTokens += tokens;
       if (status === "active") working += 1;
+      if (status === "waiting") waiting += 1;
       const isActive = panel.id === activePanelId && panel.activeTabId === tab.id;
       rows.push({ panel, tab, status, cost, tokens, isActive });
     }
   }
-  const shown = filter === "all" ? rows : rows.filter((r) => r.status === filter);
+  // Blocked sessions float to the top of every view: the whole point of a fleet
+  // list is that you should never have to hunt for the one that needs you.
+  // Array.prototype.sort is stable, so everything else keeps its panel/tab order.
+  const shown = (filter === "all" ? rows : rows.filter((r) => r.status === filter))
+    .slice()
+    .sort((a, b) => (b.status === "waiting" ? 1 : 0) - (a.status === "waiting" ? 1 : 0));
 
   const filterBtn = (id, label) => (
     <button
@@ -73,11 +82,15 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
       <div className="phn-snippets-header">
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><SBot size={13} /> Agents</span>
         <span style={{ fontSize: 10, color: "var(--phn-text-dim, #888)", fontWeight: 400 }}>
+          {waiting > 0 && (
+            <span style={{ color: DOT.waiting, fontWeight: 600 }}>{waiting} needs you · </span>
+          )}
           {rows.length} · {working} running
         </span>
       </div>
       <div style={{ display: "flex", gap: 4, padding: "4px 8px" }}>
         {filterBtn("all", `all ${rows.length}`)}
+        {waiting > 0 && filterBtn("waiting", `needs you ${waiting}`)}
         {filterBtn("active", `running ${rows.filter((r) => r.status === "active").length}`)}
         {filterBtn("done", `done ${rows.filter((r) => r.status === "done").length}`)}
       </div>
@@ -96,7 +109,7 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
             >
               <span
                 className="moba-agent-dot"
-                style={{ background: DOT[status], boxShadow: status === "active" ? `0 0 6px ${DOT.active}` : status === "done" ? `0 0 6px ${DOT.done}` : "none" }}
+                style={{ background: DOT[status], boxShadow: DOT[status] && status !== "idle" ? `0 0 6px ${DOT[status]}` : "none" }}
               />
               <span className="moba-agent-icon" style={{ display: "inline-flex", alignItems: "center" }}>{tab.worktree ? <SAgents size={11} /> : tab.connection ? <SLink size={11} /> : tab.serial ? <SSerial size={11} /> : tab.rdp ? <SWindows size={11} /> : tab.vnc ? <SLocal size={11} /> : "❯"}</span>
               <span className="moba-agent-name">{tab.worktree ? tab.worktree.branch : tab.label}</span>

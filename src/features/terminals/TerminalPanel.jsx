@@ -8,6 +8,7 @@ import NotebookView from "./NotebookView";
 import ShareModal from "./ShareModal.jsx";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
 import { isSpecialTab } from "./paneIds.js";
+import { mergeActivity } from "./hooks/useTabTelemetry.js";
 import "./terminals.css";
 
 // Colors come from the active app skin via CSS vars on <html>. Module-level
@@ -74,24 +75,25 @@ function markTabInsert(el, after) {
 }
 
 // Activity for a single tab = the "loudest" of its panes (active > done > idle).
+// Both rollups go through the shared mergeActivity (waiting > active > done >
+// idle) so the tab dot, the panel dot, the project row and the agent dashboard
+// can never disagree about what a session is doing.
 function aggregateTabActivity(tab, tabActivities) {
-  let hasDone = false;
+  let best = "idle";
   for (const id of leafIds(getLayout(tab))) {
-    const s = tabActivities?.[id] || "idle";
-    if (s === "active") return "active";
-    if (s === "done") hasDone = true;
+    best = mergeActivity(best, tabActivities?.[id] || "idle");
+    if (best === "waiting") break;
   }
-  return hasDone ? "done" : "idle";
+  return best;
 }
 
 function aggregatePanelActivity(panel, tabActivities) {
-  let hasDone = false;
+  let best = "idle";
   for (const t of panel.tabs) {
-    const s = aggregateTabActivity(t, tabActivities);
-    if (s === "active") return "active";
-    if (s === "done") hasDone = true;
+    best = mergeActivity(best, aggregateTabActivity(t, tabActivities));
+    if (best === "waiting") break;
   }
-  return hasDone ? "done" : "idle";
+  return best;
 }
 
 // Walk a tab's split tree into a flat list of pane rects (percentages of the

@@ -385,7 +385,9 @@ export default function TerminalPane({
     // the tab is NOT currently visible (you don't need a ding for the tab
     // you're staring at). Respects user gesture requirements: AudioContext
     // is created on demand and resumed if needed.
-    if (prev === "active" && next === "done" && isAway()) {
+    // "waiting" counts as working-in-progress here: a session that was blocked
+    // on a prompt and then reached done still earns the finished cue.
+    if ((prev === "active" || prev === "waiting") && next === "done" && isAway()) {
       const pn = liveProjectName();
       try { playDoneCue(); } catch {}
       notifyOS("Agent finished ✓", pn ? `${pn} is done` : "A session finished");
@@ -462,17 +464,35 @@ export default function TerminalPane({
     const hasYes = /\bYes\b/.test(text);
     const hasEsc = /\(esc\)/i.test(text) || /\[esc\]/i.test(text);
     const hasProceed = /Do you want\b/i.test(text);
-    if (!(hasArrow && hasYes && hasEsc && hasProceed)) return;
+    if (!(hasArrow && hasYes && hasEsc && hasProceed)) {
+      // No prompt in the recent buffer any more: whatever we were blocked on is
+      // resolved (answered here, answered elsewhere, or scrolled out as the
+      // agent resumed), so stop reporting "waiting". This runs on every output
+      // chunk, which is what makes it the natural un-block signal.
+      if (activityRef.current === "waiting") setActivity("active");
+      return;
+    }
+    // A detected prompt means this session is blocked on a human. Record that as
+    // first-class activity BEFORE the away-gate below: an agent is waiting
+    // whether or not you happen to be looking at its tab, and the fleet view in
+    // the Monitor dock is exactly for the ones you are NOT looking at. This is
+    // state only — it authorizes nothing.
+    setActivity("waiting");
+    // A blocked session must not age into "done" on the idle timer — it hasn't
+    // finished, it is stuck on you.
+    clearDoneTimer();
     // Invariant #7 (CLAUDE.md): only act on a permission prompt when the tab is
     // backgrounded/unfocused. A foregrounded tab is being supervised — never
     // auto-confirm there, so the watching user can intervene before a
-    // destructive tool-use runs.
+    // destructive tool-use runs. The gate stays exactly here, guarding the
+    // ACTION; the state above is deliberately outside it.
     if (!isAway()) return;
     if (e.ui ? e.ui.isAutoApprove() : autoApproveRef.current) {
       if (now - lastApproveAtRef.current < AUTO_APPROVE_DEBOUNCE_MS) return;
       lastApproveAtRef.current = now;
       invoke("pty_write", { id: ptyId, data: "1\r" }).catch(() => {});
       e.counters.recentOut = ""; // don't re-match the same prompt
+      setActivity("active"); // answered on your behalf — no longer blocked
     } else if (now - lastNotifyAtRef.current > 15000) {
       // Auto-approve off + you're elsewhere → ping that a session needs you.
       lastNotifyAtRef.current = now;
@@ -1252,7 +1272,16 @@ export default function TerminalPane({
           // Visibility reads go through entry.ui (the current fiber's ref).
           if (entry.ui.isVisible()) return;
           bytesSinceSeenRef.current += payload.length;
-          if (bytesSinceSeenRef.current >= ACTIVITY_BYTE_THRESHOLD && entry.counters.userHasTyped) {
+          // "waiting" outranks "active": the chunk that DRAWS a permission
+          // prompt also trips this byte threshold, and checkAutoApprove above
+          // already ran on it — so without this guard the prompt's own output
+          // would immediately mask the blocked state. checkAutoApprove owns the
+          // way out of waiting (see its no-match branch).
+          if (
+            bytesSinceSeenRef.current >= ACTIVITY_BYTE_THRESHOLD &&
+            entry.counters.userHasTyped &&
+            activityRef.current !== "waiting"
+          ) {
             setActivity("active");
             clearDoneTimer();
             doneTimerRef.current = setTimeout(() => {
@@ -1331,8 +1360,10 @@ export default function TerminalPane({
           entry.counters.userHasTyped = true;
           recordInput(tabId, data); // macro recording (no-op unless armed for this tab)
           // Clear the auto-approve match buffer when the user types — they
-          // intend to answer the prompt themselves.
+          // intend to answer the prompt themselves. That also ends the
+          // "waiting" state: answering IS the thing it was waiting for.
           entry.counters.recentOut = "";
+          if (activityRef.current === "waiting") setActivity("active");
           // MultiExec: when broadcast is on, fan the keystroke out to every
           // visible terminal (this pane included, since it's visible) rather
           // than writing only to our own PTY — so it lands exactly once here.

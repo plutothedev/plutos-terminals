@@ -1,13 +1,35 @@
 // (C)
 // Per-tab telemetry lifted verbatim out of the TerminalsTab god component:
-// transient activity state ({tabId: 'idle'|'active'|'done'}) and Claude /cost
-// tracking ({tabId: {tokens, cost}}), NEITHER persisted (both are meaningless
-// across restarts — PTYs respawn fresh and /cost figures are per-session). It
-// also derives the aggregates the chrome reads: the tab→project auto-approve /
-// name maps, the live total spend, and per-project activity rollups. Inputs: the
-// workspace state + the project list.
+// transient activity state ({tabId: 'idle'|'waiting'|'active'|'done'}) and
+// Claude /cost tracking ({tabId: {tokens, cost}}), NEITHER persisted (both are
+// meaningless across restarts — PTYs respawn fresh and /cost figures are
+// per-session). It also derives the aggregates the chrome reads: the tab→project
+// auto-approve / name maps, the live total spend, and per-project activity
+// rollups. Inputs: the workspace state + the project list.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+// Rollup precedence when several tabs map to one project (or one summary row).
+// "waiting" ranks highest on purpose: among a fleet of agents, the one blocked
+// on a human is the only one whose state is actionable right now — it must
+// never be hidden behind a sibling that happens to be running.
+export const ACTIVITY_RANK = { waiting: 3, active: 2, done: 1, idle: 0 };
+
+export function mergeActivity(a, b) {
+  return (ACTIVITY_RANK[b] ?? 0) > (ACTIVITY_RANK[a] ?? 0) ? b : (a ?? "idle");
+}
+
+// Fleet counts for the Monitor's summary line. Tabs with no recorded state are
+// idle (handleTabActivityChange drops idle entries to keep the map small).
+export function activityCounts(tabs, activities) {
+  const counts = { waiting: 0, active: 0, done: 0, idle: 0 };
+  for (const t of tabs || []) {
+    const st = activities?.[t.id] || "idle";
+    if (counts[st] === undefined) counts.idle += 1;
+    else counts[st] += 1;
+  }
+  return counts;
+}
 
 export function useTabTelemetry({ state, projects }) {
   // Per-tab activity state ({tabId: 'idle'|'active'|'done'}). NOT persisted —
@@ -113,9 +135,7 @@ export function useTabTelemetry({ state, projects }) {
         if (!tab.projectId) continue;
         const ts = tabActivities[tab.id];
         if (!ts || ts === "idle") continue;
-        const cur = result[tab.projectId];
-        if (cur === "active") continue;
-        if (ts === "active" || cur !== "done") result[tab.projectId] = ts;
+        result[tab.projectId] = mergeActivity(result[tab.projectId], ts);
       }
     }
     return result;

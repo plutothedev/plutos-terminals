@@ -1,7 +1,10 @@
 // (C)
 // Right-dock system Monitor — live CPU / MEM / DISK gauges (from the same
-// sysStats poll the status bar uses) plus a list of every open session/tab with
-// its activity state. Read-only; no extra polling of its own.
+// sysStats poll the status bar uses) plus the agent fleet: every open
+// session/tab with its activity state, blocked ones first, under a summary
+// line. Read-only; no extra polling of its own.
+
+import { ACTIVITY_RANK, activityCounts } from "./hooks/useTabTelemetry.js";
 
 function loadColor(p) {
   return p < 60 ? "#6FB85C" : p < 85 ? "#E0A93C" : "#E0574A";
@@ -20,12 +23,22 @@ function Gauge({ label, value, pct }) {
   );
 }
 
-const DOT = { active: "#4FB8E6", done: "#6FB85C", idle: "#586068" };
+// waiting is amber and leads the legend: it is the only state asking something
+// of you. active/done keep their established colours.
+const DOT = { waiting: "#E0A93C", active: "#4FB8E6", done: "#6FB85C", idle: "#586068" };
 
 export default function DockMonitor({ sysStats, panels, activities }) {
   const sessions = [];
   (panels || []).forEach((pan) =>
     (pan.tabs || []).forEach((t) => sessions.push(t))
+  );
+  const counts = activityCounts(sessions, activities);
+  // Blocked sessions sort to the top — in a fleet, hunting for the one that
+  // needs you defeats the point. Sort is stable, so ties keep tab order.
+  const ordered = [...sessions].sort(
+    (a, b) =>
+      (ACTIVITY_RANK[activities?.[b.id] || "idle"] ?? 0) -
+      (ACTIVITY_RANK[activities?.[a.id] || "idle"] ?? 0)
   );
   return (
     <div className="phn-monitor">
@@ -44,19 +57,43 @@ export default function DockMonitor({ sysStats, panels, activities }) {
         <div className="phn-mon-empty">Collecting stats…</div>
       )}
 
-      <div className="phn-mon-sec">Sessions · {sessions.length}</div>
+      <div className="phn-mon-sec">Agents · {sessions.length}</div>
+      {sessions.length > 0 && (
+        <div className="phn-mon-fleet" aria-label="Agent states">
+          {[
+            ["waiting", "needs you"],
+            ["active", "running"],
+            ["done", "finished"],
+          ].map(([state, label]) =>
+            counts[state] > 0 ? (
+              <span key={state} className="phn-mon-fleet-item">
+                <span className="dot" style={{ background: DOT[state] }} />
+                {counts[state]} {label}
+              </span>
+            ) : null
+          )}
+          {counts.waiting + counts.active + counts.done === 0 ? (
+            <span className="phn-mon-fleet-item phn-mon-fleet-quiet">all idle</span>
+          ) : null}
+        </div>
+      )}
       {sessions.length === 0 ? (
         <div className="phn-mon-empty">No open sessions.</div>
       ) : (
-        sessions.map((s) => {
+        ordered.map((s) => {
           const st = activities?.[s.id] || "idle";
           const kind = s.home ? "home" : s.worktree ? "agent" : s.rdp ? "rdp" : s.vnc ? "vnc" : s.connection ? "ssh" : s.serial ? "serial" : "local";
+          const label = st === "waiting" ? "needs you" : st;
           return (
-            <div key={s.id} className="phn-mon-row" title={`${s.label} — ${st}`}>
+            <div
+              key={s.id}
+              className={`phn-mon-row${st === "waiting" ? " is-waiting" : ""}`}
+              title={st === "waiting" ? `${s.label} — waiting for your approval` : `${s.label} — ${st}`}
+            >
               <span className="dot" style={{ background: DOT[st] || DOT.idle }} />
               <span className="nm">{s.label}</span>
               <span className="kind">{kind}</span>
-              <span className="st">{st}</span>
+              <span className="st" style={st === "waiting" ? { color: DOT.waiting } : undefined}>{label}</span>
             </div>
           );
         })
