@@ -11,6 +11,7 @@ import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { openExternal } from "../../appMeta.js";
+import { visibleShares, SHARES_PAGE_SIZE } from "./sharesPage.js";
 
 const DIM = "var(--phn-text-dim, #888)";
 
@@ -18,10 +19,12 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
   const toast = useToast();
   const [confirmRevoke, setConfirmRevoke] = useState(null); // id awaiting revoke confirmation
   const [revoking, setRevoking] = useState(null); // id currently in-flight
+  const [shown, setShown] = useState(SHARES_PAGE_SIZE); // pagination cap (resets on open)
 
-  useEffect(() => { if (open) { setConfirmRevoke(null); setRevoking(null); } }, [open]);
+  useEffect(() => { if (open) { setConfirmRevoke(null); setRevoking(null); setShown(SHARES_PAGE_SIZE); } }, [open]);
 
-  const list = Array.isArray(shareHistory) ? shareHistory : [];
+  // Storage stays append-order; display is newest-first + capped (sharesPage.js).
+  const { rows, remaining } = visibleShares(shareHistory, shown);
 
   const revoke = async (entry) => {
     if (revoking) return;
@@ -56,12 +59,12 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
   return (
     <Modal open={open} title="My shares" onClose={onClose} width={560}>
       <div style={{ maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "var(--phn-sp-2)" }}>
-        {list.length === 0 ? (
+        {rows.length === 0 && remaining === 0 ? (
           <div style={{ color: DIM, fontSize: "var(--phn-fs-sm)", padding: "var(--phn-sp-3) 2px" }}>
             No shares yet. Right-click a command block or a tab to share it.
           </div>
         ) : (
-          list.map((s) => (
+          rows.map((s) => (
             <div key={s.id} style={row}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: "var(--phn-fs-sm)", color: "var(--phn-text-fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -94,6 +97,16 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
               )}
             </div>
           ))
+        )}
+        {remaining > 0 && (
+          <Button
+            variant="subtle"
+            size="sm"
+            onClick={() => setShown((n) => n + SHARES_PAGE_SIZE)}
+            title="Older shares are hidden to keep this list fast"
+          >
+            show {Math.min(SHARES_PAGE_SIZE, remaining)} more ({remaining} older hidden)
+          </Button>
         )}
       </div>
 
