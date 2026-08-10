@@ -25,6 +25,17 @@ export const KEY_ACTIONS = [
   { id: "closeTab",       label: "Close tab",              category: "Tabs",       default: "Ctrl+Shift+W", fn: "closeActiveTab" },
   { id: "reopenTab",      label: "Reopen closed tab",      category: "Tabs",       default: "Ctrl+Shift+Z", fn: "reopenTab" },
   { id: "toggleTheme",    label: "Toggle dark / light",    category: "Appearance", default: "Ctrl+\\",      fn: "toggleTheme" },
+  // Panes (splits within a tab). Defaults dodge the shell: Ctrl+D is EOF, so
+  // splits ride Ctrl+Shift; focus nav rides Ctrl+Alt because plain Alt+↑/↓ is
+  // block jumping (TerminalPane) — on macOS Ctrl+Alt arrives as ⌘⌥ (Cmd folds
+  // into Ctrl), which is Warp's pane-nav default.
+  { id: "splitRight",     label: "Split pane right",       category: "Panes",      default: "Ctrl+Shift+D", fn: "splitActivePane", arg: "row" },
+  { id: "splitDown",      label: "Split pane down",        category: "Panes",      default: "Ctrl+Shift+S", fn: "splitActivePane", arg: "col" },
+  { id: "closePane",      label: "Close pane",             category: "Panes",      default: "Ctrl+Shift+X", fn: "closeActivePane" },
+  { id: "focusPaneLeft",  label: "Focus pane left",        category: "Panes",      default: "Ctrl+Alt+ArrowLeft",  fn: "focusPane", arg: "left" },
+  { id: "focusPaneRight", label: "Focus pane right",       category: "Panes",      default: "Ctrl+Alt+ArrowRight", fn: "focusPane", arg: "right" },
+  { id: "focusPaneUp",    label: "Focus pane up",          category: "Panes",      default: "Ctrl+Alt+ArrowUp",    fn: "focusPane", arg: "up" },
+  { id: "focusPaneDown",  label: "Focus pane down",        category: "Panes",      default: "Ctrl+Alt+ArrowDown",  fn: "focusPane", arg: "down" },
   // Panel switching — 8 numbered slots; arg is the 0-based panel index.
   ...Array.from({ length: 8 }, (_, i) => ({
     id: `panel${i + 1}`,
@@ -36,7 +47,7 @@ export const KEY_ACTIONS = [
   })),
 ];
 
-export const CATEGORY_ORDER = ["General", "Terminal", "AI", "Tabs", "Appearance", "Panels"];
+export const CATEGORY_ORDER = ["General", "Terminal", "AI", "Tabs", "Appearance", "Panes", "Panels"];
 
 const MOD_ORDER = ["Ctrl", "Alt", "Shift", "Meta"];
 const LONE_MODS = ["Control", "Alt", "Shift", "Meta", "Os", "OS", "ContextMenu", "Dead"];

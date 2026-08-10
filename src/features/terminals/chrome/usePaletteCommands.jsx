@@ -31,7 +31,7 @@ export function usePaletteCommands(args) {
   const confirm = useConfirm();
   const {
     // dep-array fields (reactive values + hook useCallbacks)
-    scOf, addTab, addPanel, canAddPanel, splitPane, importSshConfig,
+    scOf, addTab, addPanel, canAddPanel, splitPane, equalizePanes, closePane, importSshConfig,
     activeTabId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
     stopAndSaveRecording, startRecordingActive, persist, state, setActivePanel,
@@ -49,8 +49,14 @@ export function usePaletteCommands(args) {
     { id: "ssh-keys", icon: <SKey size={14} />, label: "SSH keys", hint: "List / generate SSH keypairs; copy a public key to a server", action: () => setSshKeysOpen(true) },
     { id: "macros", icon: <SRecord size={14} />, label: "Keystroke macros", hint: "Record what you type and replay it into the active terminal", action: () => setMacrosOpen(true) },
     { id: "master-pw", icon: <SLock size={14} />, label: "Master password", hint: "Lock the app behind a password on launch", action: () => setMasterPwOpen(true) },
-    { id: "split-right", icon: <SSplitRow size={14} />, label: "Split active pane right", hint: "Side-by-side terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-    { id: "split-down", icon: <SSplitCol size={14} />, label: "Split active pane down", hint: "Stacked terminals in the current tab", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+    { id: "split-right", icon: <SSplitRow size={14} />, label: "Split active pane right", hint: "Side-by-side terminals in the current tab", shortcut: scOf("splitRight"), action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+    { id: "split-down", icon: <SSplitCol size={14} />, label: "Split active pane down", hint: "Stacked terminals in the current tab", shortcut: scOf("splitDown"), action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+    // Split-tab-only commands: hidden on single-pane tabs (close would surprise
+    // by closing the tab; equalize would be a no-op).
+    ...(activeTab?.layout ? [
+      { id: "equalize-splits", icon: <SSplit size={14} />, label: "Equalize splits", hint: "Reset every divider in this tab to 50/50", action: () => equalizePanes(activeTabId) },
+      { id: "close-pane", icon: <SSplit size={14} />, label: "Close active pane", hint: "Close the focused pane; its neighbor takes the space", shortcut: scOf("closePane"), action: () => closePane(activeTabId, activeTab?.activePaneId || activeTabId) },
+    ] : []),
     { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
     { id: "ask", icon: <SAsk size={14} />, label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
     { id: "agent", icon: <SBot size={14} />, label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal", shortcut: scOf("agentMode"), action: () => setAgentOpen(true) },
@@ -126,7 +132,7 @@ export function usePaletteCommands(args) {
       action: () => setActivePanel(p.id),
     })),
   ], [
-    args.scOf, args.addTab, args.addPanel, args.canAddPanel, args.splitPane, args.importSshConfig,
+    args.scOf, args.addTab, args.addPanel, args.canAddPanel, args.splitPane, args.equalizePanes, args.closePane, args.importSshConfig,
     args.activeTabId, args.activeTab, args.activeTabRecording, args.broadcast, args.toggleBroadcast,
     args.ribbon, args.selectRibbon, args.focusFilesDock, args.tunnelsOpen, args.setTunnelsOpen, args.openTunnels,
     args.stopAndSaveRecording, args.startRecordingActive, toast, confirm,

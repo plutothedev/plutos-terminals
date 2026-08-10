@@ -986,3 +986,40 @@
 .phn-mon-fleet-quiet { color: var(--phn-text-faint, #586068); }
 /* A blocked session gets a faint amber wash so it reads before the text does. */
 .phn-mon-row.is-waiting { background: rgba(224, 169, 60, 0.10); border-radius: 3px; }
+
+/* Per-pane hover controls (split right / split down / zoom / close). Hidden
+   until the pane is hovered so the terminal stays chrome-free; kept visible on
+   a zoomed pane so un-zoom is discoverable. pointer-events gates ensure the
+   hidden cluster never eats terminal clicks. */
+.phn-pane-controls {
+  position: absolute; top: 4px; right: 6px; z-index: 5;
+  display: flex; align-items: center; gap: 2px;
+  padding: 2px 3px; border-radius: 6px;
+  background: rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--phn-surface-border, rgba(255, 255, 255, 0.08));
+  opacity: 0; pointer-events: none;
+  transition: opacity 130ms ease;
+}
+.phn-pane:hover > .phn-pane-controls,
+.phn-pane-controls[data-zoomed] { opacity: 1; pointer-events: auto; }
+.phn-pane-ctl {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 18px; border-radius: 4px; cursor: pointer;
+  color: var(--phn-text-dim, #8A909A); font-size: 12px; line-height: 1;
+}
+.phn-pane-ctl:hover { color: var(--phn-accent, #7c9cf5); background: rgba(127, 127, 127, 0.14); }
+.phn-pane-ctl-danger:hover { color: var(--phn-danger, #e08784); }
+
+/* Drag-to-split drop preview: the half of the pane the dragged tab will
+   occupy. Accent-washed, drawn over the terminal but under the drag ghost. */
+.phn-split-drop {
+  position: absolute; z-index: 7; pointer-events: none;
+  background: color-mix(in srgb, var(--phn-accent, #7c9cf5) 22%, transparent);
+  border: 1px solid var(--phn-accent, #7c9cf5);
+  border-radius: 4px;
+  transition: left 90ms ease, top 90ms ease, width 90ms ease, height 90ms ease;
+}
+@supports not (background: color-mix(in srgb, red 20%, transparent)) {
+  .phn-split-drop { background: rgba(124, 156, 245, 0.22); }
+}

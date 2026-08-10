@@ -12,7 +12,7 @@ import { toNotebookName } from "../notebookIo.js";
 import MobaMenuBar from "../MobaMenuBar.jsx";
 
 export default function MenuBar({
-  addTab, addHomeTab, addNotebookTab, addPanel, canAddPanel, splitPane, closeTab,
+  addTab, addHomeTab, addNotebookTab, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
   activeTabId, activeTab, panels, activePanelId,
   importSshConfig, selectRibbon, openTunnels,
   broadcast, toggleBroadcast, ribbon,
@@ -73,8 +73,9 @@ export default function MenuBar({
         { label: "Launch screen (home tab)", action: () => addHomeTab(activePanelId) },
         { label: "New panel", disabled: !canAddPanel, action: () => addPanel() },
         { divider: true },
-        { label: "Split right", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-        { label: "Split down", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+        { label: "Split right", shortcut: "Ctrl+Shift+D", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
+        { label: "Split down", shortcut: "Ctrl+Shift+S", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+        { label: "Equalize splits", disabled: !activeTab?.layout, action: () => activeTabId && equalizePanes(activeTabId) },
         { divider: true },
         { label: "Close tab", shortcut: "Ctrl+Shift+W", action: () => { const p = panels.find((x) => x.id === activePanelId); if (p && p.tabs.length > 1 && p.activeTabId) closeTab(p.id, p.activeTabId); } },
         { label: "New window", action: async () => { try { const id = `${Date.now().toString(36)}`.slice(-6); await invoke("spawn_new_window", { windowId: id }); } catch (e) { toast.error(`New window failed: ${e}`); } } },
@@ -139,7 +140,7 @@ export default function MenuBar({
       ],
     },
   ], [
-    addTab, addHomeTab, newNotebook, openNotebook, addPanel, canAddPanel, splitPane, closeTab,
+    addTab, addHomeTab, newNotebook, openNotebook, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
     activeTabId, activeTab, panels, activePanelId,
     toast, importSshConfig, selectRibbon, openTunnels,
     broadcast, toggleBroadcast, ribbon,

@@ -52,7 +52,8 @@ import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
 import { writeToTab, writeBroadcast, getTabDims, getTabText, getPtyId } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
-import { reconcile } from "./paneRegistry.js";
+import { navigatePane } from "./paneNav.js";
+import { reconcile, getEntry } from "./paneRegistry.js";
 import { allRenderedPaneIds } from "./paneIds.js";
 import { sshAccount } from "./sshAccount.js";
 
@@ -315,7 +316,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     setActivePanel, addPanel, closePanel,
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell, addNotebookTab,
     closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
-    panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
+    panelIdForTab, splitPane, closePane, activatePane, setPaneRatio, equalizePanes, moveTabIntoSplit,
   } = useWorkspaceTree({ state, persist, toast });
 
   // Discard an agent worktree from the diff-review modal. Close EVERY tab bound
@@ -715,6 +716,33 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         if (state.panels[idx]) setActivePanel(state.panels[idx].id);
       },
       togglePromptEditor: () => save((prev) => ({ ...prev, promptEditor: !prev?.promptEditor })),
+      splitActivePane: (dir) => {
+        const panel = state.panels.find((p) => p.id === state.activePanelId);
+        const tab = panel?.tabs.find((t) => t.id === panel.activeTabId);
+        if (!tab || tab.home || tab.notebook) return;
+        splitPane(tab.id, tab.activePaneId || tab.id, dir);
+      },
+      closeActivePane: () => {
+        const panel = state.panels.find((p) => p.id === state.activePanelId);
+        const tab = panel?.tabs.find((t) => t.id === panel.activeTabId);
+        if (!tab || tab.home || tab.notebook) return;
+        // Splits only — a single-pane tab is "close tab" (Ctrl+Shift+W)
+        // territory; aliasing this to tab-close would invite accidents.
+        if (leafIds(getLayout(tab)).length <= 1) return;
+        closePane(tab.id, tab.activePaneId || tab.id);
+      },
+      focusPane: (dir) => {
+        const panel = state.panels.find((p) => p.id === state.activePanelId);
+        const tab = panel?.tabs.find((t) => t.id === panel.activeTabId);
+        if (!tab || tab.home || tab.notebook) return;
+        const target = navigatePane(getLayout(tab), tab.activePaneId || tab.id, dir);
+        if (!target) return;
+        activatePane(tab.id, target);
+        // activatePane only marks workspace state; keyboard nav must move real
+        // keyboard focus too (a click does it natively — arrows can't). The
+        // registry holds the live xterm; defer past this keydown's dispatch.
+        setTimeout(() => { try { getEntry(target)?.term?.focus(); } catch {} }, 0);
+      },
     };
   });
   // Live-combo lookup for command-palette shortcut chips (reflects remaps).
@@ -764,7 +792,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // lives in chrome/usePaletteCommands.jsx: 22 args fields + toast/confirm
   // read from context inside the hook.
   const paletteCommands = usePaletteCommands({
-    scOf, addTab, addPanel, canAddPanel, splitPane, importSshConfig,
+    scOf, addTab, addPanel, canAddPanel, splitPane, equalizePanes, closePane, importSshConfig,
     activeTabId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
     stopAndSaveRecording, startRecordingActive, persist, state, setActivePanel,
@@ -785,6 +813,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         addPanel={addPanel}
         canAddPanel={canAddPanel}
         splitPane={splitPane}
+        equalizePanes={equalizePanes}
         closeTab={closeTab}
         activeTabId={activeTabId}
         activeTab={activeTab}
@@ -953,6 +982,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onClosePane={closePane}
               onActivatePane={activatePane}
               onSetPaneRatio={setPaneRatio}
+              onSplitDropTab={moveTabIntoSplit}
               saveUser={saveUser}
               notify={notify}
             />
