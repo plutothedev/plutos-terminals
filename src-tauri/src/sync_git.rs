@@ -41,18 +41,18 @@ fn callbacks(pat: Option<String>) -> RemoteCallbacks<'static> {
 // The #[tauri::command] fns below are thin wrappers that resolve repo_dir().
 // ---------------------------------------------------------------------------
 
-fn clone_or_open_at(dir: &Path, repo_url: &str, pat: Option<String>) -> Result<(), String> {
-    // Normalize local HEAD to our single sync branch regardless of the remote's
-    // default branch name. An empty remote may hand back HEAD->master (Gitea,
-    // self-hosted, plain `git init --bare`); without this, push_at would commit
-    // to refs/heads/master but push refs/heads/main and silently push nothing.
-    // For a non-empty remote already on main this is a harmless no-op.
-    fn normalize_head(dir: &Path) {
-        if let Ok(repo) = Repository::open(dir) {
-            let _ = repo.set_head(&format!("refs/heads/{BRANCH}"));
-        }
+// Normalize local HEAD to our single sync branch regardless of the remote's
+// default branch name. An empty remote may hand back HEAD->master (Gitea,
+// self-hosted, plain `git init --bare`); without this, push_at would commit
+// to refs/heads/master but push refs/heads/main and silently push nothing.
+// For a non-empty remote already on main this is a harmless no-op.
+fn normalize_head(dir: &Path) {
+    if let Ok(repo) = Repository::open(dir) {
+        let _ = repo.set_head(&format!("refs/heads/{BRANCH}"));
     }
+}
 
+fn clone_or_open_at(dir: &Path, repo_url: &str, pat: Option<String>) -> Result<(), String> {
     if dir.join(".git").exists() {
         Repository::open(dir).map_err(|e| e.to_string())?;
         normalize_head(dir);
@@ -140,6 +140,104 @@ fn push_at(dir: &Path, salt: String, blob: String, pat: Option<String>) -> Resul
     Ok(())
 }
 
+// ── Compaction ("git gc") ───────────────────────────────────────────────────
+// Every push_at writes a commit + tree + blob(s) as loose objects and libgit2
+// never repacks, so an auto-syncing install grows `.git/objects` forever —
+// the item the 2026-08-03 forward-risk review deferred. Compaction is a fresh
+// clone swapped in atomically: the remote is the source of truth and gc runs
+// only right after a successful push, so the local clone carries no state the
+// remote doesn't already have.
+
+/// ~21 pushes' worth (3 loose objects per push). Crossing it triggers one
+/// re-clone, which resets the count to ~0.
+const GC_LOOSE_OBJECT_THRESHOLD: usize = 64;
+
+/// Count of loose objects (files under `.git/objects/<2-hex-chars>/`). Packs
+/// (`objects/pack`) and `objects/info` are excluded by the 2-hex-dir filter.
+fn loose_object_count(dir: &Path) -> usize {
+    let objects = dir.join(".git").join("objects");
+    let Ok(entries) = fs::read_dir(&objects) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.len() == 2 && name.chars().all(|c| c.is_ascii_hexdigit())
+        })
+        .map(|e| fs::read_dir(e.path()).map(|d| d.flatten().count()).unwrap_or(0))
+        .sum()
+}
+
+/// Replace the working clone with a fresh clone of origin. Shallow (depth 1)
+/// is tried first to also bound history size; a transport that rejects shallow
+/// (e.g. libgit2's local transport in tests) falls back to a full clone, which
+/// still packs the remote's objects into packfiles — the loose-object sprawl
+/// is the growth problem either way. DESTRUCTIVE to local-only state (anything
+/// committed but not pushed is discarded) — callers must only run this when
+/// local == remote, i.e. immediately after a successful push.
+///
+/// Swap order keeps the original recoverable at every step: clone to
+/// `<dir>.gc-tmp`, rename dir → `<dir>.gc-old`, rename tmp → dir (restoring
+/// old on failure), then delete old. Nothing here can lose synced state — the
+/// worst failure mode leaves the original clone in place.
+fn gc_at(dir: &Path, pat: Option<String>) -> Result<(), String> {
+    // Scoped so the repo handle is dropped before the dir swap (Windows holds
+    // the odb files open otherwise, which would fail the rename).
+    let url = {
+        let repo = Repository::open(dir).map_err(|e| e.to_string())?;
+        let remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
+        remote
+            .url()
+            .ok_or_else(|| "origin URL is not valid UTF-8".to_string())?
+            .to_string()
+    };
+
+    let parent = dir.parent().ok_or_else(|| "sync repo has no parent dir".to_string())?;
+    let name = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "bad sync repo dir name".to_string())?;
+    let tmp = parent.join(format!("{name}.gc-tmp"));
+    let old = parent.join(format!("{name}.gc-old"));
+    let _ = fs::remove_dir_all(&tmp);
+    let _ = fs::remove_dir_all(&old);
+
+    let clone_into_tmp = |depth: Option<i32>| -> Result<(), git2::Error> {
+        let mut fo = FetchOptions::new();
+        fo.remote_callbacks(callbacks(pat.clone()));
+        if let Some(d) = depth {
+            fo.depth(d);
+        }
+        let mut builder = git2::build::RepoBuilder::new();
+        builder.fetch_options(fo);
+        builder.clone(&url, &tmp).map(|_| ())
+    };
+    if clone_into_tmp(Some(1)).is_err() {
+        let _ = fs::remove_dir_all(&tmp);
+        clone_into_tmp(None).map_err(|e| e.to_string())?;
+    }
+    normalize_head(&tmp);
+
+    fs::rename(dir, &old).map_err(|e| e.to_string())?;
+    if let Err(e) = fs::rename(&tmp, dir) {
+        let _ = fs::rename(&old, dir);
+        let _ = fs::remove_dir_all(&tmp);
+        return Err(e.to_string());
+    }
+    let _ = fs::remove_dir_all(&old);
+    Ok(())
+}
+
+/// Compact iff the loose-object count has reached `threshold`. Returns whether
+/// a compaction ran and succeeded. Failure is deliberately swallowed into
+/// `false`: gc is opportunistic maintenance and must never surface an error to
+/// a sync operation that already succeeded.
+fn maybe_gc_at(dir: &Path, pat: Option<String>, threshold: usize) -> bool {
+    loose_object_count(dir) >= threshold && gc_at(dir, pat).is_ok()
+}
+
 #[tauri::command]
 pub async fn sync_clone_or_open(
     app: tauri::AppHandle,
@@ -164,12 +262,31 @@ pub async fn sync_push(
     blob: String,
     pat: Option<String>,
 ) -> Result<(), String> {
-    push_at(&repo_dir(&app)?, salt, blob, pat)
+    let dir = repo_dir(&app)?;
+    push_at(&dir, salt, blob, pat.clone())?;
+    // Right after a successful push local == remote, the only moment gc_at's
+    // clone-and-swap is guaranteed lossless. Best-effort by design: the push
+    // above already succeeded, so a gc failure must not fail this command.
+    let _ = maybe_gc_at(&dir, pat, GC_LOOSE_OBJECT_THRESHOLD);
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // libgit2 wants `file:///C:/...` for Windows absolute paths (three slashes
+    // before the drive letter) but `file:///var/...` on Unix — naively gluing
+    // `file:///` onto a Unix path yields four slashes, which its local
+    // transport rejects as "not a valid local file URI".
+    fn file_url(path: &std::path::Path) -> String {
+        let p = path.to_string_lossy().replace('\\', "/");
+        if p.starts_with('/') {
+            format!("file://{p}")
+        } else {
+            format!("file:///{p}")
+        }
+    }
 
     fn bare_repo(dir: &std::path::Path) {
         // Default `init_bare` HEAD is `master` (or local init.defaultBranch) — i.e.
@@ -187,8 +304,7 @@ mod tests {
         let work = base.join("clone");
         std::fs::create_dir_all(&bare).unwrap();
         bare_repo(&bare);
-        // libgit2 on Windows wants file:///C:/... (three slashes) for absolute paths.
-        let url = format!("file:///{}", bare.to_string_lossy().replace('\\', "/"));
+        let url = file_url(&bare);
 
         // clone empty, push two files, then re-clone into a SECOND workdir and read them back.
         // No manual HEAD fixup here: clone_or_open_at normalizes local HEAD to `main`,
@@ -208,6 +324,60 @@ mod tests {
         let got = pull_at(&work2, None).unwrap();
         assert_eq!(got.salt.as_deref(), Some("SALT123"));
         assert_eq!(got.blob.as_deref(), Some("{\"iv\":\"a\",\"ct\":\"b\"}"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn gc_compacts_loose_objects_and_preserves_round_trip() {
+        let base = std::env::temp_dir().join(format!("pluto-sync-gc-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let bare = base.join("origin.git");
+        let work = base.join("clone");
+        std::fs::create_dir_all(&bare).unwrap();
+        bare_repo(&bare);
+        let url = file_url(&bare);
+
+        clone_or_open_at(&work, &url, None).unwrap();
+        for i in 0..12 {
+            push_at(
+                &work,
+                "SALT123".into(),
+                format!("{{\"iv\":\"a\",\"ct\":\"{i}\"}}"),
+                None,
+            )
+            .unwrap();
+        }
+        // Every push writes at least commit+tree loose objects; none are packed.
+        let before = loose_object_count(&work);
+        assert!(before >= 12, "expected loose objects to accumulate, got {before}");
+
+        // Below threshold → no-op, nothing touched.
+        assert!(!maybe_gc_at(&work, None, before + 1));
+        assert_eq!(loose_object_count(&work), before);
+
+        // At threshold → compacts (fresh clone receives packfiles, not loose).
+        assert!(maybe_gc_at(&work, None, before));
+        let after = loose_object_count(&work);
+        assert!(after < before, "gc did not shrink loose objects: {before} -> {after}");
+
+        // The swapped-in clone is fully functional: reads the latest state,
+        // pushes on top of it, and a second fresh clone sees the post-gc push.
+        let got = pull_at(&work, None).unwrap();
+        assert_eq!(got.salt.as_deref(), Some("SALT123"));
+        assert_eq!(got.blob.as_deref(), Some("{\"iv\":\"a\",\"ct\":\"11\"}"));
+        push_at(
+            &work,
+            "SALT123".into(),
+            "{\"iv\":\"a\",\"ct\":\"post-gc\"}".into(),
+            None,
+        )
+        .unwrap();
+
+        let work2 = base.join("clone2");
+        clone_or_open_at(&work2, &url, None).unwrap();
+        let got2 = pull_at(&work2, None).unwrap();
+        assert_eq!(got2.blob.as_deref(), Some("{\"iv\":\"a\",\"ct\":\"post-gc\"}"));
 
         let _ = std::fs::remove_dir_all(&base);
     }

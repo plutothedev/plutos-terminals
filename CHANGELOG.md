@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- "My shares" lists newest first and paginates (25 per page + "show more")
+  instead of rendering every share oldest-first in one unbounded list.
+  (Deferred item from the 2026-08-03 forward-risk review.)
+- The cloud-sync repo now compacts itself: once a push leaves ~64 accumulated
+  loose git objects behind, the local clone is swapped for a fresh clone
+  (shallow where the transport supports it) — previously it grew forever,
+  since libgit2 never garbage-collects. Compaction runs only immediately after
+  a successful push (local == remote, so it is lossless) and can never fail
+  the push. (Deferred item from the same review.)
+- sync_git unit tests now pass on macOS/Linux — the test-only `file://` URL
+  helper produced an invalid four-slash URI for Unix absolute paths, so the
+  suite had only ever run green on Windows.
+
 ## v0.6.0 — Agent context, notebooks, saved prompts, gist sharing (2026-08-03)
 
 ### Added
