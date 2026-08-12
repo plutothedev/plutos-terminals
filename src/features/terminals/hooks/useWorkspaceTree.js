@@ -15,7 +15,7 @@ import { clearTabPassword, getTabPassword, setTabPassword } from "../ptyBridge.j
 import { markNotebookNew } from "../NotebookView.jsx";
 import { getWindowStorageKey } from "../storageKeys.js";
 import { freshId } from "../ids.js";
-import { defaultPanel, renumberDefaultLabels } from "../workspaceModel.js";
+import { defaultPanel, renumberDefaultLabels, removeTabsFromWorkspace } from "../workspaceModel.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "../splitTree";
 import { MAX_PANELS } from "../grid";
 
@@ -188,6 +188,23 @@ export function useWorkspaceTree({ state, persist, toast }) {
     });
     persist({ ...st, panels });
   }, [persist, closePanel]);
+
+  // Close several tabs — possibly spanning panels — in ONE persist. Sequential
+  // closeTab() calls in the same tick each read the same stateRef snapshot
+  // (the ref is only reassigned on render), so every persist after the first
+  // resurrects the tabs the previous call removed — with two worktree owners,
+  // only the last one actually closed (multi-owner lost update, found during
+  // B1). The tree math lives in removeTabsFromWorkspace (pure, tested).
+  // Removed tabs are NOT stashed for Ctrl+Shift+T: the only caller is
+  // discardWorktree, whose backing folder is being deleted — a reopened tab
+  // could never cd back into it.
+  const closeTabs = useCallback((pairs) => {
+    const st = stateRef.current;
+    const next = removeTabsFromWorkspace(st, pairs);
+    if (!next) return;
+    next.removedTabIds.forEach(clearTabPassword);
+    persist({ ...st, panels: next.panels, activePanelId: next.activePanelId });
+  }, [persist]);
 
   // Reopen the most recently closed tab (Ctrl+Shift+T) into its original panel if
   // it still exists, else the active panel. A fresh PTY spawns; scrollback replays
@@ -462,7 +479,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
   return {
     setActivePanel, addPanel, closePanel,
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell, addNotebookTab,
-    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
+    closeTab, closeTabs, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
   };
 }

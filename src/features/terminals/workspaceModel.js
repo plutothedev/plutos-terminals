@@ -45,6 +45,51 @@ export function renumberDefaultLabels(tabs) {
   });
 }
 
+// Remove a batch of tabs — possibly spanning panels — from ONE workspace
+// snapshot. Pure core behind useWorkspaceTree's closeTabs: sequential
+// closeTab() calls in the same tick each read the same stateRef snapshot, so
+// every persist after the first resurrects the tabs the previous call removed
+// (multi-owner lost update). Semantics mirror closeTab/closePanel: a panel
+// emptied by the removal closes with its last tab; a wholly-emptied workspace
+// resets to one fresh home panel; surviving panels renumber default labels and
+// re-aim activeTabId at the nearest survivor (old index, clamped — same pick
+// closeTab makes); activePanelId falls back to the first surviving panel.
+// Returns { panels, activePanelId, removedTabIds }, or null if no pair matched
+// (caller skips the persist). Never mutates the input.
+export function removeTabsFromWorkspace(st, pairs) {
+  const byPanel = new Map(); // panelId -> Set(tabId)
+  for (const { panelId, tabId } of pairs || []) {
+    if (!byPanel.has(panelId)) byPanel.set(panelId, new Set());
+    byPanel.get(panelId).add(tabId);
+  }
+  const removedTabIds = [];
+  const kept = [];
+  for (const p of st.panels) {
+    const drop = byPanel.get(p.id);
+    const removedHere = drop ? p.tabs.filter(t => drop.has(t.id)) : [];
+    if (removedHere.length === 0) { kept.push(p); continue; }
+    removedHere.forEach(t => removedTabIds.push(t.id));
+    const tabs = p.tabs.filter(t => !drop.has(t.id));
+    if (tabs.length === 0) continue; // panel closes with its last tab
+    const renumbered = renumberDefaultLabels(tabs);
+    let activeTabId = p.activeTabId;
+    if (drop.has(activeTabId)) {
+      const oldIdx = p.tabs.findIndex(t => t.id === activeTabId);
+      activeTabId = renumbered[Math.min(oldIdx, renumbered.length - 1)].id;
+    }
+    kept.push({ ...p, tabs: renumbered, activeTabId });
+  }
+  if (removedTabIds.length === 0) return null;
+  if (kept.length === 0) {
+    const fresh = defaultPanel();
+    return { panels: [fresh], activePanelId: fresh.id, removedTabIds };
+  }
+  const activePanelId = kept.some(p => p.id === st.activePanelId)
+    ? st.activePanelId
+    : kept[0].id;
+  return { panels: kept, activePanelId, removedTabIds };
+}
+
 // Deep-clone a saved workspace with fresh ids for every panel/tab/pane so a
 // loaded layout is a clean instance (no scrollback-file or React-key collisions
 // with the layout it replaces). Maps old pane ids → new so activePaneId follows.

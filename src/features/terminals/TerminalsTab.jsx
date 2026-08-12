@@ -314,7 +314,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const {
     setActivePanel, addPanel, closePanel,
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell, addNotebookTab,
-    closeTab, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
+    closeTab, closeTabs, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
   } = useWorkspaceTree({ state, persist, toast });
 
@@ -332,7 +332,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         if (t.worktree?.path === wt.path) owners.push({ panelId: p.id, tabId: t.id });
       }
     }
-    for (const o of owners) closeTab(o.panelId, o.tabId);
+    // One batched close: per-owner closeTab calls in the same tick each read
+    // the same state snapshot, so only the last owner actually closed (lost
+    // update) and the survivor's shell kept the folder locked.
+    closeTabs(owners);
     let lastErr = null;
     for (let attempt = 0; attempt < 4; attempt++) {
       await new Promise((r) => setTimeout(r, attempt === 0 ? 400 : 700));
@@ -347,7 +350,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     }
     // Leave the modal open so the user can retry once any running agent exits.
     toast.error(`Couldn't remove the worktree — a process may still be using it. Close any running agent and try again. (${lastErr})`);
-  }, [state.panels, closeTab, toast]);
+  }, [state.panels, closeTabs, toast]);
 
   // ── Project mutations ──────────────────────────────────────────────
   // importSshConfig reveals the imported hosts via selectRibbon, which is
