@@ -227,16 +227,23 @@ fn redact(s: String) -> String {
 
 fn redact_line(line: &str) -> String {
     if let Some(idx) = find_ci_ascii(line, "authorization") {
-        return format!("{}Authorization: [redacted]", &line[..idx]);
+        // The slice BEFORE the header mention gets the same run scan — an
+        // early-return that passed it through verbatim leaked a token echoed
+        // earlier on the same line (review finding on the segmentation fix).
+        return format!("{}Authorization: [redacted]", redact_runs(&line[..idx]));
     }
-    // Segment the line into maximal runs of token-charset characters
-    // [A-Za-z0-9_-] and check each run, passing every separator byte through
-    // unchanged. Space-splitting alone missed credentials glued to punctuation
-    // (a JSON error body echoing "token":"ghp_..." kept the quotes attached, so
-    // the whole word failed the charset check and the raw token sailed through).
-    let mut out = String::with_capacity(line.len());
+    redact_runs(line)
+}
+
+// Segment text into maximal runs of token-charset characters [A-Za-z0-9_-]
+// and check each run, passing every separator byte through unchanged.
+// Space-splitting alone missed credentials glued to punctuation (a JSON error
+// body echoing "token":"ghp_..." kept the quotes attached, so the whole word
+// failed the charset check and the raw token sailed through).
+fn redact_runs(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
     let mut run = String::new();
-    for c in line.chars() {
+    for c in text.chars() {
         if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
             run.push(c);
         } else {
@@ -275,9 +282,10 @@ fn find_ci_ascii(haystack: &str, needle: &str) -> Option<usize> {
 /// Is `word` shaped like a GitHub token or a generic opaque bearer secret?
 fn looks_like_token(word: &str) -> bool {
     let w = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-');
-    if w.len() < 8 {
-        return false;
-    }
+    // A recognized prefix marks a run at ANY length: a stray non-charset byte
+    // inside the token splits the run, and a length floor here let the short
+    // "ghp_XX" fragment through. Over-redacting a bare prefix mention in an
+    // error message is the right trade for a credential scrubber.
     const KNOWN_PREFIXES: [&str; 6] = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"];
     if KNOWN_PREFIXES.iter().any(|p| w.starts_with(p)) {
         return true;
@@ -621,5 +629,27 @@ mod share_tests {
     fn redact_preserves_separators_around_redacted_runs() {
         let out = redact(r#"x="ghp_9f8e7d6c5b4a3210feedfacecafebabe";"#.to_string());
         assert_eq!(out, r#"x="[redacted]";"#);
+    }
+
+    #[test]
+    fn redact_strips_token_before_authorization_mention() {
+        // The header early-return used to pass everything before the matched
+        // "authorization" substring through verbatim — a token echoed EARLIER
+        // on the same line leaked raw.
+        let out = redact(
+            "Bad credentials ghp_9f8e7d6c5b4a3210feedfacecafebabe: check your authorization settings"
+                .to_string(),
+        );
+        assert!(!out.contains("ghp_9f8e7d6c5b4a3210feedfacecafebabe"));
+        assert!(out.contains("Authorization: [redacted]"));
+    }
+
+    #[test]
+    fn redact_strips_short_known_prefix_fragment() {
+        // A non-charset byte inside the token cuts the run short; the known
+        // prefix alone must mark the fragment (no 8-char floor for prefixes).
+        let out = redact("error ghp_9f\u{200b}8e7d6c5b4a3210feedfacecafebabe".to_string());
+        assert!(!out.contains("ghp_9f"));
+        assert!(!out.contains("8e7d6c5b4a3210feedfacecafebabe"));
     }
 }

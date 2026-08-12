@@ -2234,8 +2234,12 @@ mod notebook_io_tests {
             .expect("RESERVED_NAMES literal not found in notebookIo.js — update this parity test's marker");
         let rest = &js[start..];
         let end = rest.find("]);").expect("unterminated RESERVED_NAMES literal in notebookIo.js");
+        // Split on BOTH quote styles — a double-quote-only scan silently
+        // skipped a single-quoted addition ('com0'), reporting parity while
+        // the runtime Set had genuinely drifted (review finding). Balanced
+        // quoting of either style keeps string contents at the odd indices.
         let js_names: std::collections::BTreeSet<&str> =
-            rest[..end].split('"').skip(1).step_by(2).collect();
+            rest[..end].split(['"', '\'']).skip(1).step_by(2).collect();
         let rust_names: std::collections::BTreeSet<&str> = RESERVED_NAMES.iter().copied().collect();
         assert_eq!(
             js_names, rust_names,
