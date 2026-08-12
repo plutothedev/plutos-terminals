@@ -780,10 +780,31 @@ fn expand_env_vars_with_extra(s: &str, extra: &Option<HashMap<String, String>>) 
     result
 }
 
+/// Thin async wrapper (P1-T5): ConPTY CreateProcess takes tens-to-hundreds of
+/// ms on Windows, and the sync command shape ran it ON THE MAIN THREAD — N
+/// restored tabs at boot serialized N process creations through the UI.
+/// Registry insert still happens before Ok(id) returns (inside the sync
+/// core), so no frontend write can race a not-yet-registered session.
+/// Double-spawn safety is unchanged: the frontend's entry-identity orphan
+/// guard kills a spawn whose pane entry was superseded while awaiting.
 #[tauri::command]
-pub fn pty_spawn(
+pub async fn pty_spawn(
     app: AppHandle,
-    state: State<'_, SessionRegistry>,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+    extra_env: Option<HashMap<String, String>>,
+    tab_id: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pty_spawn_sync(app, cwd, cols, rows, extra_env, tab_id)
+    })
+    .await
+    .map_err(|e| format!("spawn task failed: {e}"))?
+}
+
+fn pty_spawn_sync(
+    app: AppHandle,
     cwd: Option<String>,
     cols: u16,
     rows: u16,
@@ -856,7 +877,7 @@ pub fn pty_spawn(
         writer: Arc::new(Mutex::new(writer)),
         ready: ready_tx,
     };
-    state
+    app.state::<SessionRegistry>()
         .sessions
         .lock()
         .map_err(|_| "registry mutex poisoned".to_string())?
