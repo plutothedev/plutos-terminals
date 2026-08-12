@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
+import { modCombo } from "./keybindings.js";
 
 // Local filename→language guess (kept here so Monaco isn't imported eagerly).
 function languageForFile(name = "") {
@@ -108,7 +109,7 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
             cursor: saving || !dirty ? "default" : "pointer", fontFamily: "var(--phn-ui-font)",
           }}
         >
-          {saving ? "Saving…" : dirty ? "Save (⌘S)" : "Saved"}
+          {saving ? "Saving…" : dirty ? `Save (${modCombo("S")})` : "Saved"}
         </button>
       </div>
 

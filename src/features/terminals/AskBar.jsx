@@ -9,6 +9,7 @@ import Modal from "../../components/Modal.jsx";
 import { Button, Input, Textarea } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
+import { modCombo } from "./keybindings.js";
 import { classifyInput } from "./inputClassify.js";
 
 // Strip markdown fences / "$ " prompts the model sometimes adds despite asking
@@ -120,7 +121,7 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
           <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginTop: "var(--phn-sp-3)", justifyContent: "flex-end" }}>
             <Button variant="subtle" onClick={onClose}>cancel</Button>
             <Button variant="ghost" onClick={insert} title="Put it on the prompt without running">insert</Button>
-            <Button variant="primary" onClick={run} title="Run in the active terminal (⌘/Ctrl+Enter)">run ↵</Button>
+            <Button variant="primary" onClick={run} title={`Run in the active terminal (${modCombo("Enter")})`}>run ↵</Button>
           </div>
         </div>
       )}

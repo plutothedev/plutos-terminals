@@ -133,14 +133,32 @@ export function actionForEvent(e) {
   return combo ? _resolved.byCombo.get(combo) || null : null;
 }
 
-// Human display of a combo, e.g. "Ctrl+Shift+T" → "Ctrl Shift T" tokens.
-export function formatCombo(combo) {
+// Is this window on macOS? Combos are STORED canonically as "Ctrl+…" on every
+// platform (Cmd collapses into Ctrl at dispatch), so platform only affects
+// DISPLAY: Windows/Linux spell "Ctrl+K", macOS shows the native glyph run "⌘K".
+export const IS_MAC = /mac/i.test(
+  (typeof navigator !== "undefined" && (navigator.platform || navigator.userAgent)) || ""
+);
+
+const MAC_MOD_GLYPHS = { Ctrl: "⌘", Alt: "⌥", Shift: "⇧", Meta: "⌘" };
+
+// Platform label for the primary modifier + key, for hardcoded UI hints
+// (bottom bar chips, "run now" titles): modCombo("K") → "Ctrl+K" / "⌘K".
+export function modCombo(key, { mac = IS_MAC } = {}) {
+  return mac ? `⌘${key}` : `Ctrl+${key}`;
+}
+
+// Human display of a combo, e.g. "Ctrl+Shift+T" → "Ctrl+Shift+T" on
+// Windows/Linux, "⌘⇧T" on macOS. `mac` is injectable for tests.
+export function formatCombo(combo, { mac = IS_MAC } = {}) {
   if (!combo) return "";
   const c = canon(combo);
   const parts = c.split("+");
   let key = parts.pop();
   if (key === "" && c.endsWith("+")) key = "+";
-  return [...parts, KEY_PRETTY[key] || key].join("+");
+  const pretty = KEY_PRETTY[key] || key;
+  if (mac) return [...parts.map((p) => MAC_MOD_GLYPHS[p] || p), pretty].join("");
+  return [...parts, pretty].join("+");
 }
 
 // ── OS-level summon hotkey ────────────────────────────────────────────────

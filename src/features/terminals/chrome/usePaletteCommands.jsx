@@ -19,6 +19,7 @@ import { invoke } from "@backend";
 import { MAX_PANELS } from "../grid";
 import { defaultState } from "../workspaceModel.js";
 import { getTabText } from "../ptyBridge.js";
+import { modCombo } from "../keybindings.js";
 import {
   SSsh, SSerial, SSplit, SSplitRow, SSplitCol, STunnel, SAsk, SModels, SSnips,
   SMouse, SWindows, SFolder, SLock, SKey, SRocket, SGear, SBot, SDoc, SClock, SLayout, SBroadcast, STarget, SPlug, SPhone, SRecord, SStop, SReset,
@@ -61,7 +62,7 @@ export function usePaletteCommands(args) {
     { id: "ask", icon: <SAsk size={14} />, label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
     { id: "agent", icon: <SBot size={14} />, label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal", shortcut: scOf("agentMode"), action: () => setAgentOpen(true) },
     { id: "summarize", icon: <SDoc size={14} />, label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
-    { id: "history", icon: <SClock size={14} />, label: "Command history search", hint: "Fuzzy search past commands — Enter inserts, ⌘/Ctrl+Enter runs", shortcut: scOf("history"), action: () => setHistoryOpen(true) },
+    { id: "history", icon: <SClock size={14} />, label: "Command history search", hint: `Fuzzy search past commands — Enter inserts, ${modCombo("Enter")} runs`, shortcut: scOf("history"), action: () => setHistoryOpen(true) },
     { id: "workspaces", icon: <SLayout size={14} />, label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
     { id: "models", icon: <SModels size={14} />, label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
     { id: "snippets", icon: <SSnips size={14} />, label: "Workflows panel", hint: "Saved parameterized commands — click to run", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
