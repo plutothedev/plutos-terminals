@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Split panes, the modern way.** Four new surfaces for one mental model:
+  - **Keyboard**: Ctrl+Shift+D splits right, Ctrl+Shift+S splits down,
+    Ctrl+Shift+X closes the focused pane (splits only — never the tab), and
+    Ctrl+Alt+Arrows move focus between panes geometrically (on macOS that's
+    ⌘⌥-arrows, Warp's default). All remappable under Settings → Keybindings →
+    Panes. Focus nav moves real keyboard focus, not just the highlight.
+  - **Hover controls on every pane**: a translucent cluster (split right /
+    split down, plus zoom / close on split tabs) fades in at the pane's
+    top-right corner — no trip to the toolbar, and the action lands on the
+    pane under your cursor instead of the "active" one. Splitting a zoomed
+    pane un-zooms first so you see what you made.
+  - **Drag a tab onto a pane** to split there: edge zones (VS Code-style)
+    show an accent preview of the half the tab will take; drop folds the
+    tab's live terminal into that side — the PTY survives via the pane
+    registry. Center drops keep the classic move-to-panel behavior. Remote
+    (SSH/serial) tabs keep the classic drop only: pane leaves don't carry
+    connection config yet, so a merged remote tab would respawn local after
+    a restart.
+  - **Dividers**: double-click resets a divider to 50/50; "Equalize splits"
+    (palette + Terminal menu) resets every divider in the tab.
+- "My shares" lists newest first and paginates (25 per page + "show more")
+  instead of rendering every share oldest-first in one unbounded list.
+  (Deferred item from the 2026-08-03 forward-risk review.)
+- The cloud-sync repo now compacts itself: once a push leaves ~64 accumulated
+  loose git objects behind, the local clone is swapped for a fresh clone
+  (shallow where the transport supports it) — previously it grew forever,
+  since libgit2 never garbage-collects. Compaction runs only immediately after
+  a successful push (local == remote, so it is lossless) and can never fail
+  the push. (Deferred item from the same review.)
+- sync_git unit tests now pass on macOS/Linux — the test-only `file://` URL
+  helper produced an invalid four-slash URI for Unix absolute paths, so the
+  suite had only ever run green on Windows.
+
 ## v0.6.0 — Agent context, notebooks, saved prompts, gist sharing (2026-08-03)
 
 ### Added

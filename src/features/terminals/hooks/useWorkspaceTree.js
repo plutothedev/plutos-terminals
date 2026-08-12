@@ -16,7 +16,8 @@ import { markNotebookNew } from "../NotebookView.jsx";
 import { getWindowStorageKey } from "../storageKeys.js";
 import { freshId } from "../ids.js";
 import { defaultPanel, renumberDefaultLabels, removeTabsFromWorkspace } from "../workspaceModel.js";
-import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio } from "../splitTree";
+import { isSpecialTab } from "../paneIds.js";
+import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio, equalizeRatios } from "../splitTree";
 import { MAX_PANELS } from "../grid";
 
 export function useWorkspaceTree({ state, persist, toast }) {
@@ -476,10 +477,87 @@ export function useWorkspaceTree({ state, persist, toast }) {
     persist({ ...st, panels });
   }, [persist, panelIdForTab]);
 
+  // Reset every divider in a tab to 50/50 (palette "Equalize splits").
+  const equalizePanes = useCallback((tabId) => {
+    const st = stateRef.current;
+    const panelId = panelIdForTab(tabId);
+    if (!panelId) return;
+    const panels = st.panels.map((p) => {
+      if (p.id !== panelId) return p;
+      return {
+        ...p,
+        tabs: p.tabs.map((t) => (t.id === tabId && t.layout ? { ...t, layout: equalizeRatios(t.layout) } : t)),
+      };
+    });
+    persist({ ...st, panels });
+  }, [persist, panelIdForTab]);
+
+  // Fold a whole tab into another tab's layout as one side of a new split
+  // ("drag a tab onto a pane edge"). The dragged tab's entire pane tree —
+  // usually a single leaf — becomes one child of the split at targetPaneId.
+  // Every pane keeps its id, so the pane registry re-parents the live PTYs;
+  // nothing respawns. `newFirst` puts the incoming panes on the left/top side.
+  //
+  // v1 gate (mirrored in TerminalPanel's canSplitDropTab): plain local tabs
+  // only. Leaves don't carry connection/serial config — a merged remote tab
+  // would keep its live session now but silently respawn as a local shell
+  // after an app restart, so remote tabs keep the move-to-panel drop instead.
+  const moveTabIntoSplit = useCallback((draggedTabId, targetTabId, targetPaneId, dir, newFirst = false) => {
+    const st = stateRef.current;
+    if (draggedTabId === targetTabId) return;
+    const srcPanel = st.panels.find((p) => p.tabs.some((t) => t.id === draggedTabId));
+    const tgtPanel = st.panels.find((p) => p.tabs.some((t) => t.id === targetTabId));
+    if (!srcPanel || !tgtPanel) return;
+    const dragged = srcPanel.tabs.find((t) => t.id === draggedTabId);
+    const target = tgtPanel.tabs.find((t) => t.id === targetTabId);
+    if (!dragged || !target) return;
+    // Terminal tabs only, both sides (home/vnc/rdp/notebook render special
+    // views, not a pane tree). The caller also gates on connection/serial for
+    // the dragged tab; re-checking the structural half here keeps the op safe
+    // for any future caller.
+    if (isSpecialTab(dragged) || isSpecialTab(target)) return;
+    const targetLayout = getLayout(target);
+    const targetIds = new Set(leafIds(targetLayout));
+    if (!targetIds.has(targetPaneId)) return;
+    // A pane id must exist once globally (registry key) — refuse a merge that
+    // would duplicate one. Can't happen through the UI; cheap to keep honest.
+    if (leafIds(getLayout(dragged)).some((id) => targetIds.has(id))) return;
+
+    const nextLayout = splitLeaf(
+      targetLayout, targetPaneId, dir, getLayout(dragged), freshId("split"), newFirst
+    );
+    const focusPaneId = dragged.activePaneId || dragged.id;
+
+    let panels = st.panels.map((p) => {
+      let tabs = p.tabs;
+      let activeTabId = p.activeTabId;
+      if (p.id === srcPanel.id) {
+        tabs = tabs.filter((t) => t.id !== draggedTabId);
+        if (activeTabId === draggedTabId) {
+          const idx = p.tabs.findIndex((t) => t.id === draggedTabId);
+          const nextIdx = Math.min(idx, tabs.length - 1);
+          activeTabId = tabs[nextIdx]?.id || null;
+        }
+      }
+      if (p.id === tgtPanel.id) {
+        tabs = tabs.map((t) =>
+          t.id === targetTabId ? { ...t, layout: nextLayout, activePaneId: focusPaneId } : t
+        );
+        activeTabId = targetTabId;
+      }
+      return tabs === p.tabs && activeTabId === p.activeTabId ? p : { ...p, tabs, activeTabId };
+    });
+    // The source panel may run dry (its only tab was folded away); the target
+    // panel always survives, so panels can never be empty here.
+    panels = panels.filter((p) => p.tabs.length > 0);
+    const activePanelId = panels.find((p) => p.id === tgtPanel.id) ? tgtPanel.id : panels[0].id;
+    persist({ ...st, panels, activePanelId });
+  }, [persist]);
+
   return {
     setActivePanel, addPanel, closePanel,
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell, addNotebookTab,
     closeTab, closeTabs, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
-    panelIdForTab, splitPane, closePane, activatePane, setPaneRatio,
+    panelIdForTab, splitPane, closePane, activatePane, setPaneRatio, equalizePanes, moveTabIntoSplit,
   };
 }

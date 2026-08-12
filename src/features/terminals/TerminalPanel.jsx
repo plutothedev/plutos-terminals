@@ -7,6 +7,8 @@ import MobaHomeScreen from "./MobaHomeScreen";
 import NotebookView from "./NotebookView";
 import ShareModal from "./ShareModal.jsx";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
+import { SSplitRow, SSplitCol } from "./toolbarIcons.jsx";
+import { dropZone, zoneToSplit, zonePreviewRect } from "./splitDropZones.js";
 import { isSpecialTab } from "./paneIds.js";
 import { mergeActivity } from "./hooks/useTabTelemetry.js";
 import "./terminals.css";
@@ -151,6 +153,7 @@ function TerminalPanel({
   onCloseOthers,
   onMoveTab,
   onReorderTab,
+  onSplitDropTab,
   onSplitPane,
   onClosePane,
   onActivatePane,
@@ -229,6 +232,27 @@ function TerminalPanel({
     let ghost = null;
     let lastTargetEl = null;
     let dropIndex = null; // in-strip reorder target, when dragging over our own panel
+    // Pane-edge split targeting (drag a tab onto a pane's edge). Only plain
+    // local terminal tabs may fold into another tab's layout: leaves don't
+    // carry connection/serial config, so a merged remote tab would silently
+    // respawn as a local shell after an app restart (see moveTabIntoSplit).
+    // Ineligible tabs keep the classic move-to-panel drop everywhere.
+    const canSplitDrop = !isSpecialTab(tab) && !tab.connection && !tab.serial;
+    let splitDrop = null; // {targetTabId, targetPaneId, dir, newFirst} while over an edge zone
+    let dropPreviewEl = null;
+    const clearSplitPreview = () => {
+      if (dropPreviewEl) { dropPreviewEl.remove(); dropPreviewEl = null; }
+      splitDrop = null;
+    };
+    const showSplitPreview = (paneEl, zone) => {
+      if (!dropPreviewEl || dropPreviewEl.parentElement !== paneEl) {
+        if (dropPreviewEl) dropPreviewEl.remove();
+        dropPreviewEl = document.createElement("div");
+        dropPreviewEl.className = "phn-split-drop";
+        paneEl.appendChild(dropPreviewEl);
+      }
+      Object.assign(dropPreviewEl.style, zonePreviewRect(zone));
+    };
     const onMove = (ev) => {
       const dx = Math.abs(ev.clientX - startX);
       const dy = Math.abs(ev.clientY - startY);
@@ -239,6 +263,30 @@ function TerminalPanel({
       if (dragging && ghost) {
         ghost.style.transform = `translate(${ev.clientX + 12}px, ${ev.clientY + 12}px)`;
         const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        // Edge zones on a visible pane win over strip/panel targeting; the
+        // center zone falls through to the classic behaviors below.
+        splitDrop = null;
+        const paneEl = canSplitDrop ? el?.closest("[data-pane-id]") : null;
+        if (paneEl && paneEl.dataset.paneTabId && paneEl.dataset.paneTabId !== tab.id) {
+          const zone = dropZone(ev.clientX, ev.clientY, paneEl.getBoundingClientRect());
+          const split = zoneToSplit(zone);
+          if (split) {
+            splitDrop = {
+              targetTabId: paneEl.dataset.paneTabId,
+              targetPaneId: paneEl.dataset.paneId,
+              ...split,
+            };
+            showSplitPreview(paneEl, zone);
+          }
+        }
+        if (!splitDrop && dropPreviewEl) { dropPreviewEl.remove(); dropPreviewEl = null; }
+        if (splitDrop) {
+          clearTabDropHighlights();
+          clearTabInserts();
+          dropIndex = null;
+          lastTargetEl = null;
+          return;
+        }
         const panelEl = el?.closest("[data-panel-id]");
         const tgtPanelId = panelEl?.getAttribute("data-panel-id");
         const isOwn = tgtPanelId === panel.id;
@@ -268,10 +316,14 @@ function TerminalPanel({
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       if (ghost) ghost.remove();
+      const pendingSplit = splitDrop;
+      clearSplitPreview();
       const tgt = lastTargetEl?.getAttribute("data-panel-id");
       clearTabDropHighlights();
       clearTabInserts();
-      if (dragging && tgt && tgt !== panel.id) {
+      if (dragging && pendingSplit) {
+        onSplitDropTab?.(tab.id, pendingSplit.targetTabId, pendingSplit.targetPaneId, pendingSplit.dir, pendingSplit.newFirst);
+      } else if (dragging && tgt && tgt !== panel.id) {
         onMoveTab?.(tab.id, tgt);
       } else if (dragging && dropIndex != null) {
         // Reorder within our strip. Removing the dragged tab shifts indices to its
@@ -559,6 +611,9 @@ function TerminalPanel({
                 return (
                   <div
                     key={`pane-${node.id}`}
+                    className="phn-pane"
+                    data-pane-id={node.id}
+                    data-pane-tab-id={tab.id}
                     onMouseDownCapture={() => { if (multi && !paneActive) onActivatePane?.(tab.id, node.id); }}
                     style={{
                       position: "absolute",
@@ -591,46 +646,49 @@ function TerminalPanel({
                       onCostUpdate={(c) => onTabCostUpdate?.(node.id, c)}
                       saveUser={saveUser}
                     />
-                    {multi && (
-                      <>
-                        <span
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => { e.stopPropagation(); setZoomedPaneId(zoomed ? null : node.id); }}
-                          title={zoomed ? "Restore split (un-zoom)" : "Zoom this pane to fill the tab"}
-                          style={{
-                            position: "absolute", top: 3, right: 24, zIndex: 5,
-                            color: "#888", cursor: "pointer", fontSize: 12, lineHeight: 1,
-                            padding: "0 3px", borderRadius: 2, background: "rgba(0,0,0,0.35)",
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = ACCENT_FALLBACK; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = "#888"; }}
-                        >
-                          {zoomed ? "⤡" : "⤢"}
-                        </span>
-                        <span
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => { e.stopPropagation(); onClosePane?.(tab.id, node.id); }}
-                          title="Close this pane"
-                          style={{
-                            position: "absolute",
-                            top: 3,
-                            right: 5,
-                            zIndex: 5,
-                            color: "#777",
-                            cursor: "pointer",
-                            fontSize: 12,
-                            lineHeight: 1,
-                            padding: "0 3px",
-                            borderRadius: 2,
-                            background: "rgba(0,0,0,0.35)",
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-danger, #e08784)"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = "#777"; }}
-                        >
-                          ×
-                        </span>
-                      </>
-                    )}
+                    {/* Hover control cluster — split anywhere, zoom/close on
+                        split tabs. Hidden until the pane is hovered (kept
+                        visible while zoomed so un-zoom stays discoverable);
+                        mousedown is stopped so a click here never re-activates
+                        or types into the pane underneath. */}
+                    <div className="phn-pane-controls" data-zoomed={zoomed ? "1" : undefined}>
+                      <span
+                        className="phn-pane-ctl"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "row"); }}
+                        title="Split right (Ctrl+Shift+D)"
+                      >
+                        <SSplitRow size={12} />
+                      </span>
+                      <span
+                        className="phn-pane-ctl"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "col"); }}
+                        title="Split down (Ctrl+Shift+S)"
+                      >
+                        <SSplitCol size={12} />
+                      </span>
+                      {multi && (
+                        <>
+                          <span
+                            className="phn-pane-ctl"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.stopPropagation(); setZoomedPaneId(zoomed ? null : node.id); }}
+                            title={zoomed ? "Restore split (un-zoom)" : "Zoom this pane to fill the tab"}
+                          >
+                            {zoomed ? "⤡" : "⤢"}
+                          </span>
+                          <span
+                            className="phn-pane-ctl phn-pane-ctl-danger"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.stopPropagation(); onClosePane?.(tab.id, node.id); }}
+                            title="Close this pane (Ctrl+Shift+X)"
+                          >
+                            ×
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -643,7 +701,8 @@ function TerminalPanel({
                   <div
                     key={`div-${d.splitId}`}
                     onMouseDown={(e) => handleDividerMouseDown(d, tab.id, e)}
-                    title="Drag to resize"
+                    onDoubleClick={(e) => { e.preventDefault(); onSetPaneRatio?.(tab.id, d.splitId, 0.5); }}
+                    title="Drag to resize · double-click for 50/50"
                     style={{
                       position: "absolute",
                       zIndex: 4,
