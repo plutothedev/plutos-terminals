@@ -621,6 +621,36 @@ impl ScrollbackWriter {
 /// pending writes (never silently a partial chunk) and tell the user.
 const SSH_OUTBOUND_MAX_BYTES: usize = 4 * 1024 * 1024;
 
+/// Idle-wait escalation for the SSH reader loop (P1-T7). The fixed 8ms sleep
+/// burned 125 wakeups/s per IDLE session; escalating 8→16→32ms cuts that to
+/// ~31/s while `recv_timeout` on the write channel keeps keystroke latency
+/// BETTER than the old sleep (a write wakes the loop instantly instead of
+/// waiting out the sleep). Serial is excluded: its 100ms port read-timeout IS
+/// its backoff, and serial writes bypass the reader loop entirely.
+struct Backoff {
+    cur: Duration,
+}
+
+impl Backoff {
+    const FLOOR: Duration = Duration::from_millis(8);
+    const CEIL: Duration = Duration::from_millis(32);
+
+    fn new() -> Self {
+        Self { cur: Self::FLOOR }
+    }
+
+    /// The wait to use NOW; escalates for the next consecutive idle round.
+    fn wait(&mut self) -> Duration {
+        let w = self.cur;
+        self.cur = (self.cur * 2).min(Self::CEIL);
+        w
+    }
+
+    fn reset(&mut self) {
+        self.cur = Self::FLOOR;
+    }
+}
+
 /// Decode one streamed byte chunk as UTF-8, carrying any incomplete trailing
 /// multibyte sequence in `pending` for the next call. A naive per-chunk
 /// `from_utf8_lossy` permanently corrupts a multibyte char that straddles a
@@ -1432,6 +1462,8 @@ pub async fn ssh_spawn(
         // and is retried next tick. write_all would instead treat that WouldBlock
         // as fatal and silently drop the tail — truncating large pastes.
         let mut outbound: VecDeque<u8> = VecDeque::new();
+        // Idle-wait escalation (P1-T7); reset on any read OR write activity.
+        let mut backoff = Backoff::new();
         // Incomplete trailing UTF-8 bytes carried across read chunks (see
         // decode_utf8_stream).
         let mut pending: Vec<u8> = Vec::new();
@@ -1506,16 +1538,32 @@ pub async fn ssh_spawn(
             }
             // 3. Read output (non-blocking → WouldBlock when idle). Idle
             //    branches flush the coalescer inline (this loop never relies
-            //    on the global flusher), THEN sleep.
+            //    on the global flusher), then WAIT ON THE WRITE CHANNEL with
+            //    an escalating timeout (P1-T7): a keystroke wakes the loop
+            //    instantly — a plain sleep gated BOTH directions and would
+            //    have added up to 2× the backoff to SSH echo latency. Idle
+            //    CPU drops (8→32ms escalation ≈ 125→31 wakeups/s) AND
+            //    interactive latency improves relative to the fixed sleep.
+            //    Disconnected here = pty_kill/kill_all dropped the senders →
+            //    break into the shared teardown below (flush, remove, close,
+            //    pty-exit), same as EOF.
             match channel.read(&mut buf) {
                 Ok(0) => {
                     if channel.eof() {
                         break;
                     }
                     flush_pending(&app_for_thread, &id_for_thread, &co_entry, false);
-                    thread::sleep(Duration::from_millis(8));
+                    match write_rx.recv_timeout(backoff.wait()) {
+                        Ok(data) => {
+                            outbound.extend(data);
+                            backoff.reset();
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
                 }
                 Ok(n) => {
+                    backoff.reset();
                     let chunk = decode_utf8_stream(&mut pending, &buf[..n]);
                     if chunk.is_empty() {
                         continue;
@@ -1530,7 +1578,14 @@ pub async fn ssh_spawn(
                         break;
                     }
                     flush_pending(&app_for_thread, &id_for_thread, &co_entry, false);
-                    thread::sleep(Duration::from_millis(8));
+                    match write_rx.recv_timeout(backoff.wait()) {
+                        Ok(data) => {
+                            outbound.extend(data);
+                            backoff.reset();
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
                 }
                 Err(_) => break,
             }
@@ -1943,5 +1998,21 @@ mod scrollback_rotation_tests {
         // Appends keep flowing afterwards.
         w.append(b"after\n");
         assert!(fs::read_to_string(&path).unwrap().ends_with("after\n"));
+    }
+}
+
+#[cfg(test)]
+mod backoff_tests {
+    use super::*;
+
+    #[test]
+    fn escalates_to_ceiling_and_resets_on_activity() {
+        let mut b = Backoff::new();
+        assert_eq!(b.wait(), Duration::from_millis(8));
+        assert_eq!(b.wait(), Duration::from_millis(16));
+        assert_eq!(b.wait(), Duration::from_millis(32));
+        assert_eq!(b.wait(), Duration::from_millis(32), "capped at ceiling");
+        b.reset();
+        assert_eq!(b.wait(), Duration::from_millis(8), "activity resets to floor");
     }
 }
