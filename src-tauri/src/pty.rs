@@ -1470,10 +1470,17 @@ pub async fn ssh_spawn(
         loop {
             // 1. Pull queued writes from pty_write into the outbound buffer. A
             //    disconnected sender means the registry entry was dropped
-            //    (pty_kill / kill_all) → tear down.
+            //    (pty_kill / kill_all) → tear down. Writes drained HERE are
+            //    activity too — reset the idle backoff (stream-audit W1: only
+            //    the recv_timeout branches reset, so a write arriving while
+            //    the loop was mid-iteration left the next idle wait at up to
+            //    32ms, the exact class T7 exists to kill).
             loop {
                 match write_rx.try_recv() {
-                    Ok(data) => outbound.extend(data),
+                    Ok(data) => {
+                        outbound.extend(data);
+                        backoff.reset();
+                    }
                     Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
                         let _ = channel.close();
