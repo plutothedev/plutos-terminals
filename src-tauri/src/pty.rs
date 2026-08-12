@@ -377,13 +377,29 @@ pub struct PtySession {
     ready: mpsc::Sender<()>,
 }
 
+impl PtySession {
+    /// Kill + reap by VALUE — callable only on a session already removed from
+    /// the registry, which makes wait-under-lock structurally impossible
+    /// (P1-T4, plan-audit F13): the old Drop-side wait() froze EVERY pane's
+    /// keystrokes whenever a tab closed, because `drop(sessions.remove(&id))`
+    /// waited on the child while holding the registry mutex that pty_write
+    /// and pty_resize also need.
+    fn reap(mut self) {
+        let _ = self.child.kill();
+        // Collect the exit status so the killed child doesn't linger as a
+        // zombie on unix. kill-first means wait() returns promptly.
+        let _ = self.child.wait();
+    }
+}
+
 impl Drop for PtySession {
     fn drop(&mut self) {
+        // Last resort only — reap(self) is the sanctioned teardown. NO wait()
+        // here: a future `sessions.remove(&id);` with an unbound temporary
+        // would otherwise silently reintroduce wait-under-lock and compile
+        // clean. An unreaped-killed child on such a path dies with the
+        // process (and is a non-concept on Windows).
         let _ = self.child.kill();
-        // Reap the killed child so it doesn't linger as a zombie on unix
-        // (kill() alone leaves the exit status uncollected). kill-first means
-        // wait() returns promptly instead of blocking on a live process.
-        let _ = self.child.wait();
     }
 }
 
@@ -920,13 +936,17 @@ pub fn pty_spawn(
         // The shell exited on its own (EOF/read error): reap the registry entry
         // here rather than waiting on a pty_kill the frontend might never send,
         // otherwise the Session (and its zombie child) leaks until app exit.
-        // Dropping the removed PtySession kills + waits the child (Drop impl).
-        if let Ok(mut sessions) = app_for_thread
+        // Remove under the lock, REAP AFTER the guard is gone (P1-T4) — the
+        // old `drop(sessions.remove(..))` waited on the child while holding
+        // the registry mutex, stalling every other pane's keystrokes.
+        let removed = app_for_thread
             .state::<SessionRegistry>()
             .sessions
             .lock()
-        {
-            drop(sessions.remove(&id_for_thread));
+            .ok()
+            .and_then(|mut sessions| sessions.remove(&id_for_thread));
+        if let Some(Session::Local(s)) = removed {
+            s.reap(); // reader thread, no locks held — free to block
         }
         let _ = app_for_thread.emit(&format!("pty-exit://{}", id_for_thread), ());
     });
@@ -1042,24 +1062,28 @@ pub fn pty_resize_sync(
 }
 
 #[tauri::command]
-pub fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(), String> {
-    let mut sessions = state
-        .sessions
-        .lock()
-        .map_err(|_| "registry mutex poisoned".to_string())?;
-    // Removing the entry drops it: Local → PtySession::drop kills the child;
-    // Ssh → SshHandle's senders drop, the reader thread sees the disconnect
-    // and closes the channel + TCP connection; Serial → flip `alive` so its
-    // reader thread exits on the next read-timeout tick.
-    match sessions.remove(&id) {
-        Some(Session::Local(mut s)) => {
-            let _ = s.child.kill();
-            // Reap so the dead child doesn't linger as a zombie on unix.
-            let _ = s.child.wait();
+pub async fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(), String> {
+    // Remove under a SHORT lock; all blocking teardown happens on an owned
+    // value with the guard long gone (P1-T4 — the old shape waited on the
+    // child inside the registry mutex, freezing every pane's keystrokes for
+    // the duration of a process exit).
+    let removed = {
+        let mut sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "registry mutex poisoned".to_string())?;
+        sessions.remove(&id)
+    };
+    match removed {
+        Some(Session::Local(s)) => {
+            // ConPTY kill+wait can block; keep it off the async runtime too.
+            let _ = tauri::async_runtime::spawn_blocking(move || s.reap()).await;
         }
         Some(Session::Serial(h)) => {
             h.alive.store(false, Ordering::Relaxed);
         }
+        // Ssh: dropping the handle's senders signals its reader thread, which
+        // closes the channel + TCP connection on its own.
         Some(Session::Ssh(_)) | None => {}
     }
     Ok(())
@@ -1620,22 +1644,45 @@ pub fn kill_all(registry: &SessionRegistry) {
     // these global locks is recovered like everywhere else (re-review W4).
     lock_recover(&registry.coalescers).clear();
     lock_recover(&registry.dirty.set).clear();
-    if let Ok(mut sessions) = registry.sessions.lock() {
-        for (_id, session) in sessions.drain() {
-            // Local: kill the child. Ssh: dropping the handle's senders signals
-            // its reader thread to close the channel + connection. Serial: flip
-            // `alive` so its reader thread exits.
-            match session {
-                Session::Local(mut s) => {
-                    let _ = s.child.kill();
-                    // Reap after kill — no zombies left behind at app exit.
-                    let _ = s.child.wait();
-                }
-                Session::Serial(h) => {
-                    h.alive.store(false, Ordering::Relaxed);
-                }
-                Session::Ssh(_) => {}
+    // Drain under ONE short lock (recovered on poison — leaving children
+    // alive at exit is strictly worse than touching a poisoned map), then do
+    // every kill+reap on owned values outside it (P1-T4: 10 live panes used
+    // to serialize 10 child-process waits on the main thread here).
+    let drained: Vec<Session> = {
+        let mut sessions = lock_recover(&registry.sessions);
+        sessions.drain().map(|(_, s)| s).collect()
+    };
+    let (tx, rx) = mpsc::channel::<()>();
+    let mut reap_count = 0usize;
+    for session in drained {
+        match session {
+            Session::Local(s) => {
+                // Parallel reap threads; kill fires immediately in each.
+                reap_count += 1;
+                let tx = tx.clone();
+                thread::spawn(move || {
+                    s.reap();
+                    let _ = tx.send(());
+                });
             }
+            Session::Serial(h) => {
+                h.alive.store(false, Ordering::Relaxed);
+            }
+            // Ssh: dropping the handle's senders signals its reader thread to
+            // close the channel + connection.
+            Session::Ssh(_) => {}
+        }
+    }
+    drop(tx);
+    // Bounded exit: std threads have no join-timeout, so collect completions
+    // via channel with a 2s TOTAL deadline (plan T4). Kills were already
+    // issued; a straggler's conhost/ConPTY dies when our handles close at
+    // process exit — an unreaped-killed child is acceptable at shutdown.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    for _ in 0..reap_count {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() || rx.recv_timeout(left).is_err() {
+            break;
         }
     }
 }
