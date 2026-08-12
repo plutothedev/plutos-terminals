@@ -2220,6 +2220,30 @@ mod notebook_io_tests {
     }
 
     #[test]
+    fn reserved_names_match_js_mirror() {
+        // notebookIo.js keeps a hand-copied RESERVED_NAMES set for its
+        // client-side pre-check ("mirrors RESERVED_NAMES in commands.rs").
+        // Nothing enforced that mirror until now — a name added on one side
+        // only would let the JS gate accept what Rust rejects (or vice
+        // versa). Parse the JS literal out of the source at compile time and
+        // pin set equality. If the literal's shape changes, the expect()s
+        // fail loudly — update the marker, don't delete the test.
+        let js = include_str!("../../src/features/terminals/notebookIo.js");
+        let start = js
+            .find("const RESERVED_NAMES = new Set([")
+            .expect("RESERVED_NAMES literal not found in notebookIo.js — update this parity test's marker");
+        let rest = &js[start..];
+        let end = rest.find("]);").expect("unterminated RESERVED_NAMES literal in notebookIo.js");
+        let js_names: std::collections::BTreeSet<&str> =
+            rest[..end].split('"').skip(1).step_by(2).collect();
+        let rust_names: std::collections::BTreeSet<&str> = RESERVED_NAMES.iter().copied().collect();
+        assert_eq!(
+            js_names, rust_names,
+            "notebookIo.js RESERVED_NAMES drifted from commands.rs RESERVED_NAMES"
+        );
+    }
+
+    #[test]
     fn reaudit_edge_set_rejected() {
         // Pinned by the plan's five audit rounds: each of these has a stem
         // that is empty/dots/whitespace once the trailing 3 bytes are sliced

@@ -32,6 +32,8 @@ const DISALLOWED_RUN = /[^A-Za-z0-9_-]+/g;
 
 // Reserved Windows device names (win32-primary app) — mirrors RESERVED_NAMES in
 // commands.rs. Compared case-insensitively against the sanitized stem.
+// Parity is pinned by reserved_names_match_js_mirror (cargo test parses this
+// literal out of the source) — edit both lists together or that test fails.
 const RESERVED_NAMES = new Set([
   "con", "prn", "aux", "nul",
   "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
