@@ -788,6 +788,13 @@ fn align_forward(buf: Vec<u8>, cut_mid_file: bool) -> Vec<u8> {
 /// time within ~15s — exactly rotation's shape). False positive only on the
 /// in-place-truncate fallback (same file, length shrinks), where skipping
 /// old is the safe direction anyway.
+///
+/// Known accepted residual (re-review, empirically bounded): a false
+/// negative needs the fresh segment to flood PAST the held handle's length
+/// (~a full segment's worth) inside the open-to-open syscall gap — roughly a
+/// second of continuous back-to-back flood while the loader thread is
+/// starved between two adjacent calls; an order harder than the duplication
+/// bug this closes, and a miss degrades to exactly that pre-fix symptom.
 fn rotation_raced(held: &fs::File, path: &std::path::Path) -> bool {
     let held_len = held.metadata().ok().map(|m| m.len());
     let path_len = fs::metadata(path).ok().map(|m| m.len());
@@ -845,9 +852,13 @@ fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize)
         let off = cur_len.saturating_sub(cap);
         if f.seek(SeekFrom::Start(off as u64)).is_ok() {
             let mut buf = Vec::new();
-            // Bounded for the same reason: the current segment is the one
-            // actively growing under a flood.
-            if f.by_ref().take(cap as u64).read_to_end(&mut buf).is_ok() {
+            // Bounded for the same reason (the current segment is the one
+            // actively growing under a flood) — and to the REMAINING budget,
+            // not the full cap, so old-part + current-part jointly honor the
+            // advertised 256KB ceiling (re-review: uncoupled takes allowed a
+            // hard 2×cap worst case).
+            let remaining = cap.saturating_sub(parts.first().map_or(0, |p| p.len()));
+            if f.by_ref().take(remaining as u64).read_to_end(&mut buf).is_ok() {
                 parts.push(align_forward(buf, off > 0));
             }
         }
@@ -2725,22 +2736,16 @@ mod scrollback_race_tests {
     }
 
     #[test]
-    fn raced_stitch_never_duplicates() {
-        // Full-path version of the batch-review W1 reproduction: current is
-        // opened, rotation lands, old now aliases the held segment. The
-        // stitch must return content ONCE (via whichever handle), never
-        // twice. We simulate by pre-arranging the post-race disk state and
-        // verifying scrollback_tail's guard path on it: old exists AND the
-        // current path holds a file SHORTER than old (the fresh segment) —
-        // the guard can't fire here (handles open fresh, no race in-flight),
-        // so this pins the NORMAL post-rotation read; the in-flight race
-        // itself is pinned by rotation_replacing_the_path_is_detected above.
+    fn post_rotation_stitch_is_correct_when_not_racing() {
+        // Static post-rotation disk state (no race in flight — the guard
+        // stays quiet by design here; the in-flight race discriminator is
+        // pinned by rotation_replacing_the_path_is_detected above). Pins that
+        // the guard's presence doesn't disturb the normal stitch.
         let cur = tmp("stitch-sane");
         let old = cur.with_extension("old.txt");
         fs::write(&old, "older-half\n").unwrap();
         fs::write(&cur, "newer\n").unwrap();
         let out = scrollback_tail(&cur, &old, 1024).unwrap();
         assert_eq!(out, "older-half\nnewer\n");
-        assert_eq!(out.matches("older-half").count(), 1, "no duplication");
     }
 }
