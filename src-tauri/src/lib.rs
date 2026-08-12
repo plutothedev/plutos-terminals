@@ -5,6 +5,7 @@
 // in the background. Only an explicit "Quit" from the tray menu fires
 // RunEvent::ExitRequested → kill_all() so no shell children orphan.
 
+mod coalesce;
 mod commands;
 mod companion;
 mod forward;
@@ -119,6 +120,10 @@ pub fn run() {
             // Ensure the data directory exists for store + scrollback.
             let data_dir = commands::get_data_dir(app.handle());
             std::fs::create_dir_all(&data_dir).ok();
+            // Global PTY output flusher (P1-T1): age-flushes coalesced output
+            // for local PTY sessions; parked on a condvar while nothing is
+            // pending. Detached; dies with the process.
+            pty::start_flusher(app.handle().clone());
             // Scrollback GC runs from the frontend on boot (scrollback_sweep),
             // which passes the keep-set of open tab ids — the backend can't know
             // which tabs are live here in setup().

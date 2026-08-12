@@ -1342,9 +1342,11 @@ export default function TerminalPane({
               concealRef.current = null;
               const rest = c.buf.slice(idx + BOOT_MARKER.length);
               if (rest) handleChunk(rest);
-            } else if (c.buf.length > 65536) {
+            } else if (c.buf.length > 131072) {
               // Something is flooding output before setup finished (not the
-              // scenario this gate is for) — stop hiding it.
+              // scenario this gate is for) — stop hiding it. 128KB, not 64KB:
+              // backend coalescing (P1-T1) can legally deliver one ~64KB
+              // chunk, which must not single-handedly trip the escape hatch.
               flushConceal();
             }
             return;

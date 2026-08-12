@@ -17,20 +17,21 @@
 // thread, so every chunk that hits xterm.js is on disk by the time control
 // returns. Tail-truncation keeps the file bounded.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::coalesce::Coalescer;
 use crate::commands::scrollback_path;
 use crate::session::new_id;
 
@@ -48,6 +49,232 @@ use crate::session::new_id;
 // disk.
 const SCROLLBACK_FILE_MAX_BYTES: u64 = 10_000_000;
 const SCROLLBACK_FILE_KEEP_BYTES: usize = 5_000_000;
+
+// ── Output coalescing (P1-T1, plan 2026-08-12-P1-pty-hot-path.md) ───────────
+//
+// One emit per 4KB read melted the main thread under floods (2-5k
+// JSON+eval round-trips/sec/pane) and could silently DROP output past
+// Windows' 10k posted-message cap. Every decoded chunk now flows through a
+// per-session Coalescer; emits happen at most every ~8ms or 64KB.
+//
+// Lock-order invariants (binding, from the audited plan):
+//   1. Extraction AND emit are atomic under the session's single coalescer
+//      mutex — channel order == extraction order. No separate emit mutex.
+//   2. The flusher takes the coalescer map only to snapshot Arc clones,
+//      releases it, then locks each coalescer. Never emit under a map lock.
+//   3. The dirty-set condvar mutex is a leaf: taken only after every other
+//      lock is released.
+const COALESCE_MAX_BYTES: usize = 64 * 1024;
+const COALESCE_MAX_AGE: Duration = Duration::from_millis(8);
+/// Consecutive emit failures before a best-effort backlog marker line (which
+/// rides the same possibly-saturated queue — acceptable).
+const EMIT_FAIL_MARKER_AFTER: u32 = 50;
+
+pub struct CoEntry {
+    co: Mutex<Coalescer>,
+    fails: AtomicU32,
+}
+
+impl CoEntry {
+    fn fresh() -> Arc<Self> {
+        Arc::new(Self {
+            co: Mutex::new(Coalescer::new(
+                COALESCE_MAX_BYTES,
+                COALESCE_MAX_AGE,
+                Instant::now(),
+            )),
+            fails: AtomicU32::new(0),
+        })
+    }
+}
+
+/// Lost-wakeup-proof flush signal: the dirty set is mutated ONLY under the
+/// condvar's own mutex, and the flusher re-checks it under that mutex before
+/// every wait. A 250ms parked heartbeat additionally does a full coalescer
+/// scan, so even a predicate-drift bug can only delay a flush, never stall it.
+#[derive(Default)]
+pub struct DirtySignal {
+    set: Mutex<HashSet<String>>,
+    cv: Condvar,
+}
+
+impl DirtySignal {
+    fn mark(&self, id: &str) {
+        if let Ok(mut set) = self.set.lock() {
+            set.insert(id.to_string());
+            self.cv.notify_one();
+        }
+    }
+    fn clear(&self, id: &str) {
+        if let Ok(mut set) = self.set.lock() {
+            set.remove(id);
+        }
+    }
+}
+
+/// Emit `out` for `id` while HOLDING its coalescer lock (invariant 1). On
+/// failure — synchronously reportable on Windows when the message queue is
+/// full — the payload is retained at the FRONT of pending for the next flush;
+/// order holds because nothing can append while the caller owns the lock.
+fn emit_under_lock(
+    app: &AppHandle,
+    id: &str,
+    entry: &CoEntry,
+    co: &mut Coalescer,
+    out: String,
+    now: Instant,
+) -> bool {
+    match app.emit(&format!("pty://{id}"), out.as_str()) {
+        Ok(()) => {
+            entry.fails.store(0, Ordering::Relaxed);
+            true
+        }
+        Err(_) => {
+            let n = entry.fails.fetch_add(1, Ordering::Relaxed) + 1;
+            co.retain_front(out, now);
+            if n == EMIT_FAIL_MARKER_AFTER {
+                let _ = app.emit(
+                    &format!("pty://{id}"),
+                    "\r\n\x1b[1;31m[Pluto's Terminals] output delivery backlogged — retrying.\x1b[0m\r\n",
+                );
+            }
+            false
+        }
+    }
+}
+
+/// Reader-side chunk path. Local PTYs age-flush via the global flusher, so an
+/// empty→nonempty transition marks the session dirty (condvar mutex taken only
+/// AFTER the coalescer lock is released — invariant 3); SSH/serial loops flush
+/// inline on their own idle branches and never touch the dirty set.
+fn coalesce_chunk(app: &AppHandle, id: &str, entry: &Arc<CoEntry>, chunk: &str, use_ticker: bool) {
+    let now = Instant::now();
+    let mut became_pending = false;
+    {
+        let Ok(mut co) = entry.co.lock() else { return };
+        let was_pending = co.has_pending();
+        if let Some(out) = co.push(chunk, now) {
+            let _ = emit_under_lock(app, id, entry, &mut co, out, now);
+        } else if use_ticker && !was_pending && co.has_pending() {
+            became_pending = true;
+        }
+    }
+    if became_pending {
+        app.state::<SessionRegistry>().dirty.mark(id);
+    }
+}
+
+/// Drain everything pending and emit it. `exit` = this is a teardown path:
+/// retry a failed emit once, then drop the tail (the session is going away).
+/// Non-exit callers (idle flushes) leave a failed emit retained for retry.
+fn flush_pending(app: &AppHandle, id: &str, entry: &Arc<CoEntry>, exit: bool) {
+    let now = Instant::now();
+    let Ok(mut co) = entry.co.lock() else { return };
+    if let Some(out) = co.take(now) {
+        if !emit_under_lock(app, id, entry, &mut co, out, now) && exit {
+            if let Some(out2) = co.take(now) {
+                if !emit_under_lock(app, id, entry, &mut co, out2, now) {
+                    let _ = co.take(now); // second failure on a dying session: drop
+                }
+            }
+        }
+    }
+}
+
+/// Register a session's coalescer; the reader thread keeps the returned Arc.
+fn coalescer_insert(registry: &SessionRegistry, id: &str) -> Arc<CoEntry> {
+    let entry = CoEntry::fresh();
+    if let Ok(mut map) = registry.coalescers.lock() {
+        map.insert(id.to_string(), entry.clone());
+    }
+    entry
+}
+
+/// Reader-exit cleanup: drop the coalescer map entry and any dirty flag.
+fn coalescer_remove(app: &AppHandle, id: &str) {
+    let registry = app.state::<SessionRegistry>();
+    if let Ok(mut map) = registry.coalescers.lock() {
+        map.remove(id);
+    }
+    registry.dirty.clear(id);
+}
+
+/// Global age-flusher for local PTY coalescers. Parks on the dirty-set condvar
+/// (predicate owned by the condvar mutex; 250ms heartbeat full-scan backstop);
+/// while sessions are pending it ticks at ~COALESCE_MAX_AGE cadence, snapshots
+/// each session's Arc from the map (released before any lock/emit — invariant
+/// 2), and age-flushes under the per-session lock. Sessions pruned from the
+/// map (killed) simply drop out of the pass. Detached; dies with the process.
+pub fn start_flusher(app: AppHandle) {
+    thread::spawn(move || loop {
+        let registry = app.state::<SessionRegistry>();
+        let mut ids: Vec<String> = Vec::new();
+        {
+            let Ok(mut set) = registry.dirty.set.lock() else { return };
+            while set.is_empty() {
+                let Ok((s, timeout)) = registry
+                    .dirty
+                    .cv
+                    .wait_timeout(set, Duration::from_millis(250))
+                else {
+                    return;
+                };
+                set = s;
+                if timeout.timed_out() {
+                    // Heartbeat: full scan OUTSIDE the condvar mutex (leaf
+                    // discipline both directions), then re-acquire.
+                    drop(set);
+                    let scan: Vec<String> = registry
+                        .coalescers
+                        .lock()
+                        .map(|m| {
+                            m.iter()
+                                .filter(|(_, e)| {
+                                    e.co.lock().map(|c| c.has_pending()).unwrap_or(false)
+                                })
+                                .map(|(k, _)| k.clone())
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    set = match registry.dirty.set.lock() {
+                        Ok(s) => s,
+                        Err(_) => return,
+                    };
+                    for id in scan {
+                        set.insert(id);
+                    }
+                }
+            }
+            ids.extend(set.drain());
+        }
+        // Let the youngest pending bytes approach max_age, then age-flush.
+        thread::sleep(COALESCE_MAX_AGE);
+        let now = Instant::now();
+        let mut still_pending: Vec<String> = Vec::new();
+        for id in ids {
+            let entry = registry
+                .coalescers
+                .lock()
+                .ok()
+                .and_then(|m| m.get(&id).cloned());
+            let Some(entry) = entry else { continue }; // killed: pruned
+            let Ok(mut co) = entry.co.lock() else { continue };
+            if let Some(out) = co.tick(now) {
+                let _ = emit_under_lock(&app, &id, &entry, &mut co, out, now);
+            }
+            if co.has_pending() {
+                still_pending.push(id.clone());
+            }
+        }
+        if !still_pending.is_empty() {
+            if let Ok(mut set) = registry.dirty.set.lock() {
+                for id in still_pending {
+                    set.insert(id);
+                }
+            }
+        }
+    });
+}
 
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
@@ -123,6 +350,10 @@ pub enum Session {
 #[derive(Default)]
 pub struct SessionRegistry {
     sessions: Mutex<HashMap<String, Session>>,
+    /// Per-session output coalescers (P1-T1). Separate map so the hot flush
+    /// path never contends with the session map that guards writes/kills.
+    coalescers: Mutex<HashMap<String, Arc<CoEntry>>>,
+    dirty: DirtySignal,
 }
 
 /// On-disk scrollback writer owned by a single PTY reader thread.
@@ -512,11 +743,12 @@ pub fn pty_spawn(
     // String::from_utf8_lossy on read — but if the file has invalid UTF-8
     // and the read implementation is strict, we'd lose the whole file.
     // Writing the lossy bytes guarantees the file is valid UTF-8.
+    let co_entry = coalescer_insert(&app.state::<SessionRegistry>(), &id);
     let id_for_thread = id.clone();
     let app_for_thread = app.clone();
     thread::spawn(move || {
         let mut reader = reader;
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 65536];
         // Wait for the frontend's `pty://{id}` listener (signaled via pty_ready)
         // before the first emit, so a fast shell's initial prompt can't race
         // ahead of the subscription. Output stays buffered in the OS pipe until
@@ -526,7 +758,7 @@ pub fn pty_spawn(
         // still streams to a live listener — it just costs this latency.
         let _ = ready_rx.recv_timeout(Duration::from_secs(2));
         // Incomplete trailing UTF-8 bytes carried across read chunks (see
-        // decode_utf8_stream) so a multibyte char straddling a 4KB boundary
+        // decode_utf8_stream) so a multibyte char straddling a read boundary
         // isn't corrupted to U+FFFD in the emit + scrollback file.
         let mut pending: Vec<u8> = Vec::new();
         loop {
@@ -539,11 +771,12 @@ pub fn pty_spawn(
                     }
                     // Persist the same UTF-8 bytes xterm receives, so a hard
                     // process death between emit and disk-flush still
-                    // preserves what we just rendered. Best-effort.
+                    // preserves what we just rendered. Best-effort. Disk gets
+                    // every chunk immediately; only the EMIT is coalesced.
                     if let Some(w) = scrollback_writer.as_mut() {
                         w.append(chunk.as_bytes());
                     }
-                    let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), chunk);
+                    coalesce_chunk(&app_for_thread, &id_for_thread, &co_entry, &chunk, true);
                 }
                 Err(_) => break,
             }
@@ -555,8 +788,12 @@ pub fn pty_spawn(
             if let Some(w) = scrollback_writer.as_mut() {
                 w.append(tail.as_bytes());
             }
-            let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), tail);
+            coalesce_chunk(&app_for_thread, &id_for_thread, &co_entry, &tail, true);
         }
+        // Drain the coalescer BEFORE pty-exit so the tail can never arrive
+        // after the exit event (invariant 1 makes exit strictly last).
+        flush_pending(&app_for_thread, &id_for_thread, &co_entry, true);
+        coalescer_remove(&app_for_thread, &id_for_thread);
         // The shell exited on its own (EOF/read error): reap the registry entry
         // here rather than waiting on a pty_kill the frontend might never send,
         // otherwise the Session (and its zombie child) leaks until app exit.
@@ -998,6 +1235,7 @@ pub async fn ssh_spawn(
         .as_ref()
         .map(|tid| ScrollbackWriter::new(scrollback_path(&app, tid)));
 
+    let co_entry = coalescer_insert(&app.state::<SessionRegistry>(), &id);
     let id_for_thread = id.clone();
     let app_for_thread = app.clone();
     thread::spawn(move || {
@@ -1005,7 +1243,7 @@ pub async fn ssh_spawn(
         // alive for the channel's lifetime.
         let _sess = sess;
         let mut channel = channel;
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 65536];
         // Wait until the frontend signals (via `pty_ready`) that its
         // `pty://{id}` listener is attached before emitting the server's initial
         // MOTD/prompt burst. SSH servers push that the instant the shell opens;
@@ -1039,6 +1277,9 @@ pub async fn ssh_spawn(
                     Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
                         let _ = channel.close();
+                        // Tail before exit — the exit event must be last.
+                        flush_pending(&app_for_thread, &id_for_thread, &co_entry, true);
+                        coalescer_remove(&app_for_thread, &id_for_thread);
                         let _ = app_for_thread.emit(&format!("pty-exit://{}", id_for_thread), ());
                         return;
                     }
@@ -1051,12 +1292,22 @@ pub async fn ssh_spawn(
             //     stream so the loss is visible.
             if outbound.len() > SSH_OUTBOUND_MAX_BYTES {
                 outbound.clear();
-                let _ = app_for_thread.emit(
-                    &format!("pty://{}", id_for_thread),
-                    "\r\n\x1b[1;31m[Pluto's Terminals] SSH connection stalled: outbound \
-                     buffer exceeded 4MB — pending writes dropped.\x1b[0m\r\n"
-                        .to_string(),
-                );
+                // The marker rides the coalesced stream IN SEQUENCE: drain any
+                // pending output first, then emit the marker, all under the
+                // session's coalescer lock so it can't overtake earlier bytes.
+                if let Ok(mut co) = co_entry.co.lock() {
+                    let now = Instant::now();
+                    if let Some(out) = co.take(now) {
+                        let _ = emit_under_lock(
+                            &app_for_thread, &id_for_thread, &co_entry, &mut co, out, now,
+                        );
+                    }
+                    let _ = app_for_thread.emit(
+                        &format!("pty://{}", id_for_thread),
+                        "\r\n\x1b[1;31m[Pluto's Terminals] SSH connection stalled: outbound \
+                         buffer exceeded 4MB — pending writes dropped.\x1b[0m\r\n",
+                    );
+                }
             }
             // 1b. Drain the outbound buffer to the channel with flow control.
             //     When the window is full the write reports WouldBlock; keep the
@@ -1081,12 +1332,15 @@ pub async fn ssh_spawn(
             while let Ok(SshCtrl::Resize(c, r)) = ctrl_rx.try_recv() {
                 let _ = channel.request_pty_size(c as u32, r as u32, None, None);
             }
-            // 3. Read output (non-blocking → WouldBlock when idle).
+            // 3. Read output (non-blocking → WouldBlock when idle). Idle
+            //    branches flush the coalescer inline (this loop never relies
+            //    on the global flusher), THEN sleep.
             match channel.read(&mut buf) {
                 Ok(0) => {
                     if channel.eof() {
                         break;
                     }
+                    flush_pending(&app_for_thread, &id_for_thread, &co_entry, false);
                     thread::sleep(Duration::from_millis(8));
                 }
                 Ok(n) => {
@@ -1097,12 +1351,13 @@ pub async fn ssh_spawn(
                     if let Some(w) = scrollback_writer.as_mut() {
                         w.append(chunk.as_bytes());
                     }
-                    let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), chunk);
+                    coalesce_chunk(&app_for_thread, &id_for_thread, &co_entry, &chunk, false);
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     if channel.eof() {
                         break;
                     }
+                    flush_pending(&app_for_thread, &id_for_thread, &co_entry, false);
                     thread::sleep(Duration::from_millis(8));
                 }
                 Err(_) => break,
@@ -1114,8 +1369,11 @@ pub async fn ssh_spawn(
             if let Some(w) = scrollback_writer.as_mut() {
                 w.append(tail.as_bytes());
             }
-            let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), tail);
+            coalesce_chunk(&app_for_thread, &id_for_thread, &co_entry, &tail, false);
         }
+        // Tail before exit — strictly ordered ahead of pty-exit.
+        flush_pending(&app_for_thread, &id_for_thread, &co_entry, true);
+        coalescer_remove(&app_for_thread, &id_for_thread);
         let _ = channel.close();
         let _ = channel.wait_close();
         let _ = app_for_thread.emit(&format!("pty-exit://{}", id_for_thread), ());
@@ -1174,11 +1432,12 @@ pub async fn serial_spawn(
         .as_ref()
         .map(|tid| ScrollbackWriter::new(scrollback_path(&app, tid)));
 
+    let co_entry = coalescer_insert(&app.state::<SessionRegistry>(), &id);
     let id_for_thread = id.clone();
     let app_for_thread = app.clone();
     thread::spawn(move || {
         let mut reader = reader;
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 65536];
         // Gate the first emit on the frontend's listener (see pty_spawn).
         let _ = ready_rx.recv_timeout(Duration::from_secs(2));
         // Incomplete trailing UTF-8 bytes carried across read chunks (see
@@ -1186,7 +1445,10 @@ pub async fn serial_spawn(
         let mut pending: Vec<u8> = Vec::new();
         while alive.load(Ordering::Relaxed) {
             match reader.read(&mut buf) {
-                Ok(0) => thread::sleep(Duration::from_millis(20)),
+                Ok(0) => {
+                    flush_pending(&app_for_thread, &id_for_thread, &co_entry, false);
+                    thread::sleep(Duration::from_millis(20));
+                }
                 Ok(n) => {
                     let chunk = decode_utf8_stream(&mut pending, &buf[..n]);
                     if chunk.is_empty() {
@@ -1195,10 +1457,13 @@ pub async fn serial_spawn(
                     if let Some(w) = scrollback_writer.as_mut() {
                         w.append(chunk.as_bytes());
                     }
-                    let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), chunk);
+                    coalesce_chunk(&app_for_thread, &id_for_thread, &co_entry, &chunk, false);
                 }
-                // No data within the timeout — loop to re-check `alive`.
-                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+                // No data within the port timeout (the serial loop's natural
+                // idle cadence) — flush anything coalesced, re-check `alive`.
+                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                    flush_pending(&app_for_thread, &id_for_thread, &co_entry, false);
+                }
                 // Device unplugged / fatal error.
                 Err(_) => break,
             }
@@ -1209,8 +1474,11 @@ pub async fn serial_spawn(
             if let Some(w) = scrollback_writer.as_mut() {
                 w.append(tail.as_bytes());
             }
-            let _ = app_for_thread.emit(&format!("pty://{}", id_for_thread), tail);
+            coalesce_chunk(&app_for_thread, &id_for_thread, &co_entry, &tail, false);
         }
+        // Tail before exit — strictly ordered ahead of pty-exit.
+        flush_pending(&app_for_thread, &id_for_thread, &co_entry, true);
+        coalescer_remove(&app_for_thread, &id_for_thread);
         let _ = app_for_thread.emit(&format!("pty-exit://{}", id_for_thread), ());
     });
 
@@ -1220,6 +1488,14 @@ pub async fn serial_spawn(
 /// Kill every live PTY child. Called from RunEvent::ExitRequested so we
 /// never leave a shell process orphaned when the app closes.
 pub fn kill_all(registry: &SessionRegistry) {
+    // Coalescer bookkeeping first: the process is exiting, retained output is
+    // moot, and a stale dirty entry must not pin the flusher awake.
+    if let Ok(mut map) = registry.coalescers.lock() {
+        map.clear();
+    }
+    if let Ok(mut set) = registry.dirty.set.lock() {
+        set.clear();
+    }
     if let Ok(mut sessions) = registry.sessions.lock() {
         for (_id, session) in sessions.drain() {
             // Local: kill the child. Ssh: dropping the handle's senders signals
