@@ -24,10 +24,18 @@ pub struct Coalescer {
     last_emit_at: Instant,
     max_bytes: usize,
     max_age: Duration,
+    /// Hard ceiling on `pending`. Retain-on-Err means sustained emit failure
+    /// plus a flooding pane would otherwise grow the buffer without bound
+    /// (review CRITICAL on the T1 commit); past the cap the buffer is dropped
+    /// whole — never a silent partial truncation — and the loss is counted so
+    /// the wiring can surface a marker line. Same drop-and-notify shape as the
+    /// SSH outbound cap.
+    pending_cap: usize,
+    dropped: u64,
 }
 
 impl Coalescer {
-    pub fn new(max_bytes: usize, max_age: Duration, now: Instant) -> Self {
+    pub fn new(max_bytes: usize, max_age: Duration, pending_cap: usize, now: Instant) -> Self {
         Self {
             pending: String::new(),
             first_pending_at: None,
@@ -36,6 +44,8 @@ impl Coalescer {
             last_emit_at: now.checked_sub(max_age).unwrap_or(now),
             max_bytes,
             max_age,
+            pending_cap,
+            dropped: 0,
         }
     }
 
@@ -47,7 +57,8 @@ impl Coalescer {
             return Some(s.to_string());
         }
         self.pending.push_str(s);
-        if self.first_pending_at.is_none() {
+        self.enforce_cap();
+        if self.first_pending_at.is_none() && !self.pending.is_empty() {
             self.first_pending_at = Some(now);
         }
         if self.pending.len() >= self.max_bytes {
@@ -85,13 +96,35 @@ impl Coalescer {
         } else {
             self.pending.insert_str(0, &s);
         }
-        if self.first_pending_at.is_none() {
+        self.enforce_cap();
+        if self.first_pending_at.is_none() && !self.pending.is_empty() {
             self.first_pending_at = Some(now.checked_sub(self.max_age).unwrap_or(now));
         }
     }
 
     pub fn has_pending(&self) -> bool {
         !self.pending.is_empty()
+    }
+
+    /// Bytes discarded by the cap since the last call. The wiring surfaces a
+    /// marker line when this returns nonzero.
+    pub fn take_dropped(&mut self) -> u64 {
+        std::mem::take(&mut self.dropped)
+    }
+
+    /// The drop-marker emit itself failed — put the count back so the notice
+    /// survives until the sink is healthy enough to actually deliver it.
+    pub fn restore_dropped(&mut self, d: u64) {
+        self.dropped += d;
+    }
+
+    fn enforce_cap(&mut self) {
+        if self.pending.len() > self.pending_cap {
+            self.dropped += self.pending.len() as u64;
+            self.pending.clear();
+            self.pending.shrink_to_fit();
+            self.first_pending_at = None;
+        }
     }
 
     fn flush(&mut self, now: Instant) -> String {
@@ -107,9 +140,10 @@ mod coalesce_tests {
 
     const KB64: usize = 64 * 1024;
     const AGE: Duration = Duration::from_millis(8);
+    const CAP: usize = 4 * KB64;
 
     fn c(now: Instant) -> Coalescer {
-        Coalescer::new(KB64, AGE, now)
+        Coalescer::new(KB64, AGE, CAP, now)
     }
 
     #[test]
@@ -232,6 +266,46 @@ mod coalesce_tests {
         assert_eq!(out.len(), KB64 + "after".len());
         assert!(out.starts_with('b') && out.ends_with("after"));
         assert!(!co.has_pending());
+    }
+
+    #[test]
+    fn sustained_emit_failure_is_capped_never_unbounded() {
+        // Review CRITICAL on the T1 commit: flood + every emit failing grew
+        // pending without bound. The cap must clear the buffer (whole-drop,
+        // counted), keeping worst-case memory bounded.
+        let t0 = Instant::now();
+        let mut co = c(t0);
+        co.push("x", t0); // leading edge
+        let t1 = t0 + Duration::from_millis(1);
+        let chunk = "c".repeat(KB64);
+        let mut max_seen = 0usize;
+        for i in 0..40u64 {
+            let now = t1 + Duration::from_millis(i);
+            if let Some(out) = co.push(&chunk, now) {
+                max_seen = max_seen.max(out.len());
+                co.retain_front(out, now); // emit failed every time
+            }
+        }
+        assert!(co.take_dropped() > 0, "cap must have fired");
+        let remaining = co
+            .take(t1 + Duration::from_secs(1))
+            .map(|s| s.len())
+            .unwrap_or(0);
+        assert!(remaining <= CAP + KB64, "remaining bounded: {remaining}");
+        assert!(max_seen <= CAP + KB64, "single flush bounded: {max_seen}");
+    }
+
+    #[test]
+    fn cap_drop_is_whole_buffer_and_counted() {
+        let t0 = Instant::now();
+        let mut co = c(t0);
+        co.push("x", t0);
+        let t1 = t0 + Duration::from_millis(1);
+        let big = "b".repeat(CAP + 1);
+        co.retain_front(big, t1);
+        assert!(!co.has_pending(), "over-cap retain drops the whole buffer");
+        assert_eq!(co.take_dropped(), (CAP + 1) as u64);
+        assert_eq!(co.take_dropped(), 0, "counter swaps to zero");
     }
 
     #[test]

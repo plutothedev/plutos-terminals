@@ -66,32 +66,67 @@ const SCROLLBACK_FILE_KEEP_BYTES: usize = 5_000_000;
 //      lock is released.
 const COALESCE_MAX_BYTES: usize = 64 * 1024;
 const COALESCE_MAX_AGE: Duration = Duration::from_millis(8);
-/// Consecutive emit failures before a best-effort backlog marker line (which
-/// rides the same possibly-saturated queue — acceptable).
+/// Hard per-session ceiling on retained-but-undeliverable output (review
+/// CRITICAL: retain-on-Err + a flooding pane would otherwise grow without
+/// bound while the webview is stalled). Whole-buffer drop + marker, same
+/// shape as SSH_OUTBOUND_MAX_BYTES.
+const COALESCE_PENDING_MAX_BYTES: usize = 4 * 1024 * 1024;
+/// Cadence of the flusher's full-scan backstop; a HARD bound — the scan runs
+/// whenever this much time has passed since the last one, no matter how busy
+/// the notify traffic is.
+const FLUSHER_HEARTBEAT: Duration = Duration::from_millis(250);
+/// Consecutive emit failures between backlog marker lines (re-announced every
+/// N failures; each marker is itself best-effort on the saturated queue).
 const EMIT_FAIL_MARKER_AFTER: u32 = 50;
+const BACKLOG_MARKER: &str =
+    "\r\n\x1b[1;31m[Pluto's Terminals] output delivery backlogged — retrying.\x1b[0m\r\n";
+
+/// Recover a poisoned lock instead of dying: the guarded data (id sets/maps)
+/// is structurally valid regardless of where a panicking thread stopped, and
+/// a dead flusher would silently stall EVERY local session's age-flushes.
+fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Emission seam (review W5): production is AppHandle; tests inject failures
+/// per flush path without a webview.
+pub trait EmitSink {
+    fn emit_pty(&self, id: &str, payload: &str) -> bool;
+}
+
+impl EmitSink for AppHandle {
+    fn emit_pty(&self, id: &str, payload: &str) -> bool {
+        self.emit(&format!("pty://{id}"), payload).is_ok()
+    }
+}
 
 pub struct CoEntry {
     co: Mutex<Coalescer>,
     fails: AtomicU32,
+    /// Local PTYs age-flush via the global flusher; SSH/serial flush inline on
+    /// their own idle branches. The heartbeat scan filters on this so inline
+    /// transports genuinely never enter the dirty set.
+    use_ticker: bool,
 }
 
 impl CoEntry {
-    fn fresh() -> Arc<Self> {
+    fn fresh(use_ticker: bool) -> Arc<Self> {
         Arc::new(Self {
             co: Mutex::new(Coalescer::new(
                 COALESCE_MAX_BYTES,
                 COALESCE_MAX_AGE,
+                COALESCE_PENDING_MAX_BYTES,
                 Instant::now(),
             )),
             fails: AtomicU32::new(0),
+            use_ticker,
         })
     }
 }
 
 /// Lost-wakeup-proof flush signal: the dirty set is mutated ONLY under the
 /// condvar's own mutex, and the flusher re-checks it under that mutex before
-/// every wait. A 250ms parked heartbeat additionally does a full coalescer
-/// scan, so even a predicate-drift bug can only delay a flush, never stall it.
+/// every wait. The FLUSHER_HEARTBEAT full scan is the drift backstop.
 #[derive(Default)]
 pub struct DirtySignal {
     set: Mutex<HashSet<String>>,
@@ -100,14 +135,30 @@ pub struct DirtySignal {
 
 impl DirtySignal {
     fn mark(&self, id: &str) {
-        if let Ok(mut set) = self.set.lock() {
-            set.insert(id.to_string());
-            self.cv.notify_one();
-        }
+        let mut set = lock_recover(&self.set);
+        set.insert(id.to_string());
+        self.cv.notify_one();
     }
     fn clear(&self, id: &str) {
-        if let Ok(mut set) = self.set.lock() {
-            set.remove(id);
+        lock_recover(&self.set).remove(id);
+    }
+}
+
+/// Surface cap-dropped bytes as a marker line, in-sequence under the lock.
+/// Deliberate property: when emits are failing this marker likely fails too —
+/// the count is RESTORED on a failed marker emit, so the loss notice survives
+/// until an op runs while the sink is healthy and can actually deliver it.
+fn surface_drops(sink: &dyn EmitSink, id: &str, co: &mut Coalescer) {
+    let d = co.take_dropped();
+    if d > 0 {
+        let delivered = sink.emit_pty(
+            id,
+            &format!(
+                "\r\n\x1b[1;31m[Pluto's Terminals] output overflow: {d} bytes dropped while delivery was stalled.\x1b[0m\r\n"
+            ),
+        );
+        if !delivered {
+            co.restore_dropped(d);
         }
     }
 }
@@ -117,159 +168,188 @@ impl DirtySignal {
 /// full — the payload is retained at the FRONT of pending for the next flush;
 /// order holds because nothing can append while the caller owns the lock.
 fn emit_under_lock(
-    app: &AppHandle,
+    sink: &dyn EmitSink,
     id: &str,
     entry: &CoEntry,
     co: &mut Coalescer,
     out: String,
     now: Instant,
 ) -> bool {
-    match app.emit(&format!("pty://{id}"), out.as_str()) {
-        Ok(()) => {
-            entry.fails.store(0, Ordering::Relaxed);
-            true
+    if sink.emit_pty(id, &out) {
+        entry.fails.store(0, Ordering::Relaxed);
+        surface_drops(sink, id, co);
+        true
+    } else {
+        let n = entry.fails.fetch_add(1, Ordering::Relaxed) + 1;
+        co.retain_front(out, now);
+        surface_drops(sink, id, co);
+        if n % EMIT_FAIL_MARKER_AFTER == 0 {
+            let _ = sink.emit_pty(id, BACKLOG_MARKER);
         }
-        Err(_) => {
-            let n = entry.fails.fetch_add(1, Ordering::Relaxed) + 1;
-            co.retain_front(out, now);
-            if n == EMIT_FAIL_MARKER_AFTER {
-                let _ = app.emit(
-                    &format!("pty://{id}"),
-                    "\r\n\x1b[1;31m[Pluto's Terminals] output delivery backlogged — retrying.\x1b[0m\r\n",
-                );
-            }
-            false
-        }
+        false
     }
 }
 
-/// Reader-side chunk path. Local PTYs age-flush via the global flusher, so an
-/// empty→nonempty transition marks the session dirty (condvar mutex taken only
-/// AFTER the coalescer lock is released — invariant 3); SSH/serial loops flush
-/// inline on their own idle branches and never touch the dirty set.
-fn coalesce_chunk(app: &AppHandle, id: &str, entry: &Arc<CoEntry>, chunk: &str, use_ticker: bool) {
-    let now = Instant::now();
-    let mut became_pending = false;
-    {
-        let Ok(mut co) = entry.co.lock() else { return };
-        let was_pending = co.has_pending();
-        if let Some(out) = co.push(chunk, now) {
-            let _ = emit_under_lock(app, id, entry, &mut co, out, now);
-        } else if use_ticker && !was_pending && co.has_pending() {
-            became_pending = true;
+/// Reader-side chunk path, seam-injectable core. Returns true when the caller
+/// must mark the session dirty (ticker sessions only): the buffer became
+/// pending, OR a flush attempt failed and its payload was retained — a failed
+/// leading-edge/size flush must not strand bytes outside the flusher's view
+/// (review W2).
+fn coalesce_chunk_core(
+    sink: &dyn EmitSink,
+    id: &str,
+    entry: &CoEntry,
+    chunk: &str,
+    use_ticker: bool,
+    now: Instant,
+) -> bool {
+    let Ok(mut co) = entry.co.lock() else { return false };
+    let was_pending = co.has_pending();
+    let mut needs_mark = false;
+    if let Some(out) = co.push(chunk, now) {
+        if !emit_under_lock(sink, id, entry, &mut co, out, now) {
+            needs_mark = use_ticker;
         }
+    } else if use_ticker && !was_pending && co.has_pending() {
+        needs_mark = true;
     }
-    if became_pending {
+    surface_drops(sink, id, &mut co);
+    needs_mark
+}
+
+fn coalesce_chunk(app: &AppHandle, id: &str, entry: &Arc<CoEntry>, chunk: &str, use_ticker: bool) {
+    if coalesce_chunk_core(app, id, entry, chunk, use_ticker, Instant::now()) {
+        // Condvar mutex only after the coalescer lock is released (invariant 3).
         app.state::<SessionRegistry>().dirty.mark(id);
     }
 }
 
-/// Drain everything pending and emit it. `exit` = this is a teardown path:
-/// retry a failed emit once, then drop the tail (the session is going away).
-/// Non-exit callers (idle flushes) leave a failed emit retained for retry.
-fn flush_pending(app: &AppHandle, id: &str, entry: &Arc<CoEntry>, exit: bool) {
-    let now = Instant::now();
+/// Drain everything pending and emit it, seam-injectable core. `exit` = this
+/// is a teardown path: retry a failed emit once, then drop the tail (the
+/// session is going away). Non-exit callers leave a failed emit retained.
+fn flush_pending_core(sink: &dyn EmitSink, id: &str, entry: &CoEntry, exit: bool, now: Instant) {
     let Ok(mut co) = entry.co.lock() else { return };
     if let Some(out) = co.take(now) {
-        if !emit_under_lock(app, id, entry, &mut co, out, now) && exit {
+        if !emit_under_lock(sink, id, entry, &mut co, out, now) && exit {
             if let Some(out2) = co.take(now) {
-                if !emit_under_lock(app, id, entry, &mut co, out2, now) {
+                if !emit_under_lock(sink, id, entry, &mut co, out2, now) {
                     let _ = co.take(now); // second failure on a dying session: drop
                 }
             }
         }
     }
+    surface_drops(sink, id, &mut co);
+}
+
+fn flush_pending(app: &AppHandle, id: &str, entry: &Arc<CoEntry>, exit: bool) {
+    flush_pending_core(app, id, entry, exit, Instant::now());
 }
 
 /// Register a session's coalescer; the reader thread keeps the returned Arc.
-fn coalescer_insert(registry: &SessionRegistry, id: &str) -> Arc<CoEntry> {
-    let entry = CoEntry::fresh();
-    if let Ok(mut map) = registry.coalescers.lock() {
-        map.insert(id.to_string(), entry.clone());
-    }
+fn coalescer_insert(registry: &SessionRegistry, id: &str, use_ticker: bool) -> Arc<CoEntry> {
+    let entry = CoEntry::fresh(use_ticker);
+    lock_recover(&registry.coalescers).insert(id.to_string(), entry.clone());
     entry
 }
 
 /// Reader-exit cleanup: drop the coalescer map entry and any dirty flag.
 fn coalescer_remove(app: &AppHandle, id: &str) {
     let registry = app.state::<SessionRegistry>();
-    if let Ok(mut map) = registry.coalescers.lock() {
-        map.remove(id);
-    }
+    lock_recover(&registry.coalescers).remove(id);
     registry.dirty.clear(id);
 }
 
+/// Snapshot ticker-session Arcs (map lock released before any per-session
+/// lock — invariant 2), then collect the ids with pending output.
+fn scan_pending_ticker_ids(registry: &SessionRegistry) -> Vec<String> {
+    let snapshot: Vec<(String, Arc<CoEntry>)> = lock_recover(&registry.coalescers)
+        .iter()
+        .filter(|(_, e)| e.use_ticker)
+        .map(|(k, e)| (k.clone(), e.clone()))
+        .collect();
+    snapshot
+        .into_iter()
+        .filter(|(_, e)| e.co.lock().map(|c| c.has_pending()).unwrap_or(false))
+        .map(|(k, _)| k)
+        .collect()
+}
+
 /// Global age-flusher for local PTY coalescers. Parks on the dirty-set condvar
-/// (predicate owned by the condvar mutex; 250ms heartbeat full-scan backstop);
-/// while sessions are pending it ticks at ~COALESCE_MAX_AGE cadence, snapshots
-/// each session's Arc from the map (released before any lock/emit — invariant
-/// 2), and age-flushes under the per-session lock. Sessions pruned from the
-/// map (killed) simply drop out of the pass. Detached; dies with the process.
+/// (predicate owned by the condvar mutex); while sessions are pending it ticks
+/// at ~COALESCE_MAX_AGE cadence, snapshotting Arcs from the map before locking
+/// any session (invariant 2). The heartbeat scan runs whenever
+/// FLUSHER_HEARTBEAT has elapsed since the last one — parked OR busy — so no
+/// notify pattern can starve the backstop (review W3). Poisoned global locks
+/// are recovered, never fatal (review W4). Detached; dies with the process.
 pub fn start_flusher(app: AppHandle) {
-    thread::spawn(move || loop {
-        let registry = app.state::<SessionRegistry>();
-        let mut ids: Vec<String> = Vec::new();
-        {
-            let Ok(mut set) = registry.dirty.set.lock() else { return };
-            while set.is_empty() {
-                let Ok((s, timeout)) = registry
-                    .dirty
-                    .cv
-                    .wait_timeout(set, Duration::from_millis(250))
-                else {
-                    return;
-                };
-                set = s;
-                if timeout.timed_out() {
-                    // Heartbeat: full scan OUTSIDE the condvar mutex (leaf
-                    // discipline both directions), then re-acquire.
-                    drop(set);
-                    let scan: Vec<String> = registry
-                        .coalescers
-                        .lock()
-                        .map(|m| {
-                            m.iter()
-                                .filter(|(_, e)| {
-                                    e.co.lock().map(|c| c.has_pending()).unwrap_or(false)
-                                })
-                                .map(|(k, _)| k.clone())
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    set = match registry.dirty.set.lock() {
-                        Ok(s) => s,
-                        Err(_) => return,
-                    };
-                    for id in scan {
-                        set.insert(id);
+    thread::spawn(move || {
+        let mut last_heartbeat = Instant::now();
+        loop {
+            let registry = app.state::<SessionRegistry>();
+            let mut ids: Vec<String> = Vec::new();
+            {
+                let mut set = lock_recover(&registry.dirty.set);
+                while set.is_empty() {
+                    let wait = FLUSHER_HEARTBEAT
+                        .saturating_sub(last_heartbeat.elapsed())
+                        .max(Duration::from_millis(10));
+                    let (s, _res) = registry
+                        .dirty
+                        .cv
+                        .wait_timeout(set, wait)
+                        .unwrap_or_else(|p| p.into_inner());
+                    set = s;
+                    if last_heartbeat.elapsed() >= FLUSHER_HEARTBEAT {
+                        // Leaf discipline both directions: release the condvar
+                        // mutex, scan, re-acquire.
+                        drop(set);
+                        let found = scan_pending_ticker_ids(&registry);
+                        last_heartbeat = Instant::now();
+                        set = lock_recover(&registry.dirty.set);
+                        for id in found {
+                            set.insert(id);
+                        }
                     }
                 }
+                ids.extend(set.drain());
             }
-            ids.extend(set.drain());
-        }
-        // Let the youngest pending bytes approach max_age, then age-flush.
-        thread::sleep(COALESCE_MAX_AGE);
-        let now = Instant::now();
-        let mut still_pending: Vec<String> = Vec::new();
-        for id in ids {
-            let entry = registry
-                .coalescers
-                .lock()
-                .ok()
-                .and_then(|m| m.get(&id).cloned());
-            let Some(entry) = entry else { continue }; // killed: pruned
-            let Ok(mut co) = entry.co.lock() else { continue };
-            if let Some(out) = co.tick(now) {
-                let _ = emit_under_lock(&app, &id, &entry, &mut co, out, now);
+            // Let the youngest pending bytes approach max_age, then age-flush.
+            thread::sleep(COALESCE_MAX_AGE);
+            let now = Instant::now();
+            // One map lock to resolve all ids (killed sessions drop out).
+            let entries: Vec<(String, Arc<CoEntry>)> = {
+                let map = lock_recover(&registry.coalescers);
+                ids.iter()
+                    .filter_map(|id| map.get(id).map(|e| (id.clone(), e.clone())))
+                    .collect()
+            };
+            let mut still_pending: Vec<String> = Vec::new();
+            for (id, entry) in entries {
+                let Ok(mut co) = entry.co.lock() else { continue };
+                if let Some(out) = co.tick(now) {
+                    let _ = emit_under_lock(&app, &id, &entry, &mut co, out, now);
+                }
+                surface_drops(&app, &id, &mut co);
+                if co.has_pending() {
+                    still_pending.push(id);
+                }
             }
-            if co.has_pending() {
-                still_pending.push(id.clone());
-            }
-        }
-        if !still_pending.is_empty() {
-            if let Ok(mut set) = registry.dirty.set.lock() {
+            if !still_pending.is_empty() {
+                let mut set = lock_recover(&registry.dirty.set);
                 for id in still_pending {
                     set.insert(id);
+                }
+            }
+            // Busy-path heartbeat: a stuck session must be swept into view even
+            // when other sessions keep the dirty set nonempty forever.
+            if last_heartbeat.elapsed() >= FLUSHER_HEARTBEAT {
+                let found = scan_pending_ticker_ids(&registry);
+                last_heartbeat = Instant::now();
+                if !found.is_empty() {
+                    let mut set = lock_recover(&registry.dirty.set);
+                    for id in found {
+                        set.insert(id);
+                    }
                 }
             }
         }
@@ -743,7 +823,7 @@ pub fn pty_spawn(
     // String::from_utf8_lossy on read — but if the file has invalid UTF-8
     // and the read implementation is strict, we'd lose the whole file.
     // Writing the lossy bytes guarantees the file is valid UTF-8.
-    let co_entry = coalescer_insert(&app.state::<SessionRegistry>(), &id);
+    let co_entry = coalescer_insert(&app.state::<SessionRegistry>(), &id, true);
     let id_for_thread = id.clone();
     let app_for_thread = app.clone();
     thread::spawn(move || {
@@ -1235,7 +1315,7 @@ pub async fn ssh_spawn(
         .as_ref()
         .map(|tid| ScrollbackWriter::new(scrollback_path(&app, tid)));
 
-    let co_entry = coalescer_insert(&app.state::<SessionRegistry>(), &id);
+    let co_entry = coalescer_insert(&app.state::<SessionRegistry>(), &id, false);
     let id_for_thread = id.clone();
     let app_for_thread = app.clone();
     thread::spawn(move || {
@@ -1432,7 +1512,7 @@ pub async fn serial_spawn(
         .as_ref()
         .map(|tid| ScrollbackWriter::new(scrollback_path(&app, tid)));
 
-    let co_entry = coalescer_insert(&app.state::<SessionRegistry>(), &id);
+    let co_entry = coalescer_insert(&app.state::<SessionRegistry>(), &id, false);
     let id_for_thread = id.clone();
     let app_for_thread = app.clone();
     thread::spawn(move || {
@@ -1513,5 +1593,151 @@ pub fn kill_all(registry: &SessionRegistry) {
                 Session::Ssh(_) => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod coalesce_wiring_tests {
+    // Fail-injection coverage for every flush path (plan T1 requirement; the
+    // review found the shipped wiring untested and hiding two real bugs: a
+    // failed leading-edge/size flush never marked the session dirty, and
+    // pending grew unbounded under sustained emit failure).
+    use super::*;
+    use std::cell::{Cell, RefCell};
+
+    struct MockSink {
+        fail: Cell<bool>,
+        attempted: RefCell<Vec<String>>,
+        delivered: RefCell<Vec<String>>,
+    }
+
+    impl MockSink {
+        fn new(fail: bool) -> Self {
+            Self {
+                fail: Cell::new(fail),
+                attempted: RefCell::new(Vec::new()),
+                delivered: RefCell::new(Vec::new()),
+            }
+        }
+        fn payload_attempts(&self) -> usize {
+            self.attempted.borrow().len()
+        }
+    }
+
+    impl EmitSink for MockSink {
+        fn emit_pty(&self, _id: &str, payload: &str) -> bool {
+            self.attempted.borrow_mut().push(payload.to_string());
+            if self.fail.get() {
+                false
+            } else {
+                self.delivered.borrow_mut().push(payload.to_string());
+                true
+            }
+        }
+    }
+
+    #[test]
+    fn failed_leading_edge_marks_dirty_for_ticker_sessions() {
+        let sink = MockSink::new(true);
+        let entry = CoEntry::fresh(true);
+        let needs_mark =
+            coalesce_chunk_core(&sink, "t1", &entry, "hello", true, Instant::now());
+        assert!(needs_mark, "retained payload must enter the flusher's view");
+        assert!(entry.co.lock().unwrap().has_pending(), "payload retained");
+    }
+
+    #[test]
+    fn failed_leading_edge_no_mark_for_inline_sessions() {
+        let sink = MockSink::new(true);
+        let entry = CoEntry::fresh(false);
+        let needs_mark =
+            coalesce_chunk_core(&sink, "t1", &entry, "hello", false, Instant::now());
+        assert!(!needs_mark, "inline transports never touch the dirty set");
+        assert!(entry.co.lock().unwrap().has_pending());
+    }
+
+    #[test]
+    fn became_pending_marks_dirty_and_success_does_not() {
+        let sink = MockSink::new(false);
+        let entry = CoEntry::fresh(true);
+        let now = Instant::now();
+        // Fresh coalescer is backdated: first chunk leading-edges, delivered.
+        let first = coalesce_chunk_core(&sink, "t1", &entry, "a", true, now);
+        assert!(!first, "successful leading edge needs no mark");
+        assert_eq!(sink.delivered.borrow().len(), 1);
+        // Immediately after: coalesces (too soon for another leading edge).
+        let second = coalesce_chunk_core(&sink, "t1", &entry, "b", true, now);
+        assert!(second, "empty->nonempty transition must mark dirty");
+    }
+
+    #[test]
+    fn failed_size_flush_marks_dirty() {
+        let sink = MockSink::new(false);
+        let entry = CoEntry::fresh(true);
+        let now = Instant::now();
+        coalesce_chunk_core(&sink, "t1", &entry, "x", true, now); // leading edge ok
+        sink.fail.set(true);
+        let big = "b".repeat(COALESCE_MAX_BYTES);
+        let needs_mark = coalesce_chunk_core(&sink, "t1", &entry, &big, true, now);
+        assert!(needs_mark, "failed size flush must mark dirty");
+        assert!(entry.co.lock().unwrap().has_pending());
+    }
+
+    #[test]
+    fn exit_flush_retries_once_then_drops() {
+        let sink = MockSink::new(false);
+        let entry = CoEntry::fresh(true);
+        let now = Instant::now();
+        coalesce_chunk_core(&sink, "t1", &entry, "x", true, now); // leading edge ok
+        coalesce_chunk_core(&sink, "t1", &entry, "tail", true, now); // pending
+        sink.fail.set(true);
+        let before = sink.payload_attempts();
+        flush_pending_core(&sink, "t1", &entry, true, now);
+        // Exactly two payload attempts (initial + one retry), then the tail is
+        // dropped so the dying session can't wedge.
+        assert_eq!(sink.payload_attempts() - before, 2);
+        assert!(!entry.co.lock().unwrap().has_pending(), "tail dropped on exit");
+    }
+
+    #[test]
+    fn overflow_marker_survives_until_sink_recovers() {
+        let sink = MockSink::new(true);
+        let entry = CoEntry::fresh(true);
+        let now = Instant::now();
+        // Flood a failing sink far past the pending cap: the cap fires, and
+        // every marker attempt fails too — the drop count must NOT be lost.
+        let chunk = "c".repeat(COALESCE_MAX_BYTES);
+        let rounds = (COALESCE_PENDING_MAX_BYTES / COALESCE_MAX_BYTES) + 3;
+        for _ in 0..rounds {
+            coalesce_chunk_core(&sink, "t1", &entry, &chunk, true, now);
+        }
+        // Nothing was delivered while failing.
+        assert_eq!(sink.delivered.borrow().len(), 0);
+        // Sink recovers: the very next op surfaces the overflow marker.
+        sink.fail.set(false);
+        coalesce_chunk_core(&sink, "t1", &entry, "back", true, now);
+        let delivered = sink.delivered.borrow();
+        assert!(
+            delivered.iter().any(|p| p.contains("output overflow")),
+            "recovered sink must deliver the loss notice: {delivered:?}"
+        );
+    }
+
+    #[test]
+    fn backlog_marker_reannounces_every_n() {
+        let sink = MockSink::new(true);
+        let entry = CoEntry::fresh(true);
+        let now = Instant::now();
+        coalesce_chunk_core(&sink, "t1", &entry, "seed", true, now); // fail #1 (leading edge)
+        for _ in 0..(2 * EMIT_FAIL_MARKER_AFTER) {
+            flush_pending_core(&sink, "t1", &entry, false, now);
+        }
+        let markers = sink
+            .attempted
+            .borrow()
+            .iter()
+            .filter(|p| p.as_str() == BACKLOG_MARKER)
+            .count();
+        assert_eq!(markers, 2, "marker re-announces every {EMIT_FAIL_MARKER_AFTER} failures");
     }
 }
