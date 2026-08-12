@@ -230,6 +230,11 @@ fn redact_line(line: &str) -> String {
         // The slice BEFORE the header mention gets the same run scan — an
         // early-return that passed it through verbatim leaked a token echoed
         // earlier on the same line (review finding on the segmentation fix).
+        // Known accepted residual: a sub-20-char unprefixed fragment glued
+        // with ZERO separators directly to the literal word "authorization"
+        // is evaluated in isolation and can survive; organic error text
+        // always separates them, and exposure is strictly below the old
+        // pass-through-verbatim behavior.
         return format!("{}Authorization: [redacted]", redact_runs(&line[..idx]));
     }
     redact_runs(line)
@@ -282,12 +287,13 @@ fn find_ci_ascii(haystack: &str, needle: &str) -> Option<usize> {
 /// Is `word` shaped like a GitHub token or a generic opaque bearer secret?
 fn looks_like_token(word: &str) -> bool {
     let w = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-');
-    // A recognized prefix marks a run at ANY length: a stray non-charset byte
-    // inside the token splits the run, and a length floor here let the short
-    // "ghp_XX" fragment through. Over-redacting a bare prefix mention in an
-    // error message is the right trade for a credential scrubber.
+    // A recognized prefix carrying ANY payload marks a run — no 8-char floor,
+    // so a stray non-charset byte splitting a token can't strand a short
+    // "ghp_XX" fragment in the clear. A BARE prefix (nothing after it) stays:
+    // help text listing the accepted prefixes is prose, not a credential
+    // (re-review caught the floor's removal gutting exactly that text).
     const KNOWN_PREFIXES: [&str; 6] = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"];
-    if KNOWN_PREFIXES.iter().any(|p| w.starts_with(p)) {
+    if KNOWN_PREFIXES.iter().any(|p| w.len() > p.len() && w.starts_with(p)) {
         return true;
     }
     w.len() >= 20 && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
@@ -651,5 +657,15 @@ mod share_tests {
         let out = redact("error ghp_9f\u{200b}8e7d6c5b4a3210feedfacecafebabe".to_string());
         assert!(!out.contains("ghp_9f"));
         assert!(!out.contains("8e7d6c5b4a3210feedfacecafebabe"));
+    }
+
+    #[test]
+    fn redact_leaves_bare_prefix_mentions_alone() {
+        // Removing the length floor entirely made a BARE prefix ("ghp_" with
+        // nothing after it) count as a token, gutting help-text that lists the
+        // accepted prefixes (re-review finding). A prefix must carry at least
+        // one character of payload to be treated as a credential fragment.
+        let msg = "error: token must start with ghp_ or github_pat_ here".to_string();
+        assert_eq!(redact(msg.clone()), msg);
     }
 }

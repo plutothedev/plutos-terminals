@@ -2234,12 +2234,30 @@ mod notebook_io_tests {
             .expect("RESERVED_NAMES literal not found in notebookIo.js — update this parity test's marker");
         let rest = &js[start..];
         let end = rest.find("]);").expect("unterminated RESERVED_NAMES literal in notebookIo.js");
-        // Split on BOTH quote styles — a double-quote-only scan silently
-        // skipped a single-quoted addition ('com0'), reporting parity while
-        // the runtime Set had genuinely drifted (review finding). Balanced
-        // quoting of either style keeps string contents at the odd indices.
+        let body = &rest[..end];
+        // A naive quote scan can't see through comments or single-quoted
+        // strings, and both misreads are SILENT: double-quote-only skipped a
+        // single-quoted addition, and splitting on both quote styles let a
+        // removal explained by a "// removed 'prn' support" comment scoop the
+        // apostrophe pair as a fake entry and report parity over real drift
+        // (re-review proved that A/B). So: strip line comments first, then
+        // accept double-quoted entries ONLY — any single quote left in the
+        // stripped body fails loud instead of parsing wrong.
+        assert!(
+            !body.contains("/*"),
+            "block comment inside the RESERVED_NAMES literal — rework this parity parser"
+        );
+        let stripped: String = body
+            .lines()
+            .map(|l| l.split("//").next().unwrap_or(l))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !stripped.contains('\''),
+            "single-quoted entry (or stray apostrophe) in the RESERVED_NAMES literal — use double quotes so this parser sees every entry"
+        );
         let js_names: std::collections::BTreeSet<&str> =
-            rest[..end].split(['"', '\'']).skip(1).step_by(2).collect();
+            stripped.split('"').skip(1).step_by(2).collect();
         let rust_names: std::collections::BTreeSet<&str> = RESERVED_NAMES.iter().copied().collect();
         assert_eq!(
             js_names, rust_names,
