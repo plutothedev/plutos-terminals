@@ -49,7 +49,7 @@ export function usePaletteCommands(args) {
     { id: "import-ssh", icon: <SKey size={14} />, label: "Import ~/.ssh/config", hint: "Add every SSH host from your OpenSSH config to the Sessions tree", action: () => importSshConfig() },
     { id: "ssh-keys", icon: <SKey size={14} />, label: "SSH keys", hint: "List / generate SSH keypairs; copy a public key to a server", action: () => setSshKeysOpen(true) },
     { id: "macros", icon: <SRecord size={14} />, label: "Keystroke macros", hint: "Record what you type and replay it into the active terminal", action: () => setMacrosOpen(true) },
-    { id: "master-pw", icon: <SLock size={14} />, label: "Master password", hint: "Lock the app behind a password on launch", action: () => setMasterPwOpen(true) },
+    { id: "master-pw", icon: <SLock size={14} />, label: "App lock (master password)", hint: "Lock the app behind a password on launch", action: () => setMasterPwOpen(true) },
     { id: "split-right", icon: <SSplitRow size={14} />, label: "Split active pane right", hint: "Side-by-side terminals in the current tab", shortcut: scOf("splitRight"), action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
     { id: "split-down", icon: <SSplitCol size={14} />, label: "Split active pane down", hint: "Stacked terminals in the current tab", shortcut: scOf("splitDown"), action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
     // Split-tab-only commands: hidden on single-pane tabs (close would surprise
