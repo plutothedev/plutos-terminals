@@ -785,12 +785,19 @@ pub fn scrollback_delete(app: AppHandle, tab_id: String) -> Result<(), String> {
     if path.exists() {
         let _ = fs::remove_file(&path);
     }
+    // The previous rotation segment goes with it (P1-T2) — orphaning it would
+    // leak up to 5MB per deleted tab until the 30-day age sweep.
+    let old = path.with_extension("old.txt");
+    if old.exists() {
+        let _ = fs::remove_file(&old);
+    }
     Ok(())
 }
 
 // ── Scrollback GC: keep-set + age sweep ───────────────────────────
-// Per-tab scrollback files (10MB cap each, tail-truncated to 5MB — see
-// SCROLLBACK_FILE_MAX_BYTES/KEEP_BYTES in pty.rs) otherwise accumulate forever as
+// Per-tab scrollback lives in TWO segment files, `<id>.txt` + `<id>.old.txt`
+// (~5MB each — see SCROLLBACK_SEGMENT_BYTES / rotation in pty.rs), which
+// otherwise accumulate forever as
 // tabs are closed. A file is deleted ONLY when it is BOTH (a) not owned by any
 // currently-open tab — the caller passes the union of open tab ids across every
 // window as a KEEP-list — AND (b) not written in `max_age` (default 30 days).
@@ -862,9 +869,16 @@ pub fn scrollback_sweep(
     max_age_days: Option<u64>,
 ) -> Result<usize, String> {
     let dir = get_data_dir(&app).join("terminals").join("scrollback");
+    // Both rotation segments of a live tab are protected: `.old.txt` carries
+    // the older half of an open tab's history, and its mtime FREEZES at
+    // rotation time — age alone would wrongly reap it on month-old resident
+    // sessions (re-review F8; this app lives in the tray for weeks).
     let keep: std::collections::HashSet<String> = keep_tab_ids
         .iter()
-        .map(|id| format!("{}.txt", safe_filename(id)))
+        .flat_map(|id| {
+            let stem = safe_filename(id);
+            [format!("{stem}.txt"), format!("{stem}.old.txt")]
+        })
         .collect();
     Ok(sweep_stale_scrollback(
         &dir,

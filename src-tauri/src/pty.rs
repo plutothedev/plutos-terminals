@@ -35,20 +35,21 @@ use crate::coalesce::Coalescer;
 use crate::commands::scrollback_path;
 use crate::session::new_id;
 
-// File-size policy: when the on-disk scrollback exceeds MAX_BYTES, rewrite to
-// keep the last KEEP_BYTES (sliced at a line boundary if possible so partial
-// ANSI escape sequences don't strand across the cut).
+// File-size policy (P1-T2 ping-pong rotation): scrollback lives in two
+// segment files, `<id>.txt` (current) + `<id>.old.txt` (previous). When the
+// current segment exceeds SCROLLBACK_SEGMENT_BYTES it is renamed over `.old`
+// and a fresh current is opened — O(1), no read-back, replacing the previous
+// truncate_tail which re-read + rewrote 15MB inline ON the PTY reader thread
+// (stalling the pane's drain for the whole round trip every 5MB of output).
+// Total per-tab budget stays ≤ ~10MB (5MB × 2 segments). The old in-place
+// rewrite survives only as the one-shot fallback for a failed rename (AV/
+// indexer holding the target without FILE_SHARE_DELETE — our own fs::read
+// loads DON'T block rename; std opens FILE_SHARE_READ|WRITE|DELETE).
 //
-// v0.1.32: bumped from 200KB/100KB to 10MB/5MB. The original budget was
-// matched to the renderer-side in-memory cap (100KB), but for restore-on-
-// relaunch the right framing is "how much output does a real session
-// produce?" — easily megabytes for claude code conversations, debug sessions,
-// or anything that prints a file. Disk is cheap; ~50MB per pane × ~8 panes
-// is rounding error on modern storage. xterm's in-memory scrollback at 10000
-// lines becomes the binding constraint on what's visible after restore, not
-// disk.
-const SCROLLBACK_FILE_MAX_BYTES: u64 = 10_000_000;
-const SCROLLBACK_FILE_KEEP_BYTES: usize = 5_000_000;
+// v0.1.32 history: budget bumped from 200KB/100KB to 10MB/5MB for restore-on-
+// relaunch. (T6 caps what's actually REPLAYED to a tail slice — the disk
+// budget and the replay payload are decoupled.)
+const SCROLLBACK_SEGMENT_BYTES: u64 = 5_000_000;
 
 // ── Output coalescing (P1-T1, plan 2026-08-12-P1-pty-hot-path.md) ───────────
 //
@@ -450,27 +451,37 @@ pub struct SessionRegistry {
 /// scrollback_save path used to race the process exit; this owns the file
 /// instead so there's no IPC round-trip on the hot path.
 ///
-/// Tail-truncation: when `bytes_on_disk` exceeds SCROLLBACK_FILE_MAX_BYTES,
-/// rewrite the file keeping the last SCROLLBACK_FILE_KEEP_BYTES, sliced at the
-/// next newline boundary to avoid stranding partial ANSI escape sequences
-/// across the cut. Reset the counter to whatever was kept.
+/// Rotation: when `bytes_on_disk` exceeds `segment_bytes`, the current file
+/// is renamed over `<id>.old.txt` (clobbering the previous segment) and a
+/// fresh current is opened — constant-time on the reader thread. NO BufWriter
+/// anywhere here (deliberate, re-review F11): every chunk is in the OS buffer
+/// by the time emit returns, so tray→Quit loses at most the current chunk —
+/// the v0.1.29 durability contract this module was built around.
 struct ScrollbackWriter {
     path: PathBuf,
     // Held open for the session lifetime so high-throughput output (e.g.
-    // `cat largefile`) doesn't pay an open+close syscall on every 4KB chunk.
+    // `cat largefile`) doesn't pay an open+close syscall on every chunk.
     // `None` only between a failed open and the next lazy retry, or while a
-    // tail rewrite swaps the file. write(2) hands bytes to the OS buffer just
+    // rotation swaps files. write(2) hands bytes to the OS buffer just
     // as the per-chunk open path did, so hard-process-death durability is
     // unchanged — only the syscall overhead drops.
     file: Option<File>,
     bytes_on_disk: u64,
+    /// Segment cap — a field (not the const) so tests rotate at toy sizes.
+    segment_bytes: u64,
 }
 
 impl ScrollbackWriter {
     /// Create a new writer for a tab. Creates parent dirs eagerly. Seeds
     /// `bytes_on_disk` from any existing file so we don't lose track on a
     /// pane that was previously persisted, and opens the append handle once.
+    /// A legacy over-budget single file (pre-rotation, up to 10MB) simply
+    /// rotates whole into `.old` on the first over-cap append — no migration.
     fn new(path: PathBuf) -> Self {
+        Self::with_segment(path, SCROLLBACK_SEGMENT_BYTES)
+    }
+
+    fn with_segment(path: PathBuf, segment_bytes: u64) -> Self {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -484,7 +495,13 @@ impl ScrollbackWriter {
             path,
             file,
             bytes_on_disk,
+            segment_bytes,
         }
+    }
+
+    /// `<id>.txt` → `<id>.old.txt`, the previous-segment sibling.
+    fn old_path(&self) -> PathBuf {
+        self.path.with_extension("old.txt")
     }
 
     /// (Re)open the append handle against the current file. Used after a tail
@@ -514,33 +531,54 @@ impl ScrollbackWriter {
                 self.bytes_on_disk = self.bytes_on_disk.saturating_add(bytes.len() as u64);
             }
         }
-        if self.bytes_on_disk > SCROLLBACK_FILE_MAX_BYTES {
-            self.truncate_tail();
+        if self.bytes_on_disk > self.segment_bytes {
+            self.rotate();
         }
     }
 
-    /// Rewrite the file to keep only the last SCROLLBACK_FILE_KEEP_BYTES,
-    /// aligned to the first newline after the cut so ANSI escape sequences
-    /// don't straddle the boundary. Atomic via write-tmp + rename.
-    fn truncate_tail(&mut self) {
-        // Drop the append handle first: the rewrite below replaces the file via
-        // rename, so an open handle would keep appending to the now-unlinked
-        // inode (silently losing all post-truncate output). Reopened against the
-        // new file before returning on every path.
+    /// Constant-time segment rotation: current → `.old` (clobber), fresh
+    /// current. Runs on the reader thread, so it must never re-read the file.
+    fn rotate(&mut self) {
+        // Close our own append handle FIRST: rename on this toolchain has
+        // POSIX semantics, so a live handle would follow the file into `.old`
+        // and every subsequent append would land in the wrong segment.
+        self.file = None;
+        match fs::rename(&self.path, self.old_path()) {
+            Ok(()) => {
+                self.bytes_on_disk = 0;
+                self.reopen();
+            }
+            Err(_) => {
+                // Third-party handle without FILE_SHARE_DELETE on the target
+                // (AV scanner, indexer, backup agent) — our own reads don't
+                // block rename. One-shot in-place fallback bounds the file;
+                // the counter resyncs on every path inside.
+                self.truncate_in_place();
+            }
+        }
+    }
+
+    /// Fallback only (rotation rename failed): rewrite the current file to
+    /// keep the last `segment_bytes`, aligned to the first newline after the
+    /// cut so ANSI escape sequences don't straddle the boundary. Atomic via
+    /// write-tmp + rename. This is the pre-T2 truncate_tail, demoted from the
+    /// hot path — it re-reads the whole file, which is exactly what rotation
+    /// exists to avoid.
+    fn truncate_in_place(&mut self) {
         self.file = None;
         let Ok(data) = fs::read(&self.path) else {
             self.reopen();
             return;
         };
-        if data.len() <= SCROLLBACK_FILE_KEEP_BYTES {
+        let keep_bytes = self.segment_bytes as usize;
+        if data.len() <= keep_bytes {
             self.bytes_on_disk = data.len() as u64;
             self.reopen();
             return;
         }
-        // Initial cut at exactly KEEP bytes from the end.
-        let cut_from_start = data.len() - SCROLLBACK_FILE_KEEP_BYTES;
-        // Walk forward to next newline (within a reasonable window) so we
-        // start cleanly. If no newline within 4KB, take the raw cut.
+        // Initial cut at exactly the segment size from the end, then walk
+        // forward to the next newline (within 4KB) so we start cleanly.
+        let cut_from_start = data.len() - keep_bytes;
         let scan_end = (cut_from_start + 4096).min(data.len());
         let aligned = data[cut_from_start..scan_end]
             .iter()
@@ -553,10 +591,9 @@ impl ScrollbackWriter {
         if fs::write(&tmp_path, kept).is_ok() && fs::rename(&tmp_path, &self.path).is_ok() {
             self.bytes_on_disk = kept.len() as u64;
         } else {
-            // Rewrite failed (disk full, permissions, cross-device rename): the
-            // file is unchanged and still over the cap. Sync the counter to the
-            // real on-disk size so we don't re-enter truncate_tail (re-reading
-            // the whole file) on every subsequent append chunk.
+            // Rewrite failed too (disk full, permissions): file unchanged and
+            // still over the cap. Sync the counter to the real on-disk size so
+            // we don't re-enter this whole-file read on every append chunk.
             self.bytes_on_disk = fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
         }
         self.reopen();
@@ -1742,5 +1779,97 @@ mod coalesce_wiring_tests {
             .filter(|p| p.as_str() == BACKLOG_MARKER)
             .count();
         assert_eq!(markers, 2, "marker re-announces every {EMIT_FAIL_MARKER_AFTER} failures");
+    }
+}
+
+#[cfg(test)]
+mod scrollback_rotation_tests {
+    use super::*;
+
+    fn tmp_scrollback(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("plutos-terminals-tests")
+            .join(format!("{}-{}", name, new_id("t")));
+        let _ = fs::create_dir_all(&dir);
+        dir.join("tab_x.txt")
+    }
+
+    #[test]
+    fn rotate_at_cap_moves_current_to_old_and_resets() {
+        let path = tmp_scrollback("rotate-basic");
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 64);
+        w.append(b"first-segment-data-first-segment-data-first-segment-data-1234567890\n"); // >64
+        let old = path.with_extension("old.txt");
+        assert!(old.exists(), "rotation must create the .old segment");
+        assert!(
+            fs::read_to_string(&old).unwrap().contains("first-segment"),
+            "old carries the rotated bytes"
+        );
+        assert_eq!(w.bytes_on_disk, 0, "counter resets for the fresh segment");
+        w.append(b"second\n");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "second\n",
+            "appends after rotation land in the fresh current, not .old"
+        );
+    }
+
+    #[test]
+    fn second_rotation_clobbers_old() {
+        let path = tmp_scrollback("rotate-clobber");
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 8);
+        w.append(b"AAAAAAAAAA"); // rotate #1: old = A's
+        w.append(b"BBBBBBBBBB"); // rotate #2: old = B's
+        let old = fs::read_to_string(path.with_extension("old.txt")).unwrap();
+        assert!(old.starts_with('B'), "second rotation replaces old: {old}");
+    }
+
+    #[test]
+    fn legacy_oversize_single_file_rotates_whole_on_first_over_cap_append() {
+        let path = tmp_scrollback("legacy");
+        fs::write(&path, vec![b'L'; 100]).unwrap(); // pre-existing over-budget file
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 64);
+        assert_eq!(w.bytes_on_disk, 100, "seeded from disk");
+        w.append(b"new\n"); // 104 > 64 -> rotates the whole legacy file
+        let old = fs::read(path.with_extension("old.txt")).unwrap();
+        assert_eq!(old.len(), 104, "legacy content + new chunk moved to old");
+        assert_eq!(w.bytes_on_disk, 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rename_blocked_by_no_share_handle_falls_back_to_in_place_truncate() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let path = tmp_scrollback("contention");
+        let old = path.with_extension("old.txt");
+        // Simulate an AV/indexer: hold the rename TARGET open with share_mode
+        // 0 so MoveFileEx/REPLACE_EXISTING fails. (A plain std read handle
+        // would NOT block the rename — FILE_SHARE_DELETE is default.)
+        fs::write(&old, b"held").unwrap();
+        let _guard = OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&old)
+            .unwrap();
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 16);
+        w.append(b"line-one-is-long\nline-two-is-longer\n"); // > 16 -> rotate fails -> fallback
+        let current = fs::read(&path).unwrap();
+        assert!(
+            current.len() <= 16 + 4096,
+            "fallback bounds the file near the segment cap: {}",
+            current.len()
+        );
+        assert!(
+            w.bytes_on_disk <= (16 + 4096) as u64,
+            "counter resynced by fallback"
+        );
+        // Release the AV-style handle first — share_mode(0) blocks even our
+        // own verification read while held — then confirm the target survived
+        // the failed rename untouched.
+        drop(_guard);
+        assert_eq!(fs::read(&old).unwrap(), b"held");
+        // Appends keep flowing afterwards.
+        w.append(b"after\n");
+        assert!(fs::read_to_string(&path).unwrap().ends_with("after\n"));
     }
 }
