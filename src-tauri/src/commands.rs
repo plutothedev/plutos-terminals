@@ -778,6 +778,25 @@ fn align_forward(buf: Vec<u8>, cut_mid_file: bool) -> Vec<u8> {
     }
 }
 
+/// True when the file behind `held` is no longer the file at `path` — a
+/// rotation replaced the path between our open and now. Discriminator: the
+/// path's length dropping BELOW the held handle's is impossible for appends
+/// to one file (append-only, monotonic) but certain across a rotation (the
+/// fresh segment starts near zero while the held — now renamed — file kept
+/// its bytes). Creation-time comparison would be defeated by NTFS filename
+/// tunneling (a recreated same-name file inherits the old file's creation
+/// time within ~15s — exactly rotation's shape). False positive only on the
+/// in-place-truncate fallback (same file, length shrinks), where skipping
+/// old is the safe direction anyway.
+fn rotation_raced(held: &fs::File, path: &std::path::Path) -> bool {
+    let held_len = held.metadata().ok().map(|m| m.len());
+    let path_len = fs::metadata(path).ok().map(|m| m.len());
+    match (held_len, path_len) {
+        (Some(h), Some(p)) => p < h,
+        _ => true, // can't verify — skip old, never risk duplication
+    }
+}
+
 /// Testable core: up to `cap` tail bytes across the two rotation segments,
 /// old-part first then current — chronological replay order.
 fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize) -> Option<String> {
@@ -794,16 +813,28 @@ fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize)
         .unwrap_or(0);
     let mut parts: Vec<Vec<u8>> = Vec::new();
     if cur_len < cap {
-        // Fill the remaining budget from the old segment's tail.
+        // Fill the remaining budget from the old segment's tail — UNLESS a
+        // rotation landed between our two opens. Post-rotation the old PATH
+        // resolves to the very segment our held handle already reads (rename
+        // moves identity), so reading it would DUPLICATE recent content while
+        // the true previous segment became unreachable (batch-review W1,
+        // empirically reproduced). On a detected race we skip old: worst case
+        // is a missing older half — never a doubled one.
         let budget = cap - cur_len;
         if let Ok(mut of) = fs::File::open(old) {
-            if let Ok(m) = of.metadata() {
-                let olen = m.len() as usize;
-                let off = olen.saturating_sub(budget);
-                if of.seek(SeekFrom::Start(off as u64)).is_ok() {
-                    let mut buf = Vec::new();
-                    if of.read_to_end(&mut buf).is_ok() {
-                        parts.push(align_forward(buf, off > 0));
+            let raced = cur.as_ref().is_some_and(|held| rotation_raced(held, current));
+            if !raced {
+                if let Ok(m) = of.metadata() {
+                    let olen = m.len() as usize;
+                    let off = olen.saturating_sub(budget);
+                    if of.seek(SeekFrom::Start(off as u64)).is_ok() {
+                        let mut buf = Vec::new();
+                        // take() bounds the read even if the file grows under
+                        // us (batch-review W2: read_to_end follows live length,
+                        // not the fstat snapshot — a flood could return 5MB).
+                        if of.by_ref().take(budget as u64).read_to_end(&mut buf).is_ok() {
+                            parts.push(align_forward(buf, off > 0));
+                        }
                     }
                 }
             }
@@ -814,7 +845,9 @@ fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize)
         let off = cur_len.saturating_sub(cap);
         if f.seek(SeekFrom::Start(off as u64)).is_ok() {
             let mut buf = Vec::new();
-            if f.read_to_end(&mut buf).is_ok() {
+            // Bounded for the same reason: the current segment is the one
+            // actively growing under a flood.
+            if f.by_ref().take(cap as u64).read_to_end(&mut buf).is_ok() {
                 parts.push(align_forward(buf, off > 0));
             }
         }
@@ -2647,5 +2680,67 @@ mod transcript_pool_tests {
         drop(map);
         assert_eq!(read(&base, "2026-08-12", "tab-a"), "d1\n");
         assert_eq!(read(&base, "2026-08-13", "tab-a"), "d2\n");
+    }
+}
+
+#[cfg(test)]
+mod scrollback_race_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn tmp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("plutos-terminals-tests")
+            .join(format!("{}-{}", name, crate::session::new_id("t")));
+        let _ = fs::create_dir_all(&dir);
+        dir.join("tab.txt")
+    }
+
+    #[test]
+    fn append_growth_is_not_a_race() {
+        use std::io::Write;
+        let cur = tmp("grow");
+        fs::write(&cur, "start\n").unwrap();
+        let held = fs::File::open(&cur).unwrap();
+        // Live session keeps appending — same file, must NOT read as raced.
+        let mut w = fs::OpenOptions::new().append(true).open(&cur).unwrap();
+        w.write_all(b"more output\n").unwrap();
+        drop(w);
+        assert!(!rotation_raced(&held, &cur));
+    }
+
+    #[test]
+    fn rotation_replacing_the_path_is_detected() {
+        let cur = tmp("raced");
+        let old = cur.with_extension("old.txt");
+        fs::write(&cur, vec![b'X'; 5000]).unwrap(); // segment about to rotate
+        let held = fs::File::open(&cur).unwrap();
+        // Writer rotates: current -> old, fresh (small) current appears.
+        fs::rename(&cur, &old).unwrap();
+        fs::write(&cur, b"fresh\n").unwrap();
+        assert!(
+            rotation_raced(&held, &cur),
+            "fresh segment shorter than held handle = rotation"
+        );
+    }
+
+    #[test]
+    fn raced_stitch_never_duplicates() {
+        // Full-path version of the batch-review W1 reproduction: current is
+        // opened, rotation lands, old now aliases the held segment. The
+        // stitch must return content ONCE (via whichever handle), never
+        // twice. We simulate by pre-arranging the post-race disk state and
+        // verifying scrollback_tail's guard path on it: old exists AND the
+        // current path holds a file SHORTER than old (the fresh segment) —
+        // the guard can't fire here (handles open fresh, no race in-flight),
+        // so this pins the NORMAL post-rotation read; the in-flight race
+        // itself is pinned by rotation_replacing_the_path_is_detected above.
+        let cur = tmp("stitch-sane");
+        let old = cur.with_extension("old.txt");
+        fs::write(&old, "older-half\n").unwrap();
+        fs::write(&cur, "newer\n").unwrap();
+        let out = scrollback_tail(&cur, &old, 1024).unwrap();
+        assert_eq!(out, "older-half\nnewer\n");
+        assert_eq!(out.matches("older-half").count(), 1, "no duplication");
     }
 }
