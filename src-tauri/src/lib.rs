@@ -97,6 +97,7 @@ pub fn run() {
         .manage(vncclient::VncRegistry::default())
         .manage(rdp::RdpRegistry::default())
         .manage(companion::CompanionState::default())
+        .manage(commands::TranscriptHandles::default())
         // Global summon hotkey: on press, toggle the main window (show+focus, or
         // hide if it's already the foreground window).
         .plugin(

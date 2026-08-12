@@ -6,9 +6,11 @@
 // recent files for the project sidebar.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 #[cfg(target_os = "windows")]
@@ -1043,30 +1045,102 @@ mod scrollback_sweep_tests {
     }
 }
 
-// Append a chunk to a daily session transcript.
-// Path: data/terminals/transcripts/{date}/{name}.md
+// ── Transcript append (P1-T3: async + pooled today-handles) ────────
+// The old shape was a sync command (main thread) doing open+write+close per
+// 8KB flush per pane — hundreds of main-thread open/close cycles per second
+// under floods. Handles for TODAY's files are now pooled; the command is a
+// thin async wrapper over spawn_blocking.
+
+/// Pooled append handles keyed (date, name). Cached entries are TODAY-only:
+/// a NON-today append (the midnight flush uses the pre-roll date; a moved
+/// pane's dead interval can append a stale date for days — TerminalPane's
+/// documented lifecycle) is written through UNCACHED and never evicts the
+/// cache wholesale (plan-audit F12a: mass-evict-on-stale-date thrashed the
+/// pool forever on one stale pane). Stale-dated entries are evicted lazily.
+/// GC safety: transcript retention ages by dir name with a ≥1-day floor, so
+/// today's dir — the only one with live cached handles — is never swept (no
+/// delete-while-open conflict on Windows). Raw File, no BufWriter: the
+/// syscall win is the open/close elision; durability stays ≤ one flush.
+#[derive(Default)]
+pub struct TranscriptHandles(Mutex<HashMap<(String, String), fs::File>>);
+
+/// Testable core: append under `base` (…/transcripts), pooling handles for
+/// `today`-dated files in `pool`.
+fn transcript_write(
+    pool: &TranscriptHandles,
+    base: &std::path::Path,
+    today: &str,
+    date: &str,
+    name: &str,
+    content: &str,
+) -> Result<(), String> {
+    use std::io::Write;
+    let open_append = |date: &str, name: &str| -> Result<fs::File, String> {
+        let dir = base.join(safe_filename(date));
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join(format!("{}.md", safe_filename(name))))
+            .map_err(|e| e.to_string())
+    };
+    if date != today {
+        // Write-through, uncached, cache untouched.
+        return open_append(date, name)?
+            .write_all(content.as_bytes())
+            .map_err(|e| e.to_string());
+    }
+    let mut map = pool.0.lock().unwrap_or_else(|p| p.into_inner());
+    // Lazy eviction: date rolled — closed handles for yesterday's files.
+    map.retain(|(d, _), _| d == today);
+    let key = (date.to_string(), name.to_string());
+    if !map.contains_key(&key) {
+        map.insert(key.clone(), open_append(date, name)?);
+    }
+    let file = map.get_mut(&key).expect("just inserted");
+    if let Err(first) = file.write_all(content.as_bytes()) {
+        // Cached handle went bad (file pruned externally, volume hiccup):
+        // drop it and retry once through a fresh open before failing.
+        map.remove(&key);
+        let mut fresh = open_append(date, name)?;
+        fresh
+            .write_all(content.as_bytes())
+            .map_err(|e| format!("{first}; retry: {e}"))?;
+        map.insert(key, fresh);
+    }
+    Ok(())
+}
+
+pub fn transcript_append_sync(
+    app: &AppHandle,
+    date: &str,
+    name: &str,
+    content: &str,
+) -> Result<(), String> {
+    let base = get_data_dir(app).join("terminals").join("transcripts");
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    transcript_write(
+        &app.state::<TranscriptHandles>(),
+        &base,
+        &today,
+        date,
+        name,
+        content,
+    )
+}
+
 #[tauri::command]
-pub fn transcript_append(
+pub async fn transcript_append(
     app: AppHandle,
     date: String,
     name: String,
     content: String,
 ) -> Result<(), String> {
-    use std::io::Write;
-    let dir = get_data_dir(&app)
-        .join("terminals")
-        .join("transcripts")
-        .join(safe_filename(&date));
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(format!("{}.md", safe_filename(&name)));
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| e.to_string())?;
-    file.write_all(content.as_bytes())
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        transcript_append_sync(&app, &date, &name, &content)
+    })
+    .await
+    .map_err(|e| format!("append task failed: {e}"))?
 }
 
 // ── Transcript read/list (Stream D share prep) ─────────────────────
@@ -2514,5 +2588,64 @@ mod scrollback_tail_tests {
         assert!(scrollback_tail(&cur, &old, 100).is_none());
         fs::write(&old, "only old\n").unwrap();
         assert_eq!(scrollback_tail(&cur, &old, 100).unwrap(), "only old\n");
+    }
+}
+
+#[cfg(test)]
+mod transcript_pool_tests {
+    use super::*;
+
+    fn tmp_base(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("plutos-terminals-tests")
+            .join(format!("{}-{}", name, crate::session::new_id("t")));
+        let _ = fs::create_dir_all(&dir);
+        dir
+    }
+
+    fn read(base: &std::path::Path, date: &str, name: &str) -> String {
+        fs::read_to_string(base.join(date).join(format!("{name}.md"))).unwrap_or_default()
+    }
+
+    #[test]
+    fn cached_handle_appends_across_calls() {
+        let base = tmp_base("pool-reuse");
+        let pool = TranscriptHandles::default();
+        transcript_write(&pool, &base, "2026-08-12", "2026-08-12", "tab-a", "one\n").unwrap();
+        transcript_write(&pool, &base, "2026-08-12", "2026-08-12", "tab-a", "two\n").unwrap();
+        assert_eq!(read(&base, "2026-08-12", "tab-a"), "one\ntwo\n");
+        assert_eq!(pool.0.lock().unwrap().len(), 1, "one pooled handle");
+    }
+
+    #[test]
+    fn non_today_is_write_through_and_never_evicts() {
+        let base = tmp_base("pool-stale");
+        let pool = TranscriptHandles::default();
+        transcript_write(&pool, &base, "2026-08-12", "2026-08-12", "tab-a", "today\n").unwrap();
+        // A stale-dated append (moved pane's dead interval, midnight flush)
+        // interleaves — must not thrash the today-cache (plan-audit F12a).
+        transcript_write(&pool, &base, "2026-08-12", "2026-08-10", "tab-b", "stale\n").unwrap();
+        assert_eq!(read(&base, "2026-08-10", "tab-b"), "stale\n");
+        let map = pool.0.lock().unwrap();
+        assert!(
+            map.contains_key(&("2026-08-12".into(), "tab-a".into())),
+            "today handle survives stale-date traffic"
+        );
+        assert_eq!(map.len(), 1, "stale date never cached");
+    }
+
+    #[test]
+    fn date_rollover_evicts_yesterday_lazily() {
+        let base = tmp_base("pool-rollover");
+        let pool = TranscriptHandles::default();
+        transcript_write(&pool, &base, "2026-08-12", "2026-08-12", "tab-a", "d1\n").unwrap();
+        // Server date rolls; first today-append under the new date evicts.
+        transcript_write(&pool, &base, "2026-08-13", "2026-08-13", "tab-a", "d2\n").unwrap();
+        let map = pool.0.lock().unwrap();
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key(&("2026-08-13".into(), "tab-a".into())));
+        drop(map);
+        assert_eq!(read(&base, "2026-08-12", "tab-a"), "d1\n");
+        assert_eq!(read(&base, "2026-08-13", "tab-a"), "d2\n");
     }
 }

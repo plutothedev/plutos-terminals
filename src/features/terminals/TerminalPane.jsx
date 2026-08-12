@@ -348,6 +348,8 @@ export default function TerminalPane({
   const transcriptBufRef = useRef("");
   const transcriptTimerRef = useRef(null);
   const transcriptDateRef = useRef(todayDate());
+  // Serializes this pane's transcript_append invokes (P1-T3 append-order).
+  const transcriptChainRef = useRef(null);
 
   // Auto-approve state. (The recent-output match buffer lives at
   // entry.counters.recentOut so it survives pane moves.)
@@ -434,18 +436,28 @@ export default function TerminalPane({
     const id = tabIdRef.current;
     if (!id) return;
     const name = transcriptName(liveProjectName(), id);
-    invoke("transcript_append", {
-      date: transcriptDateRef.current,
-      name,
-      content: buf,
-    }).catch((e) => {
-      // The buffer was cleared above, so a swallowed failure loses this chunk
-      // of history permanently and silently (disk full, permissions). Same rule
-      // the notebook save path already follows: a genuine disk error must be
-      // visible somewhere. Log rather than toast — this fires every few seconds
-      // per pane, and a toast storm would be worse than the gap.
-      console.error("Pluto's Terminals: transcript flush failed", e);
-    });
+    // Chain appends per pane (P1-T3): transcript_append is async on the Rust
+    // side now, so two in-flight invokes (a threshold flush + an unmount
+    // flush) are independent tokio tasks that could land swapped and
+    // interleave the file mid-line. The chain serializes them; errors break
+    // the chain's PAYLOAD but never the chain itself.
+    const prev = transcriptChainRef.current || Promise.resolve();
+    transcriptChainRef.current = prev
+      .then(() =>
+        invoke("transcript_append", {
+          date: transcriptDateRef.current,
+          name,
+          content: buf,
+        })
+      )
+      .catch((e) => {
+        // The buffer was cleared above, so a swallowed failure loses this
+        // chunk of history permanently and silently (disk full, permissions).
+        // Same rule the notebook save path already follows: a genuine disk
+        // error must be visible somewhere. Log rather than toast — this fires
+        // every few seconds per pane, and a toast storm would be worse.
+        console.error("Pluto's Terminals: transcript flush failed", e);
+      });
   };
 
   // The prompt heuristic, extracted so BOTH the auto-approve pass and the
