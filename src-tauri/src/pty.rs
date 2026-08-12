@@ -175,14 +175,15 @@ fn emit_under_lock(
     out: String,
     now: Instant,
 ) -> bool {
+    // No surface_drops here: every core operation makes exactly ONE trailing
+    // surface_drops call after its last emit attempt (re-review 1b — the
+    // doubled call re-attempted an undeliverable marker back-to-back).
     if sink.emit_pty(id, &out) {
         entry.fails.store(0, Ordering::Relaxed);
-        surface_drops(sink, id, co);
         true
     } else {
         let n = entry.fails.fetch_add(1, Ordering::Relaxed) + 1;
         co.retain_front(out, now);
-        surface_drops(sink, id, co);
         if n % EMIT_FAIL_MARKER_AFTER == 0 {
             let _ = sink.emit_pty(id, BACKLOG_MARKER);
         }
@@ -203,6 +204,11 @@ fn coalesce_chunk_core(
     use_ticker: bool,
     now: Instant,
 ) -> bool {
+    // Per-session poison degrades per-session BY DESIGN (load-bearing,
+    // re-review-verified): every dirty-set insertion path requires a
+    // successful co.lock()/has_pending() read, so a poisoned session is
+    // consumed out of the dirty set once and never re-inserted — silent
+    // exclusion of that one session, zero churn, everything else unaffected.
     let Ok(mut co) = entry.co.lock() else { return false };
     let was_pending = co.has_pending();
     let mut needs_mark = false;
@@ -1569,13 +1575,10 @@ pub async fn serial_spawn(
 /// never leave a shell process orphaned when the app closes.
 pub fn kill_all(registry: &SessionRegistry) {
     // Coalescer bookkeeping first: the process is exiting, retained output is
-    // moot, and a stale dirty entry must not pin the flusher awake.
-    if let Ok(mut map) = registry.coalescers.lock() {
-        map.clear();
-    }
-    if let Ok(mut set) = registry.dirty.set.lock() {
-        set.clear();
-    }
+    // moot, and a stale dirty entry must not pin the flusher awake. Poison on
+    // these global locks is recovered like everywhere else (re-review W4).
+    lock_recover(&registry.coalescers).clear();
+    lock_recover(&registry.dirty.set).clear();
     if let Ok(mut sessions) = registry.sessions.lock() {
         for (_id, session) in sessions.drain() {
             // Local: kill the child. Ssh: dropping the handle's senders signals
