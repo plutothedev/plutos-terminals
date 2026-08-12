@@ -252,8 +252,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Shell name (basename of the shell new tabs spawn) — shown in the status bar.
   const shellName = useShellName();
 
-  // Live system stats (CPU / memory / disk) for the status bar (polled ~2.5s).
-  const sysStats = useSystemStats(dockTab === "monitor");
+  // Live system stats (CPU / memory / disk) for DockMonitor (polled 5s). Gated
+  // on the monitor tab being SELECTED **and** the dock being open — a
+  // collapsed dock with monitor selected polled a disk stat forever (P2-T5).
+  const sysStats = useSystemStats(dockTab === "monitor" && !dockCollapsed);
 
   // Claude CLI availability — checked once on mount, surfaced in the status bar.
   const claudeAvailable = useClaudeAvailable();

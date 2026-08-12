@@ -26,8 +26,23 @@ static SYS: OnceLock<Mutex<sysinfo::System>> = OnceLock::new();
 // stale network mount stalls the whole status bar on the OS stat timeout).
 static DISKS: OnceLock<Mutex<sysinfo::Disks>> = OnceLock::new();
 
+/// Async wrapper (P2-T5): the body stats the disk — a stale network mount can
+/// stall on the OS timeout, and as a sync command that stall sat ON THE MAIN
+/// THREAD every poll. spawn_blocking keeps both the UI and the tokio workers
+/// clear of it.
 #[tauri::command]
-pub fn system_stats() -> SystemStats {
+pub async fn system_stats() -> SystemStats {
+    tauri::async_runtime::spawn_blocking(system_stats_sync)
+        .await
+        .unwrap_or(SystemStats {
+            cpu: 0.0,
+            mem_used: 0,
+            mem_total: 0,
+            disk_used_pct: 0.0,
+        })
+}
+
+pub fn system_stats_sync() -> SystemStats {
     let sys_mutex = SYS.get_or_init(|| Mutex::new(sysinfo::System::new_all()));
     let (cpu, mem_used, mem_total) = match sys_mutex.lock() {
         Ok(mut sys) => {

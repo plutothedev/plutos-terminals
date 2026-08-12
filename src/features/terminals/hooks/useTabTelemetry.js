@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getLayout, leafIds } from "../splitTree";
+import { allRenderedPaneIds } from "../paneIds.js";
 
 // Rollup precedence when several tabs map to one project (or one summary row).
 // "waiting" ranks highest on purpose: among a fleet of agents, the one blocked
@@ -114,29 +115,24 @@ export function useTabTelemetry({ state, projects }) {
 
   // Aggregate cost across all CURRENTLY-OPEN tabs/panes. tabCosts is never pruned
   // on close, so summing it raw keeps counting finished sessions (and double-counts
-  // on reopen). Collect every live id from the panel/tab/pane tree and only sum
-  // entries still present — a superset collect (any `id`) is safe: it can only
-  // exclude truly-gone tabs, never drop a live one.
+  // on reopen). Live ids = allRenderedPaneIds — the exact leaf-id universe
+  // TerminalPanel reports costs under (and the registry sweeps on). P2-T5:
+  // the previous recursive walk re-visited every object in the panel tree
+  // (connection/auth/worktree/layout nodes included) on EVERY cost tick — up
+  // to once per second per running agent — to build this set.
+  const livePaneIds = useMemo(
+    () => new Set(allRenderedPaneIds(state.panels)),
+    [state.panels]
+  );
   const totalCost = useMemo(() => {
-    const live = new Set();
-    const collect = (node) => {
-      if (!node || typeof node !== "object") return;
-      if (typeof node.id === "string") live.add(node.id);
-      for (const k in node) {
-        const v = node[k];
-        if (Array.isArray(v)) v.forEach(collect);
-        else if (v && typeof v === "object") collect(v);
-      }
-    };
-    state.panels.forEach(collect);
     let cost = 0, tokens = 0;
     for (const [id, v] of Object.entries(tabCosts)) {
-      if (!live.has(id)) continue;
+      if (!livePaneIds.has(id)) continue;
       cost += v.cost || 0;
       tokens += v.tokens || 0;
     }
     return { cost, tokens };
-  }, [tabCosts, state.panels]);
+  }, [tabCosts, livePaneIds]);
 
   // Per-project activity: aggregate of any open tab tied to this project.
   // 'active' wins over 'done' wins over 'idle'.

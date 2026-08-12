@@ -10,20 +10,28 @@ import * as recording from "../recording.js";
 import { subscribeBridge, getBridgeVersion } from "../ptyBridge.js";
 import { injectHeaderSkinsCss } from "../headerSkins";
 
-// Live system stats (CPU / memory / disk) for the status bar. Polled ~2.5s;
-// CPU is a real delta because the backend keeps a persistent System handle.
+// Live system stats (CPU / memory / disk) for DockMonitor (its only consumer).
+// Polled 5s; CPU is a real delta because the backend keeps a persistent System
+// handle.
 export function useSystemStats(enabled = true) {
   const [sysStats, setSysStats] = useState(null);
   useEffect(() => {
-    // Only poll while the Monitor panel is actually on-screen. system_stats is a
-    // main-thread backend call (disk stat) every 2.5s; running it forever when the
-    // dock shows Files/Assistant is pure battery/idle-wake waste (its only consumer
-    // is DockMonitor). Re-enabling polls immediately for fresh numbers.
+    // Only poll while the Monitor panel is actually on-screen (caller gates on
+    // dock tab AND collapse). Single-flight: a stalled disk stat (network
+    // mount) must not queue overlapping ticks behind the backend mutexes.
     if (!enabled) return;
     let alive = true;
-    const poll = () => invoke("system_stats").then((s) => { if (alive) setSysStats(s); }).catch(() => {});
+    let inFlight = false;
+    const poll = () => {
+      if (inFlight) return;
+      inFlight = true;
+      invoke("system_stats")
+        .then((s) => { if (alive) setSysStats(s); })
+        .catch(() => {})
+        .finally(() => { inFlight = false; });
+    };
     poll();
-    const t = setInterval(poll, 2500);
+    const t = setInterval(poll, 5000);
     return () => { alive = false; clearInterval(t); };
   }, [enabled]);
   return sysStats;

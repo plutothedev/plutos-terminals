@@ -596,7 +596,8 @@ fn dispatch(
             store_subscription(&sub.to_string()).map(|_| serde_json::Value::Null)
         }
         "system_stats" => {
-            serde_json::to_value(crate::sysstats::system_stats()).map_err(|e| e.to_string())
+            // Sync core — this dispatcher already runs on the blocking pool.
+            serde_json::to_value(crate::sysstats::system_stats_sync()).map_err(|e| e.to_string())
         }
         "pty_write" => crate::pty::pty_write_sync(app.state(), s("id")?, s("data")?)
             .map(|_| serde_json::Value::Null),
