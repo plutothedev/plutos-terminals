@@ -46,7 +46,7 @@ export default function StatusBar({
         <button
           onClick={() => setBroadcastGroupOpen(true)}
           style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", color: "var(--phn-warning)", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}
-          title="Broadcast (MultiExec) is on. Click to choose target terminals; the MultiExec button toggles it off."
+          title="Broadcast typing is on. Click to choose target terminals; the Broadcast button toggles it off."
         >
           <SBroadcast size={12} /> broadcast: {bcastTargets ? `${bcastTargets.length} tab${bcastTargets.length === 1 ? "" : "s"}` : "all visible"}
         </button>

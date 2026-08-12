@@ -28,7 +28,7 @@ export function buildWelcomeBanner({ paneCols }) {
     { segs: [] },
     { hang: 2, segs: [C("1;36", "► "), T("Saved sessions live in the "), C("1;33", "Sessions"), T(" panel — SSH · local · serial · RDP/VNC")] },
     { hang: 2, segs: [C("1;36", "► "), T("Scrollback is "), C("1;32", "persistent"), T(" — every tab is saved and replayed on restart")] },
-    { hang: 2, segs: [C("1;36", "► "), C("1;35", "MultiExec"), T(" broadcasts your typing to every visible terminal at once")] },
+    { hang: 2, segs: [C("1;36", "► "), C("1;35", "Broadcast"), T(" sends your typing to every visible terminal at once")] },
     { hang: 2, segs: [C("1;36", "► "), C("1;36", "Models"), T(": route to any LLM — Claude · GPT · Gemini · GLM · Kimi · 16 providers")] },
     { hang: 2, segs: [C("1;36", "► "), T("Split panes, drag tabs and pin sessions to shape your workspace")] },
     { hang: 2, segs: [C("1;36", "► "), T("Tools, snippets and a file browser are one click away in the toolbar")] },

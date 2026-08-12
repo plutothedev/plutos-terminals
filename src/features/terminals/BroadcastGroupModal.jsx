@@ -37,7 +37,7 @@ export default function BroadcastGroupModal({ open, panels, liveTabIds, current,
   };
 
   return (
-    <Modal open={open} title="MultiExec — choose broadcast targets" onClose={onClose} width={520}>
+    <Modal open={open} title="Broadcast typing — choose targets" onClose={onClose} width={520}>
       <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginBottom: "var(--phn-sp-3)" }}>
         <Button variant="ghost" size="sm" onClick={() => setSel(new Set(allIds))}>select all</Button>
         <Button variant="ghost" size="sm" onClick={() => setSel(new Set())}>select none</Button>

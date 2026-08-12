@@ -27,7 +27,7 @@ export default function Toolbar({
           { id: "split-row", icon: <SSplitRow size={15} />, label: "Side by side", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
           { id: "split-col", icon: <SSplitCol size={15} />, label: "Stacked", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
         ] },
-        { id: "multiexec", icon: <SMultiX />, label: "MultiX", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
+        { id: "multiexec", icon: <SMultiX />, label: "Broadcast", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
         { id: "tunnel", icon: <STunnel />, label: "Tunnel", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
       ],
     },
@@ -35,10 +35,10 @@ export default function Toolbar({
       caption: "AI · Tools",
       items: [
         { id: "ask", icon: <SAsk />, label: "Ask AI", title: "Ask AI to turn plain English into a shell command (Ctrl+I)", onClick: () => setAskOpen(true) },
-        { id: "agent", icon: <SAgents />, label: "Agent", title: "Agent Mode — give a goal in plain English; it runs commands to do it (Ctrl+Shift+A)", onClick: () => setAgentOpen(true) },
+        { id: "agent", icon: <SAgents />, label: "Agent Mode", title: "Agent Mode — give a goal in plain English; it runs commands to do it (Ctrl+Shift+A)", onClick: () => setAgentOpen(true) },
         { id: "models", icon: <SModels />, label: "Models", title: "Pick your LLM provider + model and enter its API key", onClick: () => setModelsOpen(true) },
         { id: "snips", icon: <SSnips />, label: "Workflows", title: "Workflows — saved parameterized commands; click to run", active: ribbon === "snippets", onClick: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-        { id: "agents", icon: <SAgents />, label: "Agents", title: "Agent mission control", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
+        { id: "agents", icon: <SAgents />, label: "Fleet", title: "Fleet — agent mission control: every running agent, needs-you flags, one panel", active: ribbon === "agents", onClick: () => selectRibbon(ribbon === "agents" ? null : "agents") },
       ],
     },
   ], [

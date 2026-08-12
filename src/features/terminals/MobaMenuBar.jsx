@@ -4,6 +4,7 @@
 // Click a top label to open; hovering siblings while one is open switches menus
 // (classic menu-bar behavior); click-outside or pick an item closes.
 import { useEffect, useRef, useState } from "react";
+import { formatCombo } from "./keybindings.js";
 import "./terminals.css";
 
 export default function MobaMenuBar({ menus, brand, right }) {
@@ -49,7 +50,9 @@ export default function MobaMenuBar({ menus, brand, right }) {
                     onClick={() => { setOpen(null); it.action?.(); }}
                   >
                     <span>{it.label}</span>
-                    {it.shortcut && <span className="moba-menu-shortcut">{it.shortcut}</span>}
+                    {/* Shortcuts are authored canonically ("Ctrl+K"); formatCombo
+                        renders them per-platform (Ctrl+K here, ⌘K on mac). */}
+                    {it.shortcut && <span className="moba-menu-shortcut">{formatCombo(it.shortcut)}</span>}
                   </button>
                 )
               )}

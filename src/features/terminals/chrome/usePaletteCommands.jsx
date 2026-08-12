@@ -55,7 +55,7 @@ export function usePaletteCommands(args) {
     // Split-tab-only commands: hidden on single-pane tabs (close would surprise
     // by closing the tab; equalize would be a no-op).
     ...(activeTab?.layout ? [
-      { id: "equalize-splits", icon: <SSplit size={14} />, label: "Equalize splits", hint: "Reset every divider in this tab to 50/50", action: () => equalizePanes(activeTabId) },
+      { id: "equalize-splits", icon: <SSplit size={14} />, label: "Equalize split sizes", hint: "Reset every divider in this tab to 50/50", action: () => equalizePanes(activeTabId) },
       { id: "close-pane", icon: <SSplit size={14} />, label: "Close active pane", hint: "Close the focused pane; its neighbor takes the space", shortcut: scOf("closePane"), action: () => closePane(activeTabId, activeTab?.activePaneId || activeTabId) },
     ] : []),
     { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
@@ -72,10 +72,10 @@ export function usePaletteCommands(args) {
     { id: "vnc", icon: <SMouse size={14} />, label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
     { id: "rdp", icon: <SWindows size={14} />, label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
     { id: "remote-control", icon: <SPhone size={14} />, label: "Remote control (phone)", hint: "Run a private server so your phone can view + type into your terminals over Tailscale", action: () => setRemoteOpen(true) },
-    { id: "broadcast", icon: <SBroadcast size={14} />, label: broadcast ? "Turn off broadcast (MultiExec)" : "Turn on broadcast (MultiExec)", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
-    { id: "broadcast-group", icon: <STarget size={14} />, label: "Broadcast targets… (choose terminals)", hint: "Pick a subset of terminals for MultiExec instead of all visible", action: () => setBroadcastGroupOpen(true) },
+    { id: "broadcast", icon: <SBroadcast size={14} />, label: broadcast ? "Turn off broadcast typing" : "Turn on broadcast typing", hint: "Type once, send to every visible terminal at once", action: () => toggleBroadcast() },
+    { id: "broadcast-group", icon: <STarget size={14} />, label: "Broadcast targets…", hint: "Pick a subset of terminals for broadcast typing instead of all visible", action: () => setBroadcastGroupOpen(true) },
     { id: "nettools", icon: <SSsh size={14} />, label: "Network tools", hint: "Ping, traceroute, TCP port scan, and DNS lookup", action: () => setNetToolsOpen(true) },
-    { id: "toggle-sidebar", icon: <SSplit size={14} />, label: ribbon ? "Hide tools panel" : "Show snippets panel", hint: "Show or hide the Snippets / Agents panel beside the session tree", action: () => selectRibbon(ribbon ? null : "snippets") },
+    { id: "toggle-sidebar", icon: <SSplit size={14} />, label: ribbon ? "Hide tools panel" : "Show tools panel", hint: "Show or hide the Workflows / Fleet panel beside the session tree", action: () => selectRibbon(ribbon ? null : "snippets") },
     { id: "mcps", icon: <SPlug size={14} />, label: "MCP servers", hint: "Curated catalog with one-click install", action: () => setMcpOpen(true) },
     { id: "setup", icon: <SRocket size={14} />, label: "Setup checker", hint: "Verify Node + Claude CLI + API key + live API test", action: () => setSetupOpen(true) },
     { id: "settings", icon: <SGear size={14} />, label: "Open settings", hint: "Appearance, keyboard shortcuts, factory reset", shortcut: scOf("settings"), action: () => setSettingsOpen(true) },

@@ -70,7 +70,7 @@ export default function AgentDashboard({ panels, activePanelId, tabActivities, t
   return (
     <div className="moba-dock-panel">
       <div className="phn-snippets-header">
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><SBot size={13} /> Agents</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><SBot size={13} /> Fleet</span>
         <span style={{ fontSize: 10, color: "var(--phn-text-dim, #888)", fontWeight: 400 }}>
           {waiting > 0 && (
             <span style={{ color: DOT.waiting, fontWeight: 600 }}>{waiting} needs you · </span>
