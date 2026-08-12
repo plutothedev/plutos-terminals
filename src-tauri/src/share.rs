@@ -215,9 +215,10 @@ async fn gist_http_error(status: reqwest::StatusCode, resp: reqwest::Response) -
 /// PURE — strip anything that looks like a bearer credential from an error
 /// string before it can ever reach a JS toast. Two shapes are handled: (a) an
 /// `Authorization: ...` header (any case) collapses everything after the header
-/// name on that line to a fixed placeholder; (b) any standalone token-shaped
-/// word — a recognized GitHub token prefix, or a bare run of 20+ alphanumeric/
-/// -/_ characters typical of an opaque bearer token/PAT — is replaced whole.
+/// name on that line to a fixed placeholder; (b) any token-shaped run of
+/// [A-Za-z0-9_-] — a recognized GitHub token prefix, or 20+ characters typical
+/// of an opaque bearer token/PAT — is replaced whole wherever it sits, even
+/// glued to quotes/colons inside a JSON error body.
 /// Applied to every error string gist_create/gist_delete can return. No regex
 /// dependency is added — Cargo.toml is untouched per the plan's HARD RULES.
 fn redact(s: String) -> String {
@@ -228,10 +229,32 @@ fn redact_line(line: &str) -> String {
     if let Some(idx) = find_ci_ascii(line, "authorization") {
         return format!("{}Authorization: [redacted]", &line[..idx]);
     }
-    line.split(' ')
-        .map(|w| if looks_like_token(w) { "[redacted]" } else { w })
-        .collect::<Vec<_>>()
-        .join(" ")
+    // Segment the line into maximal runs of token-charset characters
+    // [A-Za-z0-9_-] and check each run, passing every separator byte through
+    // unchanged. Space-splitting alone missed credentials glued to punctuation
+    // (a JSON error body echoing "token":"ghp_..." kept the quotes attached, so
+    // the whole word failed the charset check and the raw token sailed through).
+    let mut out = String::with_capacity(line.len());
+    let mut run = String::new();
+    for c in line.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+            run.push(c);
+        } else {
+            flush_run(&mut run, &mut out);
+            out.push(c);
+        }
+    }
+    flush_run(&mut run, &mut out);
+    out
+}
+
+fn flush_run(run: &mut String, out: &mut String) {
+    if looks_like_token(run) {
+        out.push_str("[redacted]");
+    } else {
+        out.push_str(run);
+    }
+    run.clear();
 }
 
 /// ASCII case-insensitive search. Avoids `to_lowercase()`, whose byte length can
@@ -572,5 +595,31 @@ mod share_tests {
     fn redact_leaves_ordinary_text_alone() {
         let msg = "500: rate limited, try again later".to_string();
         assert_eq!(redact(msg.clone()), msg);
+    }
+
+    #[test]
+    fn redact_strips_token_embedded_in_json_punctuation() {
+        // A GitHub API error body can echo the credential inside JSON: the
+        // token is glued to quotes/colons, so space-splitting never isolates it.
+        let out = redact(
+            r#"422: {"message":"Bad credentials","token":"ghp_9f8e7d6c5b4a3210feedfacecafebabe"}"#
+                .to_string(),
+        );
+        assert!(!out.contains("ghp_9f8e7d6c5b4a3210feedfacecafebabe"));
+        assert!(out.contains("[redacted]"));
+    }
+
+    #[test]
+    fn redact_strips_opaque_token_glued_to_punctuation() {
+        let out = redact(
+            "curl: (22) error token=abcdefghijklmnopqrstuvwxyz0123456789,please retry".to_string(),
+        );
+        assert!(!out.contains("abcdefghijklmnopqrstuvwxyz0123456789"));
+    }
+
+    #[test]
+    fn redact_preserves_separators_around_redacted_runs() {
+        let out = redact(r#"x="ghp_9f8e7d6c5b4a3210feedfacecafebabe";"#.to_string());
+        assert_eq!(out, r#"x="[redacted]";"#);
     }
 }
