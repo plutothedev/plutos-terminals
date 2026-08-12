@@ -220,7 +220,6 @@ pub fn run() {
             commands::git_branch_status,
             commands::collect_rule_files,
             commands::read_npm_scripts,
-            commands::scrollback_save,
             commands::scrollback_load,
             commands::scrollback_delete,
             commands::scrollback_sweep,

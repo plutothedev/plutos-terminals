@@ -1425,6 +1425,10 @@ pub async fn ssh_spawn(
                             &app_for_thread, &id_for_thread, &co_entry, &mut co, out, now,
                         );
                     }
+                    // Direct emit_under_lock caller = this op's own trailing
+                    // surface_drops (round-3 review: this site lost coverage
+                    // when the helper's internal call was de-duplicated).
+                    surface_drops(&app_for_thread, &id_for_thread, &mut co);
                     let _ = app_for_thread.emit(
                         &format!("pty://{}", id_for_thread),
                         "\r\n\x1b[1;31m[Pluto's Terminals] SSH connection stalled: outbound \

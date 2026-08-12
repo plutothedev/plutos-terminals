@@ -507,8 +507,11 @@ fn dispatch(
         // Read-only commands the phone page needs. No `write_store`: the companion
         // never overwrites the desktop's persisted layout (least privilege — a
         // leaked token is already shell access, no need to also hand it the store).
+        // Sync core, not the async command wrapper — this dispatcher already
+        // runs on the blocking pool (P1-T6; also caps the payload at the
+        // 256KB replay tail instead of the old up-to-10MB whole file).
         "scrollback_load" => Ok(
-            match crate::commands::scrollback_load(app.clone(), s("tabId")?) {
+            match crate::commands::scrollback_load_sync(app, &s("tabId")?) {
                 Some(v) => serde_json::Value::String(v),
                 None => serde_json::Value::Null,
             },

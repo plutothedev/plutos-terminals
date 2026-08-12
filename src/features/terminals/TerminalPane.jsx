@@ -89,10 +89,12 @@ const MIN_ROWS = 10;
 const ACTIVITY_BYTE_THRESHOLD = 500;
 const DONE_TIMEOUT_MS = 5000;
 
-// Scrollback persistence: keep the last ~100KB of PTY output in memory; on
-// unmount, save the last 500 lines to disk so a Pluto's Terminals restart replays history.
+// Scrollback persistence: keep the last ~100KB of PTY output in memory for
+// agent capture / cost scans. Disk persistence is owned by the Rust reader
+// thread (two ~5MB rotation segments); restore replays the last ~256KB tail
+// via scrollback_load (P1-T6) — enough to fill xterm's buffer, not megabytes
+// parsed at boot.
 const SCROLLBACK_MAX_BYTES = 100_000;
-const SCROLLBACK_REPLAY_LINES = 500;
 
 // Session transcripts: ANSI-stripped output appended to a daily markdown
 // file every 5s (or sooner if 8KB has accumulated). Lets the user grep
@@ -772,10 +774,11 @@ export default function TerminalPane({
       fontFamily: MONO_STACK,
       cursorBlink: true,
       cursorStyle: "bar",
-      // v0.1.32: bumped from 5000 to 10000 lines so restored scrollback from
-      // disk (now up to ~50000 lines worth at 5MB/100chars) has enough live
-      // buffer to actually be scrollable. Memory cost is modest — xterm cells
-      // are compact; ~16MB per pane at full fill, ~150MB across 8 packed panes.
+      // v0.1.32 bumped this to 10000 lines for large disk restores; P1-T6
+      // capped the restore payload to a 256KB tail (~2.5k typical lines), so
+      // 10000 now comfortably holds a full replay plus live output. Memory
+      // cost is modest — xterm cells are compact; ~16MB per pane at full
+      // fill, ~150MB across 8 packed panes.
       scrollback: 10000,
       allowProposedApi: true,
     });

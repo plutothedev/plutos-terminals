@@ -752,31 +752,94 @@ pub fn scrollback_path(app: &AppHandle, tab_id: &str) -> PathBuf {
         .join(format!("{}.txt", safe_filename(tab_id)))
 }
 
-#[tauri::command]
-pub fn scrollback_save(app: AppHandle, tab_id: String, content: String) -> Result<(), String> {
-    let path = scrollback_path(&app, &tab_id);
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+// (scrollback_save was removed in P1-T6: it had zero JS callers since the
+// reader thread took file ownership in v0.1.29, and a whole-file overwrite
+// would now fight the T2 segment rotation.)
+
+/// Replay cap for a tab restore (P1-T6). The renderer keeps ~100KB in memory
+/// and xterm caps at 10k lines, so reading megabytes on the MAIN THREAD at
+/// boot just to discard ~97% of it was pure startup cost (up to 10MB × N tabs
+/// pre-P1). 256KB of tail more than fills xterm's scrollback window.
+const SCROLLBACK_REPLAY_CAP: usize = 256 * 1024;
+
+/// Drop everything through the first newline when the slice started at a cut
+/// (so ANSI sequences never straddle the boundary); a slice from offset 0 is
+/// returned byte-identical. No newline in the slice → keep it raw rather than
+/// lose the only content.
+fn align_forward(buf: Vec<u8>, cut_mid_file: bool) -> Vec<u8> {
+    if !cut_mid_file {
+        return buf;
     }
-    fs::write(&path, content).map_err(|e| e.to_string())?;
-    Ok(())
+    match buf.iter().position(|&b| b == b'\n') {
+        Some(i) => buf[i + 1..].to_vec(),
+        None => buf,
+    }
+}
+
+/// Testable core: up to `cap` tail bytes across the two rotation segments,
+/// old-part first then current — chronological replay order.
+fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    // Hold the current handle across the whole stitch: a concurrent rotation
+    // renames the file out from under the PATH, but a held handle keeps
+    // reading the same bytes. Sizing uses fstat on the HELD handle at read
+    // time, not a racy pre-open metadata call.
+    let mut cur = fs::File::open(current).ok();
+    let cur_len = cur
+        .as_ref()
+        .and_then(|f| f.metadata().ok())
+        .map(|m| m.len() as usize)
+        .unwrap_or(0);
+    let mut parts: Vec<Vec<u8>> = Vec::new();
+    if cur_len < cap {
+        // Fill the remaining budget from the old segment's tail.
+        let budget = cap - cur_len;
+        if let Ok(mut of) = fs::File::open(old) {
+            if let Ok(m) = of.metadata() {
+                let olen = m.len() as usize;
+                let off = olen.saturating_sub(budget);
+                if of.seek(SeekFrom::Start(off as u64)).is_ok() {
+                    let mut buf = Vec::new();
+                    if of.read_to_end(&mut buf).is_ok() {
+                        parts.push(align_forward(buf, off > 0));
+                    }
+                }
+            }
+        }
+    }
+    let cur_missing = cur.is_none();
+    if let Some(f) = cur.as_mut() {
+        let off = cur_len.saturating_sub(cap);
+        if f.seek(SeekFrom::Start(off as u64)).is_ok() {
+            let mut buf = Vec::new();
+            if f.read_to_end(&mut buf).is_ok() {
+                parts.push(align_forward(buf, off > 0));
+            }
+        }
+    }
+    if cur_missing && parts.iter().all(|p| p.is_empty()) {
+        return None; // fresh tab: neither segment exists
+    }
+    let joined = parts.concat();
+    // Lossy-decode (v0.1.30 rationale): legacy files may carry invalid UTF-8;
+    // U+FFFD matches what xterm renders live.
+    Some(String::from_utf8_lossy(&joined).into_owned())
+}
+
+/// Sync core for direct in-process callers (the phone companion dispatches on
+/// its own blocking pool and calls this without the IPC wrapper).
+pub fn scrollback_load_sync(app: &AppHandle, tab_id: &str) -> Option<String> {
+    let path = scrollback_path(app, tab_id);
+    let old = path.with_extension("old.txt");
+    scrollback_tail(&path, &old, SCROLLBACK_REPLAY_CAP)
 }
 
 #[tauri::command]
-pub fn scrollback_load(app: AppHandle, tab_id: String) -> Option<String> {
-    let path = scrollback_path(&app, &tab_id);
-    if !path.exists() {
-        return None;
-    }
-    // v0.1.30: read raw bytes + lossy-decode instead of read_to_string. The
-    // previous version returned None for files containing any invalid UTF-8
-    // (e.g. raw bytes written by the v0.1.29 PTY reader thread before we
-    // started lossy-decoding on write). Lossy-decoding means existing files
-    // still load — invalid bytes show as U+FFFD, which is what xterm.js
-    // already renders for those sequences during live output.
-    fs::read(&path)
+pub async fn scrollback_load(app: AppHandle, tab_id: String) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || scrollback_load_sync(&app, &tab_id))
+        .await
         .ok()
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .flatten()
 }
 
 #[tauri::command]
@@ -2376,5 +2439,80 @@ mod notebook_io_tests {
             "PRIVATE KEY MATERIAL",
             "symlink target must be untouched"
         );
+    }
+}
+
+#[cfg(test)]
+mod scrollback_tail_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn tmp_pair(name: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir()
+            .join("plutos-terminals-tests")
+            .join(format!("{}-{}", name, crate::session::new_id("t")));
+        let _ = fs::create_dir_all(&dir);
+        (dir.join("tab.txt"), dir.join("tab.old.txt"))
+    }
+
+    #[test]
+    fn small_file_is_byte_identical_including_first_line() {
+        // Offset-0 rule (plan-audit F15): align-forward must NOT run when the
+        // slice starts at the beginning — the first line survives.
+        let (cur, old) = tmp_pair("small");
+        fs::write(&cur, "first line\nsecond line\n").unwrap();
+        let out = scrollback_tail(&cur, &old, 256 * 1024).unwrap();
+        assert_eq!(out, "first line\nsecond line\n");
+    }
+
+    #[test]
+    fn big_current_returns_newline_aligned_tail_within_cap() {
+        let (cur, old) = tmp_pair("big");
+        let line = "0123456789012345678901234567890123456789\n"; // 41 bytes
+        let data = line.repeat(100);
+        fs::write(&cur, &data).unwrap();
+        let cap = 500;
+        let out = scrollback_tail(&cur, &old, cap).unwrap();
+        assert!(out.len() < cap, "cap respected: {}", out.len());
+        assert!(out.starts_with('0'), "starts at a line boundary");
+        assert!(data.ends_with(&out), "is the exact tail");
+    }
+
+    #[test]
+    fn stitch_old_then_current_in_chronological_order() {
+        let (cur, old) = tmp_pair("stitch");
+        fs::write(&old, "older-a\nolder-b\n").unwrap();
+        fs::write(&cur, "newer-a\n").unwrap();
+        let out = scrollback_tail(&cur, &old, 256 * 1024).unwrap();
+        assert_eq!(out, "older-a\nolder-b\nnewer-a\n");
+    }
+
+    #[test]
+    fn huge_old_tiny_current_fills_budget_from_old_tail() {
+        let (cur, old) = tmp_pair("budget");
+        let line = "OLDOLDOLDOLDOLDOLDOLD\n"; // 22 bytes
+        fs::write(&old, line.repeat(1000)).unwrap(); // 22KB old
+        fs::write(&cur, "cur\n").unwrap();
+        let cap = 300;
+        let out = scrollback_tail(&cur, &old, cap).unwrap();
+        assert!(out.len() <= cap, "combined within cap: {}", out.len());
+        assert!(out.ends_with("cur\n"), "current is complete and last");
+        assert!(out.starts_with("OLD"), "old tail aligned to a line start");
+    }
+
+    #[test]
+    fn no_newline_blob_keeps_raw_cut() {
+        let (cur, old) = tmp_pair("blob");
+        fs::write(&cur, "x".repeat(1000)).unwrap();
+        let out = scrollback_tail(&cur, &old, 100).unwrap();
+        assert_eq!(out.len(), 100, "raw cut rather than losing everything");
+    }
+
+    #[test]
+    fn missing_both_is_none_missing_old_is_fine() {
+        let (cur, old) = tmp_pair("missing");
+        assert!(scrollback_tail(&cur, &old, 100).is_none());
+        fs::write(&old, "only old\n").unwrap();
+        assert_eq!(scrollback_tail(&cur, &old, 100).unwrap(), "only old\n");
     }
 }
