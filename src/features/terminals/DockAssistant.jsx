@@ -4,7 +4,6 @@
 // touches the webview. When the model replies with a fenced command you can run
 // or insert it into the active terminal.
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@backend";
 import { resolveActiveLLM } from "./providers.js";
 import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
