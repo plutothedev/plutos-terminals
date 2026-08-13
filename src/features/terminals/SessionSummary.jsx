@@ -37,6 +37,11 @@ export default function SessionSummary({ open, text, onClose }) {
     // the first token. Cleanup CANCELS the stream AND resets the ran-guard so
     // StrictMode's dev double-mount re-runs cleanly instead of dead-modaling
     // (plan audit M3); a real close also stops provider-side generation.
+    // `cancelled` guards every continuation (stream audit W1): summarizing tab
+    // B while A still streams re-runs this effect on the SAME mounted modal —
+    // without the guard, A's cancelled promise still resolves with partial
+    // text and clobbers B's answer (llm_stream returns Ok on cancel, not Err).
+    let cancelled = false;
     const { promise, cancel } = llmStream(
       {
         kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
@@ -44,15 +49,17 @@ export default function SessionSummary({ open, text, onClose }) {
         prompt: `--- recent terminal output ---\n${body}`,
       },
       (piece) => {
+        if (cancelled) return;
         setLoading(false);
         setAnswer((cur) => cur + piece);
       }
     );
     promise
-      .then((t) => { if (typeof t === "string" && t) setAnswer(t.trim()); })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .then((t) => { if (!cancelled && typeof t === "string" && t) setAnswer(t.trim()); })
+      .catch((e) => { if (!cancelled) setError(String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => {
+      cancelled = true;
       cancel();
       ran.current = false;
     };

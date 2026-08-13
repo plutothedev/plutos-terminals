@@ -37,7 +37,12 @@ export function llmStream(
       });
     } catch (err) {
       const msg = String(err);
-      const streamingUnavailable = /llm_stream|not found|unknown|not allowed/i.test(msg);
+      // EXACT missing-command string from Tauri's dispatcher
+      // (`Command {name} not found`, webview/mod.rs) — nothing broader (stream
+      // audit W3): loose terms like "not found"/"unknown" also appear in real
+      // provider errors ("model not found", "unknown parameter"), and a misfire
+      // silently re-issues the same failing request as a second paid call.
+      const streamingUnavailable = /command llm_stream not found/i.test(msg);
       if (!streamingUnavailable) throw err;
       const full = await invoke("llm_complete", {
         kind, baseUrl, apiKey, model,

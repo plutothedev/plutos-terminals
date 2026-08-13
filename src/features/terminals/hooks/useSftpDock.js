@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { getTabPassword, setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
+import { evictSftpCaches } from "../SftpBrowser.jsx";
 
 export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
   const [sftp, setSftp] = useState(null); // { connecting, id, error } | null
@@ -25,7 +26,7 @@ export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
     if (!conn?.host || !conn?.user) return;
     // Tear down any previous SFTP session before opening a new one so switching
     // between SSH tabs doesn't leak the backend connection.
-    setSftp((s) => { if (s?.id) invoke("sftp_disconnect", { id: s.id }).catch(() => {}); return null; });
+    setSftp((s) => { if (s?.id) { invoke("sftp_disconnect", { id: s.id }).catch(() => {}); evictSftpCaches(s.id); } return null; });
     const method = conn.auth?.method || "password";
     let password = null;
     if (method === "password") {
@@ -52,7 +53,7 @@ export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
       });
       // If the user switched away mid-connect, drop this session instead of
       // pointing the dock at a no-longer-active tab's host.
-      if (token !== sftpTokenRef.current) { invoke("sftp_disconnect", { id }).catch(() => {}); return; }
+      if (token !== sftpTokenRef.current) { invoke("sftp_disconnect", { id }).catch(() => {}); evictSftpCaches(id); return; }
       setSftp({ connecting: false, id, error: null });
     } catch (e) {
       if (token === sftpTokenRef.current) setSftp({ connecting: false, id: null, error: String(e) });
@@ -61,7 +62,7 @@ export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
 
   const closeSftp = useCallback(() => {
     setSftp((s) => {
-      if (s?.id) invoke("sftp_disconnect", { id: s.id }).catch(() => {});
+      if (s?.id) { invoke("sftp_disconnect", { id: s.id }).catch(() => {}); evictSftpCaches(s.id); }
       return null;
     });
   }, []);

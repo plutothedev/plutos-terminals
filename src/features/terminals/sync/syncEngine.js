@@ -117,7 +117,11 @@ export async function syncNow() {
     busy = false;
     if (pendingResync) {
       pendingResync = false;
-      // Re-run once for the change that arrived mid-sync.
+      // Re-run once for the change that arrived mid-sync. Clear any debounce
+      // notifyChange scheduled while we were busy (stream audit W4) —
+      // reassigning `timer` without clearing would orphan that live timeout
+      // into a redundant second fetch cycle.
+      if (timer) clearTimeout(timer);
       timer = setTimeout(() => { syncNow(); }, 250);
     }
   }

@@ -156,6 +156,7 @@ pub fn to_openai_messages(msgs: &[Value], system: &str) -> Value {
 ///      (mark the last block), tool = tool_result one-element array (mark the
 ///      block; is_error is an orthogonal field, coexists fine), user = STRING
 ///      content (converted to a text block first).
+///
 /// Marking the last message beats second-to-last (audit L2): strictly cheaper,
 /// and Anthropic auto-checks ~20 prior breakpoint positions so both hit.
 /// Cache-hit viability: agentLoop appends only, tools/system are per-run
@@ -238,6 +239,14 @@ pub fn parse_openai_response(v: &Value) -> Value {
 
 use crate::llm::{http_error, resolve_base};
 
+/// The cache-control gate as a named predicate so the test suite can pin it
+/// (stream audit S1: the 4 snapshot tests exercised attach_cache_control
+/// directly but nothing pinned WHICH kinds get it — a future "compat works
+/// too, right?" edit would have passed every test).
+fn wants_cache_control(kind: &str) -> bool {
+    kind == "anthropic"
+}
+
 #[tauri::command]
 pub async fn llm_tool_turn(
     kind: String,
@@ -259,7 +268,7 @@ pub async fn llm_tool_turn(
         });
         if !tools.is_empty() { body["tools"] = tools_to_anthropic(&tools); }
         // Native Anthropic only — never compat gateways (audit M2).
-        if kind == "anthropic" { attach_cache_control(&mut body); }
+        if wants_cache_control(&kind) { attach_cache_control(&mut body); }
         let req = client.post(format!("{}/v1/messages", base))
             .header("x-api-key", &api_key)
             .header("authorization", format!("Bearer {}", api_key))
@@ -404,6 +413,17 @@ mod cache_control_tests {
     fn marked(v: &Value) -> bool {
         v.get("cache_control").and_then(|c| c.get("type")).and_then(|t| t.as_str())
             == Some("ephemeral")
+    }
+
+    #[test]
+    fn gate_is_native_anthropic_only() {
+        // Pins the llm_tool_turn gate itself (audit M2 / stream audit S1):
+        // compat gateways and OpenAI-shaped providers must never receive
+        // cache_control fields they may reject outright.
+        assert!(wants_cache_control("anthropic"));
+        assert!(!wants_cache_control("anthropic-compat"));
+        assert!(!wants_cache_control("openai"));
+        assert!(!wants_cache_control(""));
     }
 
     #[test]

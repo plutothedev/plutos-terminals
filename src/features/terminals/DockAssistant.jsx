@@ -69,6 +69,10 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
           model: llm.model, system, messages: history,
         },
         (piece) => {
+          // First token retires the "thinking…" ghost (stream audit W2) —
+          // leaving it to the outer finally kept BOTH the growing bubble and
+          // the ghost on screen for the whole stream.
+          setLoading(false);
           setMessages((cur) => {
             const out = cur.slice();
             const last = out[out.length - 1];
@@ -113,6 +117,9 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
           </div>
         )}
         {messages.map((m, i) => {
+          // Pre-first-token, the empty assistant placeholder would render as a
+          // bare bubble under the "thinking…" ghost — hide it until it grows.
+          if (m.role === "assistant" && !m.content && loading && i === messages.length - 1) return null;
           const cmd = m.role === "assistant" ? extractCmd(m.content) : null;
           return (
             <div key={i} className={m.role === "user" ? "phn-msg user" : "phn-msg assistant"}>

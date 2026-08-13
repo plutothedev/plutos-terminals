@@ -17,6 +17,17 @@ const LISTING_TTL_MS = 10_000;
 const listingCache = new Map(); // `${sessionId}\0${path}` -> { entries, at }
 const homeCache = new Map(); // sessionId -> home path
 
+// Called by useSftpDock on sftp_disconnect: session ids are never reused, so
+// without eviction every reconnect strands its entries in the module Maps.
+export function evictSftpCaches(sessionId) {
+  if (!sessionId) return;
+  homeCache.delete(sessionId);
+  const prefix = `${sessionId}\u0000`;
+  for (const key of listingCache.keys()) {
+    if (key.startsWith(prefix)) listingCache.delete(key);
+  }
+}
+
 import "./terminals.css";
 
 function fmtSize(n) {
@@ -178,6 +189,9 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
     if (!ok) return;
     try {
       await invoke("sftp_remove", { id: sessionId, path: entry.path, isDir: entry.is_dir });
+      // A deleted dir's OWN cached listing dies too (stream audit W5) —
+      // refresh() only invalidates the cwd it lived in.
+      if (entry.is_dir) invalidateListing(entry.path);
       refresh();
     } catch (e) {
       toast.error(`Delete failed: ${e}`);
@@ -189,6 +203,8 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
     if (!next || !next.trim() || next.trim() === entry.name) return;
     try {
       await invoke("sftp_rename", { id: sessionId, from: entry.path, to: joinPath(cwd, next.trim()) });
+      // The old path's own listing is stale after a dir rename (audit W5).
+      if (entry.is_dir) invalidateListing(entry.path);
       refresh();
     } catch (e) {
       toast.error(`Rename failed: ${e}`);

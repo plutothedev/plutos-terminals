@@ -421,6 +421,9 @@ use futures_util::StreamExt;
 /// end so callers can still parse the complete reply. Same provider routing as
 /// the non-streaming path; adds `"stream": true` and parses the SSE deltas for
 /// Anthropic (content_block_delta) and OpenAI-compatible (choices[].delta).
+// The params ARE the IPC surface — every one arrives by name from JS; bundling
+// them into a struct would change the wire shape for zero benefit.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn llm_stream(
     on_chunk: tauri::ipc::Channel<String>,
