@@ -162,7 +162,15 @@ function getRollupSnapshot() {
     for (const [paneId, pid] of projectIndex) {
       value[pid] = mergeActivity(value[pid] || "idle", activities.get(paneId) || "idle");
     }
-    rollupSnapshot = { version, value };
+    // Content-diff (stream audit W3): a NON-indexed pane's flip (split
+    // children never feed rollups) bumps version but can't change any
+    // project's value — keep the previous identity so useProjectRollups
+    // consumers (sidebar, home cards) bail instead of re-rendering.
+    const prev = rollupSnapshot.value;
+    const vk = Object.keys(value);
+    const same =
+      Object.keys(prev).length === vk.length && vk.every((k) => prev[k] === value[k]);
+    rollupSnapshot = { version, value: same ? prev : value };
   }
   return rollupSnapshot.value;
 }

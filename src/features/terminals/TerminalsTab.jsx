@@ -842,7 +842,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         splitPane={splitPane}
         equalizePanes={equalizePanes}
         closeTab={closeTab}
-        activeTabId={activeTabId}
         activeTab={activeTab}
         panels={state.panels}
         activePanelId={state.activePanelId}

@@ -6,7 +6,7 @@
 // <ToastProvider>. Then `const toast = useToast(); toast.success("done");`.
 // ToastProvider mounts once at the App root.
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 const ToastContext = createContext(null);
 
@@ -37,12 +37,16 @@ export function ToastProvider({ children }) {
     return id;
   }, [dismiss]);
 
-  const api = {
-    success: useCallback((m, o) => push("success", m, o), [push]),
-    error:   useCallback((m, o) => push("error",   m, o), [push]),
-    info:    useCallback((m, o) => push("info",    m, o), [push]),
+  // Memoized (P2 stream audit W1): a plain object literal here handed every
+  // useToast() consumer a FRESH identity on every provider re-render — i.e.
+  // on every toast fire AND its ~4s auto-dismiss — which cascaded through
+  // useSessionDispatch's deps into homeApi and busted every panel memo.
+  const api = useMemo(() => ({
+    success: (m, o) => push("success", m, o),
+    error: (m, o) => push("error", m, o),
+    info: (m, o) => push("info", m, o),
     dismiss,
-  };
+  }), [push, dismiss]);
 
   return (
     <ToastContext.Provider value={api}>

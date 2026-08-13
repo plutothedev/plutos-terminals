@@ -173,7 +173,10 @@ function ProjectSidebar({
       if (cancelled || inFlight || document.hidden) return;
       inFlight = true;
       try {
-        const hosts = ssh.map((p) => [p.connection.host, p.connection.port || 22]);
+        // Trimmed host both directions — the Rust side trims before keying,
+        // so an untrimmed lookup here would never match (stream audit nit).
+        const hostOf = (p) => String(p.connection.host || "").trim();
+        const hosts = ssh.map((p) => [hostOf(p), p.connection.port || 22]);
         const byKey = await invoke("net_latency_many", { hosts });
         if (!cancelled && byKey) {
           setLatency((m) => {
@@ -181,7 +184,7 @@ function ProjectSidebar({
             // host:port keys (T4 review W1): host-only lookup collapsed two
             // projects on one box with different sshd ports.
             for (const p of ssh) {
-              next[p.id] = byKey[`${p.connection.host}:${p.connection.port || 22}`] ?? null;
+              next[p.id] = byKey[`${hostOf(p)}:${p.connection.port || 22}`] ?? null;
             }
             return next;
           });

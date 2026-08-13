@@ -141,6 +141,18 @@ describe("P2-T2 identity containment", () => {
     expect(result.current).toBe(empty); // cached identity across renders
   });
 
+  it("a NON-indexed (split-child) pane flip keeps rollup identity", () => {
+    // Stream-audit W3: split children never feed project rollups, so their
+    // flips must not re-render rollup consumers.
+    act(() => setProjectIndex(new Map([["tab_a", "proj_1"]])));
+    act(() => setPaneActivity("tab_a", "active"));
+    const { result, rerender } = renderHook(() => useProjectRollups());
+    const snap1 = result.current;
+    act(() => setPaneActivity("pane_split_child", "waiting")); // not in index
+    rerender();
+    expect(result.current).toBe(snap1);
+  });
+
   it("re-setting an IDENTICAL project index is a no-op for snapshots", () => {
     // 16ccc15's change-guard: tab switches rebuild an equal mapping — the
     // cached snapshots must keep identity through it.

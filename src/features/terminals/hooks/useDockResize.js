@@ -17,8 +17,11 @@ export function useDockResize() {
   });
   const [dockCollapsed, setDockCollapsed] = useState(() => localStorage.getItem("pt:dockCollapsed") === "1");
   const [treeCollapsed, setTreeCollapsed] = useState(() => localStorage.getItem("pt:treeCollapsed") === "1");
-  const collapseDock = (v) => { setDockCollapsed(v); localStorage.setItem("pt:dockCollapsed", v ? "1" : "0"); };
-  const collapseTree = (v) => { setTreeCollapsed(v); localStorage.setItem("pt:treeCollapsed", v ? "1" : "0"); };
+  // useCallback'd (P2 stream audit W2): plain closures re-minted per render
+  // and defeated every downstream useCallback that listed them as deps (the
+  // sidebar's onCollapse churned on EVERY TerminalsTab render).
+  const collapseDock = useCallback((v) => { setDockCollapsed(v); localStorage.setItem("pt:dockCollapsed", v ? "1" : "0"); }, []);
+  const collapseTree = useCallback((v) => { setTreeCollapsed(v); localStorage.setItem("pt:treeCollapsed", v ? "1" : "0"); }, []);
   // Drag the splitter to resize the right dock (persisted on release).
   const startDockResize = useCallback((e) => {
     e.preventDefault();

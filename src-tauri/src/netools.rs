@@ -160,10 +160,9 @@ pub async fn net_port_scan(host: String, ports: String) -> Result<Vec<u16>, Stri
 /// Latency to a host's SSH port (or `port`) via a timed TCP connect — bounded
 /// and portable (no ICMP/ping-flag differences). Returns round-trip ms, or None
 /// if it times out / is refused. Used for the session-tree latency readout.
-// (The single-target net_latency command was deleted in the T4 review round:
+// The single-target net_latency command was deleted in the T4 review round:
 // zero callers remained after the sidebar moved to the batch. The sync core
-// below is the shared probe.)
-
+// below is the shared probe.
 fn net_latency_sync(host: &str, port: Option<u16>) -> Option<u32> {
     let p = port.unwrap_or(22);
     let addrs = match (host, p).to_socket_addrs() {
