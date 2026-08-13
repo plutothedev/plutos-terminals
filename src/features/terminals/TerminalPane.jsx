@@ -102,6 +102,33 @@ const SCROLLBACK_MAX_BYTES = 100_000;
 const TRANSCRIPT_FLUSH_MS = 5000;
 const TRANSCRIPT_FLUSH_BYTES = 8000;
 
+// Shared transcript flush ticker (P2-T5): ONE 5s interval driving every
+// pane's flusher instead of one interval per pane (20 panes = 4 timer
+// wakeups/s for the same work). Registration is CREATE-ONCE at first mount —
+// the transcript buffers are first-fiber-bound, so a per-mount registration
+// would flush a moved pane's empty new-fiber buffer forever (plan-audit H4) —
+// and unregistered via the registry destroy hook (registry-lifetime, like the
+// bridge writer). Each registered fn owns its own midnight date-roll.
+const transcriptFlushers = new Map(); // tabId -> () => void
+let transcriptTicker = null;
+function registerTranscriptFlusher(tabId, fn) {
+  transcriptFlushers.set(tabId, fn);
+  if (!transcriptTicker) {
+    transcriptTicker = setInterval(() => {
+      for (const f of transcriptFlushers.values()) {
+        try { f(); } catch { /* one pane's failure must not starve the rest */ }
+      }
+    }, TRANSCRIPT_FLUSH_MS);
+  }
+}
+function unregisterTranscriptFlusher(tabId) {
+  transcriptFlushers.delete(tabId);
+  if (transcriptFlushers.size === 0 && transcriptTicker) {
+    clearInterval(transcriptTicker);
+    transcriptTicker = null;
+  }
+}
+
 // Auto-approve: scan the recent output buffer for Claude's permission
 // prompt pattern. Throttled so a stuck prompt can't loop us.
 const AUTO_APPROVE_BUFFER_BYTES = 2000;
@@ -346,7 +373,6 @@ export default function TerminalPane({
   // moved pane keeps its analysis buffers; transcript machinery stays
   // per-mount — see the flush destroy hook for the tail.)
   const transcriptBufRef = useRef("");
-  const transcriptTimerRef = useRef(null);
   const transcriptDateRef = useRef(todayDate());
   // Serializes this pane's transcript_append invokes (P1-T3 append-order).
   const transcriptChainRef = useRef(null);
@@ -376,6 +402,7 @@ export default function TerminalPane({
   // synchronous — it's cheap and must keep firing even while this window is hidden
   // (rAF is paused when hidden), which is exactly when auto-approve does its job.
   const costRafRef = useRef(0);
+  const stickyRafRef = useRef(0);
 
   const setActivity = (next) => {
     if (activityRef.current === next) return;
@@ -471,6 +498,14 @@ export default function TerminalPane({
   const hasPendingPrompt = () => {
     const e = entryRef.current;
     if (!e) return false;
+    // Cheap prefilter (P2-T5): "❯" is a REQUIRED marker below and a single
+    // char, so ANSI interleaving can't split it in the raw buffer — a miss
+    // here is exactly a full-scan miss (same false return, so the caller's
+    // waiting→active un-block branch still runs; a bare early-return anywhere
+    // ABOVE the caller's no-match handling would freeze "waiting" forever).
+    // False positives (shell prompts print ❯) just fall through to the full
+    // stripAnsi scan — today's cost.
+    if (!e.counters.recentOut.includes("❯")) return false;
     const text = stripAnsi(e.counters.recentOut);
     return (
       /❯\s*1[.)]/.test(text) &&
@@ -708,10 +743,13 @@ export default function TerminalPane({
         cancelAnimationFrame(costRafRef.current);
         costRafRef.current = 0;
       }
-      if (transcriptTimerRef.current) {
-        clearInterval(transcriptTimerRef.current);
-        transcriptTimerRef.current = null;
+      if (stickyRafRef.current) {
+        cancelAnimationFrame(stickyRafRef.current);
+        stickyRafRef.current = 0;
       }
+      // (The 5s flush now rides the shared module ticker, registered
+      // create-once and unregistered by the destroy hook — a park no longer
+      // kills periodic flushing for moved panes. P2-T5.)
       flushTranscript();
       detachHost(tabId);
       const e = getEntry(tabId);
@@ -1002,6 +1040,11 @@ export default function TerminalPane({
     });
     // Sticky command header (Blocks slice 3): while scrolled up into a block's
     // output, pin that block's command at the top so you know what produced it.
+    // rAF-coalesced (P2-T5, same pattern as checkCost): xterm fires onScroll
+    // once PER SCROLLED LINE, and this walks up to 200 blocks — a flood
+    // scrolling hundreds of lines per frame ran it hundreds of times for one
+    // paint. Final-state-wins; the header is an absolutely-positioned overlay,
+    // so end-of-frame placement is lossless.
     const updateSticky = () => {
       const buf = term.buffer.active;
       if (buf.viewportY >= buf.baseY) { entry.ui.setStickyBlock(null); return; } // at the live bottom
@@ -1013,7 +1056,13 @@ export default function TerminalPane({
       }
       entry.ui.setStickyBlock(found);
     };
-    term.onScroll(updateSticky);
+    term.onScroll(() => {
+      if (stickyRafRef.current) return;
+      stickyRafRef.current = requestAnimationFrame(() => {
+        stickyRafRef.current = 0;
+        updateSticky();
+      });
+    });
     termRef.current = term;
     fitRef.current = fit;
     // xterm creates its renderer (and measures char-cell size) inside open() —
@@ -1084,13 +1133,13 @@ export default function TerminalPane({
       return false;
     };
 
-    // Periodic transcript flush — the 5s cadence runs only while THIS
-    // (first-mounting) fiber is attached: its park cleanup clears the interval
-    // and a re-attach never re-arms it. After a move, persistence falls back
-    // to the size-threshold flush in appendTranscript plus the destroy-hook
-    // tail flush on close/lock/crash.
-    transcriptTimerRef.current = setInterval(() => {
-      // Roll over to a new date file at midnight.
+    // Periodic transcript flush — rides the shared module ticker (P2-T5),
+    // registered here in the create-once path so the closure captures THIS
+    // (first) fiber's buffer/date refs — the ones handleChunk actually fills.
+    // Moved panes keep flushing (the old per-pane interval died on park).
+    // Date-roll: flush under the OLD date, then roll (the midnight flush is
+    // the documented stale-date write-through P1's transcript pool supports).
+    registerTranscriptFlusher(tabId, () => {
       const today = todayDate();
       if (today !== transcriptDateRef.current) {
         flushTranscript();
@@ -1098,7 +1147,8 @@ export default function TerminalPane({
       } else {
         flushTranscript();
       }
-    }, TRANSCRIPT_FLUSH_MS);
+    });
+    registerDestroyHook(tabId, () => unregisterTranscriptFlusher(tabId));
 
     (async () => {
       const restored = await replayScrollback();
