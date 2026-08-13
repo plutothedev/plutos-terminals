@@ -141,6 +141,61 @@ pub fn to_openai_messages(msgs: &[Value], system: &str) -> Value {
     Value::Array(out)
 }
 
+/// Anthropic prompt caching (P3-T3): mark three breakpoints with
+/// `cache_control: {type: "ephemeral"}` so agent runs stop resending the full
+/// tool schemas + growing history at O(n^2) token cost (~100k redundant tokens
+/// per 14-step run with MCP servers). NATIVE Anthropic ONLY — compat gateways
+/// (Moonshot-style) may 400 on the proprietary key (audit M2), so the caller
+/// gates on kind == "anthropic", never "anthropic-compat".
+///
+/// Breakpoints (<=4 allowed; we use 3):
+///   1. the LAST tools[] entry (caches the whole tool prefix),
+///   2. system — converted from top-level string to block form (required for
+///      the marker); an EMPTY system emits no block at all,
+///   3. the LAST message — shape-aware (audit M1): assistant = block array
+///      (mark the last block), tool = tool_result one-element array (mark the
+///      block; is_error is an orthogonal field, coexists fine), user = STRING
+///      content (converted to a text block first).
+/// Marking the last message beats second-to-last (audit L2): strictly cheaper,
+/// and Anthropic auto-checks ~20 prior breakpoint positions so both hit.
+/// Cache-hit viability: agentLoop appends only, tools/system are per-run
+/// constants, serde ordering is deterministic -> byte-stable prefix.
+pub fn attach_cache_control(body: &mut Value) {
+    let marker = json!({ "type": "ephemeral" });
+
+    if let Some(tools) = body.get_mut("tools").and_then(|t| t.as_array_mut()) {
+        if let Some(last) = tools.last_mut() {
+            last["cache_control"] = marker.clone();
+        }
+    }
+
+    if let Some(system) = body.get_mut("system") {
+        if let Some(text) = system.as_str() {
+            if text.is_empty() {
+                // No block for an empty system — a marked empty block is an
+                // API error waiting to happen and caches nothing.
+                *system = json!([]);
+            } else {
+                *system = json!([{ "type": "text", "text": text, "cache_control": marker.clone() }]);
+            }
+        }
+    }
+
+    if let Some(msgs) = body.get_mut("messages").and_then(|m| m.as_array_mut()) {
+        if let Some(last) = msgs.last_mut() {
+            let content = &mut last["content"];
+            if let Some(text) = content.as_str() {
+                // String content (the user goal on turn 1) -> block form.
+                *content = json!([{ "type": "text", "text": text, "cache_control": marker }]);
+            } else if let Some(blocks) = content.as_array_mut() {
+                if let Some(last_block) = blocks.last_mut() {
+                    last_block["cache_control"] = marker;
+                }
+            }
+        }
+    }
+}
+
 pub fn parse_anthropic_response(v: &Value) -> Value {
     let mut text = String::new();
     let mut calls = Vec::new();
@@ -203,6 +258,8 @@ pub async fn llm_tool_turn(
             "messages": to_anthropic_messages(&messages),
         });
         if !tools.is_empty() { body["tools"] = tools_to_anthropic(&tools); }
+        // Native Anthropic only — never compat gateways (audit M2).
+        if kind == "anthropic" { attach_cache_control(&mut body); }
         let req = client.post(format!("{}/v1/messages", base))
             .header("x-api-key", &api_key)
             .header("authorization", format!("Bearer {}", api_key))
@@ -337,5 +394,85 @@ mod tests {
         assert_eq!(r["text"], "done");
         assert_eq!(r["stop_reason"], "end");
         assert!(r["tool_calls"].as_array().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod cache_control_tests {
+    use super::*;
+
+    fn marked(v: &Value) -> bool {
+        v.get("cache_control").and_then(|c| c.get("type")).and_then(|t| t.as_str())
+            == Some("ephemeral")
+    }
+
+    #[test]
+    fn tools_tail_system_and_last_user_string_message() {
+        let mut body = json!({
+            "model": "m", "max_tokens": 4096, "system": "sys",
+            "messages": [{ "role": "user", "content": "goal" }],
+            "tools": [{ "name": "a" }, { "name": "b" }],
+        });
+        attach_cache_control(&mut body);
+        let tools = body["tools"].as_array().unwrap();
+        assert!(!marked(&tools[0]), "only the LAST tool is marked");
+        assert!(marked(&tools[1]));
+        let system = body["system"].as_array().unwrap();
+        assert_eq!(system[0]["text"], "sys");
+        assert!(marked(&system[0]));
+        // String user content converted to block form + marked.
+        let content = body["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(content[0]["text"], "goal");
+        assert!(marked(&content[0]));
+    }
+
+    #[test]
+    fn last_tool_result_block_is_marked_is_error_coexists() {
+        let mut body = json!({
+            "model": "m", "system": "s",
+            "messages": [
+                { "role": "user", "content": "goal" },
+                { "role": "assistant", "content": [{ "type": "text", "text": "hi" }] },
+                { "role": "user", "content": [{
+                    "type": "tool_result", "tool_use_id": "t1",
+                    "content": "boom", "is_error": true
+                }] },
+            ],
+        });
+        attach_cache_control(&mut body);
+        let msgs = body["messages"].as_array().unwrap();
+        // Only the LAST message's block carries the marker.
+        assert!(!marked(&msgs[1]["content"][0]));
+        let block = &msgs[2]["content"][0];
+        assert!(marked(block));
+        assert_eq!(block["is_error"], true, "orthogonal field survives");
+        assert_eq!(block["type"], "tool_result");
+    }
+
+    #[test]
+    fn assistant_block_array_marks_last_block_only() {
+        let mut body = json!({
+            "model": "m", "system": "s",
+            "messages": [{ "role": "assistant", "content": [
+                { "type": "text", "text": "a" },
+                { "type": "tool_use", "id": "x", "name": "run", "input": {} },
+            ]}],
+        });
+        attach_cache_control(&mut body);
+        let blocks = body["messages"][0]["content"].as_array().unwrap();
+        assert!(!marked(&blocks[0]));
+        assert!(marked(&blocks[1]));
+    }
+
+    #[test]
+    fn empty_system_and_missing_tools_are_safe() {
+        let mut body = json!({
+            "model": "m", "system": "",
+            "messages": [{ "role": "user", "content": "g" }],
+        });
+        attach_cache_control(&mut body);
+        assert_eq!(body["system"].as_array().unwrap().len(), 0, "no marked empty block");
+        assert!(body.get("tools").is_none());
+        assert!(marked(&body["messages"][0]["content"][0]));
     }
 }
