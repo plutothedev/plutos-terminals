@@ -61,7 +61,12 @@ export function useSessionDispatch({
   // (target = panel under cursor). When `overrideCommands` is provided, it
   // replaces the project's default startCommands — used by the npm-script
   // launcher in the context menu.
-  const openProjectInPanel = useCallback((panelId, projectId, overrideCommands) => {
+  const openProjectInPanel = useCallback((rawPanelId, projectId, overrideCommands) => {
+    // null panelId = "the active panel", resolved HERE at call time (T2
+    // review: the sidebar's click wrapper closed over state.activePanelId to
+    // pass it, re-minting itself on every panel-focus switch and busting the
+    // sidebar memo — the exact churn class the stateRef migration kills).
+    const panelId = rawPanelId ?? stateRef.current.activePanelId;
     const projects = projectsRef.current;
     const project = projects.find(p => p.id === projectId);
     if (!project) return;

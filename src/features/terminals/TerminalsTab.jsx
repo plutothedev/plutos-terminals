@@ -789,8 +789,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const sidebarAddProject = useCallback(() => setDialog({ mode: "add" }), []);
   const sidebarEditProject = useCallback((id) => setDialog({ mode: "edit", projectId: id }), []);
   const sidebarClickProject = useCallback(
-    (id) => openProjectInPanel(state.activePanelId, id),
-    [openProjectInPanel, state.activePanelId]
+    // null = active panel, resolved inside the hook at call time — closing
+    // over state.activePanelId here re-minted this on every panel focus and
+    // busted the sidebar memo (T2 review).
+    (id) => openProjectInPanel(null, id),
+    [openProjectInPanel]
   );
   const sidebarDropProject = useCallback(
     (id, panelId) => openProjectInPanel(panelId, id),

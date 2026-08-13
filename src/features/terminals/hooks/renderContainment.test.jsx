@@ -8,8 +8,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useTabTelemetry } from "./useTabTelemetry.js";
+import { useSessionDispatch } from "./useSessionDispatch.js";
+import { useProjects } from "./useProjects.js";
 import {
   setPaneActivity,
+  setProjectIndex,
   usePanelActivityStamp,
   useProjectRollups,
   __resetActivityStore,
@@ -34,11 +37,69 @@ describe("P2-T2 identity containment", () => {
     );
     const ap1 = result.current.tabAutoApprove;
     const names1 = result.current.tabProjectNames;
-    // A tab switch: new state identity, same tabs/projects content.
-    const stateB = { ...stateA, activePanelId: "panel_2" };
+    // A REAL switchTab persist shape (T2 review: the first draft reused the
+    // same panels reference, which the plain pre-T2 useMemo also survived —
+    // vacuous). useWorkspaceTree's reducers return NEW panel/array references
+    // with equal content; that is exactly what useStableMap must collapse.
+    const stateB = {
+      ...stateA,
+      activePanelId: "panel_2",
+      panels: stateA.panels.map((p) => ({ ...p, tabs: p.tabs.map((t) => ({ ...t })) })),
+    };
     rerender({ state: stateB });
     expect(result.current.tabAutoApprove).toBe(ap1);
     expect(result.current.tabProjectNames).toBe(names1);
+  });
+
+  it("H3: dispatch/project handlers keep identity across persists", () => {
+    // The plan-mandated assertion the first harness draft dropped — and the
+    // gap that let the sidebarClickProject wrapper regression slip through.
+    // Mocks are STABLE consts — mirroring the app, where toast/spawn/etc.
+    // keep identity across renders (a fresh mock per rerender would re-mint
+    // the handlers through their own deps and test nothing).
+    const noop = () => {};
+    const stableToast = { error: noop, info: noop, success: noop };
+    const stableGetPassword = () => undefined;
+    const dispatchProps = (state) => ({
+      state,
+      persist: noop,
+      projects: state.projects || [],
+      toast: stableToast,
+      spawnSessionTab: noop,
+      getSessionPassword: stableGetPassword,
+      setSshPrompt: noop,
+      setVncLaunch: noop,
+      setRdpLaunch: noop,
+    });
+    const d = renderHook(({ state }) => useSessionDispatch(dispatchProps(state)), {
+      initialProps: { state: { ...stateA, projects } },
+    });
+    const open1 = d.result.current.openProjectInPanel;
+    const run1 = d.result.current.runProjectScript;
+    const wt1 = d.result.current.openAgentWorktree;
+    d.rerender({ state: { ...stateA, projects, activePanelId: "panel_2" } });
+    expect(d.result.current.openProjectInPanel).toBe(open1);
+    expect(d.result.current.runProjectScript).toBe(run1);
+    expect(d.result.current.openAgentWorktree).toBe(wt1);
+
+    const stableToast2 = { error: noop, info: noop, success: noop };
+    const stableRibbonRef = { current: noop };
+    const pr = renderHook(
+      ({ state }) =>
+        useProjects({
+          state,
+          persist: noop,
+          projects: state.projects || [],
+          toast: stableToast2,
+          selectRibbonRef: stableRibbonRef,
+        }),
+      { initialProps: { state: { ...stateA, projects } } }
+    );
+    const remove1 = pr.result.current.removeProject;
+    const upsert1 = pr.result.current.upsertProject;
+    pr.rerender({ state: { ...stateA, projects: [...projects], activePanelId: "panel_2" } });
+    expect(pr.result.current.removeProject).toBe(remove1);
+    expect(pr.result.current.upsertProject).toBe(upsert1);
   });
 
   it("a REAL auto-approve toggle produces a fresh identity", () => {
@@ -78,5 +139,17 @@ describe("P2-T2 identity containment", () => {
     const empty = result.current;
     rerender();
     expect(result.current).toBe(empty); // cached identity across renders
+  });
+
+  it("re-setting an IDENTICAL project index is a no-op for snapshots", () => {
+    // 16ccc15's change-guard: tab switches rebuild an equal mapping — the
+    // cached snapshots must keep identity through it.
+    act(() => setPaneActivity("tab_a", "active"));
+    act(() => setProjectIndex(new Map([["tab_a", "proj_1"]])));
+    const { result, rerender } = renderHook(() => useProjectRollups());
+    const snap1 = result.current;
+    act(() => setProjectIndex(new Map([["tab_a", "proj_1"]]))); // equal rebuild
+    rerender();
+    expect(result.current).toBe(snap1);
   });
 });
