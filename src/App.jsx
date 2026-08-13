@@ -68,7 +68,7 @@ function writeUserState(next) {
     }
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(safe));
   } catch (err) {
-    console.warn("Pluto's Terminals: user-state localStorage write failed", err);
+    console.warn("Pluto's Terminal: user-state localStorage write failed", err);
   }
 }
 
@@ -139,7 +139,7 @@ function AppInner() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch (err) {
-      console.warn("Pluto's Terminals: localStorage write failed", err);
+      console.warn("Pluto's Terminal: localStorage write failed", err);
     }
   }, []);
 
@@ -320,9 +320,9 @@ function AppInner() {
     if (!isPrimaryWindow()) return;
     const sweep = () => {
       invoke("scrollback_sweep", { keepTabIds: allOpenTabIds() })
-        .catch((e) => console.warn("Pluto's Terminals: scrollback sweep failed", e));
+        .catch((e) => console.warn("Pluto's Terminal: scrollback sweep failed", e));
       invoke("transcript_sweep", {})
-        .catch((e) => console.warn("Pluto's Terminals: transcript sweep failed", e));
+        .catch((e) => console.warn("Pluto's Terminal: transcript sweep failed", e));
     };
     // Deferred off the boot burst (P4-T4): allOpenTabIds() walks + parses
     // every per-window localStorage blob, and GC latency is irrelevant.

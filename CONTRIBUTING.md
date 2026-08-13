@@ -1,65 +1,74 @@
-# Contributing to Pluto's Terminals
+# Contributing to Pluto's Terminal
 
-Thanks for considering a contribution. The project is run by [@plutothedev](https://github.com/plutothedev) and the [Pluto community](https://discord.gg/3cZQVgKF) — code, prompt packs, and bug reports are all welcome.
+Thanks for considering a contribution. The project is run by
+[@plutothedev](https://github.com/plutothedev) and the
+[Pluto community](https://discord.gg/3cZQVgKF). Bug reports, feature
+suggestions, and code PRs are all welcome.
 
-## Quick contribution paths
+## Ways to contribute
 
-1. **Submit a prompt pack** — open a PR adding a `.deck.json` to `prompt-packs/`. See pack-submission template under [issue templates](.github/ISSUE_TEMPLATE) for the format. Bundled with the next release.
-2. **Report a bug** — open an issue using the bug-report template.
-3. **Suggest a feature** — open an issue using the feature-request template.
-4. **Ship code** — pick an open issue or propose a change. PRs go through review.
+1. **Report a bug** using the bug-report issue template. Include your OS and the
+   app version (bottom-left of the status bar).
+2. **Suggest a feature** using the feature-request template.
+3. **Ship code:** pick an open issue or propose a change in an issue first, so
+   nobody builds something that won't be merged.
 
-## Build from source
+## Dev setup
 
 ```bash
 git clone https://github.com/plutothedev/plutos-terminals.git
 cd plutos-terminals
 npm install
-npm run tauri dev   # dev build with hot-reload
-npm run tauri build # production build → src-tauri/target/release/bundle/msi/
+npm run tauri dev    # dev app with hot reload (Vite + cargo build)
 ```
 
-**Prerequisites:** Node.js LTS, Rust 1.77+ (via [rustup](https://rustup.rs/)), Visual Studio Build Tools 2019+ on Windows.
+**Prerequisites:** Node.js LTS, Rust 1.77+ (via [rustup](https://rustup.rs/)),
+and on Windows the Visual Studio Build Tools 2019+. The first `cargo` build is
+slow because Tauri pulls many crates; later builds are incremental.
 
-First `cargo build` is slow (~3 min) because Tauri pulls many crates. Subsequent builds are incremental and fast (~30-60 sec).
+Fast compile checks without launching the app:
 
-## Project layout
+```bash
+npm run build                  # frontend compile check
+cd src-tauri && cargo check    # backend compile check
+```
 
-- `src/` — React frontend
-  - `App.jsx` — entry shell + Welcome screen + state management
-  - `features/terminals/` — multi-terminal grid component (lifted from Lyfe with rebrand sweep)
-  - `features/terminals/AgentView.jsx` — agent-view card grid (alternative rendering of `state.panels`)
-  - `components/` — shared modals + toast + confirm + setup checker + MCP installer + update banner
-- `src-tauri/` — Rust backend
-  - `src/lib.rs` — Tauri app entry, tray icon, command registration
-  - `src/pty.rs` — PTY session management (portable-pty)
-  - `src/commands.rs` — filesystem store, project helpers, scrollback persistence, setup-check helpers
-- `prompt-packs/` — bundled `.deck.json` packs + `SCHEMA.md` + `HOW_TO_USE.md` + `README.md` catalog
-- `scripts/generate_icon.py` — Pillow-based app-icon generator
-- `releases/` — per-version release notes + launch content drafts
+## Test gates
 
-## Authoring a prompt pack
+Both must be green before a PR is ready:
 
-The fastest path: configure your terminal layout in the running app, click **💾 export**, edit the resulting JSON if needed.
+```bash
+npx vitest run                 # JS/JSX unit tests
+cd src-tauri && cargo test     # Rust unit tests
+```
 
-By hand: copy `prompt-packs/example.deck.json` and edit `name`, `description`, `panels[]`. Schema lives at `prompt-packs/SCHEMA.md` (`plutos-terminals/deck.json/v0`).
+New behavior should come with tests. Frontend tests default to the node
+environment; a test that needs the DOM declares happy-dom via the
+`@vitest-environment` pragma on its first line.
 
-To submit: open a PR adding your `.deck.json` to `prompt-packs/`. Curation criteria for the bundled set:
-- Has a clear `name` + `description` (1-3 sentences explaining the use case)
-- Uses templated `${USERPROFILE}` / `${HOME}` / `${VAULT}` rather than hardcoded paths (cross-machine)
-- `notes[]` documents any prerequisites or gotchas
-- Doesn't reference private resources (pack should work for any user)
+## PR expectations
 
-Packs that don't meet bundling criteria can still be shared via the [Pluto Discord](https://discord.gg/3cZQVgKF) `#packs` channel — community-curated rather than bundled.
+- Small, focused PRs merge fastest. One concern per PR.
+- Describe what changed and why; link the issue it closes.
+- `npx vitest run` and `npm run build` green, plus `cargo test` if you touched
+  Rust.
+- No new dependencies without prior discussion in an issue.
+- Expect review feedback; the codebase carries invariants (PTY lifetimes,
+  keychain-backed secrets, functional state updaters) that reviews enforce.
 
-## Code conventions
+## Code style
 
-- **Components** — functional + hooks, no class components. Keep them under ~300 lines; split when they grow.
-- **Styles** — inline via the existing brand-color constants in each component. No CSS-in-JS framework. Keep brand colors consistent: `#0a0a0a` background, `#4DAAFC` accent (action), `#FF0080` Pluto magenta (signature / destructive).
-- **Tauri commands** — snake_case in Rust, camelCase in JS invoke calls (Tauri auto-renames). Keep parameter signatures stable.
-- **Toast/Confirm** — use `useToast()` and `useConfirm()` instead of `window.alert/confirm` for any user-facing dialog.
-- **No new dependencies without discussion** — open an issue first.
+- Functional React components + hooks; no class components. Keep components
+  focused and split them when they grow.
+- Inline styles consume the `--phn-*` design tokens from `headerSkins.js`; no
+  CSS-in-JS framework.
+- Use `useToast()` / `useConfirm()` instead of `window.alert` / `window.confirm`.
+- Tauri commands: snake_case in Rust, camelCase in JS invoke calls. New blocking
+  Rust commands must be `async fn`.
+- See `CLAUDE.md` for the architecture map and the cross-cutting invariants.
 
 ## License
 
-All contributions are MIT-licensed. By submitting a PR you agree to the project license.
+Pluto's Terminal is proprietary, source-available software (see
+[LICENSE](LICENSE)). By submitting a PR you agree that your contribution is
+licensed to the project's copyright holder under the project license.

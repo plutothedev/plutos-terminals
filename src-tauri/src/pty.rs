@@ -80,7 +80,7 @@ const FLUSHER_HEARTBEAT: Duration = Duration::from_millis(250);
 /// N failures; each marker is itself best-effort on the saturated queue).
 const EMIT_FAIL_MARKER_AFTER: u32 = 50;
 const BACKLOG_MARKER: &str =
-    "\r\n\x1b[1;31m[Pluto's Terminals] output delivery backlogged — retrying.\x1b[0m\r\n";
+    "\r\n\x1b[1;31m[Pluto's Terminal] output delivery backlogged — retrying.\x1b[0m\r\n";
 
 /// Recover a poisoned lock instead of dying: the guarded data (id sets/maps)
 /// is structurally valid regardless of where a panicking thread stopped, and
@@ -155,7 +155,7 @@ fn surface_drops(sink: &dyn EmitSink, id: &str, co: &mut Coalescer) {
         let delivered = sink.emit_pty(
             id,
             &format!(
-                "\r\n\x1b[1;31m[Pluto's Terminals] output overflow: {d} bytes dropped while delivery was stalled.\x1b[0m\r\n"
+                "\r\n\x1b[1;31m[Pluto's Terminal] output overflow: {d} bytes dropped while delivery was stalled.\x1b[0m\r\n"
             ),
         );
         if !delivered {
@@ -1268,7 +1268,7 @@ fn verify_host_key(sess: &ssh2::Session, host: &str, port: u16) -> Result<String
             // First sight: pin the key (accept-new) so a later change is caught.
             let fmt = host_key_format(key_type)?;
             known
-                .add(host, &key, "added by Pluto's Terminals", fmt)
+                .add(host, &key, "added by Pluto's Terminal", fmt)
                 .map_err(|e| format!("failed to record host key: {e}"))?;
             if let Some(parent) = kh_path.parent() {
                 let _ = fs::create_dir_all(parent);
@@ -1515,7 +1515,7 @@ pub async fn ssh_spawn(
                     surface_drops(&app_for_thread, &id_for_thread, &mut co);
                     let _ = app_for_thread.emit(
                         &format!("pty://{}", id_for_thread),
-                        "\r\n\x1b[1;31m[Pluto's Terminals] SSH connection stalled: outbound \
+                        "\r\n\x1b[1;31m[Pluto's Terminal] SSH connection stalled: outbound \
                          buffer exceeded 4MB — pending writes dropped.\x1b[0m\r\n",
                     );
                 }

@@ -1,4 +1,4 @@
-# Pluto's Terminals
+# Pluto's Terminal
 
 > **The next-generation MobaXterm — a workstation for running AI agents, SSH, and remote desktops side by side.**
 
@@ -19,7 +19,7 @@ port forwarding, and remote desktops (RDP/VNC) — all in the same place.
 
 ## What it is
 
-Pluto's Terminals is built for the modern AI-agent development loop: run Claude
+Pluto's Terminal is built for the modern AI-agent development loop: run Claude
 Code, Codex, and other shell-driven agents in parallel, connect to your servers
 over SSH, browse and edit remote files, and keep an eye on everything from one
 workstation. The layout is modeled on MobaXterm — a permanent session tree on
@@ -154,7 +154,7 @@ monochrome stroke icons (plus importable custom themes).
 
 ## Getting AI agents running
 
-Pluto's Terminals is a terminal — it runs the tools you already have:
+Pluto's Terminal is a terminal — it runs the tools you already have:
 1. Install **Node.js** (LTS) from [nodejs.org](https://nodejs.org/).
 2. Install an agent CLI, e.g. `npm install -g @anthropic-ai/claude-code`.
 3. Open the **Models** picker (toolbar) and add your provider + API key, or paste
@@ -167,9 +167,9 @@ request features, report bugs, and get help.
 
 ## License
 
-Pluto's Terminals is **proprietary software**, free to download and use. The
+Pluto's Terminal is **proprietary software**, free to download and use. The
 source code is not open for copying, redistribution, modification, or reverse
-engineering — see [LICENSE](LICENSE). "Pluto's Terminals" and "Pluto" are marks
+engineering — see [LICENSE](LICENSE). "Pluto's Terminal" and "Pluto" are marks
 of the copyright holder. (Earlier versions previously published under MIT remain
 MIT for those specific versions.)
 

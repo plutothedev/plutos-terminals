@@ -1,4 +1,4 @@
-// Pluto's Terminals — Tauri app entry.
+// Pluto's Terminal — Tauri app entry.
 //
 // Lifted from Lyfe's lib.rs with KB/journal init removed and rebranded.
 // Closing the window hides to the system tray so PTY sessions keep running
@@ -317,7 +317,7 @@ pub fn run() {
             mcp::manager::mcp_reconnect,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Pluto's Terminals")
+        .expect("error while building Pluto's Terminal")
         .run(|app_handle, event| {
             // Kill every live PTY child when the user truly quits the app.
             if let tauri::RunEvent::ExitRequested { .. } = event {

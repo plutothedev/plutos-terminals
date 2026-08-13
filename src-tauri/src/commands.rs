@@ -1,4 +1,4 @@
-// Tauri commands for Pluto's Terminals.
+// Tauri commands for Pluto's Terminal.
 //
 // Lifted from Lyfe with KB / journal commands stripped. Kept everything the
 // terminals tab depends on: filesystem store (state persistence), folder

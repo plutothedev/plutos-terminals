@@ -1,6 +1,6 @@
 // Preset xterm color themes for the Terminals tab.
 // Each theme is an xterm.js Theme object.
-// "default" is the original Pluto's Terminals theme — keep it first in the list
+// "default" is the original Pluto's Terminal theme — keep it first in the list
 // so the picker defaults to it for users who haven't chosen.
 
 export const THEMES = {

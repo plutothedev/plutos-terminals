@@ -1,4 +1,4 @@
-# Build Pluto's Terminals installers for macOS, Windows and Linux and publish
+# Build Pluto's Terminal installers for macOS, Windows and Linux and publish
 # them as a GitHub Release.
 #
 # Hybrid distribution: this workflow lives in the PRIVATE source repo and
@@ -136,7 +136,7 @@ jobs:
           echo "Publishing $TAG to $TARGET_REPO"
           gh release create "$TAG" \
             --repo "$TARGET_REPO" \
-            --title "Pluto's Terminals $TAG" \
+            --title "Pluto's Terminal $TAG" \
             --notes "Download the installer for your platform below. macOS: .dmg, Windows: .msi, Linux: .AppImage/.deb. Builds are unsigned, so your OS may prompt on first launch; verify your download against the attached SHA256SUMS before running (see the README Install section)." \
             all-installers/* || \
           gh release upload "$TAG" --repo "$TARGET_REPO" --clobber all-installers/*

@@ -60,7 +60,7 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
     const os = navigator.userAgent.includes("Windows") ? "Windows"
       : navigator.userAgent.includes("Mac") ? "macOS" : "Linux";
     const system =
-      `You are a concise terminal & developer assistant embedded in Pluto's Terminals on ${os}. ` +
+      `You are a concise terminal & developer assistant embedded in Pluto's Terminal on ${os}. ` +
       `The user's shell is ${shellName || "shell"}${cwd ? `, working directory ${cwd}` : ""}. ` +
       `Answer briefly. When you give a shell command, put it on its own line in a fenced code block.`;
     // Role-structured recent turns (P3-T2): the old path flattened them into

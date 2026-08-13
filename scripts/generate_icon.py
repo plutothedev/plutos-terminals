@@ -1,4 +1,4 @@
-# Generate the Pluto's Terminals app icon source PNG.
+# Generate the Pluto's Terminal app icon source PNG.
 # Output: src-tauri/icons/source.png (1024x1024)
 # Then run: cargo tauri icon src-tauri/icons/source.png
 # Design language: dark rounded square + white chevron prompt + magenta cursor block.

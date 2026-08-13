@@ -2,7 +2,7 @@
   "name": "plutos-terminals",
   "private": true,
   "version": "0.6.0",
-  "description": "Pluto's Terminals — multi-terminal desktop app for the Pluto community. Free download from plutothedev.",
+  "description": "Pluto's Terminal — multi-terminal desktop app for the Pluto community. Free download from plutothedev.",
   "type": "module",
   "scripts": {
     "dev": "vite",

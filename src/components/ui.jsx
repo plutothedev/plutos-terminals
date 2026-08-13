@@ -1,5 +1,5 @@
 // (C)
-// Shared UI primitives for Pluto's Terminals — one design system across every
+// Shared UI primitives for Pluto's Terminal — one design system across every
 // dialog so spacing, type, color, and interaction states stay consistent
 // instead of each modal improvising its own inline styles. Styling lives in the
 // .phn-ui-* classes (see headerSkins.js) so :hover / :focus-visible / :disabled

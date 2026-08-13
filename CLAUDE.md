@@ -1,4 +1,4 @@
-# Pluto's Terminals — Codebase
+# Pluto's Terminal — Codebase
 
 Free (proprietary-licensed) desktop terminal workstation for the Pluto community.
 Tauri 2 + React 18 + Vite + xterm.js. One window holds a saved-session tree, a
@@ -148,8 +148,6 @@ the webview via `pty://…` events after a `pty_ready` handshake.
 - `specs/001-remote-sessions-parity/` — the SSH/remote-parity feature spec that
   named the branch. `design/` + `design-mockups/` — reskin research; mockup 23
   ("refined") is the shipped v0.4.0 look.
-- `prompt-packs/` — legacy `.deck.json` packs + schema (pre-workstation era,
-  still loadable).
 - `releases/vX.Y.Z.md` — per-release notes (source for GitHub release bodies).
 
 ## Known open items (deliberate, not forgotten)

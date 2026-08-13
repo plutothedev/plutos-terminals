@@ -1,14 +1,14 @@
 ---
 name: release-notes
-description: Draft community-facing release notes for Pluto's Terminals from the git history since the last tag. User-invoked only.
+description: Draft community-facing release notes for Pluto's Terminal from the git history since the last tag. User-invoked only.
 disable-model-invocation: true
 ---
 
 <!-- (C) -->
 
-# Release notes for Pluto's Terminals
+# Release notes for Pluto's Terminal
 
-Draft release notes for the next version. Pluto's Terminals ships as a **free, MIT-licensed download for the Pluto community** (Discord, audience, social), so notes are friendly and player-facing — what users get, not internal refactors.
+Draft release notes for the next version. Pluto's Terminal ships as a **free, proprietary-licensed download for the Pluto community** (Discord, audience, social), so notes are friendly and player-facing — what users get, not internal refactors.
 
 ## Steps
 
@@ -24,7 +24,7 @@ Draft release notes for the next version. Pluto's Terminals ships as a **free, M
 ## Output format
 
 ```markdown
-## Pluto's Terminals v<next-version>
+## Pluto's Terminal v<next-version>
 
 ### New
 - <feature, one friendly line each>

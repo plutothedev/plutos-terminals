@@ -21,7 +21,7 @@ labels: bug
 
 ## Environment
 
-- **Pluto's Terminals version:** <!-- bottom-left status bar; e.g. v0.1.2 -->
+- **Pluto's Terminal version:** <!-- bottom-left status bar; e.g. v0.1.2 -->
 - **Windows version:** <!-- e.g. Windows 11 23H2 -->
 - **Installed via:** <!-- MSI / standalone exe / built from source -->
 - **Node.js version:** <!-- `node --version` -->

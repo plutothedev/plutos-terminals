@@ -44,7 +44,7 @@ const GIST_PAT_ACCOUNT: &str = "github-gist-pat:v0";
 /// FIXED CONSTANT — never parameterized, never derived from filename/content/
 /// title. A content-derived description would be the same leak class the
 /// fixed-filename scheme (buildShare, Stream D Task D-3) exists to close.
-const GIST_DESCRIPTION: &str = "Shared via Pluto's Terminals";
+const GIST_DESCRIPTION: &str = "Shared via Pluto's Terminal";
 
 // ── Token source resolution ────────────────────────────────────────────────
 
@@ -524,7 +524,7 @@ mod share_tests {
         for (filename, content) in cases {
             let body = build_gist_body(filename, content, true);
             assert_eq!(body["description"], GIST_DESCRIPTION);
-            assert_eq!(body["description"], "Shared via Pluto's Terminals");
+            assert_eq!(body["description"], "Shared via Pluto's Terminal");
         }
     }
 

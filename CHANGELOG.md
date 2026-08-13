@@ -35,6 +35,20 @@
 - sync_git unit tests now pass on macOS/Linux — the test-only `file://` URL
   helper produced an invalid four-slash URI for Unix absolute paths, so the
   suite had only ever run green on Windows.
+- **About dialog** (Help → About Pluto's Terminal): version, license, and
+  links to GitHub, Discord, and the changelog.
+- `SECURITY.md`: how to report vulnerabilities, plus a summary of the app's
+  security posture and links to the two full-codebase audits.
+
+### Changed
+- One product name everywhere: **Pluto's Terminal** (singular) across the
+  README, LICENSE, docs, and in-app strings, matching the shipped window
+  title and installer name.
+
+### Removed
+- Legacy prompt-pack files (`prompt-packs/`, the pack-submission issue
+  template, and the pack sections of CONTRIBUTING.md); packs were retired at
+  v0.1.7.
 
 ## v0.6.0 — Agent context, notebooks, saved prompts, gist sharing (2026-08-03)
 

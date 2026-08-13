@@ -508,7 +508,7 @@ function TerminalPane({
         // Same rule the notebook save path already follows: a genuine disk
         // error must be visible somewhere. Log rather than toast — this fires
         // every few seconds per pane, and a toast storm would be worse.
-        console.error("Pluto's Terminals: transcript flush failed", e);
+        console.error("Pluto's Terminal: transcript flush failed", e);
       });
   };
 

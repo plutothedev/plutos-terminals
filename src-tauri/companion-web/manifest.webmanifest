@@ -1,7 +1,7 @@
 {
   "name": "Pluto Remote",
   "short_name": "Pluto",
-  "description": "Remote control for Pluto's Terminals — view, type, and get pinged when a command finishes.",
+  "description": "Remote control for Pluto's Terminal — view, type, and get pinged when a command finishes.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

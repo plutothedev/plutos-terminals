@@ -1,7 +1,7 @@
 // (C)
 import { useCallback, useMemo, useState } from "react";
 import { invoke } from "@backend";
-import { GITHUB_URL, DISCORD_URL, openExternal } from "../../../appMeta.js";
+import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../../appMeta.js";
 import { IconMoon, IconSun, IconExit } from "../icons.jsx";
 import { getTabText } from "../ptyBridge.js";
 import { useToast } from "../../../components/Toast.jsx";
@@ -27,6 +27,7 @@ export default function MenuBar({
   const toast = useToast();
   const prompt = usePrompt();
   const [notebookList, setNotebookList] = useState(null); // null = picker closed; array of names = open
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   // "New notebook…" (Stream C): the typed text is SANITIZED to a gate-valid
   // filename (notebookIo.toNotebookName) rather than blindly given ".md". The
@@ -138,6 +139,8 @@ export default function MenuBar({
       items: [
         { label: "GitHub repository", action: () => openExternal(GITHUB_URL) },
         { label: "Pluto Discord", action: () => openExternal(DISCORD_URL) },
+        { divider: true },
+        { label: "About Pluto's Terminal", action: () => setAboutOpen(true) },
       ],
     },
   ], [
@@ -149,6 +152,8 @@ export default function MenuBar({
 
   return (
     <>
+      {/* brand: "Pluto" is the deliberate short wordmark, not a truncation of
+          the product name. */}
       <MobaMenuBar
         brand={<><span className="moba-brand-dot" />Pluto</>}
         right={
@@ -192,6 +197,31 @@ export default function MenuBar({
           ))}
         </div>
       </Modal>
+
+      {/* About dialog (Help menu). Conditional render per P2-T3 so the subtree
+          only exists while open. */}
+      {aboutOpen && (
+        <Modal open={aboutOpen} title="About Pluto's Terminal" onClose={() => setAboutOpen(false)} width={400}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, lineHeight: 1.5 }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--phn-text-active, #E6E6E6)" }}>Pluto's Terminal</div>
+              <div style={{ color: "var(--phn-text-dim, #9D9D9D)" }}>Version {APP_VERSION}</div>
+            </div>
+            <div>A workstation for running AI agents, SSH, and remote desktops side by side.</div>
+            <div style={{ color: "var(--phn-text-dim, #9D9D9D)" }}>
+              Proprietary license: free to download and use, source-available.
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <Button size="sm" onClick={() => openExternal(GITHUB_URL)}>GitHub</Button>
+              <Button size="sm" onClick={() => openExternal(DISCORD_URL)}>Discord</Button>
+              <Button size="sm" onClick={() => openExternal(`${GITHUB_URL}/blob/main/CHANGELOG.md`)}>Changelog</Button>
+            </div>
+            <div style={{ color: "var(--phn-text-faint, #586068)", fontSize: 11 }}>
+              © 2026 Michael T. Cinnamon (plutothedev). All rights reserved.
+            </div>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
