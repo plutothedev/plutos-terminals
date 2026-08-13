@@ -18,6 +18,7 @@ import { invoke } from "@backend";
 import { setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
 import { freshId } from "../ids.js";
+import { humanizeError } from "../errorText.js";
 
 export function useSessionDispatch({
   state,
@@ -189,7 +190,7 @@ export function useSessionDispatch({
       });
       toast.success(`Agent worktree ${branch} ready.`);
     } catch (e) {
-      toast.error(`Worktree failed: ${e}`);
+      toast.error(humanizeError(e, "Worktree failed"));
     }
   }, [spawnSessionTab, toast]);
 

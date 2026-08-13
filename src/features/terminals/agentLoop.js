@@ -4,6 +4,8 @@
 // the loop is unit-testable with fakes. The loop maintains the normalized message
 // list, gates each tool call, executes approved calls, and feeds results back
 // until the model stops calling tools (stop_reason "end") or the step cap / stop.
+import { humanizeError } from "./errorText.js";
+
 export async function runAgentLoop({
   goal, toolTurn, executeTool, requestApproval, needsApproval,
   onStep, maxSteps = 14, shouldStop = () => false,
@@ -13,7 +15,7 @@ export async function runAgentLoop({
     if (shouldStop()) { onStep({ type: "done", text: "Stopped by you." }); return; }
     let res;
     try { res = await toolTurn(messages); }
-    catch (e) { onStep({ type: "error", text: String(e) }); return; }
+    catch (e) { onStep({ type: "error", text: humanizeError(e).message }); return; }
     if (shouldStop()) { onStep({ type: "done", text: "Stopped by you." }); return; }
 
     const calls = res.tool_calls || [];

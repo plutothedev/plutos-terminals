@@ -8,6 +8,7 @@ import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { openExternal } from "../../appMeta.js";
+import { humanizeError } from "./errorText.js";
 
 function lineColor(l) {
   if (l.startsWith("+++") || l.startsWith("---")) return "#9aa0a6";
@@ -33,7 +34,7 @@ export default function DiffView({ open, worktree, onClose, onDiscard }) {
     setLoading(true); setError(null); setDiff(null);
     invoke("git_diff", { path: worktree.path })
       .then((d) => { if (alive) setDiff(typeof d === "string" ? d : ""); })
-      .catch((e) => { if (alive) setError(String(e)); })
+      .catch((e) => { if (alive) setError(humanizeError(e, "Couldn't load the diff").message); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [open, worktree]);
@@ -46,7 +47,7 @@ export default function DiffView({ open, worktree, onClose, onDiscard }) {
       toast.success("PR created.");
       if (url && /^https?:\/\//.test(url)) openExternal(url);
     } catch (e) {
-      toast.error(`PR failed: ${e}`);
+      toast.error(humanizeError(e, "PR failed"));
     } finally {
       setCreating(false);
     }

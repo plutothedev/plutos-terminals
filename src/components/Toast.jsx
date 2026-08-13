@@ -1,6 +1,12 @@
 // Branded toast notification system. Replaces window.alert across the app.
 // Three variants: success (green), error (danger red), info (accent).
-// Auto-dismiss after 4 seconds; click to dismiss early.
+// Auto-dismiss after 4 seconds (errors: 8 — long enough to actually read a
+// failure); click to dismiss early. Clicking an error toast also copies its
+// full raw detail to the clipboard for pasting into a bug report.
+//
+// toast.error accepts either a string or a humanizeError() result
+// ({ message, detail } — see features/terminals/errorText.js): the message is
+// what renders; the detail is what click-to-copy puts on the clipboard.
 //
 // Usage: import { useToast } from "./Toast.jsx" inside any component within
 // <ToastProvider>. Then `const toast = useToast(); toast.success("done");`.
@@ -29,8 +35,15 @@ export function ToastProvider({ children }) {
 
   const push = useCallback((variant, message, opts = {}) => {
     const id = nextId++;
-    const ttl = typeof opts.ttl === "number" ? opts.ttl : 4000;
-    setToasts((ts) => [...ts, { id, variant, message }]);
+    // Unwrap a humanizeError() result so call sites stay one expression and
+    // the raw detail still rides along for click-to-copy.
+    let detail = opts.detail;
+    if (message && typeof message === "object" && typeof message.message === "string") {
+      detail = detail ?? message.detail;
+      message = message.message;
+    }
+    const ttl = typeof opts.ttl === "number" ? opts.ttl : variant === "error" ? 8000 : 4000;
+    setToasts((ts) => [...ts, { id, variant, message, detail }]);
     if (ttl > 0) {
       setTimeout(() => dismiss(id), ttl);
     }
@@ -52,6 +65,8 @@ export function ToastProvider({ children }) {
     <ToastContext.Provider value={api}>
       {children}
       <div
+        role="status"
+        aria-live="polite"
         style={{
           position: "fixed",
           top: 18,
@@ -67,7 +82,13 @@ export function ToastProvider({ children }) {
           <div
             key={t.id}
             className="phn-toast"
-            onClick={() => dismiss(t.id)}
+            title={t.variant === "error" ? "Click to copy" : undefined}
+            onClick={() => {
+              if (t.variant === "error") {
+                navigator.clipboard?.writeText(t.detail || t.message)?.catch(() => {});
+              }
+              dismiss(t.id);
+            }}
             style={{
               pointerEvents: "auto",
               background: "var(--phn-surface-bg, #181818)",
@@ -108,7 +129,7 @@ export function useToast() {
     // Fail-soft: outside ToastProvider, fall back to console + window.alert
     return {
       success: (m) => { console.log("[toast:success]", m); },
-      error:   (m) => { console.error("[toast:error]", m); window.alert(m); },
+      error:   (m) => { console.error("[toast:error]", m); window.alert(m?.message || m); },
       info:    (m) => { console.log("[toast:info]", m); },
       dismiss: () => {},
     };

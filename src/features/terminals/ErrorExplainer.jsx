@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { resolveActiveLLM } from "./providers.js";
 import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
+import { humanizeError } from "./errorText.js";
 import { SAsk } from "./toolbarIcons.jsx";
 
 const SYSTEM =
@@ -65,7 +66,7 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
     );
     promise
       .then((t) => { if (!cancelled && typeof t === "string" && t) setAnswer(t.trim()); })
-      .catch((e) => { if (!cancelled) setError(String(e)); })
+      .catch((e) => { if (!cancelled) setError(humanizeError(e).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; cancel(); };
   }, [block]);

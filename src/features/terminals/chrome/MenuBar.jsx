@@ -9,6 +9,7 @@ import { usePrompt } from "../../../components/PromptModal.jsx";
 import Modal from "../../../components/Modal.jsx";
 import { Button } from "../../../components/ui.jsx";
 import { toNotebookName } from "../notebookIo.js";
+import { humanizeError } from "../errorText.js";
 import MobaMenuBar from "../MobaMenuBar.jsx";
 import ActiveDims from "./ActiveDims.jsx";
 
@@ -53,7 +54,7 @@ export default function MenuBar({
     try {
       names = await invoke("notebook_list");
     } catch (e) {
-      toast.error(`Couldn't list notebooks: ${e}`);
+      toast.error(humanizeError(e, "Couldn't list notebooks"));
       return;
     }
     if (!Array.isArray(names) || names.length === 0) { toast.info("No saved notebooks yet."); return; }
@@ -80,7 +81,7 @@ export default function MenuBar({
         { label: "Equalize split sizes", disabled: !activeTab?.layout, action: () => activeTabId && equalizePanes(activeTabId) },
         { divider: true },
         { label: "Close tab", shortcut: "Ctrl+Shift+W", action: () => { const p = panels.find((x) => x.id === activePanelId); if (p && p.tabs.length > 1 && p.activeTabId) closeTab(p.id, p.activeTabId); } },
-        { label: "New window", action: async () => { try { const id = `${Date.now().toString(36)}`.slice(-6); await invoke("spawn_new_window", { windowId: id }); } catch (e) { toast.error(`New window failed: ${e}`); } } },
+        { label: "New window", action: async () => { try { const id = `${Date.now().toString(36)}`.slice(-6); await invoke("spawn_new_window", { windowId: id }); } catch (e) { toast.error(humanizeError(e, "New window failed")); } } },
       ],
     },
     {

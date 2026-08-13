@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
+import { humanizeError } from "./errorText.js";
 
 const BAUDS = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
 
@@ -38,7 +39,7 @@ export default function SerialModal({ open, onConnect, onClose }) {
         setPorts(arr);
         setSelected((s) => (arr.includes(s) ? s : arr[0] || ""));
       })
-      .catch((e) => setError(String(e)))
+      .catch((e) => setError(humanizeError(e).message))
       .finally(() => setLoading(false));
   };
 

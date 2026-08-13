@@ -10,6 +10,7 @@ import { readUserSt } from "./storageKeys.js";
 import { SSend } from "./toolbarIcons.jsx";
 import PromptSlashMenu from "./PromptSlashMenu.jsx";
 import { usePromptSlashMenu } from "./hooks/usePromptSlashMenu.js";
+import { humanizeError } from "./errorText.js";
 
 // First fenced code block in an assistant reply, if any (so we can offer run/insert).
 function extractCmd(text) {
@@ -105,7 +106,7 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
       });
     } catch (e) {
       if (!aliveRef.current) return;
-      setError(String(e));
+      setError(humanizeError(e).message);
       // Drop the empty/partial assistant placeholder on error.
       setMessages((cur) => {
         const last = cur[cur.length - 1];

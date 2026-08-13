@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@backend";
 import { Button, Input, Field } from "../../components/ui.jsx";
 import { useToast } from "../../components/Toast.jsx";
+import { humanizeError } from "./errorText.js";
 
 const GIST_PAT_ACCOUNT = "github-gist-pat:v0";
 
@@ -48,7 +49,7 @@ export default function SharingSection() {
       toast.success("Gist token saved");
       await refresh();
     } catch (e) {
-      toast.error(`Couldn't save token: ${e}`);
+      toast.error(humanizeError(e, "Couldn't save token"));
     } finally {
       setBusy(false);
     }
@@ -62,7 +63,7 @@ export default function SharingSection() {
       toast.info("Gist token cleared");
       await refresh();
     } catch (e) {
-      toast.error(`Couldn't clear token: ${e}`);
+      toast.error(humanizeError(e, "Couldn't clear token"));
     } finally {
       setBusy(false);
     }

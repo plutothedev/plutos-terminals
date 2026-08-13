@@ -16,6 +16,7 @@
 import { useCallback, useRef } from "react";
 import { invoke } from "@backend";
 import { freshId } from "../ids.js";
+import { humanizeError } from "../errorText.js";
 
 export function useProjects({ state, persist, projects, toast, selectRibbonRef }) {
   // Latest state/projects behind refs (P2-T2, the useWorkspaceTree pattern):
@@ -76,7 +77,7 @@ export function useProjects({ state, persist, projects, toast, selectRibbonRef }
     try {
       entries = await invoke("parse_ssh_config");
     } catch (e) {
-      toast.error(`Couldn't read ~/.ssh/config: ${e}`);
+      toast.error(humanizeError(e, "Couldn't read ~/.ssh/config"));
       return;
     }
     if (!Array.isArray(entries) || entries.length === 0) {

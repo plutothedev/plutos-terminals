@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
+import { humanizeError } from "./errorText.js";
 import { SKey } from "./toolbarIcons.jsx";
 
 const ACCENT = "var(--phn-link, #7c9cf5)";
@@ -26,7 +27,7 @@ export default function SshKeysModal({ open, onClose }) {
     setLoading(true);
     invoke("ssh_keys_list")
       .then((k) => setKeys(Array.isArray(k) ? k : []))
-      .catch((e) => toast.error(`Couldn't list keys: ${e}`))
+      .catch((e) => toast.error(humanizeError(e, "Couldn't list keys")))
       .finally(() => setLoading(false));
   };
 
@@ -48,7 +49,7 @@ export default function SshKeysModal({ open, onClose }) {
       setGen(false); setPassphrase(""); setComment("");
       refresh();
     } catch (e) {
-      toast.error(`ssh-keygen: ${e}`);
+      toast.error(humanizeError(e, "ssh-keygen"));
     } finally {
       setBusy(false);
     }

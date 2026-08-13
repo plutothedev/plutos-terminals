@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Chip } from "../../components/ui.jsx";
+import { humanizeError } from "./errorText.js";
 
 const DIM = "var(--phn-text-dim, #888)";
 const TOOLS = [
@@ -50,7 +51,10 @@ export default function NetToolsModal({ open, initialHost, onClose }) {
         );
       }
     } catch (e) {
-      setOut(`Error: ${e}`);
+      // Diagnostics surface: show the human sentence AND the full raw error
+      // when they differ (the raw line is exactly what a bug report needs).
+      const h = humanizeError(e);
+      setOut(h.message === h.detail ? `Error: ${h.message}` : `Error: ${h.message}\n\n${h.detail}`);
     } finally {
       setBusy(false);
     }

@@ -9,6 +9,7 @@ import { invoke } from "@backend";
 import { IconHome, IconUp, IconRefresh, IconReveal, IconCd } from "./icons.jsx";
 import { SFolder } from "./toolbarIcons.jsx";
 import { IS_MAC } from "./keybindings.js";
+import { humanizeError } from "./errorText.js";
 import "./terminals.css";
 
 // Platform-aware "reveal" tooltip (same detection pattern as keybindings'
@@ -107,7 +108,7 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
       setCwd(resolved);
       setEntries(Array.isArray(items) ? items : []);
     } catch (e) {
-      setError(String(e));
+      setError(humanizeError(e).message);
     } finally {
       setLoading(false);
     }

@@ -26,6 +26,7 @@ import {
 } from "../toolbarIcons.jsx";
 import { useToast } from "../../../components/Toast.jsx";
 import { useConfirm } from "../../../components/ConfirmModal.jsx";
+import { humanizeError } from "../errorText.js";
 
 export function usePaletteCommands(args) {
   const toast = useToast();
@@ -105,7 +106,7 @@ export function usePaletteCommands(args) {
           const label = await invoke("spawn_new_window", { windowId: id });
           toast.success(`New window opened: ${label}`);
         } catch (err) {
-          toast.error(`Failed to open new window: ${err}`);
+          toast.error(humanizeError(err, "Failed to open new window"));
         }
       },
     },

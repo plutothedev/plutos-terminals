@@ -10,6 +10,7 @@
 import { useMemo, useState } from "react";
 import yaml from "js-yaml";
 import { SSnips } from "./toolbarIcons.jsx";
+import { humanizeError } from "./errorText.js";
 
 // Map between our workflow shape and Warp's workflow YAML schema (name, command,
 // description, tags, arguments[{name, description, default_value}]) — so Warp's
@@ -133,7 +134,7 @@ export default function SnippetsDrawer({
       setIoMsg(`Imported ${imported.length} workflow${imported.length === 1 ? "" : "s"}.`);
       setImportText("");
       setTimeout(() => { setImporting(false); setIoMsg(""); }, 1400);
-    } catch (e) { setIoMsg("Parse error: " + (e && e.message ? e.message : String(e))); }
+    } catch (e) { setIoMsg(humanizeError(e, "Parse error").message); }
   };
   const doExport = () => {
     try {

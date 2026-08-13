@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Button, Input, Field } from "../../components/ui.jsx";
 import { setPassphrase, setPat, getPassphrase } from "./sync/syncSecrets.js";
 import { syncNow, onStatus } from "./sync/syncEngine.js";
+import { humanizeError } from "./errorText.js";
 
 export default function SyncSection({ userSt, saveUser }) {
   const sync = userSt?.sync || {};
@@ -103,7 +104,7 @@ export default function SyncSection({ userSt, saveUser }) {
       )}
       {status.state === "error" && (
         <div style={{ color: "var(--phn-danger, #e66)", fontSize: 12, marginTop: 6 }}>
-          {status.msg}
+          {humanizeError(status.msg).message}
         </div>
       )}
     </div>

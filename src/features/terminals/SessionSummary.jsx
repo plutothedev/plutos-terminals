@@ -9,6 +9,7 @@ import { Button } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";
 import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
+import { humanizeError } from "./errorText.js";
 
 const SYSTEM =
   "You are summarizing a terminal session for an engineer. From the recent " +
@@ -56,7 +57,7 @@ export default function SessionSummary({ open, text, onClose }) {
     );
     promise
       .then((t) => { if (!cancelled && typeof t === "string" && t) setAnswer(t.trim()); })
-      .catch((e) => { if (!cancelled) setError(String(e)); })
+      .catch((e) => { if (!cancelled) setError(humanizeError(e).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => {
       cancelled = true;

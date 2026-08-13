@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { Button } from "../../components/ui.jsx";
+import { humanizeError } from "./errorText.js";
 import {
   KEY_ACTIONS, CATEGORY_ORDER, resolveBindings, comboFromEvent, canon,
   isBindable, formatCombo, setCapturing,
@@ -44,7 +45,7 @@ export default function KeybindingsSection({ userSt, saveUser }) {
     saveUser({ ...userSt, keybindings: kb });
     const effective = value === "__reset__" ? DEFAULT_SUMMON : value;
     invoke("set_summon_shortcut", { combo: effective || "" }).catch((err) => {
-      setError(`Couldn't register hotkey: ${err}`);
+      setError(humanizeError(err, "Couldn't register hotkey").message);
     });
   };
 

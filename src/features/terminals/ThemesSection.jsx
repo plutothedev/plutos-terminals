@@ -12,6 +12,7 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { CUSTOM_PREFIX, HEADER_SKINS } from "./headerSkins.js";
 import { useOsDark } from "./hooks/useOsDark.js";
 import { warpYamlToThemes, themeToWarpYaml, EXAMPLE_WARP_YAML } from "./customThemes.js";
+import { humanizeError } from "./errorText.js";
 
 function Swatch({ theme }) {
   const xt = theme.xterm || {};
@@ -52,7 +53,7 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
     try {
       parsed = warpYamlToThemes(src);
     } catch (err) {
-      toast.error(`Import failed: ${err.message || err}`);
+      toast.error(humanizeError(err, "Import failed"));
       return;
     }
     // Importing applies the first theme; that's a manual pick, so drop OS sync.
@@ -72,7 +73,7 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
       await navigator.clipboard.writeText(themeToWarpYaml(theme));
       toast.success(`Copied “${theme.name}” YAML to clipboard.`);
     } catch (err) {
-      toast.error(`Copy failed: ${err}`);
+      toast.error(humanizeError(err, "Copy failed"));
     }
   };
 

@@ -39,6 +39,13 @@
   links to GitHub, Discord, and the changelog.
 - `SECURITY.md`: how to report vulnerabilities, plus a summary of the app's
   security posture and links to the two full-codebase audits.
+- **Readable errors.** Raw backend errors ("[Session(-18)] …", "os error 2")
+  are now translated to plain sentences ("Authentication failed — check your
+  credentials", "File not found") everywhere they surface — toasts, SFTP,
+  tunnels, RDP/VNC status, AI panels, sync — with the full raw error kept for
+  diagnostics. Error toasts stay up 8s (was 4s) and clicking one copies the
+  raw error to the clipboard for bug reports; toasts are also announced to
+  screen readers now.
 
 ### Changed
 - One product name everywhere: **Pluto's Terminal** (singular) across the

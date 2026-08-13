@@ -35,6 +35,7 @@ import { noteWrite, readNotebook } from "./notebookIo.js";
 import { parseBlocks, writeOutput, setFrontmatterTarget, runnableKind, runnableLines } from "./notebookModel.js";
 import { runAndCapture, getLiveTabIds, subscribeRegistry, getRegistryVersion } from "./ptyBridge.js";
 import { useToast } from "../../components/Toast.jsx";
+import { humanizeError } from "./errorText.js";
 
 // ── isNew signal ────────────────────────────────────────────────────────────
 // NotebookView gets only { name, tabId, visible } (the render arm in
@@ -234,7 +235,7 @@ export default function NotebookView({ name, tabId, visible, paneTitles }) {
       // every 2 s forever with a toast each cycle. A failed save waits for an
       // explicit user action (next keystroke's onChange → scheduleAutosave, or
       // Ctrl+S). Only the busy-skip branch above re-arms.
-      toast.error(`Notebook save failed: ${e}`);
+      toast.error(humanizeError(e, "Notebook save failed"));
     } finally {
       savingRef.current = false;
       setSaving(false);

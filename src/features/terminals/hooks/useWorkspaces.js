@@ -9,6 +9,7 @@
 
 import { useCallback } from "react";
 import { cloneWorkspaceFresh } from "../workspaceModel.js";
+import { humanizeError } from "../errorText.js";
 
 export function useWorkspaces({ state, persist, userSt, saveUser, toast }) {
   const workspaces = Array.isArray(userSt?.workspaces) ? userSt.workspaces : [];
@@ -28,7 +29,7 @@ export function useWorkspaces({ state, persist, userSt, saveUser, toast }) {
       persist({ ...state, panels: fresh.panels, activePanelId: fresh.activePanelId });
       toast.success(`Loaded workspace "${ws.name}".`);
     } catch (e) {
-      toast.error(`Couldn't load workspace: ${e}`);
+      toast.error(humanizeError(e, "Couldn't load workspace"));
     }
   }, [state, persist, toast]);
   const deleteWorkspace = useCallback((name) => {

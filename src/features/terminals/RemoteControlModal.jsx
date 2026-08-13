@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@backend";
 import QRCode from "qrcode";
 import { SPhone } from "./toolbarIcons.jsx";
+import { humanizeError } from "./errorText.js";
 
 const overlay = {
   position: "fixed", inset: 0, zIndex: 1000, display: "flex",
@@ -45,7 +46,7 @@ export default function RemoteControlModal({ open, onClose }) {
   const [err, setErr] = useState("");
 
   const refresh = useCallback(async () => {
-    try { setInfo(await invoke("companion_status")); } catch (e) { setErr(String(e)); }
+    try { setInfo(await invoke("companion_status")); } catch (e) { setErr(humanizeError(e).message); }
   }, []);
 
   useEffect(() => { if (open) { setErr(""); refresh(); } }, [open, refresh]);
@@ -60,13 +61,13 @@ export default function RemoteControlModal({ open, onClose }) {
   const start = async () => {
     setBusy(true); setErr("");
     try { setInfo(await invoke("companion_start", {})); }
-    catch (e) { setErr(String(e)); }
+    catch (e) { setErr(humanizeError(e).message); }
     finally { setBusy(false); }
   };
   const stop = async () => {
     setBusy(true); setErr("");
     try { await invoke("companion_stop"); setInfo({ running: false }); }
-    catch (e) { setErr(String(e)); }
+    catch (e) { setErr(humanizeError(e).message); }
     finally { setBusy(false); }
   };
   const copy = (t) => { try { navigator.clipboard.writeText(t); } catch { /* ignore */ } };

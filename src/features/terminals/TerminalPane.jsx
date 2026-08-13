@@ -46,6 +46,7 @@ const PromptEditor = lazy(() => import("./PromptEditor.jsx"));
 import ShareModal from "./ShareModal.jsx";
 import { MONO_STACK } from "./fonts.js";
 import { blockOutputText } from "./blockText";
+import { humanizeError } from "./errorText.js";
 import {
   registerPtyWriter,
   unregisterPty,
@@ -1729,7 +1730,13 @@ function TerminalPane({
           }
         }
       } catch (err) {
-        if (entryLive()) term.writeln(`\r\n\x1b[31m[spawn failed: ${err}]\x1b[0m`);
+        if (entryLive()) {
+          const h = humanizeError(err, "spawn failed");
+          term.writeln(`\r\n\x1b[31m[${h.message}]\x1b[0m`);
+          // Terminal = diagnostics surface: when the human sentence replaced
+          // the raw error, keep the raw visible too (dim, CRLF for xterm).
+          if (!h.message.endsWith(h.detail)) term.writeln(`\x1b[2m${h.detail.replace(/\n/g, "\r\n")}\x1b[0m`);
+        }
         // Fast path: a dead spawn must not hold the jump tunnel open until the
         // tab closes (ssh_spawn threw AFTER jump_forward_start succeeded).
         // Null-out keeps the dedicated destroy hook a no-op later — and if the

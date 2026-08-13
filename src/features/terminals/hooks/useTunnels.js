@@ -11,6 +11,7 @@ import { useCallback, useState } from "react";
 import { invoke } from "@backend";
 import { getTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
+import { humanizeError } from "../errorText.js";
 
 export function useTunnels({ activeTab, activeTabId, toast }) {
   const [tunnelsOpen, setTunnelsOpen] = useState(false);
@@ -56,7 +57,7 @@ export function useTunnels({ activeTab, activeTabId, toast }) {
       setForwards((f) => [...f, { id, localPort, remoteHost, remotePort }]);
       toast.success(`Forwarding 127.0.0.1:${localPort} → ${remoteHost}:${remotePort}`);
     } catch (e) {
-      setTunnelError(String(e));
+      setTunnelError(humanizeError(e).message);
     } finally {
       setTunnelBusy(false);
     }
@@ -85,7 +86,7 @@ export function useTunnels({ activeTab, activeTabId, toast }) {
       setForwards((f) => [...f, { id, localPort, socks: true }]);
       toast.success(`SOCKS5 proxy on 127.0.0.1:${localPort} → through ${conn.host}`);
     } catch (e) {
-      setTunnelError(String(e));
+      setTunnelError(humanizeError(e).message);
     } finally {
       setTunnelBusy(false);
     }

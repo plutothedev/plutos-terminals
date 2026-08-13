@@ -12,6 +12,7 @@ import { Button } from "../../components/ui.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { openExternal } from "../../appMeta.js";
 import { visibleShares, SHARES_PAGE_SIZE } from "./sharesPage.js";
+import { humanizeError } from "./errorText.js";
 
 const DIM = "var(--phn-text-dim, #888)";
 
@@ -41,7 +42,7 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
     } catch (e) {
       // Already Rust-redacted (share.rs redact()) before crossing IPC, so no
       // token or Authorization bytes can ride this string to the toast.
-      toast.error(String(e));
+      toast.error(humanizeError(e, "Revoke failed"));
       // Spec'd durable marker (release-audit fix): a 4s toast is the only
       // signal otherwise — once it fades, a failed revoke is indistinguishable
       // from a never-revoked share, and the gist is still live on GitHub.

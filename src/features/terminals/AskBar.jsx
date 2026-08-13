@@ -11,6 +11,7 @@ import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { modCombo } from "./keybindings.js";
 import { classifyInput } from "./inputClassify.js";
+import { humanizeError } from "./errorText.js";
 
 // Strip markdown fences / "$ " prompts the model sometimes adds despite asking
 // for a bare command, and collapse to the first non-empty line(s).
@@ -62,7 +63,7 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
       setCommand(cmd);
       setTimeout(() => cmdRef.current?.focus(), 30);
     } catch (e) {
-      setError(String(e));
+      setError(humanizeError(e).message);
     } finally {
       setLoading(false);
     }

@@ -15,6 +15,7 @@ import Modal, { MODAL_COLORS } from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { buildShare } from "./shareText.js";
 import { scanSecrets, maskSecrets } from "./secretScan.js";
+import { humanizeError } from "./errorText.js";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const DANGER = "var(--phn-danger, #e08784)";
@@ -87,7 +88,7 @@ export default function ShareModal({ open, kind, title, rawText, dateStamp, onCl
     } catch (e) {
       // `e` is already redacted Rust-side (share.rs redact()) before it crosses
       // the IPC boundary — no token/Authorization bytes can ride it to the toast.
-      toast.error(String(e));
+      toast.error(humanizeError(e, "Share failed"));
       setSubmitting(false);
     }
   };

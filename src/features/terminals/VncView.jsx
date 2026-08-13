@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { listen } from "@backend";
 import { getTabPassword } from "./ptyBridge.js";
+import { humanizeError } from "./errorText.js";
 
 // JS KeyboardEvent.key → X11 keysym for the common non-printable keys. Printable
 // single chars fall through to their char code (Latin-1 keysyms == code points).
@@ -88,7 +89,7 @@ export default function VncView({ host, port, tabId, visible }) {
         if (!alive) { unExit(); return; }
         unlisten.push(unExit);
       } catch (err) {
-        if (alive) setStatus(`Connection failed: ${err}`);
+        if (alive) setStatus(humanizeError(err, "Connection failed").message);
       }
     })();
     return () => {

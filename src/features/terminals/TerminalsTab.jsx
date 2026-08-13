@@ -58,6 +58,7 @@ import { allRenderedPaneIds, isSpecialTab } from "./paneIds.js";
 import { trickleTick } from "./trickle.js";
 import { setProjectIndex, pruneActivities } from "./activityStore.js";
 import { sshAccount } from "./sshAccount.js";
+import { humanizeError } from "./errorText.js";
 
 // P4-T5 trickle guard — module-level so ONE trickle runs per window realm no
 // matter how the tab tree remounts. Holds the pending timeout id (null = no
@@ -415,7 +416,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       }
     }
     // Leave the modal open so the user can retry once any running agent exits.
-    toast.error(`Couldn't remove the worktree — a process may still be using it. Close any running agent and try again. (${lastErr})`);
+    toast.error("Couldn't remove the worktree — a process may still be using it. Close any running agent and try again.", { detail: String(lastErr) });
   }, [state.panels, closeTabs, toast]);
 
   // ── Project mutations ──────────────────────────────────────────────
@@ -751,7 +752,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         toast.info("Recording discarded (save canceled).");
       }
     } catch (err) {
-      toast.error(`Save failed: ${err}`);
+      toast.error(humanizeError(err, "Save failed"));
     }
   }, [activeTabId, activeTab, toast]);
 
@@ -862,7 +863,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     if (!project?.connection) return;
     invoke("secret_delete", { account: sshAccount(project.connection) })
       .then(() => toast.info(`Forgot saved password for ${project.name}.`))
-      .catch((e) => toast.error(`Couldn't clear keychain: ${e}`));
+      .catch((e) => toast.error(humanizeError(e, "Couldn't clear keychain")));
   }, [forgetSessionPassword, toast]);
 
   // Command-palette item array — memoized in the hook so its identity stays

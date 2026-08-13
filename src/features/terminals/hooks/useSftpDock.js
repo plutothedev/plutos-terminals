@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { getTabPassword, setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
+import { humanizeError } from "../errorText.js";
 import { evictSftpCaches } from "../SftpBrowser.jsx";
 
 export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
@@ -56,7 +57,7 @@ export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
       if (token !== sftpTokenRef.current) { invoke("sftp_disconnect", { id }).catch(() => {}); evictSftpCaches(id); return; }
       setSftp({ connecting: false, id, error: null });
     } catch (e) {
-      if (token === sftpTokenRef.current) setSftp({ connecting: false, id: null, error: String(e) });
+      if (token === sftpTokenRef.current) setSftp({ connecting: false, id: null, error: humanizeError(e).message });
     }
   }, [activeTab, activeTabId]);
 

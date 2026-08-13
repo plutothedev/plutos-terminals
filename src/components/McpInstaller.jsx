@@ -8,6 +8,7 @@ import { invoke } from "@backend";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
 import { openExternal } from "../appMeta.js";
+import { humanizeError } from "../features/terminals/errorText.js";
 
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 
@@ -128,11 +129,11 @@ export default function McpInstaller({ open, onClose }) {
       } else {
         setInstallState((s) => ({ ...s, [mcp.id]: "error" }));
         const detail = (result && (result.stderr || result.stdout)) || "Unknown error";
-        toast.error(`${mcp.name} install failed: ${String(detail).slice(0, 200)}`);
+        toast.error(humanizeError(detail, `${mcp.name} install failed`));
       }
     } catch (err) {
       setInstallState((s) => ({ ...s, [mcp.id]: "error" }));
-      toast.error(`${mcp.name} install failed: ${String(err).slice(0, 200)}`);
+      toast.error(humanizeError(err, `${mcp.name} install failed`));
     }
   };
 
@@ -195,7 +196,7 @@ export default function McpInstaller({ open, onClose }) {
       toast.success(`Added ${mcp.name} to Agent Mode`);
       refreshConfigured();
     } catch (err) {
-      toast.error(`Failed to add ${mcp.name} to Agent Mode: ${String(err).slice(0, 200)}`);
+      toast.error(humanizeError(err, `Failed to add ${mcp.name} to Agent Mode`));
     } finally {
       setAddingId(null);
     }
@@ -206,7 +207,7 @@ export default function McpInstaller({ open, onClose }) {
       await invoke("mcp_server_add", { cfg: { ...srv, enabled: !srv.enabled } });
       refreshConfigured();
     } catch (err) {
-      toast.error(`Failed to update ${srv.id}: ${String(err).slice(0, 200)}`);
+      toast.error(humanizeError(err, `Failed to update ${srv.id}`));
     }
   };
 
@@ -215,7 +216,7 @@ export default function McpInstaller({ open, onClose }) {
       await invoke("mcp_server_remove", { id: srv.id });
       refreshConfigured();
     } catch (err) {
-      toast.error(`Failed to remove ${srv.id}: ${String(err).slice(0, 200)}`);
+      toast.error(humanizeError(err, `Failed to remove ${srv.id}`));
     }
   };
 

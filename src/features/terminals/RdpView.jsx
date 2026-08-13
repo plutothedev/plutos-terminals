@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { listen } from "@backend";
 import { getTabPassword } from "./ptyBridge.js";
+import { humanizeError } from "./errorText.js";
 
 // JS KeyboardEvent.code → PS/2 set-1 scancode (the common, non-extended keys).
 const SCAN = {
@@ -73,7 +74,7 @@ export default function RdpView({ host, port, username, domain, tabId, visible }
         if (!alive) { unExit(); return; }
         unlisten.push(unExit);
       } catch (err) {
-        if (alive) setStatus(`Connection failed: ${err}`);
+        if (alive) setStatus(humanizeError(err, "Connection failed").message);
       }
     })();
     return () => {

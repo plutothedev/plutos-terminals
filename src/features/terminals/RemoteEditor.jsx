@@ -9,6 +9,7 @@ import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { modCombo } from "./keybindings.js";
+import { humanizeError } from "./errorText.js";
 
 // Local filename→language guess (kept here so Monaco isn't imported eagerly).
 function languageForFile(name = "") {
@@ -57,7 +58,7 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
     setLoading(true); setError(null); setText(""); setOrig("");
     invoke("sftp_read_file", { id: sessionId, path })
       .then((c) => { if (alive) { const s = typeof c === "string" ? c : ""; setText(s); setOrig(s); } })
-      .catch((e) => { if (alive) setError(String(e)); })
+      .catch((e) => { if (alive) setError(humanizeError(e, "Couldn't open the file").message); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [open, sessionId, path]);
@@ -75,7 +76,7 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
       setOrig(snapshot);
       toast.success(`Saved ${name}`);
     } catch (e) {
-      toast.error(`Save failed: ${e}`);
+      toast.error(humanizeError(e, "Save failed"));
     } finally {
       setSaving(false);
     }

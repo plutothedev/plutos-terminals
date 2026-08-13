@@ -12,6 +12,7 @@ import { FileIcon } from "./LocalFileBrowser.jsx";
 import { IconHome, IconUp, IconRefresh, IconUpload, IconNewFolder } from "./icons.jsx";
 import { SFolder, STrash } from "./toolbarIcons.jsx";
 import RemoteEditor from "./RemoteEditor.jsx";
+import { humanizeError } from "./errorText.js";
 
 const LISTING_TTL_MS = 10_000;
 const listingCache = new Map(); // `${sessionId}\0${path}` -> { entries, at }
@@ -98,7 +99,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
       setCwd(path);
     } catch (e) {
       // A failed revalidate over a cached paint keeps the cached view.
-      if (!cached) setListError(String(e));
+      if (!cached) setListError(humanizeError(e).message);
     } finally {
       setLoading(false);
     }
@@ -124,7 +125,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
         }
         if (alive) await list(home || "/");
       } catch (e) {
-        if (alive) setListError(String(e));
+        if (alive) setListError(humanizeError(e).message);
       }
     })();
     return () => { alive = false; };
@@ -144,7 +145,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
         if (home) homeCache.set(sessionId, home);
       }
       await list(home || "/");
-    } catch (e) { setListError(String(e)); }
+    } catch (e) { setListError(humanizeError(e).message); }
   }, [sessionId, list]);
 
   const onDownload = async (entry) => {
@@ -152,7 +153,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
       const saved = await invoke("sftp_download", { id: sessionId, path: entry.path });
       if (saved) toast.success(`Downloaded → ${saved}`);
     } catch (e) {
-      toast.error(`Download failed: ${e}`);
+      toast.error(humanizeError(e, "Download failed"));
     }
   };
 
@@ -165,7 +166,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
         refresh();
       }
     } catch (e) {
-      toast.error(`Upload failed: ${e}`);
+      toast.error(humanizeError(e, "Upload failed"));
     }
   };
 
@@ -177,7 +178,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
       await invoke("sftp_mkdir", { id: sessionId, path: joinPath(cwd, name.trim()) });
       refresh();
     } catch (e) {
-      toast.error(`Create folder failed: ${e}`);
+      toast.error(humanizeError(e, "Create folder failed"));
     }
   };
 
@@ -194,7 +195,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
       if (entry.is_dir) invalidateListing(entry.path);
       refresh();
     } catch (e) {
-      toast.error(`Delete failed: ${e}`);
+      toast.error(humanizeError(e, "Delete failed"));
     }
   };
 
@@ -207,7 +208,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
       if (entry.is_dir) invalidateListing(entry.path);
       refresh();
     } catch (e) {
-      toast.error(`Rename failed: ${e}`);
+      toast.error(humanizeError(e, "Rename failed"));
     }
   };
 

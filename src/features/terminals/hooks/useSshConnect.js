@@ -13,6 +13,7 @@ import { invoke } from "@backend";
 import { setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
 import { freshId } from "../ids.js";
+import { humanizeError } from "../errorText.js";
 
 export function useSshConnect({ state, spawnSessionTab, toast }) {
   // SSH password prompt: { panelId, tab, project } or null. On submit, stash the
@@ -25,7 +26,7 @@ export function useSshConnect({ state, spawnSessionTab, toast }) {
     if (remember) {
       invoke("secret_set", { account: sshAccount(sshPrompt.project.connection), secret: password })
         .then(() => toast.info("Password saved to keychain."))
-        .catch((e) => toast.error(`Couldn't save to keychain: ${e}`));
+        .catch((e) => toast.error(humanizeError(e, "Couldn't save to keychain")));
     }
     spawnSessionTab(sshPrompt.panelId, sshPrompt.tab);
     setSshPrompt(null);

@@ -19,6 +19,7 @@ import { defaultPanel, renumberDefaultLabels, removeTabsFromWorkspace } from "..
 import { isSpecialTab } from "../paneIds.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio, equalizeRatios } from "../splitTree";
 import { MAX_PANELS } from "../grid";
+import { humanizeError } from "../errorText.js";
 
 export function useWorkspaceTree({ state, persist, toast }) {
   // Recently-closed tabs, for reopen (Ctrl+Shift+T). Stash the tab config + where
@@ -310,7 +311,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
       await invoke("spawn_new_window", { windowId: winId });
     } catch (e) {
       try { localStorage.removeItem(stateKey); } catch { /* ignore */ }
-      toast.error(`Detach failed: ${e}`);
+      toast.error(humanizeError(e, "Detach failed"));
       return;
     }
     closeTab(panelId, tabId);
