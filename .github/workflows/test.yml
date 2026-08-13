@@ -2,7 +2,9 @@
 # CI ran the suites — 343 vitest + 147 cargo tests were guarding nothing).
 name: test
 # push-only (stream audit W5: push + pull_request double-ran every suite on
-# PR branches). windows runner (W4): the keyring crate has only apple/windows
+# PR branches). Known accepted gap: a PR from a FORK never triggers this
+# (push fires in-repo only) — fine for the current solo/hybrid model; add a
+# pull_request trigger scoped to forks if outside contributions ever start. windows runner (W4): the keyring crate has only apple/windows
 # backend features enabled — a linux build hits its no-backend compile_error;
 # windows also mirrors the primary dev/ship platform.
 on:
