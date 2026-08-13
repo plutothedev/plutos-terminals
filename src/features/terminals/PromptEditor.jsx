@@ -13,7 +13,17 @@ import { insertNewlineAndIndent } from "@codemirror/commands";
 import { StreamLanguage, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { autocompletion, completionKeymap, startCompletion, acceptCompletion, completionStatus } from "@codemirror/autocomplete";
-import { vim } from "@replit/codemirror-vim";
+// Vim adapter is dynamic (P4-T1): ~35kB gz that only vim-mode users need.
+// Loaded on demand; the compartment starts empty and reconfigures when the
+// module lands (the [vimMode] effect below owns both directions).
+let vimFn = null;
+async function loadVim() {
+  if (!vimFn) {
+    const mod = await import("@replit/codemirror-vim");
+    vimFn = mod.vim;
+  }
+  return vimFn;
+}
 import { tags as t } from "@lezer/highlight";
 import { invoke } from "@backend";
 import { getCommandHistory } from "./ptyBridge.js";
@@ -256,7 +266,7 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
         autocompletion({ override: [makeCompletionSource(cwdRef)], activateOnTyping: false, icons: false, defaultKeymap: false }),
         // Vim last = lowest precedence: our Enter/Tab/Esc/ghost bindings win;
         // vim handles every motion/operator key we don't bind.
-        vimComp.current.of(vimMode ? [vim()] : []),
+        vimComp.current.of([]), // empty at init — the [vimMode] effect fills it once the adapter loads
         StreamLanguage.define(shell),
         themeComp.current.of([editorTheme(theme), syntaxHighlighting(highlightFor(theme))]),
         EditorView.lineWrapping,
@@ -274,11 +284,26 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
     v.dispatch({ effects: themeComp.current.reconfigure([editorTheme(theme), syntaxHighlighting(highlightFor(theme))]) });
   }, [theme]);
 
-  // Toggle vim mode live.
+  // Toggle vim mode live. Runs on mount too, so a vim-enabled editor loads the
+  // adapter and reconfigures as soon as it lands; disabling is synchronous.
+  // vimRef re-check after the await: a fast off-toggle mid-load must not
+  // re-enable vim from a stale closure.
   useEffect(() => {
     const v = viewRef.current;
     if (!v) return;
-    v.dispatch({ effects: vimComp.current.reconfigure(vimMode ? [vim()] : []) });
+    if (!vimMode) {
+      v.dispatch({ effects: vimComp.current.reconfigure([]) });
+      return;
+    }
+    let alive = true;
+    loadVim()
+      .then((vimExt) => {
+        const view = viewRef.current;
+        if (!alive || !view || !vimRef.current) return;
+        view.dispatch({ effects: vimComp.current.reconfigure([vimExt()]) });
+      })
+      .catch(() => { /* adapter failed to load — plain editing still works */ });
+    return () => { alive = false; };
   }, [vimMode]);
 
   // On show: snapshot history, clear the draft, focus.

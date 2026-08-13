@@ -184,8 +184,12 @@ export default function NotebookView({ name, tabId, visible }) {
   );
 
   // ── Lazy Monaco (RemoteEditor pattern) ────────────────────────────────────
+  // Gated on `visible` (P4-T1): tabs are never unmounted (display:none only),
+  // so without the gate a restored notebook in a HIDDEN tab pulled the full
+  // ~3.9MB Monaco chain at boot. `visible` in the deps is load-bearing — the
+  // effect must re-run when the tab is first revealed.
   useEffect(() => {
-    if (Editor || monacoFailed) return;
+    if (!visible || Editor || monacoFailed) return;
     let alive = true;
     (async () => {
       try {
@@ -197,7 +201,7 @@ export default function NotebookView({ name, tabId, visible }) {
       }
     })();
     return () => { alive = false; };
-  }, [Editor, monacoFailed]);
+  }, [visible, Editor, monacoFailed]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const scheduleAutosave = useCallback(() => {

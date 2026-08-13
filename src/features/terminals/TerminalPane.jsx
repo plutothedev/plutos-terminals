@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { listen } from "@backend";
 import { setPaneActivity } from "./activityStore.js";
@@ -7,7 +7,27 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
-import { ImageAddon } from "@xterm/addon-image";
+// ImageAddon (sixel/iTerm2 inline images) is dynamic (P4-T1): ~20kB gz off the
+// critical path. Both instantiation sites (openIfVisible + refitOnly's
+// never-opened branch) share this loader; the per-entry `imageAddonDone` latch
+// is checked-and-set synchronously inside .then, so even overlapping loads
+// can't double-loadAddon one terminal.
+let ImageAddonCls = null;
+async function loadImageAddonCls() {
+  if (!ImageAddonCls) {
+    try {
+      ImageAddonCls = (await import("@xterm/addon-image")).ImageAddon;
+    } catch { /* leave null — terminals just render without inline images */ }
+  }
+  return ImageAddonCls;
+}
+function attachImageAddon(entry, t) {
+  loadImageAddonCls().then((Cls) => {
+    if (!Cls || !t || !t.element || entry.imageAddonDone) return;
+    entry.imageAddonDone = true;
+    try { t.loadAddon(new Cls()); } catch { /* ignore */ }
+  });
+}
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
@@ -18,7 +38,11 @@ import { actionForEvent } from "./keybindings.js";
 import { buildWelcomeBanner } from "./welcomeBanner.js";
 import { buildPosixShellInit, buildPowerShellInit } from "./shellIntegration.js";
 import { resolveEnvFromUserState } from "./spawnEnv.js";
-import PromptEditor from "./PromptEditor.jsx";
+// PromptEditor rides behind the default-off promptEditor flag yet its static
+// import chained the whole CodeMirror stack (~130kB gz) into EVERYONE's boot
+// bundle (P4-T1). Lazy + null fallback: flag users see the editor a beat late
+// on first open; everyone else never downloads it.
+const PromptEditor = lazy(() => import("./PromptEditor.jsx"));
 import ShareModal from "./ShareModal.jsx";
 import { MONO_STACK } from "./fonts.js";
 import { blockOutputText } from "./blockText";
@@ -770,7 +794,7 @@ function TerminalPane({
         if (!t.element) {
           try {
             t.open(entry.host);
-            t.loadAddon(new ImageAddon());
+            attachImageAddon(entry, t);
           } catch { /* ignore */ }
         }
         try { entry.fit?.fit(); } catch {}
@@ -1077,7 +1101,7 @@ function TerminalPane({
       if (opened || !alive || !container.clientWidth || !container.clientHeight) return;
       opened = true;
       term.open(entry.host); // registry-owned host — the xterm DOM moves with it across slots
-      try { term.loadAddon(new ImageAddon()); } catch { /* ignore */ }
+      attachImageAddon(entry, term);
       safeFit();
     };
     // Open as soon as the container actually intersects the viewport — the same
@@ -1863,20 +1887,22 @@ function TerminalPane({
     >
       <div ref={containerRef} onContextMenu={onTermContextMenu} style={{ width: "100%", height: "100%", padding: 6, boxSizing: "border-box" }} />
       {promptEditor && (
-        <PromptEditor
-          visible={showEditor}
-          top={peRect.top}
-          left={peRect.left}
-          width={peRect.width}
-          height={peRect.height}
-          theme={xtermTheme}
-          cwd={shellCwd}
-          vimMode={promptEditorVim}
-          onSubmit={submitPrompt}
-          onEscape={promptEscape}
-          onCtrlC={promptCtrlC}
-          onClear={promptClear}
-        />
+        <Suspense fallback={null}>
+          <PromptEditor
+            visible={showEditor}
+            top={peRect.top}
+            left={peRect.left}
+            width={peRect.width}
+            height={peRect.height}
+            theme={xtermTheme}
+            cwd={shellCwd}
+            vimMode={promptEditorVim}
+            onSubmit={submitPrompt}
+            onEscape={promptEscape}
+            onCtrlC={promptCtrlC}
+            onClear={promptClear}
+          />
+        </Suspense>
       )}
       {stickyBlock && (
         <div style={{
