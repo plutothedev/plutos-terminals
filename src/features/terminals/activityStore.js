@@ -27,7 +27,6 @@ let projectIndex = new Map(); // rootPaneId (tab.id) -> projectId
 let version = 0;
 
 const paneListeners = new Map(); // paneId -> Set<cb>
-const projectListeners = new Map(); // projectId -> Set<cb>
 const anyListeners = new Set(); // whole-map subscribers
 
 let mapSnapshot = { version: -1, value: {} };
@@ -41,7 +40,6 @@ function fire(set) {
 }
 
 function notifyPane(paneId) { fire(paneListeners.get(paneId)); }
-function notifyProject(projectId) { fire(projectListeners.get(projectId)); }
 function notifyAny() { fire(anyListeners); }
 
 // ── Producers ───────────────────────────────────────────────────────────────
@@ -55,18 +53,29 @@ export function setPaneActivity(paneId, state) {
   else activities.set(paneId, next);
   version++;
   notifyPane(paneId);
-  const pid = projectIndex.get(paneId);
-  if (pid) notifyProject(pid);
-  notifyAny();
+  notifyAny(); // rollup consumers (sidebar/home) ride the any-channel
 }
 
 /// TerminalsTab's layout effect owns this (rebuilt on [state.panels,
 /// projects] — changes that re-render everything anyway). Lives IN the store
-/// so useProjectActivity's snapshot and per-write routing can reach it.
+/// so the rollup snapshots and per-write routing can reach it. Change-guarded
+/// (T1 review): most rebuilds carry an IDENTICAL mapping (tab switches,
+/// drag ticks), and an unguarded bump forced every cached snapshot to
+/// recompute + notified all listeners for nothing — it also double-notified
+/// under StrictMode's dev double-invoke.
 export function setProjectIndex(map) {
+  if (map.size === projectIndex.size) {
+    let same = true;
+    for (const [k, v] of map) {
+      if (projectIndex.get(k) !== v) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return;
+  }
   projectIndex = map;
   version++;
-  for (const pid of projectListeners.keys()) notifyProject(pid);
   notifyAny();
 }
 
@@ -85,7 +94,6 @@ export function pruneActivities(liveIds) {
   if (changed) {
     version++;
     for (const set of paneListeners.values()) fire(set);
-    for (const pid of projectListeners.keys()) notifyProject(pid);
     notifyAny();
   }
 }
@@ -94,10 +102,6 @@ export function pruneActivities(liveIds) {
 
 export function getPaneActivity(paneId) {
   return activities.get(paneId) || "idle";
-}
-
-export function getActivityVersion() {
-  return version;
 }
 
 // ── Hooks ───────────────────────────────────────────────────────────────────
@@ -127,21 +131,11 @@ export function useTabActivity(tabId) {
   );
 }
 
-/// Rollup for one project (root panes only — today's semantics). Primitive.
-export function useProjectActivity(projectId) {
-  const subscribe = useCallback(
-    (cb) => (projectId ? subscribeKeyed(projectListeners, projectId, cb) : () => {}),
-    [projectId]
-  );
-  return useSyncExternalStore(subscribe, () => {
-    if (!projectId) return "idle";
-    let best = "idle";
-    for (const [paneId, pid] of projectIndex) {
-      if (pid === projectId) best = mergeActivity(best, activities.get(paneId) || "idle");
-    }
-    return best;
-  });
-}
+// NOTE deliberately NO per-project hook here (T1 review): both project
+// consumers render projects inside .map(), where a per-row hook would violate
+// the Rules of Hooks — they use the cached useProjectRollups() object and
+// index into it per row. If a dedicated per-project component ever exists,
+// add the hook back with a per-project subscription then.
 
 function subscribeAny(cb) {
   anyListeners.add(cb);
@@ -219,7 +213,6 @@ export function __resetActivityStore() {
   projectIndex = new Map();
   version = 0;
   paneListeners.clear();
-  projectListeners.clear();
   anyListeners.clear();
   mapSnapshot = { version: -1, value: {} };
   rollupSnapshot = { version: -1, value: {} };
