@@ -54,7 +54,8 @@ import { writeToTab, writeBroadcast, getTabText, getPtyId } from "./ptyBridge.js
 import { getLayout, leafIds } from "./splitTree.js";
 import { navigatePane } from "./paneNav.js";
 import { reconcile, getEntry } from "./paneRegistry.js";
-import { allRenderedPaneIds, tabPaneIdGroups } from "./paneIds.js";
+import { allRenderedPaneIds } from "./paneIds.js";
+import { trickleTick } from "./trickle.js";
 import { setProjectIndex, pruneActivities } from "./activityStore.js";
 import { sshAccount } from "./sshAccount.js";
 
@@ -153,35 +154,36 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Boot-stagger trickle (P4-T5): hidden restored tabs spawn one TAB per tick
   // after boot settles, so background sessions (agent tabs with startCommands
-  // the user expects running) still come up without a reveal — bounded by
-  // N×300ms. Tree-anchored (one instance per window realm via the module
-  // timer guard), tabId-keyed via tabPaneIdGroups so a 3-split tab releases
-  // together instead of eating 3 slots. Reads panels through a ref — layout
-  // changes mid-trickle are picked up next tick, and the reveal/startSpawn
-  // latch makes double-release harmless. StrictMode: cleanup clears + nulls
-  // the module timer, so the remount restarts cleanly.
+  // the user expects running) come up without a reveal — bounded by N×300ms.
+  // tabId-keyed via trickleTick/tabPaneIdGroups (a 3-split tab releases
+  // together — one slot); module timer guard = one trickle per window realm;
+  // panels read through a ref so mid-trickle layout changes are picked up
+  // next tick; the reveal/startSpawn latch makes double-release harmless.
+  //
+  // Deps are [state.panels] (mini-review HIGH fix): an exhausted trickle lets
+  // its timer die, and with []-deps it could never re-arm — a workspace
+  // loaded AFTER boot left its hidden agent tabs inert forever, silently
+  // breaking the background-startCommands promise. Every panels change now
+  // re-arms an idle trickle (the armed-guard makes this a no-op storm-proof);
+  // an exhausted re-scan is one cheap pure-JS pass. StrictMode: cleanup
+  // clears + nulls the module timer, so the remount restarts cleanly.
   const trickleStateRef = useRef(state.panels);
   trickleStateRef.current = state.panels;
   useEffect(() => {
-    if (trickleTimer !== null) return; // another mount in this realm owns it
+    if (trickleTimer !== null) return; // already armed (this or another mount)
     const tick = () => {
       trickleTimer = null;
-      for (const { paneIds } of tabPaneIdGroups(trickleStateRef.current)) {
-        const entries = paneIds.map(getEntry).filter(Boolean);
-        if (entries.some((e) => e.spawnState === "unspawned")) {
-          for (const e of entries) e.startSpawn?.();
-          trickleTimer = setTimeout(tick, 300);
-          return;
-        }
+      if (trickleTick(trickleStateRef.current)) {
+        trickleTimer = setTimeout(tick, 300);
       }
-      // Nothing unspawned — trickle done (a later-created pane spawns via
-      // its own mount/reveal path, not the trickle).
+      // else: nothing unspawned — timer stays dead until the next
+      // state.panels change re-arms us.
     };
     trickleTimer = setTimeout(tick, 1000); // let the visible panes' boot burst settle first
     return () => {
       if (trickleTimer !== null) { clearTimeout(trickleTimer); trickleTimer = null; }
     };
-  }, []);
+  }, [state.panels]);
 
   // Root-pane→project index for the activity store's project rollups (P2-T1).
   // Root tab ids only — today's rollup semantics. Rebuilt on layout/project
