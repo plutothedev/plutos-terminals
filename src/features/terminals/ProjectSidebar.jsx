@@ -1,5 +1,5 @@
 // (C)
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@backend";
 import "./terminals.css";
 import { SLocal, SSsh, SWindows, SServer, SBox, SBot, SModels, SFolder, SAgents } from "./toolbarIcons.jsx";
@@ -63,8 +63,8 @@ function osIconFor(p) {
   if (isSsh(p)) return { id: "tux", color: "#E0863C" };
   return { id: "mon", color: "#5B9BE0" };
 }
-function OsIcon({ p, size = 13 }) {
-  const { id, color } = osIconFor(p);
+function OsIcon({ p, info, size = 13 }) {
+  const { id, color } = info || osIconFor(p);
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color}
       strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
@@ -157,24 +157,42 @@ function ProjectSidebar({
   // Collapsed folders in the Sessions tree (transient — names, not ids).
   const [collapsedFolders, setCollapsedFolders] = useState(() => new Set());
 
-  // Per-SSH-host latency (TCP connect to the SSH port). Probed sequentially on
-  // mount + every 30s; shown next to the host in the tree. Failures → null (—).
+  // Per-SSH-host latency (TCP connect to the SSH port), shown next to the
+  // host in the tree. P2-T4: ONE batched invoke + ONE setState per 30s cycle
+  // (the old loop was N sequential invokes + N sidebar re-renders, running
+  // even while the window was hidden to the tray). The hidden check lives
+  // INSIDE the tick — never tear the interval down on visibility, or a missed
+  // "visible" event would strand polling off — and a visible-flip refreshes
+  // immediately. Single-flight guards a slow batch overlapping the next tick.
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const ssh = (projects || []).filter((p) => isSsh(p) && p.connection?.host);
     if (ssh.length === 0) return undefined;
     const probe = async () => {
-      for (const p of ssh) {
-        if (cancelled) return;
-        try {
-          const ms = await invoke("net_latency", { host: p.connection.host, port: p.connection.port || 22 });
-          if (!cancelled) setLatency((m) => ({ ...m, [p.id]: ms }));
-        } catch { /* ignore unreachable */ }
-      }
+      if (cancelled || inFlight || document.hidden) return;
+      inFlight = true;
+      try {
+        const hosts = ssh.map((p) => [p.connection.host, p.connection.port || 22]);
+        const byHost = await invoke("net_latency_many", { hosts });
+        if (!cancelled && byHost) {
+          setLatency((m) => {
+            const next = { ...m };
+            for (const p of ssh) next[p.id] = byHost[p.connection.host] ?? null;
+            return next;
+          });
+        }
+      } catch { /* ignore */ } finally { inFlight = false; }
     };
     probe();
     const t = setInterval(probe, 30000);
-    return () => { cancelled = true; clearInterval(t); };
+    const onVis = () => { if (!document.hidden) probe(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [projects]);
   const toggleFolder = (name) =>
     setCollapsedFolders((prev) => {
@@ -188,26 +206,43 @@ function ProjectSidebar({
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef(null);
 
-  // Git branch + dirty state per project. Fetched on mount and whenever
-  // the projects list changes; refreshed every 30s while the sidebar
-  // is open so it tracks user-side branch switches without restart.
+  // Git branch + dirty state per project, refreshed every 30s while the
+  // sidebar is open. P2-T4: ONE batched invoke (chunked scoped threads on the
+  // Rust side — the old N concurrent invokes each pinned a tokio worker on a
+  // blocking git subprocess, queueing keystroke dispatch behind the fan-out)
+  // + ONE setState; hidden-gated per tick with a visible-flip refresh;
+  // single-flight for cold/network repos.
   const [gitStatus, setGitStatus] = useState({}); // {projectId: {branch, dirty} | null}
   useEffect(() => {
     let cancelled = false;
-    const refresh = () => {
-      projects.forEach(p => {
-        if (!p.path) return;
-        invoke("git_branch_status", { cwd: p.path })
-          .then(status => {
-            if (cancelled) return;
-            setGitStatus(prev => ({ ...prev, [p.id]: status || null }));
-          })
-          .catch(() => {});
-      });
+    let inFlight = false;
+    const withPath = projects.filter((p) => p.path);
+    if (withPath.length === 0) return undefined;
+    const refresh = async () => {
+      if (cancelled || inFlight || document.hidden) return;
+      inFlight = true;
+      try {
+        const byCwd = await invoke("git_branch_status_many", {
+          cwds: withPath.map((p) => p.path),
+        });
+        if (!cancelled && byCwd) {
+          setGitStatus((prev) => {
+            const next = { ...prev };
+            for (const p of withPath) next[p.id] = byCwd[p.path] || null;
+            return next;
+          });
+        }
+      } catch { /* ignore */ } finally { inFlight = false; }
     };
     refresh();
     const t = setInterval(refresh, 30000);
-    return () => { cancelled = true; clearInterval(t); };
+    const onVis = () => { if (!document.hidden) refresh(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [projects]);
 
   // npm scripts per project. Lazily fetched when the right-click menu opens.
@@ -347,17 +382,33 @@ function ProjectSidebar({
 
   // Search matches name, folder, host, path, and tags. A leading "#" filters by
   // tag specifically (e.g. "#prod"); otherwise it's a substring match over the
-  // whole haystack.
+  // whole haystack. P2-T4: haystacks + lowered tags precompute ONCE per
+  // projects change instead of per row per keystroke (the old inline build
+  // ran string concat + toLowerCase for all N rows on every input event).
+  const searchIndex = useMemo(() => {
+    const idx = new Map();
+    for (const p of projects) {
+      const tags = Array.isArray(p.tags) ? p.tags : [];
+      idx.set(p.id, {
+        hay: `${p.name || ""} ${p.folder || ""} ${p.connection?.host || ""} ${p.rdp?.host || ""} ${p.vnc?.host || ""} ${p.path || ""} ${tags.join(" ")}`.toLowerCase(),
+        tags: tags.map((t) => String(t).toLowerCase()),
+        // Icon classification runs 4 regexes over a concat — once per
+        // projects change here, not per row per render.
+        iconInfo: osIconFor(p),
+      });
+    }
+    return idx;
+  }, [projects]);
   const q = query.trim().toLowerCase();
   const matchesQuery = (p) => {
     if (!q) return true;
-    const tags = Array.isArray(p.tags) ? p.tags : [];
+    const entry = searchIndex.get(p.id);
+    if (!entry) return true;
     if (q.startsWith("#")) {
       const t = q.slice(1);
-      return tags.some((tag) => String(tag).toLowerCase().includes(t));
+      return entry.tags.some((tag) => tag.includes(t));
     }
-    const hay = `${p.name || ""} ${p.folder || ""} ${p.connection?.host || ""} ${p.rdp?.host || ""} ${p.vnc?.host || ""} ${p.path || ""} ${tags.join(" ")}`.toLowerCase();
-    return hay.includes(q);
+    return entry.hay.includes(q);
   };
   const visibleProjects = q ? projects.filter(matchesQuery) : projects;
 
@@ -552,7 +603,7 @@ function ProjectSidebar({
                       style={{ flexShrink: 0, display: "flex", alignItems: "center", alignSelf: "center" }}
                       title={isSsh(p) ? "SSH session" : "Local shell"}
                     >
-                      <OsIcon p={p} />
+                      <OsIcon p={p} info={searchIndex.get(p.id)?.iconInfo} />
                     </span>
                     <span
                       style={{

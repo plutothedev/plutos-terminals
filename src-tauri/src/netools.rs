@@ -166,18 +166,69 @@ pub async fn net_latency(host: String, port: Option<u16>) -> Result<Option<u32>,
     if !valid_host(&host) {
         return Err("invalid host".into());
     }
+    // Blocking DNS + connect off the runtime (P2-T4): as a bare async fn this
+    // parked a tokio worker for up to 1.5s per unreachable addr.
+    Ok(tauri::async_runtime::spawn_blocking(move || net_latency_sync(&host, port))
+        .await
+        .unwrap_or(None))
+}
+
+fn net_latency_sync(host: &str, port: Option<u16>) -> Option<u32> {
     let p = port.unwrap_or(22);
-    let addrs = match (host.as_str(), p).to_socket_addrs() {
+    let addrs = match (host, p).to_socket_addrs() {
         Ok(a) => a,
-        Err(_) => return Ok(None),
+        Err(_) => return None,
     };
-    for addr in addrs {
+    // First 2 resolved addrs only (audit M4): the full loop walked EVERY
+    // addr at 1.5s each — a dual-stack dead host cost 3s+, and a long
+    // resolver list far more.
+    for addr in addrs.take(2) {
         let start = std::time::Instant::now();
         if TcpStream::connect_timeout(&addr, Duration::from_millis(1500)).is_ok() {
-            return Ok(Some(start.elapsed().as_millis() as u32));
+            return Some(start.elapsed().as_millis() as u32);
         }
     }
-    Ok(None)
+    None
+}
+
+/// Batched probe for the session tree (P2-T4): one invoke per 30s cycle,
+/// chunks of 16 scoped threads inside one spawn_blocking slot — 40
+/// unreachable hosts cost ~3 chunk-waves (~4.5s) instead of 60s serial, and
+/// zero tokio workers.
+#[tauri::command]
+pub async fn net_latency_many(
+    hosts: Vec<(String, Option<u16>)>,
+) -> std::collections::HashMap<String, Option<u32>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = std::collections::HashMap::new();
+        for chunk in hosts.chunks(16) {
+            let results: Vec<(String, Option<u32>)> = std::thread::scope(|scope| {
+                let handles: Vec<_> = chunk
+                    .iter()
+                    .map(|(host, port)| {
+                        let host = host.trim().to_string();
+                        let port = *port;
+                        scope.spawn(move || {
+                            let ms = if valid_host(&host) {
+                                net_latency_sync(&host, port)
+                            } else {
+                                None
+                            };
+                            (host, ms)
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .filter_map(|h| h.join().ok())
+                    .collect()
+            });
+            out.extend(results);
+        }
+        out
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// Resolve a hostname to its IP address(es). Pure Rust via the system resolver.

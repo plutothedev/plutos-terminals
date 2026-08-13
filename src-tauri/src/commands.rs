@@ -583,9 +583,54 @@ pub struct GitBranchStatus {
     pub dirty: bool,
 }
 
+/// Batched variant (P2-T4): ONE invoke per sidebar poll cycle instead of N —
+/// the old shape fired N concurrent async commands whose BLOCKING
+/// `Command::output` bodies each pinned a tokio worker (keystroke dispatch
+/// queued behind the git fan-out every 30s). One spawn_blocking slot; inside
+/// it, chunks of 6 scoped threads bound the wall time on cold/network repos
+/// without re-pinning the runtime (audit M3).
+#[tauri::command]
+pub async fn git_branch_status_many(
+    cwds: Vec<String>,
+) -> HashMap<String, Option<GitBranchStatus>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out: HashMap<String, Option<GitBranchStatus>> = HashMap::new();
+        for chunk in cwds.chunks(6) {
+            let results: Vec<(String, Option<GitBranchStatus>)> = std::thread::scope(|scope| {
+                let handles: Vec<_> = chunk
+                    .iter()
+                    .map(|cwd| {
+                        let cwd = cwd.clone();
+                        scope.spawn(move || {
+                            let st = git_branch_status_sync(&cwd);
+                            (cwd, st)
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .filter_map(|h| h.join().ok())
+                    .collect()
+            });
+            out.extend(results);
+        }
+        out
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Single-repo variant (agent-mode context uses it). Blocking git subprocesses
+/// move off the runtime too (they used to pin a tokio worker).
 #[tauri::command]
 pub async fn git_branch_status(cwd: String) -> Option<GitBranchStatus> {
-    let path = std::path::Path::new(&cwd);
+    tauri::async_runtime::spawn_blocking(move || git_branch_status_sync(&cwd))
+        .await
+        .unwrap_or(None)
+}
+
+fn git_branch_status_sync(cwd: &str) -> Option<GitBranchStatus> {
+    let path = std::path::Path::new(cwd);
     if !path.exists() || !path.is_dir() {
         return None;
     }
@@ -593,7 +638,7 @@ pub async fn git_branch_status(cwd: String) -> Option<GitBranchStatus> {
         .arg("rev-parse")
         .arg("--abbrev-ref")
         .arg("HEAD")
-        .current_dir(&cwd)
+        .current_dir(cwd)
         .output()
         .ok()?;
     if !branch_out.status.success() {
@@ -608,7 +653,7 @@ pub async fn git_branch_status(cwd: String) -> Option<GitBranchStatus> {
     let status_out = silent_command("git")
         .arg("status")
         .arg("--porcelain")
-        .current_dir(&cwd)
+        .current_dir(cwd)
         .output()
         .ok()?;
     let dirty = !String::from_utf8_lossy(&status_out.stdout)
