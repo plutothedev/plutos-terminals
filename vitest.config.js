@@ -9,6 +9,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.js"],
+    // .jsx tests = the P2-T2 render-containment harness (hook renders need
+    // the JSX transform + a DOM; those files opt into happy-dom per-file via
+    // an @vitest-environment pragma).
+    include: ["src/**/*.test.js", "src/**/*.test.jsx"],
   },
 });

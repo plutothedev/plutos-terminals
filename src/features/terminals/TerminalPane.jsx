@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { listen } from "@backend";
 import { setPaneActivity } from "./activityStore.js";
@@ -247,7 +247,7 @@ export function transcriptName(projectName, tabId) {
 // `autoApprove` enables Claude permission auto-confirmation.
 // `onCostUpdate({tokens, cost})` reports up; activity goes straight to the
 // module activity store (P2-T1).
-export default function TerminalPane({
+function TerminalPane({
   visible,
   active = true,
   cwd,
@@ -2024,3 +2024,8 @@ export default function TerminalPane({
     </div>
   );
 }
+
+// Memoized (P2-T2): with the activity map prop gone (T1) and every remaining
+// prop either primitive or identity-stable (T2's handler cache + stable maps
+// + stateRef hooks), a pane re-renders only when ITS tab's fields change.
+export default memo(TerminalPane);

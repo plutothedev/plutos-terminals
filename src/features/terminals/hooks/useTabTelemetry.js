@@ -11,6 +11,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getLayout, leafIds } from "../splitTree";
 import { allRenderedPaneIds } from "../paneIds.js";
 
+// Identity-stable shallow-map memo (P2-T2): recomputes per deps like useMemo,
+// but hands back the PREVIOUS object when the contents are shallow-equal —
+// plain-object shallow equality with a key-count check (covers deletion).
+function useStableMap(compute, deps) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const value = useMemo(compute, deps);
+  const prevRef = useRef(value);
+  const prev = prevRef.current;
+  let out = value;
+  if (prev !== value) {
+    const pk = Object.keys(prev);
+    const vk = Object.keys(value);
+    if (pk.length === vk.length && vk.every((k) => prev[k] === value[k])) {
+      out = prev;
+    }
+  }
+  prevRef.current = out;
+  return out;
+}
+
 // Rollup precedence when several tabs map to one project (or one summary row).
 // "waiting" ranks highest on purpose: among a fleet of agents, the one blocked
 // on a human is the only one whose state is actionable right now — it must
@@ -84,19 +104,31 @@ export function useTabTelemetry({ state, projects }) {
 
   // Maps from tab id -> project metadata, so each TerminalPane knows which
   // project it represents (for auto-approve toggle + transcript filename).
-  const { tabAutoApprove, tabProjectNames } = useMemo(() => {
+  // Identity-stable (P2-T2): rebuilt on every workspace mutation but usually
+  // shallow-equal — returning the PREVIOUS object then keeps the panel memos
+  // holding across unrelated tab switches. A real toggle/rename changes the
+  // contents, so a fresh identity flows and the affected panes re-render.
+  const tabAutoApprove = useStableMap(() => {
     const ap = {};
+    for (const panel of state.panels) {
+      for (const tab of panel.tabs) {
+        if (!tab.projectId) continue;
+        const project = projects.find(p => p.id === tab.projectId);
+        if (project?.autoApprove) ap[tab.id] = true;
+      }
+    }
+    return ap;
+  }, [state.panels, projects]);
+  const tabProjectNames = useStableMap(() => {
     const names = {};
     for (const panel of state.panels) {
       for (const tab of panel.tabs) {
         if (!tab.projectId) continue;
         const project = projects.find(p => p.id === tab.projectId);
-        if (!project) continue;
-        if (project.autoApprove) ap[tab.id] = true;
-        names[tab.id] = project.name;
+        if (project) names[tab.id] = project.name;
       }
     }
-    return { tabAutoApprove: ap, tabProjectNames: names };
+    return names;
   }, [state.panels, projects]);
 
   // Aggregate cost across all CURRENTLY-OPEN tabs/panes. tabCosts is never pruned

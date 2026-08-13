@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@backend";
 import TerminalPane, { todayDate, transcriptName } from "./TerminalPane";
 import VncView from "./VncView";
@@ -176,6 +176,22 @@ function TerminalPanel({
     closeOthers: (tabId) => onCloseOthers(panel.id, tabId),
   }), [panel.id, onActivate, onAddTab, onCloseTab, onSwitchTab, onClosePanel, onDuplicateTab, onDetachTab, onCloseOthers]);
 
+  // Per-pane cost handlers with PERMANENT identities (P2-T2): the old inline
+  // arrow re-minted per render, which would defeat memo(TerminalPane). The
+  // latest onTabCostUpdate rides a ref; stale ids are pruned when the leaf
+  // set changes.
+  const onTabCostUpdateRef = useRef(onTabCostUpdate);
+  onTabCostUpdateRef.current = onTabCostUpdate;
+  const costHandlersRef = useRef(new Map());
+  const costHandlerFor = (paneId) => {
+    let h = costHandlersRef.current.get(paneId);
+    if (!h) {
+      h = (c) => onTabCostUpdateRef.current?.(paneId, c);
+      costHandlersRef.current.set(paneId, h);
+    }
+    return h;
+  };
+
   const activeTab = panel.tabs.find(t => t.id === panel.activeTabId) || panel.tabs[0];
   // Subscribe to THIS panel's leaf set only (P2-T1): an activity flip in one
   // of our panes re-renders this panel's strip; flips elsewhere don't touch
@@ -185,6 +201,12 @@ function TerminalPanel({
     [panel.tabs]
   );
   usePanelActivityStamp(leafKey);
+  useEffect(() => {
+    const live = new Set(leafKey ? leafKey.split(",") : []);
+    for (const id of [...costHandlersRef.current.keys()]) {
+      if (!live.has(id)) costHandlersRef.current.delete(id);
+    }
+  }, [leafKey]);
   const panelState = aggregatePanelActivity(panel);
 
   // Panel bg = xterm bg so the active tab visually merges with the terminal
@@ -651,7 +673,7 @@ function TerminalPanel({
                       tabId={node.id}
                       projectName={isRoot ? (tabProjectNames?.[tab.id] || null) : null}
                       autoApprove={isRoot ? (tabAutoApprove?.[tab.id] || false) : false}
-                      onCostUpdate={(c) => onTabCostUpdate?.(node.id, c)}
+                      onCostUpdate={costHandlerFor(node.id)}
                       saveUser={saveUser}
                     />
                     {/* Hover control cluster — split anywhere, zoom/close on

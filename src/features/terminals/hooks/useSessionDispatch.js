@@ -13,7 +13,7 @@
 // git-worktree launch entry points. No secret ever lands in app state —
 // passwords go to the ptyBridge (transient) / OS keychain only.
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { invoke } from "@backend";
 import { setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
@@ -30,20 +30,31 @@ export function useSessionDispatch({
   setVncLaunch,
   setRdpLaunch,
 }) {
+  // Latest state/projects behind refs (P2-T2, the useWorkspaceTree pattern):
+  // every handler reads *Ref.current at CALL time, so handler identities stay
+  // stable across persists. Pre-migration, openProjectInPanel re-minted on
+  // every workspace mutation, which churned homeApi and busted every panel
+  // memo on every tab switch (plan-audit H3).
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+
   // FR-012: if a saved session already has an open tab, focus it instead of
   // opening a second connection. Returns true if an existing tab was focused.
   // Scoped to remote-desktop launches (RDP/VNC) where duplicate connections each
   // cost a worker thread + socket; local/SSH keep their multi-tab behavior.
   const focusExistingProjectTab = useCallback((projectId) => {
-    for (const p of state.panels) {
+    const st = stateRef.current;
+    for (const p of st.panels) {
       const t = p.tabs.find((t) => t.projectId === projectId);
       if (t) {
-        persist({ ...state, activePanelId: p.id, panels: state.panels.map((pp) => pp.id === p.id ? { ...pp, activeTabId: t.id } : pp) });
+        persist({ ...st, activePanelId: p.id, panels: st.panels.map((pp) => pp.id === p.id ? { ...pp, activeTabId: t.id } : pp) });
         return true;
       }
     }
     return false;
-  }, [state, persist]);
+  }, [persist]);
 
   // Add a new tab to `panelId` running `projectId`'s shell with its cwd and
   // start commands. Used by both click (target = active panel) and drop
@@ -51,6 +62,7 @@ export function useSessionDispatch({
   // replaces the project's default startCommands — used by the npm-script
   // launcher in the context menu.
   const openProjectInPanel = useCallback((panelId, projectId, overrideCommands) => {
+    const projects = projectsRef.current;
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
 
@@ -144,23 +156,25 @@ export function useSessionDispatch({
       startCommands: cmds,
       projectId: project.id,
     });
-  }, [projects, toast, spawnSessionTab, focusExistingProjectTab, getSessionPassword]);
+  }, [toast, spawnSessionTab, focusExistingProjectTab, getSessionPassword]);
 
   const runProjectScript = useCallback((projectId, scriptName) => {
-    openProjectInPanel(state.activePanelId, projectId, [`npm run ${scriptName}`]);
-  }, [openProjectInPanel, state.activePanelId]);
+    openProjectInPanel(stateRef.current.activePanelId, projectId, [`npm run ${scriptName}`]);
+  }, [openProjectInPanel]);
 
   // Tier 1: spawn an agent in its own git worktree (isolated branch + dir) so
   // parallel agents don't clobber each other. The worktree's cwd runs the
   // project's start commands (e.g. `claude`); the tab is tagged `worktree`.
   const openAgentWorktree = useCallback(async (projectId) => {
-    const project = projects.find(p => p.id === projectId);
+    const project = projectsRef.current.find(p => p.id === projectId);
     if (!project?.path) { toast.error("Worktree agents need a local git project."); return; }
     const branch = `agent/${Date.now().toString(36).slice(-5)}`;
     toast.info(`Creating worktree ${branch}…`);
     try {
       const wtPath = await invoke("worktree_add", { repo: project.path, branch });
-      spawnSessionTab(state.activePanelId, {
+      // activePanelId read AFTER the await, from the live ref — the panel the
+      // user is on when the worktree is READY, not when they clicked.
+      spawnSessionTab(stateRef.current.activePanelId, {
         id: freshId("tab"),
         label: branch,
         cwd: wtPath,
@@ -172,7 +186,7 @@ export function useSessionDispatch({
     } catch (e) {
       toast.error(`Worktree failed: ${e}`);
     }
-  }, [projects, state.activePanelId, spawnSessionTab, toast]);
+  }, [spawnSessionTab, toast]);
 
   // focusExistingProjectTab stays internal — only openProjectInPanel uses it.
   return { openProjectInPanel, runProjectScript, openAgentWorktree };
