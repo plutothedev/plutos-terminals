@@ -138,7 +138,7 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
                         placeholder={`${p.label} API key`}
                       />
                       {p.keysUrl && (
-                        <Button variant="subtle" size="sm" onClick={() => openExternal(p.keysUrl)}>get key ↗</Button>
+                        <Button variant="subtle" size="sm" onClick={() => openExternal(p.keysUrl)}>Get key ↗</Button>
                       )}
                     </div>
 

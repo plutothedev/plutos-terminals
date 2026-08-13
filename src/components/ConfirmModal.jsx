@@ -21,8 +21,8 @@ export function ConfirmProvider({ children }) {
       setRequest({
         message,
         title: opts.title || "Confirm",
-        confirmLabel: opts.confirmLabel || "confirm",
-        cancelLabel: opts.cancelLabel || "cancel",
+        confirmLabel: opts.confirmLabel || "Confirm",
+        cancelLabel: opts.cancelLabel || "Cancel",
         destructive: !!opts.destructive,
         resolve,
       });
@@ -61,7 +61,7 @@ export function ConfirmProvider({ children }) {
               cursor: "pointer",
             }}
           >
-            {request?.cancelLabel || "cancel"}
+            {request?.cancelLabel || "Cancel"}
           </button>
           <button
             onClick={onConfirm}
@@ -78,7 +78,7 @@ export function ConfirmProvider({ children }) {
             }}
             autoFocus
           >
-            {request?.confirmLabel || "confirm"}
+            {request?.confirmLabel || "Confirm"}
           </button>
         </div>
       </Modal>

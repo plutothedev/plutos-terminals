@@ -78,7 +78,7 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
 
   const deleteTheme = async (theme) => {
     const ok = await confirm(`Delete the custom theme “${theme.name}”?`, {
-      title: "Delete theme?", confirmLabel: "delete", destructive: true,
+      title: "Delete theme?", confirmLabel: "Delete", destructive: true,
     });
     if (!ok) return;
     // Functional form: the confirm() dialog await is bounded only by how long the
@@ -136,8 +136,8 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
                 </span>
                 {isActive
                   ? <span className="phn-ui-kbd" style={{ color: "var(--phn-link)" }}>active</span>
-                  : <Button size="sm" variant="primary" onClick={() => applyTheme(theme.id)}>apply</Button>}
-                <Button size="sm" variant="subtle" onClick={() => exportTheme(theme)} title="Copy as Warp YAML">export</Button>
+                  : <Button size="sm" variant="primary" onClick={() => applyTheme(theme.id)}>Apply</Button>}
+                <Button size="sm" variant="subtle" onClick={() => exportTheme(theme)} title="Copy as Warp YAML">Export</Button>
                 <Button size="sm" variant="subtle" onClick={() => deleteTheme(theme)} title="Delete this theme">✕</Button>
               </div>
             );
@@ -147,7 +147,7 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
 
       <Field
         label="Import a Warp theme (YAML)"
-        hint={<>Paste a theme from <strong>github.com/warpdotdev/themes</strong> (or any Warp-format YAML). It drives the terminal colors and the app chrome. Switch back anytime with the Dark/Light buttons above.</>}
+        hint={<>Paste a theme from <strong>github.com/warpdotdev/themes</strong> (or any Warp-format YAML). It drives the terminal colors and the whole app's theme. Switch back anytime with the Dark/Light buttons above.</>}
       >
         <Textarea
           rows={5}
@@ -156,8 +156,8 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
           placeholder={"name: My Theme\nbackground: \"#1e1e2e\"\nforeground: \"#cdd6f4\"\naccent: \"#89b4fa\"\nterminal_colors:\n  normal: { ... }\n  bright: { ... }"}
         />
         <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginTop: "var(--phn-sp-2)" }}>
-          <Button variant="primary" onClick={doImport}>import &amp; apply</Button>
-          <Button variant="subtle" onClick={() => setText(EXAMPLE_WARP_YAML)}>load example (Dracula)</Button>
+          <Button variant="primary" onClick={doImport}>Import &amp; apply</Button>
+          <Button variant="subtle" onClick={() => setText(EXAMPLE_WARP_YAML)}>Load example (Dracula)</Button>
         </div>
       </Field>
     </div>

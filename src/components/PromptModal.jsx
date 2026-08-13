@@ -29,8 +29,8 @@ export function PromptProvider({ children }) {
         message,
         title: opts.title || "Enter a value",
         placeholder: opts.placeholder || "",
-        confirmLabel: opts.confirmLabel || "ok",
-        cancelLabel: opts.cancelLabel || "cancel",
+        confirmLabel: opts.confirmLabel || "OK",
+        cancelLabel: opts.cancelLabel || "Cancel",
         resolve,
       });
     });
@@ -83,7 +83,7 @@ export function PromptProvider({ children }) {
               padding: "6px 16px", borderRadius: 3, fontFamily: M, fontSize: 11, cursor: "pointer",
             }}
           >
-            {request?.cancelLabel || "cancel"}
+            {request?.cancelLabel || "Cancel"}
           </button>
           <button
             onClick={() => settle(value)}
@@ -92,7 +92,7 @@ export function PromptProvider({ children }) {
               padding: "6px 16px", borderRadius: 3, fontFamily: M, fontSize: 11, fontWeight: 600, cursor: "pointer",
             }}
           >
-            {request?.confirmLabel || "ok"}
+            {request?.confirmLabel || "OK"}
           </button>
         </div>
       </Modal>

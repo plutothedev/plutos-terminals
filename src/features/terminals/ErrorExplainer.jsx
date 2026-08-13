@@ -97,11 +97,11 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
             title={`Run the suggested fix: ${fixCmd}`}
             style={{ ...btn, background: "var(--phn-link, #7c9cf5)", color: "#06223a", border: "1px solid var(--phn-link, #7c9cf5)", fontWeight: 600 }}
           >
-            run fix ▶
+            Run fix ▶
           </button>
         )}
         {answer && (
-          <button onClick={() => navigator.clipboard?.writeText(answer)} title="Copy" style={btn}>copy</button>
+          <button onClick={() => navigator.clipboard?.writeText(answer)} title="Copy" style={btn}>Copy</button>
         )}
         <button onClick={onClose} title="Close (Esc)" style={btn}>✕</button>
       </div>

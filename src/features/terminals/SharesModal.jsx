@@ -57,7 +57,7 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
   };
 
   return (
-    <Modal open={open} title="My shares" onClose={onClose} width={560}>
+    <Modal open={open} title="My shared gists" onClose={onClose} width={560}>
       <div style={{ maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "var(--phn-sp-2)" }}>
         {rows.length === 0 && remaining === 0 ? (
           <div style={{ color: DIM, fontSize: "var(--phn-fs-sm)", padding: "var(--phn-sp-3) 2px" }}>
@@ -85,14 +85,14 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
                 <>
                   <span style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-warning)", whiteSpace: "nowrap" }}>delete this gist?</span>
                   <Button variant="danger" size="sm" disabled={revoking === s.id} onClick={() => revoke(s)}>
-                    {revoking === s.id ? "revoking…" : "yes, revoke"}
+                    {revoking === s.id ? "Revoking…" : "Yes, revoke"}
                   </Button>
-                  <Button variant="subtle" size="sm" disabled={revoking === s.id} onClick={() => setConfirmRevoke(null)}>no</Button>
+                  <Button variant="subtle" size="sm" disabled={revoking === s.id} onClick={() => setConfirmRevoke(null)}>No</Button>
                 </>
               ) : (
                 <>
-                  <Button variant="ghost" size="sm" onClick={() => openExternal(s.htmlUrl)} disabled={!s.htmlUrl} title="Open the gist in your browser">open</Button>
-                  <Button variant="subtle" size="sm" onClick={() => setConfirmRevoke(s.id)} title="Revoke (delete) this gist">revoke</Button>
+                  <Button variant="ghost" size="sm" onClick={() => openExternal(s.htmlUrl)} disabled={!s.htmlUrl} title="Open the gist in your browser">Open</Button>
+                  <Button variant="subtle" size="sm" onClick={() => setConfirmRevoke(s.id)} title="Revoke (delete) this gist">Revoke</Button>
                 </>
               )}
             </div>
@@ -105,7 +105,7 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
             onClick={() => setShown((n) => n + SHARES_PAGE_SIZE)}
             title="Older shares are hidden to keep this list fast"
           >
-            show {Math.min(SHARES_PAGE_SIZE, remaining)} more ({remaining} older hidden)
+            Show {Math.min(SHARES_PAGE_SIZE, remaining)} more ({remaining} older hidden)
           </Button>
         )}
       </div>

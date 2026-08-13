@@ -70,7 +70,7 @@ export default function SshPasswordModal({ open, host, user, onSubmit, onCancel 
             onChange={(e) => setRemember(e.target.checked)}
             style={{ cursor: "pointer" }}
           />
-          Remember in this Mac's keychain (skip this prompt next time)
+          Remember in this device's keychain (skip this prompt next time)
         </label>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button

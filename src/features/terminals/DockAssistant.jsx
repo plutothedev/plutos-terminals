@@ -123,7 +123,7 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
         {messages.length === 0 && !loading && (
           <div className="phn-assistant-empty">
             Ask anything — commands, errors, git, regex. Replies use your active model from the
-            <strong> Models</strong> picker; fenced commands get <em>run</em> / <em>insert</em> buttons.
+            <strong> Models</strong> picker; fenced commands get <em>Run</em> / <em>Insert</em> buttons.
           </div>
         )}
         {messages.map((m, i) => {
@@ -136,8 +136,8 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
               <div className="phn-msg-body">{m.content}</div>
               {cmd && onSendToTerminal && (
                 <div className="phn-msg-actions">
-                  <button onClick={() => onSendToTerminal(cmd.replace(/\n+$/, "") + "\r")} title="Run in the active terminal">run ↵</button>
-                  <button onClick={() => onSendToTerminal(cmd)} title="Insert on the prompt (don't run)">insert</button>
+                  <button onClick={() => onSendToTerminal(cmd.replace(/\n+$/, "") + "\r")} title="Run in the active terminal">Run ↵</button>
+                  <button onClick={() => onSendToTerminal(cmd)} title="Insert on the prompt (don't run)">Insert</button>
                 </div>
               )}
             </div>

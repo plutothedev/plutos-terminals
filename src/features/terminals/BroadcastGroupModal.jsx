@@ -39,11 +39,11 @@ export default function BroadcastGroupModal({ open, panels, liveTabIds, current,
   return (
     <Modal open={open} title="Broadcast typing — choose targets" onClose={onClose} width={520}>
       <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginBottom: "var(--phn-sp-3)" }}>
-        <Button variant="ghost" size="sm" onClick={() => setSel(new Set(allIds))}>select all</Button>
-        <Button variant="ghost" size="sm" onClick={() => setSel(new Set())}>select none</Button>
+        <Button variant="ghost" size="sm" onClick={() => setSel(new Set(allIds))}>Select all</Button>
+        <Button variant="ghost" size="sm" onClick={() => setSel(new Set())}>Select none</Button>
         <span style={{ flex: 1 }} />
         <Button variant="ghost" size="sm" onClick={() => { onUseAllVisible(); onClose(); }} title="Clear the group — broadcast to every visible terminal">
-          all visible (default)
+          All visible (default)
         </Button>
       </div>
 
@@ -75,9 +75,9 @@ export default function BroadcastGroupModal({ open, panels, liveTabIds, current,
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "var(--phn-sp-4)" }}>
         <span style={{ fontSize: "var(--phn-fs-xs)", color: DIM }}>{sel.size} selected</span>
         <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
-          <Button variant="subtle" onClick={onClose}>cancel</Button>
+          <Button variant="subtle" onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={() => { onApply([...sel]); onClose(); }} disabled={sel.size === 0}>
-            broadcast to {sel.size || ""} ▶
+            Broadcast to {sel.size || ""} ▶
           </Button>
         </div>
       </div>

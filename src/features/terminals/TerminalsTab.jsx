@@ -54,7 +54,7 @@ import { writeToTab, writeBroadcast, getTabText, getPtyId } from "./ptyBridge.js
 import { getLayout, leafIds } from "./splitTree.js";
 import { navigatePane } from "./paneNav.js";
 import { reconcile, getEntry } from "./paneRegistry.js";
-import { allRenderedPaneIds } from "./paneIds.js";
+import { allRenderedPaneIds, isSpecialTab } from "./paneIds.js";
 import { trickleTick } from "./trickle.js";
 import { setProjectIndex, pruneActivities } from "./activityStore.js";
 import { sshAccount } from "./sshAccount.js";
@@ -696,11 +696,34 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     projects,
     startLocal: convertHomeToShell,
     openProject: openProjectInPanel,
-    newSession: () => setDialog({ mode: "add" }),
+    // Optional initialType ("ssh"…) preselects that type in the Add-session
+    // dialog — the home screen's SSH card passes it (same seam the toolbar's
+    // SSH button uses); no argument keeps the old Local-first behavior.
+    newSession: (initialType) => setDialog(initialType ? { mode: "add", initialType } : { mode: "add" }),
     vnc: () => setVncOpen(true),
     rdp: () => setRdpOpen(true),
     serial: () => setSerialOpen(true),
   }), [projects, convertHomeToShell, openProjectInPanel]);
+
+  // Pane-id → display title for the notebook target-pane picker. The picker
+  // previously listed raw internal leaf ids; this maps each live pane to its
+  // tab's label ("api-server", split panes as "api-server · 2"), falling back
+  // to "Terminal N" for untitled tabs. Keyed off state.panels only — renames /
+  // splits / closes all flow through persist, so the memo stays fresh.
+  const paneTitles = useMemo(() => {
+    const map = {};
+    let n = 0;
+    for (const panel of state.panels) {
+      for (const tab of panel.tabs || []) {
+        if (isSpecialTab(tab)) continue;
+        n += 1;
+        const base = (tab.label || "").trim() || `Terminal ${n}`;
+        const ids = leafIds(getLayout(tab));
+        ids.forEach((id, i) => { map[id] = ids.length > 1 ? `${base} · ${i + 1}` : base; });
+      }
+    }
+    return map;
+  }, [state.panels]);
 
   const startRecordingActive = useCallback(() => {
     if (!activeTabId) return;
@@ -995,6 +1018,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             {ribbon === "snippets" && (
               <SnippetsDrawer
                 docked
+                onClose={() => selectRibbon(null)}
                 onInsert={insertSnippet}
                 snippets={snippets}
                 onSnippetsChange={setSnippets}
@@ -1030,6 +1054,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               promptEditorVim={!!st?.promptEditorVim}
               tabAutoApprove={tabAutoApprove}
               tabProjectNames={tabProjectNames}
+              paneTitles={paneTitles}
               homeApi={homeApi}
               onActivate={setActivePanel}
               onAddTab={addTab}
@@ -1058,8 +1083,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         {/* Right dock — SFTP / Assistant / Monitor. Always present (workstation
             layout); collapsible to a rail and drag-resizable. F4 focuses SFTP. */}
         {dockCollapsed ? (
-          <div className="moba-railcol" onClick={() => collapseDock(false)} title="Show tools panel">
-            ‹<span className="lbl">Tools</span>
+          <div className="moba-railcol" onClick={() => collapseDock(false)} title="Show side panel">
+            ‹<span className="lbl">Panel</span>
           </div>
         ) : (
           <>

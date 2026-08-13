@@ -909,7 +909,7 @@ function ProjectSidebar({
                         key={name}
                         onClick={() => { onRunScript?.(project.id, name); closeCtx(); }}
                         style={{ ...ctxBtnStyle(), color: ACCENT }}
-                        title={`Spawn a tab in the active panel running 'npm run ${name}'`}
+                        title={`Opens a tab running 'npm run ${name}'`}
                       >
                         ▶ {name}
                       </button>
@@ -936,7 +936,7 @@ function ProjectSidebar({
                 onClick={() => { onRemoveProject(project.id); closeCtx(); }}
                 style={{ ...ctxBtnStyle(), color: "#F87171" }}
               >
-                Remove
+                Remove session
               </button>
             </div>
           </>

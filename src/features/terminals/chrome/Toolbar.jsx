@@ -15,8 +15,8 @@ export default function Toolbar({
     {
       caption: "Connect",
       items: [
-        { id: "local", icon: <SLocal />, label: "Local", title: "New local shell session", onClick: () => setDialog({ mode: "add" }) },
-        { id: "ssh", icon: <SSsh />, label: "SSH", title: "New SSH / server session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
+        { id: "local", icon: <SLocal />, label: "Local", title: "Add a local session (folder + start commands)", onClick: () => setDialog({ mode: "add" }) },
+        { id: "ssh", icon: <SSsh />, label: "SSH", title: "Add an SSH session", onClick: () => setDialog({ mode: "add", initialType: "ssh" }) },
         { id: "serial", icon: <SSerial />, label: "Serial", title: "Serial console session", onClick: () => setSerialOpen(true) },
       ],
     },
@@ -28,7 +28,7 @@ export default function Toolbar({
           { id: "split-col", icon: <SSplitCol size={15} />, label: "Stacked", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
         ] },
         { id: "multiexec", icon: <SMultiX />, label: "Broadcast", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
-        { id: "tunnel", icon: <STunnel />, label: "Tunnel", title: activeTab?.connection ? "SSH port forwarding (tunnels) for the active SSH session" : "Open an SSH session to forward ports", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+        { id: "tunnel", icon: <STunnel />, label: "Tunnel", title: activeTab?.connection ? "Port forwarding (SSH tunnels) for the active SSH session" : "Port forwarding — open an SSH session first", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
       ],
     },
     {
@@ -56,10 +56,10 @@ export default function Toolbar({
               {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
             </span>
           )}
-          <div className="moba-qc-inline" title="Quick connect — user@host (Enter)">
+          <div className="moba-qc-inline" title="Quick connect — opens an SSH session to what you type (Enter)">
             <SSearch size={13} />
             <input
-              placeholder="quick connect — user@host"
+              placeholder="user@server or 192.168.1.10"
               spellCheck={false}
               onKeyDown={(e) => { if (e.key === "Enter") { quickConnect(e.currentTarget.value); e.currentTarget.value = ""; } }}
             />

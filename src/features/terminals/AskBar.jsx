@@ -94,8 +94,8 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
           placeholder="Type a command, or describe what you want in plain English"
         />
         {looksCommand
-          ? <Button variant="primary" onClick={runDirect} disabled={!intent.trim()} title="Run this command in the active terminal (↵)">run ↵</Button>
-          : <Button variant="primary" onClick={generate} disabled={loading || !intent.trim()}>{loading ? "thinking…" : "generate ↵"}</Button>}
+          ? <Button variant="primary" onClick={runDirect} disabled={!intent.trim()} title="Run this command in the active terminal (↵)">Run ↵</Button>
+          : <Button variant="primary" onClick={generate} disabled={loading || !intent.trim()}>{loading ? "Thinking…" : "Generate ↵"}</Button>}
       </div>
       {intent.trim() && (
         <div style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-text-dim)", marginTop: "var(--phn-sp-2)", display: "flex", gap: "var(--phn-sp-2)", alignItems: "center" }}>
@@ -119,9 +119,9 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
             rows={Math.min(6, command.split("\n").length + 1)}
           />
           <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginTop: "var(--phn-sp-3)", justifyContent: "flex-end" }}>
-            <Button variant="subtle" onClick={onClose}>cancel</Button>
-            <Button variant="ghost" onClick={insert} title="Put it on the prompt without running">insert</Button>
-            <Button variant="primary" onClick={run} title={`Run in the active terminal (${modCombo("Enter")})`}>run ↵</Button>
+            <Button variant="subtle" onClick={onClose}>Cancel</Button>
+            <Button variant="ghost" onClick={insert} title="Put it on the prompt without running">Insert</Button>
+            <Button variant="primary" onClick={run} title={`Run in the active terminal (${modCombo("Enter")})`}>Run ↵</Button>
           </div>
         </div>
       )}
@@ -129,7 +129,7 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
       <p style={{ fontSize: "var(--phn-fs-xs)", color: "var(--phn-text-dim)", marginTop: "var(--phn-sp-4)", lineHeight: "var(--phn-lh)" }}>
         Auto-detects: type a real command and Enter runs it; describe what you want in plain
         English and Enter asks your active model to write it (shown for review — nothing runs
-        until you click <strong>run</strong>). <em>insert</em> drops a generated command on the
+        until you click <strong>Run</strong>). <em>Insert</em> drops a generated command on the
         prompt to tweak first.
       </p>
     </Modal>

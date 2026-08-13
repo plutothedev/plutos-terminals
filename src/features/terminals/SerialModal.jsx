@@ -80,7 +80,7 @@ export default function SerialModal({ open, onConnect, onClose }) {
         {error && <div style={{ fontSize: 11, color: "var(--phn-danger, #f87171)" }}>{error}</div>}
 
         <div style={{ fontSize: 11, color: "var(--phn-text-dim, #888)", lineHeight: 1.5 }}>
-          Connects to a USB/UART device. Common on macOS as <code>/dev/tty.usbserial-*</code> or <code>/dev/tty.usbmodem*</code>.
+          Connects to a USB/UART device. Shows as <code>COM3</code>… on Windows, <code>/dev/tty.usbserial-*</code> on macOS.
         </div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>

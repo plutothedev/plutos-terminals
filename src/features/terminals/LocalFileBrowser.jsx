@@ -8,7 +8,20 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@backend";
 import { IconHome, IconUp, IconRefresh, IconReveal, IconCd } from "./icons.jsx";
 import { SFolder } from "./toolbarIcons.jsx";
+import { IS_MAC } from "./keybindings.js";
 import "./terminals.css";
+
+// Platform-aware "reveal" tooltip (same detection pattern as keybindings'
+// IS_MAC / formatCombo): Finder on macOS, File Explorer on Windows, generic
+// elsewhere. IS_MAC is checked FIRST — /win/i alone would also match "darwin".
+const IS_WIN = /win/i.test(
+  (typeof navigator !== "undefined" && (navigator.platform || navigator.userAgent)) || ""
+);
+const REVEAL_TITLE = IS_MAC
+  ? "Open this folder in Finder"
+  : IS_WIN
+    ? "Open this folder in File Explorer"
+    : "Open this folder in your file manager";
 
 function fmtSize(n) {
   if (n < 1024) return `${n} B`;
@@ -123,7 +136,7 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
         <button title="Up one level" onClick={() => cwd && list(parentPath(cwd))} disabled={!cwd || cwd === "/"}><IconUp size={16} /></button>
         <button title="Refresh" onClick={() => list(cwd)} disabled={!cwd}><IconRefresh size={16} /></button>
         <span className="sep" />
-        <button title="Open this folder in Finder" onClick={() => cwd && invoke("open_path", { path: cwd }).catch(() => {})} disabled={!cwd}><IconReveal size={16} /></button>
+        <button title={REVEAL_TITLE} onClick={() => cwd && invoke("open_path", { path: cwd }).catch(() => {})} disabled={!cwd}><IconReveal size={16} /></button>
         {onSendToTerminal && (
           <button title="cd the active terminal into this folder" onClick={() => cwd && onSendToTerminal(`cd ${shQuote(cwd)}\r`)} disabled={!cwd}><IconCd size={16} /></button>
         )}

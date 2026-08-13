@@ -73,7 +73,7 @@ export default function SshKeysModal({ open, onClose }) {
           <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="comment (optional, e.g. you@host)" style={input} />
           <input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="passphrase (optional, recommended)" style={input} />
           <button onClick={generate} disabled={busy} style={{ ...primaryBtn, alignSelf: "flex-start" }}>
-            {busy ? "Generating…" : "Create keypair"}
+            {busy ? "Generating…" : "Generate keypair"}
           </button>
         </div>
       )}

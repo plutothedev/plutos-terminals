@@ -138,6 +138,7 @@ function TerminalPanel({
   promptEditorVim,
   tabAutoApprove,
   tabProjectNames,
+  paneTitles,           // paneId -> display title (NotebookView's target-pane picker)
   saveUser = () => {},  // functional user-store writer, threaded to TerminalPane's ShareModal
   notify = () => {},    // stable toast bridge (variant, message); see TerminalsTab. Keeps this memo'd tree off the toast context
   homeApi,
@@ -623,7 +624,7 @@ function TerminalPanel({
               ) : tab.rdp ? (
                 <RdpView host={tab.rdp.host} port={tab.rdp.port} username={tab.rdp.username} domain={tab.rdp.domain} tabId={tab.id} visible={tabVisible} />
               ) : tab.notebook ? (
-                <NotebookView name={tab.notebook.name} tabId={tab.id} visible={tabVisible} />
+                <NotebookView name={tab.notebook.name} tabId={tab.id} visible={tabVisible} paneTitles={paneTitles} />
               ) : (
               /* Dev drift-guard (release-audit): this arm must be reached ONLY
                  for plain terminal tabs. If isSpecialTab() (paneIds.js — the

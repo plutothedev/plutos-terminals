@@ -151,7 +151,7 @@ export default function McpInstaller({ open, onClose }) {
         let dir = null;
         try { dir = await invoke("pick_directory"); } catch { dir = null; }
         if (!dir) {
-          toast.info("Add to agent cancelled — pick the directory to expose.");
+          toast.info("Add to Agent Mode cancelled — pick the directory to expose.");
           setAddingId(null);
           return;
         }
@@ -192,10 +192,10 @@ export default function McpInstaller({ open, onClose }) {
       };
 
       await invoke("mcp_server_add", { cfg });
-      toast.success(`Added ${mcp.name} to the agent`);
+      toast.success(`Added ${mcp.name} to Agent Mode`);
       refreshConfigured();
     } catch (err) {
-      toast.error(`Failed to add ${mcp.name} to agent: ${String(err).slice(0, 200)}`);
+      toast.error(`Failed to add ${mcp.name} to Agent Mode: ${String(err).slice(0, 200)}`);
     } finally {
       setAddingId(null);
     }
@@ -220,15 +220,15 @@ export default function McpInstaller({ open, onClose }) {
   };
 
   return (
-    <Modal open={open} title="MCP Servers — Install Commands" onClose={onClose} width={680}>
+    <Modal open={open} title="MCP servers" onClose={onClose} width={680}>
       {/* ── Configured-for-agent section ── */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ color: FG_DIM, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
-          Configured for the agent
+          Configured for Agent Mode
         </div>
         {configured.length === 0 ? (
           <div style={{ color: FG_DIM, fontSize: 11, fontStyle: "italic" }}>
-            No MCP servers registered for the agent yet — add one below.
+            No MCP servers registered for Agent Mode yet — add one below.
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -273,9 +273,9 @@ export default function McpInstaller({ open, onClose }) {
                     cursor: "pointer",
                     flexShrink: 0,
                   }}
-                  title="Remove from agent config"
+                  title="Remove from Agent Mode config"
                 >
-                  remove
+                  Remove
                 </button>
               </div>
             ))}
@@ -286,7 +286,7 @@ export default function McpInstaller({ open, onClose }) {
       <div style={{ borderTop: `1px solid ${BORDER}`, marginBottom: 16 }} />
 
       <p style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.7, marginBottom: 18 }}>
-        Curated list of popular MCP (Model Context Protocol) servers that extend Claude Code. Click <strong style={{ color: ACCENT }}>install</strong> and the app runs <code style={{ background: "var(--phn-page-bg, #0a0a0a)", padding: "1px 4px", borderRadius: 2 }}>claude mcp add ...</code> for you. Or click <strong>copy</strong> to paste the command into a pane manually. Click <strong style={{ color: ACCENT }}>+ agent</strong> to register the server directly with the native agent. <strong>Restart any open Claude sessions</strong> after install for them to pick up the new MCP.
+        Curated list of popular MCP (Model Context Protocol) servers that extend Claude Code. Click <strong style={{ color: ACCENT }}>Install</strong> and the app runs <code style={{ background: "var(--phn-page-bg, #0a0a0a)", padding: "1px 4px", borderRadius: 2 }}>claude mcp add ...</code> for you. Or click <strong>Copy</strong> to paste the command into a pane manually. Click <strong style={{ color: ACCENT }}>+ Agent Mode</strong> to register the server directly with Agent Mode. <strong>Restart any open Claude sessions</strong> after install for them to pick up the new MCP.
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -306,7 +306,7 @@ export default function McpInstaller({ open, onClose }) {
                 onClick={() => openExternal(mcp.docs)}
                 style={{ color: FG_DIM, fontSize: 10, textDecoration: "none", background: "transparent", border: "none", padding: 0, font: "inherit", cursor: "pointer" }}
               >
-                docs ↗
+                Docs ↗
               </button>
             </div>
             <div style={{ color: FG, fontSize: 11, lineHeight: 1.6, marginBottom: 10 }}>
@@ -348,7 +348,7 @@ export default function McpInstaller({ open, onClose }) {
                   }}
                   title="Copy the install command to clipboard"
                 >
-                  {copiedId === mcp.id ? "✓ copied" : "copy"}
+                  {copiedId === mcp.id ? "✓ Copied" : "Copy"}
                 </button>
                 <button
                   onClick={() => onAddToAgent(mcp)}
@@ -367,13 +367,13 @@ export default function McpInstaller({ open, onClose }) {
                   }}
                   title={
                     configured.some((s) => s.id === mcp.id)
-                      ? "Already registered for the agent"
-                      : "Register this server with the native agent"
+                      ? "Already registered for Agent Mode"
+                      : "Register this server with Agent Mode"
                   }
                 >
-                  {addingId === mcp.id ? "adding…"
-                    : configured.some((s) => s.id === mcp.id) ? "✓ agent"
-                    : "+ agent"}
+                  {addingId === mcp.id ? "Adding…"
+                    : configured.some((s) => s.id === mcp.id) ? "✓ Agent Mode"
+                    : "+ Agent Mode"}
                 </button>
                 <button
                   onClick={() => onInstall(mcp)}
@@ -405,10 +405,10 @@ export default function McpInstaller({ open, onClose }) {
                     : `Run "${mcp.command}" via your shell`
                   }
                 >
-                  {installState[mcp.id] === "installing" ? "installing…"
-                    : installState[mcp.id] === "ok" ? "✓ installed"
-                    : installState[mcp.id] === "error" ? "✗ retry"
-                    : "install"}
+                  {installState[mcp.id] === "installing" ? "Installing…"
+                    : installState[mcp.id] === "ok" ? "✓ Installed"
+                    : installState[mcp.id] === "error" ? "✗ Retry"
+                    : "Install"}
                 </button>
               </div>
             </div>
@@ -449,13 +449,13 @@ export default function McpInstaller({ open, onClose }) {
             onClick={() => closeSecret(null)}
             style={{ background: "transparent", border: `1px solid ${BORDER}`, color: FG, padding: "6px 12px", borderRadius: 4, fontSize: 11, cursor: "pointer", fontFamily: M }}
           >
-            skip
+            Skip
           </button>
           <button
             onClick={() => closeSecret(secretValue)}
             style={{ background: ACCENT, border: `1px solid ${ACCENT}`, color: "#001", padding: "6px 12px", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: M }}
           >
-            set token
+            Set token
           </button>
         </div>
       </Modal>

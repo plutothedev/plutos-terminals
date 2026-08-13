@@ -177,10 +177,10 @@ export default function KeybindingsSection({ userSt, saveUser }) {
             {recordingId === SUMMON ? "Press keys…" : summonCombo ? formatCodeCombo(summonCombo) : "Disabled"}
           </button>
           <Button variant="subtle" size="sm" onClick={() => applySummon(null)} disabled={!summonCombo} title="Unbind the summon hotkey">
-            disable
+            Disable
           </Button>
           <Button variant="subtle" size="sm" onClick={() => applySummon("__reset__")} disabled={!summonHasOverride} title={`Reset to default (${formatCodeCombo(DEFAULT_SUMMON)})`}>
-            reset
+            Reset
           </Button>
         </div>
       </div>

@@ -25,7 +25,7 @@ export default function MobaHomeScreen({ panelId, tabId, api }) {
 
   const onQuick = (id) => {
     if (id === "local") api?.startLocal?.(panelId, tabId);
-    else if (id === "ssh") api?.newSession?.();
+    else if (id === "ssh") api?.newSession?.("ssh"); // open the Add-session dialog with SSH preselected
     else if (id === "vnc") api?.vnc?.();
     else if (id === "rdp") api?.rdp?.();
     else if (id === "serial") api?.serial?.();

@@ -26,7 +26,7 @@ export default function MasterPasswordModal({ open, userSt, saveUser, onClose })
     // saveUser (cloud-sync poll, another window) can land during the await; a
     // spread of the pre-await userSt would revert it (lost-update, invariant 3).
     saveUser((prev) => ({ ...prev, masterPasswordHash: hash }));
-    toast.success(isSet ? "Master password changed." : "Master password set — asked on next launch.");
+    toast.success(isSet ? "Master password changed." : "App lock set — you'll enter it on next launch.");
     reset(); onClose();
   };
 
@@ -40,7 +40,7 @@ export default function MasterPasswordModal({ open, userSt, saveUser, onClose })
   };
 
   return (
-    <Modal open={open} title={isSet ? "Master password" : "Set master password"} onClose={() => { reset(); onClose(); }} width={420}>
+    <Modal open={open} title={isSet ? "App lock (master password)" : "Set app lock (master password)"} onClose={() => { reset(); onClose(); }} width={420}>
       <p style={{ fontSize: 12, color: "var(--phn-text-dim, #888)", lineHeight: 1.5, marginTop: 0 }}>
         Locks the app behind a password on launch. Only its hash is stored; SSH and
         API secrets stay in the OS keychain regardless.

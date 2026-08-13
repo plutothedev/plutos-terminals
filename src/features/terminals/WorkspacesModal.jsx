@@ -22,7 +22,7 @@ export default function WorkspacesModal({ open, workspaces, onClose, onSave, onL
   const tabCount = (ws) => (ws.panels || []).reduce((n, p) => n + (p.tabs ? p.tabs.length : 0), 0);
 
   return (
-    <Modal open={open} title="Workspaces — save & restore layouts" onClose={onClose} width={560}>
+    <Modal open={open} title="Workspaces — save / restore layouts" onClose={onClose} width={560}>
       <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
         <Input
           autoFocus
@@ -31,7 +31,7 @@ export default function WorkspacesModal({ open, workspaces, onClose, onSave, onL
           onKeyDown={(e) => { if (e.key === "Enter") save(); }}
           placeholder="Save current layout as…  (e.g. prod-debug)"
         />
-        <Button variant="primary" onClick={save} disabled={!name.trim()}>save</Button>
+        <Button variant="primary" onClick={save} disabled={!name.trim()}>Save</Button>
       </div>
 
       <div style={{ marginTop: "var(--phn-sp-3)", maxHeight: "50vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "var(--phn-sp-2)" }}>
@@ -52,12 +52,12 @@ export default function WorkspacesModal({ open, workspaces, onClose, onSave, onL
               {confirmLoad === ws.name ? (
                 <>
                   <span style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-warning)", whiteSpace: "nowrap" }}>replace current tabs?</span>
-                  <Button variant="danger" size="sm" onClick={() => { onLoad(ws); onClose(); }}>yes, load</Button>
-                  <Button variant="subtle" size="sm" onClick={() => setConfirmLoad(null)}>no</Button>
+                  <Button variant="danger" size="sm" onClick={() => { onLoad(ws); onClose(); }}>Yes, load</Button>
+                  <Button variant="subtle" size="sm" onClick={() => setConfirmLoad(null)}>No</Button>
                 </>
               ) : (
                 <>
-                  <Button variant="ghost" size="sm" onClick={() => setConfirmLoad(ws.name)}>load</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmLoad(ws.name)}>Load</Button>
                   <Button variant="subtle" size="sm" onClick={() => onDelete(ws.name)} title="Delete workspace">✕</Button>
                 </>
               )}

@@ -134,7 +134,7 @@ const DIM = "var(--phn-text-faint, #586068)";
 const FG = "var(--phn-text-active, #E6E6E6)";
 const MONO = "'JetBrains Mono', Menlo, Monaco, monospace";
 
-export default function NotebookView({ name, tabId, visible }) {
+export default function NotebookView({ name, tabId, visible, paneTitles }) {
   const toast = useToast();
 
   const [content, setContent] = useState(null); // null = loading
@@ -606,10 +606,13 @@ export default function NotebookView({ name, tabId, visible }) {
                 fontFamily: MONO,
               }}
             >
+              {/* Display titles, not raw internal pane ids: paneTitles maps each
+                  leaf id to its tab label ("api-server", "api-server · 2" for
+                  splits); "Terminal N" covers an id the map doesn't know yet. */}
               {liveIds.length === 0 && <option value="">no live terminal panes</option>}
-              {!targetLive && targetId && <option value="">{targetId} (offline)</option>}
-              {liveIds.map((id) => (
-                <option key={id} value={id}>{id}</option>
+              {!targetLive && targetId && <option value="">{paneTitles?.[targetId] || "closed pane"} (offline)</option>}
+              {liveIds.map((id, i) => (
+                <option key={id} value={id}>{paneTitles?.[id] || `Terminal ${i + 1}`}</option>
               ))}
             </select>
             <button
@@ -652,8 +655,8 @@ export default function NotebookView({ name, tabId, visible }) {
                 let note = null;
                 if (status === "running") note = { text: "running…", color: ACCENT };
                 else if (status === "changed") note = { text: "block changed during run — output discarded", color: DANGER };
-                else if (status === "skipped") note = { text: "skipped (v1.1)", color: DIM };
-                else if (kind === "multiline") note = { text: lineCount <= 1 ? "incomplete line — runs in v1.1" : "multi-line — runs in v1.1", color: DIM };
+                else if (status === "skipped") note = { text: "skipped (multi-line)", color: DIM };
+                else if (kind === "multiline") note = { text: lineCount <= 1 ? "incomplete line — not supported yet" : "multi-line — not supported yet", color: DIM };
                 else if (!isRunnable) note = { text: "nothing to run", color: DIM };
                 else if (exit != null) note = { text: `exit ${exit}`, color: exit === "0" ? OK : DANGER };
 
@@ -704,7 +707,7 @@ export default function NotebookView({ name, tabId, visible }) {
                         disabled={running || !isRunnable || !targetLive}
                         title={
                           !isRunnable
-                            ? "Only single, complete shell lines run in v1"
+                            ? "Only single, complete shell lines can run"
                             : !targetLive
                               ? "Pick a live terminal pane first"
                               : "Run this block in the target pane"

@@ -83,7 +83,7 @@ export default function HistorySearch({ open, history, onClose, onInsert, onRun 
               </span>
               {i === cur && (
                 <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); choose(cmd, true); }} title={`Run now (${modCombo("Enter")})`}>
-                  run ▶
+                  Run ▶
                 </Button>
               )}
             </div>

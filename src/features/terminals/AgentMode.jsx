@@ -262,8 +262,8 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
           disabled={running}
         />
         {running
-          ? <Button variant="danger" onClick={() => { stopRef.current = true; if (approveRef.current) resolveApproval("stop"); }}>stop</Button>
-          : <Button variant="primary" onClick={start} disabled={!goal.trim()}>run agent</Button>}
+          ? <Button variant="danger" onClick={() => { stopRef.current = true; if (approveRef.current) resolveApproval("stop"); }}>Stop</Button>
+          : <Button variant="primary" onClick={start} disabled={!goal.trim()}>Run agent</Button>}
       </div>
       <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: "var(--phn-sp-2)", fontSize: "var(--phn-fs-xs)", color: "var(--phn-text-dim)", cursor: "pointer" }}>
         <input type="checkbox" checked={autoRun} onChange={(e) => setAutoRun(e.target.checked)} />
@@ -290,8 +290,8 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
             <pre style={{ margin: 0, fontSize: 11, color: "var(--phn-text-dim)", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 160, overflow: "auto" }}>{pending.argsText}</pre>
           )}
           <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginTop: "var(--phn-sp-2)", justifyContent: "flex-end" }}>
-            <Button variant="subtle" onClick={() => resolveApproval("skip")}>skip</Button>
-            <Button variant="primary" onClick={() => resolveApproval("run")}>approve &amp; run ↵</Button>
+            <Button variant="subtle" onClick={() => resolveApproval("skip")}>Skip</Button>
+            <Button variant="primary" onClick={() => resolveApproval("run")}>Approve &amp; run ↵</Button>
           </div>
         </div>
       )}
@@ -319,7 +319,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
       </div>
 
       <p style={{ fontSize: "var(--phn-fs-xs)", color: "var(--phn-text-dim)", marginTop: "var(--phn-sp-3)", lineHeight: "var(--phn-lh)" }}>
-        Runs real commands + MCP tools using your active model. Watch it work; hit <strong>stop</strong> anytime.
+        Runs real commands + MCP tools using your active model. Watch it work; hit <strong>Stop</strong> anytime.
         Read-only MCP tools can auto-run; shell commands, writes &amp; destructive actions always ask.
       </p>
     </Modal>

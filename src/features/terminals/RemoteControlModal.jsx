@@ -32,7 +32,7 @@ function Field({ label, value, mono, onCopy }) {
         <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           background: "#0e1114", border: "1px solid var(--phn-surface-border, #2b2b2b)", borderRadius: 6, padding: "7px 9px",
           fontSize: 12, fontFamily: mono ? "monospace" : "inherit" }}>{value}</div>
-        <button onClick={onCopy} style={{ flexShrink: 0, background: "#23272d", border: "1px solid var(--phn-surface-border, #2b2b2b)", color: "var(--phn-text-fg, #cfd6dd)", borderRadius: 6, padding: "0 12px", cursor: "pointer", fontSize: 12 }}>copy</button>
+        <button onClick={onCopy} style={{ flexShrink: 0, background: "#23272d", border: "1px solid var(--phn-surface-border, #2b2b2b)", color: "var(--phn-text-fg, #cfd6dd)", borderRadius: 6, padding: "0 12px", cursor: "pointer", fontSize: 12 }}>Copy</button>
       </div>
     </div>
   );

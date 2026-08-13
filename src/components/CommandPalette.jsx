@@ -55,7 +55,7 @@ export default function CommandPalette({ open, commands, onClose }) {
   };
 
   return (
-    <Modal open={open} title="Command Palette" onClose={onClose} width={560}>
+    <Modal open={open} title="Command palette" onClose={onClose} width={560}>
       <input
         ref={inputRef}
         type="text"

@@ -1,6 +1,6 @@
 // (C)
 // Agent dashboard — a live overview of every session across all panels: status
-// (needs you / working / done / idle), Claude /cost + tokens, and git-worktree
+// (needs you / running / finished / idle), Claude /cost + tokens, and git-worktree
 // branch. Click a row to jump to that tab, ✨ to AI-summarize it, diff to review
 // a worktree. Filter by status. The parallel-AI "mission control".
 import { useState } from "react";
@@ -22,7 +22,7 @@ function tabCostTokens(tab, tabCosts) {
 const fmtTokens = (t) => (t >= 1000 ? `${(t / 1000).toFixed(1)}k` : `${t}`);
 
 const DOT = { waiting: "#E0A93C", active: "#FBBF24", done: "#34D399", idle: "#5a5a5a" };
-const LABEL = { waiting: "needs you", active: "working", done: "done", idle: "idle" };
+const LABEL = { waiting: "needs you", active: "running", done: "finished", idle: "idle" };
 
 export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocusTab, onReviewDiff, onSummarize }) {
   const [filter, setFilter] = useState("all"); // all | waiting | active | done
@@ -80,19 +80,19 @@ export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocu
           {waiting > 0 && (
             <span style={{ color: DOT.waiting, fontWeight: 600 }}>{waiting} needs you · </span>
           )}
-          {rows.length} · {working} running
+          {rows.length} sessions · {working} running
         </span>
       </div>
       <div style={{ display: "flex", gap: 4, padding: "4px 8px" }}>
         {filterBtn("all", `all ${rows.length}`)}
         {waiting > 0 && filterBtn("waiting", `needs you ${waiting}`)}
         {filterBtn("active", `running ${rows.filter((r) => r.status === "active").length}`)}
-        {filterBtn("done", `done ${rows.filter((r) => r.status === "done").length}`)}
+        {filterBtn("done", `finished ${rows.filter((r) => r.status === "done").length}`)}
       </div>
       <div className="phn-snippets-list">
         {shown.length === 0 ? (
           <div className="phn-snippets-empty">
-            {rows.length === 0 ? "No sessions yet. Open a tab or spawn an agent worktree." : "No sessions match this filter."}
+            {rows.length === 0 ? "No sessions yet. Open a tab or start an agent worktree." : "No sessions match this filter."}
           </div>
         ) : (
           shown.map(({ panel, tab, status, cost, tokens, isActive }) => (

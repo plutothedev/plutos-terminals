@@ -18,7 +18,7 @@ export default function FKeyBar({
   return (
     <div className="phn-fnbar">
       {[
-        { k: "F1", l: "Help", fn: () => openExternal(GITHUB_URL) },
+        { k: "F1", l: "Help", t: "open help on GitHub", fn: () => openExternal(GITHUB_URL) },
         { k: "F2", l: "New Tab", fn: () => addTab(activePanelId) },
         { k: "F3", l: "Split", fn: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
         { k: "F4", l: "SFTP", fn: () => selectRibbon("files") },
@@ -30,7 +30,7 @@ export default function FKeyBar({
         { k: modCombo("M"), l: "Models", fn: () => setModelsOpen(true) },
         { k: "F9", l: "Macros", fn: () => setMacrosOpen(true) },
       ].map((b) => (
-        <button key={b.k} className="phn-fn" onClick={b.fn} title={`${b.k} — ${b.l}`}>
+        <button key={b.k} className="phn-fn" onClick={b.fn} title={`${b.k} — ${b.t || b.l}`}>
           <b>{b.k}</b> {b.l}
         </button>
       ))}

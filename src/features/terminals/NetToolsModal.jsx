@@ -81,7 +81,7 @@ export default function NetToolsModal({ open, initialHost, onClose }) {
           placeholder="host or IP  (e.g. github.com or 10.0.0.5)"
         />
         <Button variant="primary" onClick={run} disabled={busy || !host.trim()}>
-          {busy ? "running…" : "run ▶"}
+          {busy ? "Running…" : "Run ▶"}
         </Button>
       </div>
 

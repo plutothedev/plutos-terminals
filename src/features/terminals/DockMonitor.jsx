@@ -65,7 +65,7 @@ export default function DockMonitor({ sysStats, panels }) {
         <div className="phn-mon-empty">Collecting stats…</div>
       )}
 
-      <div className="phn-mon-sec">Agents · {sessions.length}</div>
+      <div className="phn-mon-sec">Sessions · {sessions.length}</div>
       {sessions.length > 0 && (
         <div className="phn-mon-fleet" aria-label="Agent states">
           {[
@@ -91,12 +91,18 @@ export default function DockMonitor({ sysStats, panels }) {
         ordered.map((s) => {
           const st = statusOf(s);
           const kind = s.home ? "home" : s.worktree ? "agent" : s.rdp ? "rdp" : s.vnc ? "vnc" : s.connection ? "ssh" : s.serial ? "serial" : "local";
-          const label = st === "waiting" ? "needs you" : st;
+          // Display verbs (running / finished / idle + "needs you") — the
+          // internal state keys (waiting/active/done/idle) stay untouched.
+          const label =
+            st === "waiting" ? "needs you"
+              : st === "active" ? "running"
+              : st === "done" ? "finished"
+              : st;
           return (
             <div
               key={s.id}
               className={`phn-mon-row${st === "waiting" ? " is-waiting" : ""}`}
-              title={st === "waiting" ? `${s.label} — waiting for your approval` : `${s.label} — ${st}`}
+              title={st === "waiting" ? `${s.label} — waiting for your approval` : `${s.label} — ${label}`}
             >
               <span className="dot" style={{ background: DOT[st] || DOT.idle }} />
               <span className="nm">{s.label}</span>

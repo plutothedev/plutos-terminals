@@ -41,8 +41,8 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
 
   const handleFactoryReset = async () => {
     const ok = await confirm(
-      "Factory reset wipes ALL Pluto's Terminal state from this machine: panel layout, projects, scrollback, API key, theme, welcome flag, and onboarding flag (across every window). The app reloads to the welcome screen. Continue?",
-      { title: "Factory reset?", confirmLabel: "reset everything", destructive: true }
+      "Factory reset wipes ALL Pluto's Terminal state from this machine: panel layout, projects, scrollback, API key, theme, and the welcome/onboarding screens (they'll show again), across every window. The app reloads to the welcome screen. Continue?",
+      { title: "Factory reset?", confirmLabel: "Reset everything", destructive: true }
     );
     if (!ok) return;
     // Wipe EVERY app-owned key (state/user blobs, per-window states, command
@@ -66,7 +66,7 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
 
       <Field
         label="Appearance (live preview)"
-        hint="Dark and Light switch the app chrome (terminal stays black). OLED turns every surface — chrome and terminal — true #000 for OLED panels."
+        hint="Dark and Light switch the app's colors (terminal stays black). OLED turns every surface — app and terminal — true #000 for OLED panels."
       >
         <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
           <Button variant={!isLight && !isOled ? "primary" : "ghost"} onClick={() => setTheme("moba")} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SMoon size={13} /> Dark</span></Button>
@@ -111,7 +111,7 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
 
       {saveUser && (
         <Field
-          label="Cloud Sync"
+          label="Cloud sync"
           hint="End-to-end encrypted. Syncs workflows, themes, keybindings, settings, and macros across your machines via a private git repo you control. API keys never sync."
         >
           <SyncSection userSt={userSt} saveUser={saveUser} />
@@ -131,10 +131,10 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
       )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "var(--phn-sp-6)" }}>
-        <Button variant="danger" onClick={handleFactoryReset} title="Wipe all local state and reload">factory reset</Button>
+        <Button variant="danger" onClick={handleFactoryReset} title="Wipe all local state and reload">Factory reset</Button>
         <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
-          <Button variant="subtle" onClick={onClose}>cancel</Button>
-          <Button variant="primary" onClick={handleSave}>save</Button>
+          <Button variant="subtle" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSave}>Save</Button>
         </div>
       </div>
     </Modal>

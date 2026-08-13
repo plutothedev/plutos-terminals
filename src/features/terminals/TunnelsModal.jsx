@@ -50,7 +50,7 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
   };
 
   return (
-    <Modal open={open} title="SSH port forwarding" onClose={onClose} width={540}>
+    <Modal open={open} title="Port forwarding" onClose={onClose} width={540}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ fontSize: 12, color: "var(--phn-text-fg, #b4b8c0)", lineHeight: 1.5 }}>
           Forward a local port through{" "}

@@ -1,75 +1,74 @@
-// First-launch onboarding tour. 4-step walk-through: terminals → skins →
-// packs → power features. Skin-aware via CSS vars. Dismissed via "Skip"
-// at any step or "Got it" on the final step. The dismissal flag persists
+// First-launch onboarding tour. 4-step walk-through: sessions → themes →
+// workflows + AI → palette + shortcuts. Skin-aware via CSS vars. Dismissed via
+// "Skip" at any step or "Got it" on the final step. The dismissal flag persists
 // to st.terminalsOnboarded so it never reappears.
 
 import { useState } from "react";
 import { SLocal, SPalette, SBook, SKeyboard } from "./toolbarIcons.jsx";
+import { modCombo, formatCombo } from "./keybindings.js";
 
 const STEPS = [
   {
     icon: <SLocal size={28} />,
-    title: "Terminals + Projects",
+    title: "Sessions",
     body: (FG, ACCENT) => (
       <>
         <p style={{ marginBottom: 12 }}>
-          Run multiple AI agents (Claude, Codex…) side by side. Up to <strong style={{ color: ACCENT }}>8 panels</strong> in a grid, each with its own tabs and PTY.
+          The left tree holds your saved sessions — local shells, SSH, serial, and RDP/VNC remote desktops. Click <strong style={{ color: ACCENT }}>+ Add session</strong> (or the Local / SSH toolbar buttons) to save a folder or a host, then click it anytime to open a tab.
         </p>
         <p style={{ marginBottom: 12 }}>
-          Click <strong style={{ color: ACCENT }}>+ Add project</strong> in the left sidebar to register a folder with cwd + start commands. Background tabs glow yellow while working, green when done — you can tell which agent needs you without flipping tabs.
+          Split any tab side by side or stacked, and run agents (Claude Code, Codex…) in parallel — background tabs glow yellow while running, green when finished, amber when one needs you.
         </p>
       </>
     ),
   },
   {
     icon: <SPalette size={28} />,
-    title: "Skins paint the whole app",
+    title: "Themes",
     body: (FG, ACCENT) => (
       <>
         <p style={{ marginBottom: 12 }}>
-          Open <strong style={{ color: ACCENT }}>settings</strong> in the top-right. <strong>10 skins</strong> change every surface — header, sidebar, status bar, terminal background.
+          Open <strong style={{ color: ACCENT }}>Settings</strong> ({formatCombo("Ctrl+,")}) to pick <strong style={{ color: ACCENT }}>Dark</strong>, <strong style={{ color: ACCENT }}>Light</strong>, or <strong style={{ color: ACCENT }}>OLED</strong> — the default, true #000 on every surface.
         </p>
         <p style={{ marginBottom: 12 }}>
-          Try <strong style={{ color: ACCENT }}>Synthwave Sunset</strong> for chromatic vibes, <strong style={{ color: ACCENT }}>Brutalist Mono</strong> for ruthless black/white, or <strong style={{ color: ACCENT }}>Daylight</strong> for a real light theme. <strong>6 button styles</strong> and <strong>3 densities</strong> stack on top — 180 distinct looks total.
+          Want more? Paste any Warp theme YAML (<strong>github.com/warpdotdev/themes</strong>) under Settings → Custom themes to reskin the terminal and the whole app, or sync with your OS light/dark automatically.
         </p>
       </>
     ),
   },
   {
     icon: <SBook size={28} />,
-    title: "Prompt packs",
+    title: "Workflows + AI",
     body: (FG, ACCENT) => (
       <>
         <p style={{ marginBottom: 12 }}>
-          A <code style={{ color: ACCENT, padding: "1px 4px", borderRadius: 2, background: "var(--phn-page-bg, #0a0a0a)" }}>.deck.json</code> pack describes a multi-panel terminal layout. Loading one replaces your current panels with the pack's setup.
+          <strong style={{ color: ACCENT }}>Workflows</strong> are saved, parameterized commands — open the Workflows panel from the toolbar and click one to run it (Warp workflow YAML imports directly). <strong style={{ color: ACCENT }}>Fleet</strong> sits next to it: every session's state (running / finished / needs you) in one list.
         </p>
         <p style={{ marginBottom: 12 }}>
-          <strong>11 packs ship</strong>: claude-code-basic, dual-claude-pair, codebase-explorer, writing-helper, debug-session, language-learning, interview-prep, content-script-writer, rubber-duck, trading-workflow (Pluto Style), example. Click <strong style={{ color: ACCENT }}>packs…</strong> or <strong style={{ color: ACCENT }}>find</strong> in the header to browse.
-        </p>
-        <p style={{ marginBottom: 0 }}>
-          Each pack ships a <strong>systemPrompt</strong> that auto-types into Claude 2 seconds after spawn — real role-priming, not just labels.
+          <strong style={{ color: ACCENT }}>Ask AI</strong> ({modCombo("I")}) turns plain English into a shell command you review before it runs; <strong style={{ color: ACCENT }}>Agent Mode</strong> ({formatCombo("Ctrl+Shift+A")}) takes a goal and runs the commands itself, asking before anything risky. The right dock adds files (SFTP), an AI assistant, and a live CPU/MEM/DISK monitor.
         </p>
       </>
     ),
   },
   {
     icon: <SKeyboard size={28} />,
-    title: "Power features",
+    title: "Command palette + shortcuts",
     body: (FG, ACCENT) => (
       <>
         <p style={{ marginBottom: 12 }}>
           Keyboard shortcuts:
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", marginBottom: 14, fontSize: 11 }}>
-          <code style={kbdStyle}>Ctrl+K</code><span>Command palette (everything in one search)</span>
-          <code style={kbdStyle}>Ctrl+P</code><span>Find a pack</span>
-          <code style={kbdStyle}>Ctrl+,</code><span>Open settings</span>
-          <code style={kbdStyle}>Ctrl+Shift+T</code><span>New tab in active panel</span>
-          <code style={kbdStyle}>Ctrl+Shift+W</code><span>Close active tab</span>
-          <code style={kbdStyle}>Ctrl+1–8</code><span>Switch to panel N</span>
+          <code style={kbdStyle}>{modCombo("K")}</code><span>Command palette (everything in one search)</span>
+          <code style={kbdStyle}>{modCombo("I")}</code><span>Ask AI — plain English to command</span>
+          <code style={kbdStyle}>{formatCombo("Ctrl+Shift+A")}</code><span>Agent Mode</span>
+          <code style={kbdStyle}>{modCombo("R")}</code><span>Command history search</span>
+          <code style={kbdStyle}>{formatCombo("Ctrl+Shift+T")}</code><span>New tab in active panel</span>
+          <code style={kbdStyle}>{formatCombo("Ctrl+Shift+D")}</code><span>Split the active pane right</span>
+          <code style={kbdStyle}>{modCombo("1")}–8</code><span>Switch to panel N</span>
         </div>
         <p style={{ marginBottom: 0 }}>
-          You're set. Click <strong style={{ color: ACCENT }}>setup</strong> if you haven't installed Claude CLI yet — it walks you through any missing pieces.
+          The F-key bar along the bottom mirrors the big ones — F1 help, F2 new tab, F3 split, F4 files (SFTP). Every shortcut is rebindable in Settings, and <strong style={{ color: ACCENT }}>Tools → Setup checker</strong> walks you through anything missing (Node, the Claude CLI).
         </p>
       </>
     ),
@@ -191,7 +190,7 @@ export default function OnboardingOverlay({ onDismiss }) {
                   cursor: "pointer",
                 }}
               >
-                ← back
+                ← Back
               </button>
             )}
             <button
@@ -209,7 +208,7 @@ export default function OnboardingOverlay({ onDismiss }) {
               }}
               autoFocus
             >
-              {isLast ? "Got it" : "next →"}
+              {isLast ? "Got it" : "Next →"}
             </button>
           </div>
         </div>

@@ -59,15 +59,15 @@ export function usePaletteCommands(args) {
       { id: "close-pane", icon: <SSplit size={14} />, label: "Close active pane", hint: "Close the focused pane; its neighbor takes the space", shortcut: scOf("closePane"), action: () => closePane(activeTabId, activeTab?.activePaneId || activeTabId) },
     ] : []),
     { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
-    { id: "ask", icon: <SAsk size={14} />, label: "Ask AI — natural language → command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
+    { id: "ask", icon: <SAsk size={14} />, label: "Ask AI — plain English to command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
     { id: "agent", icon: <SBot size={14} />, label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal", shortcut: scOf("agentMode"), action: () => setAgentOpen(true) },
     { id: "summarize", icon: <SDoc size={14} />, label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
     { id: "history", icon: <SClock size={14} />, label: "Command history search", hint: `Fuzzy search past commands — Enter inserts, ${modCombo("Enter")} runs`, shortcut: scOf("history"), action: () => setHistoryOpen(true) },
-    { id: "workspaces", icon: <SLayout size={14} />, label: "Workspaces — save / restore layout", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
+    { id: "workspaces", icon: <SLayout size={14} />, label: "Workspaces — save / restore layouts", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
     { id: "models", icon: <SModels size={14} />, label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
     { id: "snippets", icon: <SSnips size={14} />, label: "Workflows panel", hint: "Saved parameterized commands — click to run", action: () => selectRibbon(ribbon === "snippets" ? null : "snippets") },
-    { id: "files", icon: <SFolder size={14} />, label: "File browser (SFTP) — focus right dock", hint: "Local files, or remote SFTP for an SSH tab, in the right dock (F4)", action: () => focusFilesDock() },
-    { id: "tunnels", icon: <STunnel size={14} />, label: "SSH port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+    { id: "files", icon: <SFolder size={14} />, label: "File browser (SFTP) — open the right panel", hint: "Local files, or remote SFTP for an SSH tab, in the right dock (F4)", action: () => focusFilesDock() },
+    { id: "tunnels", icon: <STunnel size={14} />, label: "Port forwarding", hint: "Forward a local port through the active SSH session", action: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
     { id: "serial", icon: <SSerial size={14} />, label: "Serial console", hint: "Connect to a USB/UART serial device", action: () => setSerialOpen((v) => !v) },
     { id: "vnc", icon: <SMouse size={14} />, label: "VNC remote desktop", hint: "Connect to a VNC server (e.g. macOS Screen Sharing on localhost:5900)", action: () => setVncOpen(true) },
     { id: "rdp", icon: <SWindows size={14} />, label: "RDP remote desktop", hint: "Connect to a Windows / xrdp host over RDP (NLA)", action: () => setRdpOpen(true) },
@@ -98,7 +98,7 @@ export function usePaletteCommands(args) {
       id: "new-window",
       icon: <SWindows size={14} />,
       label: "Open new window",
-      hint: "Spawns a fresh window with its own independent panel layout, skin, and sessions",
+      hint: "Opens a new window with its own layout, theme, and sessions",
       action: async () => {
         try {
           const id = `${Date.now().toString(36)}`.slice(-6);
@@ -113,11 +113,11 @@ export function usePaletteCommands(args) {
       id: "reset-workspace",
       icon: <SReset size={14} />,
       label: "Reset workspace",
-      hint: "Clear all panels and tabs (keeps API key, skin, projects)",
+      hint: "Clear all panels and tabs. Keeps your API keys, theme, and sessions.",
       action: async () => {
         const ok = await confirm(
-          "Reset workspace? Closes every panel and tab. API key, skin, button style, density, and sessions are kept. The app reloads to a single empty panel.",
-          { title: "Reset workspace?", confirmLabel: "reset", destructive: true }
+          "Reset workspace? Closes every panel and tab. Keeps your API keys, theme, and sessions. The app reloads to a single empty panel.",
+          { title: "Reset workspace?", confirmLabel: "Reset", destructive: true }
         );
         if (!ok) return;
         const fresh = defaultState();

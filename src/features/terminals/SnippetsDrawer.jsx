@@ -247,7 +247,7 @@ export default function SnippetsDrawer({
           <button
             className="phn-snippets-close"
             onClick={onClose}
-            title="Close (Esc)"
+            title={docked ? "Close" : "Close (Esc)"}
           >
             ✕
           </button>
@@ -289,8 +289,8 @@ export default function SnippetsDrawer({
           />
           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
             {ioMsg && <span style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", marginRight: "auto" }}>{ioMsg}</span>}
-            <button className="phn-snippets-close" onClick={() => { setImporting(false); setImportText(""); setIoMsg(""); }} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4 }}>cancel</button>
-            <button className="phn-snippets-close" onClick={doImport} disabled={!importText.trim()} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4, opacity: importText.trim() ? 1 : 0.5, cursor: importText.trim() ? "pointer" : "not-allowed" }}>import</button>
+            <button className="phn-snippets-close" onClick={() => { setImporting(false); setImportText(""); setIoMsg(""); }} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4 }}>Cancel</button>
+            <button className="phn-snippets-close" onClick={doImport} disabled={!importText.trim()} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4, opacity: importText.trim() ? 1 : 0.5, cursor: importText.trim() ? "pointer" : "not-allowed" }}>Import</button>
           </div>
         </div>
       )}
@@ -314,7 +314,7 @@ export default function SnippetsDrawer({
                 commitAdd();
               }
             }}
-            placeholder="Command"
+            placeholder="git pull origin {{branch}}"
             spellCheck={false}
             style={{ fontFamily: "'JetBrains Mono', Menlo, Monaco, monospace" }}
           />
@@ -370,8 +370,8 @@ export default function SnippetsDrawer({
             {fillVars(fillSnippet.command, vals)}
           </div>
           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-            <button className="phn-snippets-close" onClick={() => setFillSnippet(null)} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4 }}>cancel</button>
-            <button className="phn-snippets-close" onClick={doFill} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4 }}>insert</button>
+            <button className="phn-snippets-close" onClick={() => setFillSnippet(null)} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4 }}>Cancel</button>
+            <button className="phn-snippets-close" onClick={doFill} style={{ border: "1px solid var(--phn-surface-border, #2b2b2b)", padding: "4px 12px", borderRadius: 4 }}>Insert</button>
           </div>
         </div>
       )}
@@ -401,7 +401,7 @@ export default function SnippetsDrawer({
                     e.stopPropagation();
                     removeSnippet(s.id);
                   }}
-                  title="Delete snippet"
+                  title="Delete workflow"
                   style={{
                     position: "absolute",
                     top: 6,
@@ -458,7 +458,7 @@ export default function SnippetsDrawer({
             className="phn-sidebar-search"
             value={newPromptBody}
             onChange={(e) => setNewPromptBody(e.target.value)}
-            placeholder="Prompt body"
+            placeholder="Explain this error and suggest a fix"
             spellCheck={false}
             rows={4}
             style={{ fontFamily: "'JetBrains Mono', Menlo, Monaco, monospace", resize: "vertical", minHeight: 64, width: "100%", boxSizing: "border-box" }}

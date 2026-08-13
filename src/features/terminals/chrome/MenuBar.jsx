@@ -36,7 +36,7 @@ export default function MenuBar({
   // friendly typed text rides along as the tab label while the sanitized name is
   // what hits disk.
   const newNotebook = useCallback(async () => {
-    const typed = await prompt("New notebook name?", { title: "New notebook", confirmLabel: "create", placeholder: "notebook name" });
+    const typed = await prompt("New notebook name?", { title: "New notebook", confirmLabel: "Create", placeholder: "deploy-notes" });
     if (typed == null || !typed.trim()) return; // cancelled or empty — silent, matches window.prompt
     const result = toNotebookName(typed);
     if (!result.ok) { toast.error(`Can't use that notebook name: ${result.reason}.`); return; }
@@ -71,7 +71,7 @@ export default function MenuBar({
         { label: "New tab", shortcut: "Ctrl+Shift+T", action: () => addTab(activePanelId) },
         { label: "New notebook…", action: newNotebook },
         { label: "Open notebook…", action: openNotebook },
-        { label: "Launch screen (home tab)", action: () => addHomeTab(activePanelId) },
+        { label: "Open home screen (new tab)", action: () => addHomeTab(activePanelId) },
         { label: "New panel", disabled: !canAddPanel, action: () => addPanel() },
         { divider: true },
         { label: "Split right", shortcut: "Ctrl+Shift+D", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
@@ -90,7 +90,7 @@ export default function MenuBar({
         { label: "SSH keys…", action: () => setSshKeysOpen(true) },
         { divider: true },
         { label: "Sessions panel", action: () => selectRibbon("sessions") },
-        { label: "File browser", action: () => selectRibbon("files") },
+        { label: "Files (SFTP)", action: () => selectRibbon("files") },
         { label: "Port forwarding…", disabled: !activeTab?.connection, action: () => openTunnels() },
         { label: "Serial console…", action: () => setSerialOpen(true) },
         { label: "VNC remote desktop…", action: () => setVncOpen(true) },
@@ -101,9 +101,9 @@ export default function MenuBar({
     {
       label: "Tools",
       items: [
-        { label: "Snippets panel", action: () => selectRibbon("snippets") },
+        { label: "Workflows panel", action: () => selectRibbon("snippets") },
         { label: "Keystroke macros…", action: () => setMacrosOpen(true) },
-        { label: "Ask AI — natural language → command", shortcut: "Ctrl+I", action: () => setAskOpen(true) },
+        { label: "Ask AI — plain English to command", shortcut: "Ctrl+I", action: () => setAskOpen(true) },
         { label: "Summarize this session (AI)", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
         { label: "Command history search…", shortcut: "Ctrl+R", action: () => setHistoryOpen(true) },
         { label: "Models — pick provider + model…", action: () => setModelsOpen(true) },
@@ -121,9 +121,9 @@ export default function MenuBar({
       label: "View",
       items: [
         { label: ribbon ? "Hide tools panel" : "Show tools panel", action: () => selectRibbon(ribbon ? null : "snippets") },
-        { label: "Workspaces — save / restore layout…", action: () => setWorkspacesOpen(true) },
+        { label: "Workspaces — save / restore layouts…", action: () => setWorkspacesOpen(true) },
         { divider: true },
-        { label: "Themes & appearance…", action: () => setSettingsOpen(true) },
+        { label: "Themes…", action: () => setSettingsOpen(true) },
       ],
     },
     {
@@ -155,7 +155,7 @@ export default function MenuBar({
           <>
             <ActiveDims tabId={activeTabId} className="moba-mb-dim" />
             <span className="moba-mb-model"><span className="moba-mb-modeldot" />{activeModelName || "claude"}</span>
-            <button className="moba-mb-icon" onClick={toggleTheme} title="Toggle dark / light chrome (Ctrl+\\)">{headerSkinId === "moba-light" ? <IconSun size={14} /> : <IconMoon size={14} />}</button>
+            <button className="moba-mb-icon" onClick={toggleTheme} title="Toggle dark / light theme (Ctrl+\\)">{headerSkinId === "moba-light" ? <IconSun size={14} /> : <IconMoon size={14} />}</button>
             <button className="moba-mb-icon" onClick={exitApp} title="Quit (closes all sessions)"><IconExit size={14} /></button>
           </>
         }

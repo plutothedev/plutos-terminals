@@ -59,7 +59,7 @@ export default function DiffView({ open, worktree, onClose, onDiscard }) {
     if (!worktree?.path || !onDiscard) return;
     const ok = await confirm(
       `Discard the worktree for "${worktree.branch}"? This permanently deletes the folder and any uncommitted changes on that branch, and closes its agent tab.`,
-      { title: "Discard worktree?", confirmLabel: "discard", destructive: true }
+      { title: "Discard worktree?", confirmLabel: "Discard", destructive: true }
     );
     if (!ok) return;
     setDiscarding(true);

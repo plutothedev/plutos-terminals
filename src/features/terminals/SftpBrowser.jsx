@@ -171,7 +171,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
 
   const onMkdir = async () => {
     if (!cwd) return;
-    const name = await prompt("New folder name?", { title: "New folder", confirmLabel: "create", placeholder: "folder name" });
+    const name = await prompt("New folder name?", { title: "New folder", confirmLabel: "Create", placeholder: "folder name" });
     if (!name || !name.trim()) return;
     try {
       await invoke("sftp_mkdir", { id: sessionId, path: joinPath(cwd, name.trim()) });
@@ -184,7 +184,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
   const onDelete = async (entry) => {
     const ok = await confirm(
       `Delete ${entry.is_dir ? "folder" : "file"} "${entry.name}"? This cannot be undone.`,
-      { title: "Delete?", confirmLabel: "delete", destructive: true }
+      { title: "Delete?", confirmLabel: "Delete", destructive: true }
     );
     if (!ok) return;
     try {
@@ -199,7 +199,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
   };
 
   const onRename = async (entry) => {
-    const next = await prompt(`Rename "${entry.name}" to?`, { title: "Rename", confirmLabel: "rename", initialValue: entry.name });
+    const next = await prompt(`Rename "${entry.name}" to?`, { title: "Rename", confirmLabel: "Rename", initialValue: entry.name });
     if (!next || !next.trim() || next.trim() === entry.name) return;
     try {
       await invoke("sftp_rename", { id: sessionId, from: entry.path, to: joinPath(cwd, next.trim()) });
@@ -260,7 +260,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
 
       <div className="phn-snippets-list">
         {!sessionId && !connecting && !error ? (
-          <div className="phn-snippets-empty">Open an SSH session, then choose <strong>Sftp</strong> to browse its files.</div>
+          <div className="phn-snippets-empty">Open an SSH session and its files will show here.</div>
         ) : connecting ? (
           <div className="phn-snippets-empty">Connecting…</div>
         ) : error ? (
@@ -270,7 +270,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
         ) : loading ? (
           <div className="phn-snippets-empty">Loading…</div>
         ) : entries.length === 0 ? (
-          <div className="phn-snippets-empty">Empty directory.</div>
+          <div className="phn-snippets-empty">Empty folder.</div>
         ) : (
           entries.map((e) => (
             <div

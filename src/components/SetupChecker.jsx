@@ -72,10 +72,10 @@ export default function SetupChecker({ open, onClose }) {
     && claudeStatus.state === "found";
 
   return (
-    <Modal open={open} title="Setup Check" onClose={onClose} width={620}>
+    <Modal open={open} title="Setup checker" onClose={onClose} width={620}>
       <p style={{ color: FG, fontSize: 12, lineHeight: 1.7, marginBottom: 18 }}>
         Pluto's Terminal is a terminal app — it expects a few things on your machine.
-        Run through this once and you're set. Re-open anytime via the <strong style={{ color: ACCENT }}>setup</strong> button in the header.
+        Run through this once and you're set. Re-open anytime from <strong style={{ color: ACCENT }}>Tools → Setup checker</strong>, or Ctrl+K.
       </p>
 
       <Check
@@ -105,14 +105,14 @@ export default function SetupChecker({ open, onClose }) {
         installHint={(
           <>
             <div style={{ marginBottom: 8 }}>
-              Not found. With Node.js installed, run this in any terminal pane (or a fresh PowerShell window):
+              Not found. With Node.js installed, run this in any terminal pane (or a fresh PowerShell / Terminal window):
             </div>
             <Code>{CLAUDE_INSTALL_CMD}</Code>
             <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
               <button onClick={onCopyClaudeInstall} style={chipBtnStyle}>
-                {copied ? "✓ copied" : "copy command"}
+                {copied ? "✓ Copied" : "Copy command"}
               </button>
-              <Link href="https://docs.anthropic.com/claude/docs/claude-code">install docs ↗</Link>
+              <Link href="https://docs.anthropic.com/claude/docs/claude-code">Install docs ↗</Link>
             </div>
           </>
         )}
@@ -123,11 +123,11 @@ export default function SetupChecker({ open, onClose }) {
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22 }}>
-        <button onClick={runChecks} style={chipBtnStyle}>re-run checks</button>
+        <button onClick={runChecks} style={chipBtnStyle}>Re-run checks</button>
         <div style={{ color: allGood ? GREEN : FG_DIM, fontSize: 11, fontWeight: allGood ? 600 : 400 }}>
           {allGood ? "✓ all set — type `claude` in any tab" : "complete the items above to be ready"}
         </div>
-        <button onClick={onClose} style={primaryBtnStyle}>done</button>
+        <button onClick={onClose} style={primaryBtnStyle}>Done</button>
       </div>
     </Modal>
   );

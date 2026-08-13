@@ -82,7 +82,7 @@ export default function SessionSummary({ open, text, onClose }) {
       {answer && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "var(--phn-sp-3)" }}>
           <Button variant="ghost" size="sm" onClick={() => navigator.clipboard?.writeText(answer)}>
-            copy
+            Copy
           </Button>
         </div>
       )}
