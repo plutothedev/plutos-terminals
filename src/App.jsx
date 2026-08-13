@@ -19,7 +19,6 @@ import { PromptProvider } from "./components/PromptModal.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import {
   getLayoutId,
-  injectHeaderSkinsCss,
   applyActiveTheme,
   effectiveSkinValue,
   applyGlobalButtonStyle,
@@ -307,7 +306,6 @@ function AppInner() {
   // BEFORE Welcome screen renders so first-launch picks up saved settings.
   // Header buttons are locked to "bracket" terminal-aesthetic style as of
   // v0.1.20 (the picker was removed; one canonical look across all skins).
-  useEffect(() => { injectHeaderSkinsCss(); }, []);
 
   // Disk GC (primary window only), on boot and then daily: reclaim scrollback
   // files whose tab is no longer open in ANY window AND untouched for 30+ days,
@@ -326,9 +324,18 @@ function AppInner() {
       invoke("transcript_sweep", {})
         .catch((e) => console.warn("Pluto's Terminals: transcript sweep failed", e));
     };
-    sweep();
+    // Deferred off the boot burst (P4-T4): allOpenTabIds() walks + parses
+    // every per-window localStorage blob, and GC latency is irrelevant.
+    // Feature-detected fallback (audit C3): WKWebView has NO
+    // requestIdleCallback — a bare call would ReferenceError and macOS builds
+    // would never sweep (unbounded scrollback growth).
+    const rIC = window.requestIdleCallback ?? ((cb) => setTimeout(cb, 3000));
+    const idle = rIC(sweep, { timeout: 10_000 });
     const id = setInterval(sweep, 24 * 60 * 60 * 1000);
-    return () => clearInterval(id);
+    return () => {
+      (window.cancelIdleCallback ?? clearTimeout)(idle);
+      clearInterval(id);
+    };
   }, []);
 
   // v4.0 one-time migration: force the "moba" (MobaXterm) LAYOUT once so everyone

@@ -22,7 +22,7 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { KEY_ACTIONS, comboFromEvent, resolveBindings, setResolved, isCapturing, formatCombo } from "./keybindings.js";
 import { gridDims, MAX_PANELS } from "./grid";
-import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useRegistryListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
+import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useRegistryListener } from "./hooks/independentEffects.js";
 import { useDockResize } from "./hooks/useDockResize.js";
 import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { useSnippets } from "./hooks/useSnippets.js";
@@ -131,8 +131,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // (recordingCapHit = MAX_EVENTS auto-stop reached).
   const { recordingTabIds, recordingCapHit } = useRecordingState();
 
-  // Inject header-skin CSS once. Idempotent inside injectHeaderSkinsCss.
-  useHeaderSkinSetup();
+  // Header-skin CSS is a real stylesheet now (P4-T4) — imported by
+  // headerSkins.js, extracted + cached by vite; no runtime injection.
 
   // Registry lifecycle truth: any pane id no longer rendered by the tree is dead —
   // covers every close path (tab/panel/pane close, reset-workspace, workspace

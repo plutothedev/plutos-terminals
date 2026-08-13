@@ -31,7 +31,7 @@ function attachImageAddon(entry, t) {
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
-import { readUserSt, getWindowStorageKey, isPrimaryWindow } from "./storageKeys.js";
+import { readUserSt, readWindowBlob, isPrimaryWindow } from "./storageKeys.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import { actionForEvent } from "./keybindings.js";
@@ -1193,9 +1193,8 @@ function TerminalPane({
           // (matches App's write key) so a detached ?w= window reads ITS OWN
           // state, not the default window's — previously this read the bare key
           // and silently missed a secondary window's overrides.
-          const winRaw = localStorage.getItem(getWindowStorageKey());
-          if (winRaw) {
-            const persisted = JSON.parse(winRaw);
+          const persisted = readWindowBlob(); // memoized shared parse (P4-T4)
+          if (persisted) {
             if (!env.ANTHROPIC_API_KEY && persisted && typeof persisted.anthropicKey === "string" && persisted.anthropicKey.length > 0) {
               env.ANTHROPIC_API_KEY = persisted.anthropicKey;
             }
@@ -1589,8 +1588,12 @@ function TerminalPane({
           // which releases the gate; the 4s timer is the can't-go-blank fallback.
           concealRef.current = { buf: "", timer: setTimeout(flushConceal, 4000) };
           // Let the shell render its first prompt before we send the (now short)
-          // welcome line so the colours/box land cleanly.
-          await new Promise(r => setTimeout(r, 450));
+          // welcome line so the colours/box land cleanly. 150ms (P4-T4, was
+          // 450): the conceal gate armed above already absorbs a slow shell —
+          // its 4s flush is the safety net — so this pause only needs to cover
+          // the COMMON case. Pluto smoke: verify heavy profiles (WSL, slow
+          // PowerShell) still land the banner clean. Marker flow unchanged.
+          await new Promise(r => setTimeout(r, 150));
           // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less
           // + a few quality-of-life aliases. (Kept short so the welcome init fits
           // comfortably in one shell line alongside the big welcome box.)

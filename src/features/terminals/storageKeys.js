@@ -85,18 +85,46 @@ export function wipeAllLocalState() {
 // API keys (providerKeys / anthropicKey) are stripped from localStorage once
 // mirrored to the OS keychain (secretVault), so overlay the in-memory keychain
 // cache here — that's the single read path every spawn/AI-widget consumer uses.
+// Parse memo (P4-T4): a 20-pane boot called this per pane — N full
+// JSON.parses of the same blob. Keyed by the RAW STRING identity: any write
+// changes the string, so staleness is impossible; the keychain overlay below
+// is NOT memoized (the in-memory secret cache changes independently of
+// localStorage and costs no parse).
+let ustMemo = { raw: null, parsed: null };
 export function readUserSt() {
   if (typeof window === "undefined") return {};
-  let base = {};
-  try {
-    base = JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || "{}");
-  } catch {
-    base = {};
+  const raw = localStorage.getItem(USER_STORAGE_KEY) || "{}";
+  if (raw !== ustMemo.raw) {
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { parsed = {}; }
+    ustMemo = { raw, parsed };
   }
+  const base = ustMemo.parsed;
   const secrets = getCachedSecretKeys();
   return {
     ...base,
     providerKeys: { ...(base.providerKeys || {}), ...(secrets.providerKeys || {}) },
     anthropicKey: secrets.anthropicKey || base.anthropicKey || "",
   };
+}
+
+// Same memo treatment for the per-window state blob (P4-T4; the re-verify
+// found the second half of the double-parse had NO shared helper — the parse
+// was inlined in TerminalPane's spawn path). Returns the SAME parsed object
+// across calls — callers read, never mutate. Keyed on (window key, raw).
+let winMemo = { key: null, raw: null, parsed: null };
+export function readWindowBlob() {
+  if (typeof window === "undefined") return null;
+  const key = getWindowStorageKey();
+  const raw = localStorage.getItem(key);
+  if (raw === null) {
+    winMemo = { key, raw: null, parsed: null };
+    return null;
+  }
+  if (key !== winMemo.key || raw !== winMemo.raw) {
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch { parsed = null; }
+    winMemo = { key, raw, parsed };
+  }
+  return winMemo.parsed;
 }

@@ -13,7 +13,6 @@ import {
   subscribeRegistry,
   getRegistryVersion,
 } from "../ptyBridge.js";
-import { injectHeaderSkinsCss } from "../headerSkins";
 
 // Live system stats (CPU / memory / disk) for DockMonitor (its only consumer).
 // Polled 5s; CPU is a real delta because the backend keeps a persistent System
@@ -97,9 +96,3 @@ export function useRegistryListener() {
   return useSyncExternalStore(subscribeRegistry, getRegistryVersion);
 }
 
-// Inject the header-skin CSS once on mount (idempotent inside injectHeaderSkinsCss).
-export function useHeaderSkinSetup() {
-  useEffect(() => {
-    injectHeaderSkinsCss();
-  }, []);
-}
