@@ -1202,8 +1202,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         stopAndSaveRecording={stopAndSaveRecording}
         onJumpToRecording={jumpToRecordingTab}
         totalCost={totalCost}
-        activeModelName={activeModelName}
-        claudeAvailable={claudeAvailable}
       />
 
       {/* F-key quick-action bar (MobaXterm-style) */}

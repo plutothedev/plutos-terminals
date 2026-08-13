@@ -41,13 +41,34 @@ export function useSystemStats(enabled = true) {
   return sysStats;
 }
 
-// Basename of the shell new tabs spawn (e.g. "zsh"/"pwsh.exe") — fetched once.
+// Friendly display name for a shell binary (UI-polish pass): raw process
+// filenames ("pwsh.exe") are a dev artifact — chrome shows the product name,
+// the way Windows Terminal does. Unknown shells just lose the ".exe".
+const SHELL_NAMES = {
+  pwsh: "PowerShell",
+  powershell: "Windows PowerShell",
+  cmd: "Command Prompt",
+  bash: "Bash",
+  zsh: "zsh", // official styling is lowercase
+  fish: "fish", // ditto
+  nu: "Nushell",
+  nushell: "Nushell",
+};
+export function friendlyShellName(raw) {
+  if (!raw || typeof raw !== "string") return raw;
+  const base = raw.split(/[\\/]/).pop().replace(/\.exe$/i, "");
+  return SHELL_NAMES[base.toLowerCase()] || base;
+}
+
+// Display name of the shell new tabs spawn ("PowerShell", "zsh") — fetched
+// once, prettified at the source so the status bar and the AI prompts
+// ("the user's shell is PowerShell") all read the same clean name.
 export function useShellName() {
   const [shellName, setShellName] = useState(null);
   useEffect(() => {
     let cancelled = false;
     invoke("default_shell")
-      .then((s) => { if (!cancelled && typeof s === "string") setShellName(s); })
+      .then((s) => { if (!cancelled && typeof s === "string") setShellName(friendlyShellName(s)); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);

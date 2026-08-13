@@ -154,7 +154,19 @@ export default function MenuBar({
         right={
           <>
             <ActiveDims tabId={activeTabId} className="moba-mb-dim" />
-            <span className="moba-mb-model"><span className="moba-mb-modeldot" />{activeModelName || "claude"}</span>
+            {/* One model chip for the whole app (UI-polish pass): real name
+                when a model is picked, honest dim "No model" when not — the
+                old "claude" fallback implied Claude was active. Click opens
+                the Models picker either way. */}
+            <button
+              className="moba-mb-model"
+              onClick={() => setModelsOpen(true)}
+              style={{ background: "transparent", border: "none", cursor: "pointer", font: "inherit", padding: 0, opacity: activeModelName ? 1 : 0.55 }}
+              title={activeModelName ? "Active model — click to change" : "No model configured — click to pick one"}
+            >
+              <span className="moba-mb-modeldot" style={activeModelName ? undefined : { background: "var(--phn-text-faint, #586068)" }} />
+              {activeModelName || "No model"}
+            </button>
             <button className="moba-mb-icon" onClick={toggleTheme} title="Toggle dark / light theme (Ctrl+\\)">{headerSkinId === "moba-light" ? <IconSun size={14} /> : <IconMoon size={14} />}</button>
             <button className="moba-mb-icon" onClick={exitApp} title="Quit (closes all sessions)"><IconExit size={14} /></button>
           </>

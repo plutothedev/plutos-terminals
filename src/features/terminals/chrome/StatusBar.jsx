@@ -1,6 +1,6 @@
 // (C)
 import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../../appMeta.js";
-import { SAsk, SBroadcast } from "../toolbarIcons.jsx";
+import { SBroadcast } from "../toolbarIcons.jsx";
 import * as recording from "../recording.js";
 import ActiveDims from "./ActiveDims.jsx";
 import { useTabActivity } from "../activityStore.js";
@@ -18,8 +18,6 @@ export default function StatusBar({
   stopAndSaveRecording,
   onJumpToRecording,
   totalCost,
-  activeModelName,
-  claudeAvailable,
 }) {
   // Slice subscription (P2-T1): only THIS tab's activity re-renders the bar.
   const activeActivity = useTabActivity(activeTabId);
@@ -43,7 +41,12 @@ export default function StatusBar({
           {activeTab.label}<ActiveDims tabId={activeTabId} style={{ opacity: 0.55, marginLeft: 5 }} />
         </span>
       )}
-      <span title="Shell · encoding · line ending" style={{ opacity: 0.8 }}>{shellName || "shell"} · UTF-8 · LF</span>
+      {/* UI-polish pass: the old "· UTF-8 · LF" suffix here was HARDCODED
+          decoration (nothing detected it; terminals don't have a file
+          encoding) — fake status is worse than no status. */}
+      {shellName && (
+        <span title="Default shell for new tabs" style={{ opacity: 0.8 }}>{shellName}</span>
+      )}
       {broadcast && (
         <button
           onClick={() => setBroadcastGroupOpen(true)}
@@ -79,11 +82,8 @@ export default function StatusBar({
           {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
         </span>
       )}
-      {(activeModelName || claudeAvailable) && (
-        <span className="phn-statusbar-active" title="Active model (Models picker)" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <SAsk size={11} /> {activeModelName || "claude"}
-        </span>
-      )}
+      {/* Model chip lives in the menu bar only (UI-polish pass — it was
+          duplicated in both corners, with a misleading "claude" fallback). */}
       <span style={{ opacity: 0.45 }}>v{APP_VERSION}</span>
       <button
         onClick={() => openExternal(GITHUB_URL)}
@@ -91,7 +91,7 @@ export default function StatusBar({
         style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", font: "inherit" }}
         title="Open repo on GitHub"
       >
-        github
+        GitHub
       </button>
       <span className="phn-statusbar-divider">·</span>
       <button
@@ -99,7 +99,7 @@ export default function StatusBar({
         style={{ background: "transparent", border: "none", padding: 0, margin: 0, cursor: "pointer", color: "var(--phn-text-dim, #9a9da3)", font: "inherit" }}
         title="Join the Pluto Discord"
       >
-        discord
+        Discord
       </button>
     </div>
   );
