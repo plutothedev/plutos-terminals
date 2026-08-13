@@ -86,6 +86,7 @@ function makeEntry() {
     jumpFwdId: null,
     spawnState: "unspawned", // "unspawned" | "starting" | "live" — startSpawn flips to "starting", spawn success to "live"
     startSpawn: null, // filled by TerminalPane's first mount (once-latched); trickle/reveal call it
+    imageAddonDone: false, // set by attachImageAddon's .then — once per terminal lifetime (P4-T1)
     setupDone: false,
     onDestroy: [],
     ui: null, // per-mount pointer table; repointed on EVERY mount (decision 4)

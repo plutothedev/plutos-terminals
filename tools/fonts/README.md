@@ -5,7 +5,8 @@
 dist; the woff2 is COMMITTED so CI/other machines never need python to build
 (P4-T3, plan audit H3).
 
-Regenerate after swapping the source font:
+Regenerate after swapping the source font (run from the REPO ROOT — the
+paths below are repo-root-relative, not relative to this folder):
 
 ```
 pip install fonttools brotli

@@ -409,9 +409,11 @@ function customThemeStyleEl() {
   if (!el) {
     el = document.createElement("style");
     el.id = "phn-custom-theme";
-    const skins = document.getElementById("phn-header-skins");
-    if (skins) skins.after(el); // ensure source order beats the skins CSS
-    else document.head.appendChild(el);
+    // Appended to <head>, which lands AFTER the skins stylesheet in source
+    // order (vite injects headerSkins.css at startup, long before any theme
+    // is applied) — so custom-theme vars always win the cascade. The old
+    // #phn-header-skins anchor died with the runtime injector (P4-T4).
+    document.head.appendChild(el);
   }
   return el;
 }

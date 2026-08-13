@@ -167,6 +167,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // re-arms an idle trickle (the armed-guard makes this a no-op storm-proof);
   // an exhausted re-scan is one cheap pure-JS pass. StrictMode: cleanup
   // clears + nulls the module timer, so the remount restarts cleanly.
+  // Accepted tradeoff (stream audit): every panels change resets the 1000ms
+  // arm delay, so a tight burst of panels writes (agent-scripted tab
+  // creation) defers hidden-pane spawning for the burst's duration — bounded
+  // by the burst itself; interactive edits commit once on mouseup and cost
+  // at most ~1s. Visible panes are unaffected (they spawn via [visible]).
   const trickleStateRef = useRef(state.panels);
   trickleStateRef.current = state.panels;
   useEffect(() => {
