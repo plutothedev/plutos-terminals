@@ -7,7 +7,7 @@
 // "Pluto Light" terminal theme in themes.js maps white/brightWhite to the
 // background colour itself, which is exactly the trap being avoided here).
 import { describe, it, expect } from "vitest";
-import { getSkinXtermTheme } from "./headerSkins.js";
+import { getSkinXtermTheme, getActiveXtermTheme, ANSI_LIGHT } from "./headerSkins.js";
 
 // WCAG relative luminance + contrast ratio.
 const lum = (hex) => {
@@ -83,5 +83,43 @@ describe("Light skin terminal palette", () => {
     const dark = getSkinXtermTheme("oled", {});
     expect(lum(dark.background)).toBeLessThan(0.1);
     expect(lum(dark.foreground)).toBeGreaterThan(0.4);
+  });
+});
+
+describe("custom-theme ANSI defaulting (the no-colors root cause, 2026-08-13)", () => {
+  // Warp YAMLs may omit terminal_colors; older imports stored xterm blocks
+  // with all 16 ANSI slots undefined — xterm painted every colored byte as
+  // plain foreground. getActiveXtermTheme fills missing slots at READ time
+  // so themes already in userSt heal without re-import.
+  const storedRef = "custom:my-light";
+  const customLight = {
+    id: "my-light", dark: false,
+    xterm: { background: "#d9d9d9", foreground: "#222222",
+             red: undefined, green: undefined, yellow: undefined, blue: undefined,
+             magenta: undefined, cyan: undefined, white: undefined, black: undefined },
+    chrome: {},
+  };
+
+  it("fills undefined ANSI slots from the lightness-matched palette; own keys win", () => {
+    const t = getActiveXtermTheme(storedRef, [customLight], {});
+    expect(t.background).toBe("#d9d9d9"); // theme's own value wins
+    expect(t.foreground).toBe("#222222");
+    expect(t.red).toBe(ANSI_LIGHT.red); // filled — was undefined
+    expect(t.cyan).toBe(ANSI_LIGHT.cyan);
+    expect(t.green).toBe(ANSI_LIGHT.green);
+  });
+
+  it("a custom theme's own defined ANSI color is never overridden", () => {
+    const withRed = { ...customLight, xterm: { ...customLight.xterm, red: "#aa0000" } };
+    expect(getActiveXtermTheme(storedRef, [withRed], {}).red).toBe("#aa0000");
+  });
+
+  it("pureBlackTerminal no longer blackens a LIGHT custom theme (dark text on black = unreadable)", () => {
+    const t = getActiveXtermTheme(storedRef, [customLight], { pureBlackTerminal: true });
+    expect(t.background).toBe("#d9d9d9");
+    // ...but still applies to dark customs.
+    const darkCustom = { ...customLight, id: "my-dark", dark: true, xterm: { ...customLight.xterm, background: "#101010", foreground: "#cccccc" } };
+    const td = getActiveXtermTheme("custom:my-dark", [darkCustom], { pureBlackTerminal: true });
+    expect(td.background).toBe("#000000");
   });
 });

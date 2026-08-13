@@ -17,7 +17,7 @@
 
 import "./headerSkins.css"; // static skin CSS (P4-T4) — see that file's header
 
-const ANSI_DARK = {
+export const ANSI_DARK = {
   black: "#1a1a2e", red: "#ff6b6b", green: "#51cf66", yellow: "#ffd43b",
   blue: "#748ffc", magenta: "#da77f2", cyan: "#66d9e8", white: "#d4d4d4",
   brightBlack: "#555555", brightRed: "#ff8787", brightGreen: "#69db7c",
@@ -25,7 +25,7 @@ const ANSI_DARK = {
   brightCyan: "#99e9f2", brightWhite: "#ffffff",
 };
 
-const ANSI_LIGHT = {
+export const ANSI_LIGHT = {
   black: "#383a42", red: "#e45649", green: "#50a14f", yellow: "#c18401",
   blue: "#4078f2", magenta: "#a626a4", cyan: "#0184bc", white: "#fafafa",
   brightBlack: "#a0a1a7", brightRed: "#e45649", brightGreen: "#50a14f",
@@ -400,10 +400,24 @@ export function resolveBaseSkinId(stored, customThemes) {
 }
 
 // Pure: the xterm theme object for the active selection (built-in or custom).
+// Custom themes get missing ANSI slots FILLED at read time (2026-08-13, the
+// "no colors in my terminal" root cause): Warp YAMLs may omit
+// terminal_colors, and older imports stored xterm blocks with all 16 ANSI
+// slots undefined — xterm then paints every colored byte as plain
+// foreground. Read-time defaulting heals themes ALREADY stored in userSt,
+// not just future imports; a theme's own defined slots always win.
 export function getActiveXtermTheme(stored, customThemes, opts = {}) {
   const custom = findCustomTheme(stored, customThemes);
   if (custom) {
-    return opts.pureBlackTerminal ? { ...custom.xterm, background: "#000000" } : custom.xterm;
+    const base = custom.dark === false ? ANSI_LIGHT : ANSI_DARK;
+    const defined = {};
+    for (const [k, v] of Object.entries(custom.xterm || {})) {
+      if (v != null) defined[k] = v;
+    }
+    const theme = { ...base, ...defined };
+    return opts.pureBlackTerminal && custom.dark !== false
+      ? { ...theme, background: "#000000" }
+      : theme;
   }
   return getSkinXtermTheme(getSkinId(stored), opts);
 }

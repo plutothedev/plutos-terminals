@@ -17,6 +17,7 @@
 // applied when st.headerSkin === "custom:<id>" (see headerSkins.js).
 
 import yaml from "js-yaml";
+import { ANSI_DARK, ANSI_LIGHT } from "./headerSkins.js";
 
 // ── color helpers ──────────────────────────────────────────────────────────
 // Strict hex check (#rgb / #rrggbb / #rrggbbaa). We reject anything else at
@@ -60,20 +61,32 @@ function slug(s) {
 }
 
 // ── Warp → Pluto ────────────────────────────────────────────────────────────
-function warpXterm(w) {
+function warpXterm(w, dark) {
   const n = w.terminal_colors?.normal || {};
   const b = w.terminal_colors?.bright || {};
   const accent = w.accent || w.foreground;
+  // terminal_colors is OPTIONAL in Warp YAML. A theme without it used to
+  // store all 16 ANSI slots as undefined — xterm then rendered every colored
+  // byte as plain foreground ("no colors in my terminal", 2026-08-13).
+  // Default missing slots from the lightness-matched stock palette; the
+  // theme's own colors always win. getActiveXtermTheme applies the same
+  // defaulting at READ time for themes imported before this fix.
+  const base = dark === false ? ANSI_LIGHT : ANSI_DARK;
   return {
+    ...base,
     background: w.background,
     foreground: w.foreground,
     cursor: accent,
     cursorAccent: w.background,
     selectionBackground: rgba(accent, 0.35),
-    black: n.black, red: n.red, green: n.green, yellow: n.yellow,
-    blue: n.blue, magenta: n.magenta, cyan: n.cyan, white: n.white,
-    brightBlack: b.black, brightRed: b.red, brightGreen: b.green, brightYellow: b.yellow,
-    brightBlue: b.blue, brightMagenta: b.magenta, brightCyan: b.cyan, brightWhite: b.white,
+    ...Object.fromEntries(
+      Object.entries({
+        black: n.black, red: n.red, green: n.green, yellow: n.yellow,
+        blue: n.blue, magenta: n.magenta, cyan: n.cyan, white: n.white,
+        brightBlack: b.black, brightRed: b.red, brightGreen: b.green, brightYellow: b.yellow,
+        brightBlue: b.blue, brightMagenta: b.magenta, brightCyan: b.cyan, brightWhite: b.white,
+      }).filter(([, v]) => v != null)
+    ),
   };
 }
 
@@ -134,7 +147,7 @@ function warpDocToTheme(w) {
     id: `${slug(name)}-${Date.now().toString(36)}`,
     name,
     dark,
-    xterm: warpXterm(w),
+    xterm: warpXterm(w, dark),
     chrome: deriveChrome(w, dark),
     source: { accent: w.accent || w.foreground, background: w.background, foreground: w.foreground },
   };
