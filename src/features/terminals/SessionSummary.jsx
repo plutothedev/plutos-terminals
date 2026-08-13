@@ -4,10 +4,10 @@
 // errored, suggested next step). Same Rust llm_complete path as ErrorExplainer
 // (the key never hits a browser request).
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
 import { resolveActiveLLM } from "./providers.js";
+import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
 
 const SYSTEM =
@@ -33,14 +33,29 @@ export default function SessionSummary({ open, text, onClose }) {
     if (!llm) { setLoading(false); setError("No model configured — open the Models picker first."); return; }
     setModelLabel(llm.model);
     setLoading(true); setError(null); setAnswer("");
-    invoke("llm_complete", {
-      kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
-      model: llm.model, system: SYSTEM,
-      prompt: `--- recent terminal output ---\n${body}`,
-    })
-      .then((t) => setAnswer(typeof t === "string" ? t.trim() : ""))
+    // Streaming (P3-T2): deltas render as they arrive — the spinner clears on
+    // the first token. Cleanup CANCELS the stream AND resets the ran-guard so
+    // StrictMode's dev double-mount re-runs cleanly instead of dead-modaling
+    // (plan audit M3); a real close also stops provider-side generation.
+    const { promise, cancel } = llmStream(
+      {
+        kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
+        model: llm.model, system: SYSTEM,
+        prompt: `--- recent terminal output ---\n${body}`,
+      },
+      (piece) => {
+        setLoading(false);
+        setAnswer((cur) => cur + piece);
+      }
+    );
+    promise
+      .then((t) => { if (typeof t === "string" && t) setAnswer(t.trim()); })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
+    return () => {
+      cancel();
+      ran.current = false;
+    };
   }, [open, text]);
 
   return (

@@ -122,6 +122,94 @@ mod retry_policy_tests {
     }
 }
 
+// ── Stream cancellation + role-structured messages (P3-T2) ──────────────────
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+static CANCELS: OnceLock<std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+
+fn cancels() -> &'static std::sync::Mutex<HashMap<String, Arc<AtomicBool>>> {
+    CANCELS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Insert-or-set-true (audit): a cancel can land BEFORE the stream registers
+/// its id (two independent invokes, no ordering) — set-if-present would no-op
+/// and the stream would run to max_tokens, the exact cost this exists to stop.
+#[tauri::command]
+pub fn llm_stream_cancel(request_id: String) {
+    let mut map = cancels().lock().unwrap_or_else(|p| p.into_inner());
+    map.entry(request_id)
+        .or_default()
+        .store(true, Ordering::Relaxed);
+}
+
+/// Removes the entry on EVERY stream exit (Ok/Err/cancelled) via Drop, so the
+/// map can't grow one entry per LLM call for the app's lifetime — early `?`
+/// returns can't skip it.
+struct CancelGuard(String);
+impl Drop for CancelGuard {
+    fn drop(&mut self) {
+        let mut map = cancels().lock().unwrap_or_else(|p| p.into_inner());
+        map.remove(&self.0);
+    }
+}
+
+/// Role-structured history (P3-T2). JS sends [{role, content}] with string
+/// content (user/assistant); absent/empty falls back to the single-prompt
+/// form both commands always supported.
+fn anthropic_messages(
+    messages: &Option<Vec<serde_json::Value>>,
+    prompt: &str,
+) -> serde_json::Value {
+    match messages {
+        Some(m) if !m.is_empty() => serde_json::Value::Array(m.clone()),
+        _ => serde_json::json!([{ "role": "user", "content": prompt }]),
+    }
+}
+
+fn openai_messages(
+    messages: &Option<Vec<serde_json::Value>>,
+    system: &str,
+    prompt: &str,
+) -> serde_json::Value {
+    let mut arr = vec![serde_json::json!({ "role": "system", "content": system })];
+    match messages {
+        Some(m) if !m.is_empty() => arr.extend(m.iter().cloned()),
+        _ => arr.push(serde_json::json!({ "role": "user", "content": prompt })),
+    }
+    serde_json::Value::Array(arr)
+}
+
+#[cfg(test)]
+mod message_shape_tests {
+    use super::*;
+
+    #[test]
+    fn fallback_single_prompt_when_absent_or_empty() {
+        let a = anthropic_messages(&None, "hi");
+        assert_eq!(a[0]["content"], "hi");
+        let o = openai_messages(&Some(vec![]), "sys", "hi");
+        assert_eq!(o[0]["role"], "system");
+        assert_eq!(o[1]["content"], "hi");
+    }
+
+    #[test]
+    fn role_structured_passthrough_and_system_prepend() {
+        let msgs = vec![
+            serde_json::json!({"role": "user", "content": "a"}),
+            serde_json::json!({"role": "assistant", "content": "b"}),
+        ];
+        let a = anthropic_messages(&Some(msgs.clone()), "unused");
+        assert_eq!(a.as_array().unwrap().len(), 2);
+        let o = openai_messages(&Some(msgs), "sys", "unused");
+        assert_eq!(o.as_array().unwrap().len(), 3);
+        assert_eq!(o[0]["role"], "system");
+        assert_eq!(o[2]["role"], "assistant");
+    }
+}
+
 /// Is `host` a loopback / private / local-network address? Self-hosted LLMs
 /// (Ollama, LM Studio, llama.cpp) commonly run over plain http on the LAN, so we
 /// permit cleartext to those while still blocking cleartext to the public internet.
@@ -253,6 +341,7 @@ pub async fn llm_complete(
     model: String,
     system: String,
     prompt: String,
+    messages: Option<Vec<serde_json::Value>>,
 ) -> Result<String, String> {
     let client = http_client();
     let anthropic = kind == "anthropic" || kind == "anthropic-compat";
@@ -263,7 +352,7 @@ pub async fn llm_complete(
             "model": model,
             "max_tokens": 1024,
             "system": system,
-            "messages": [{ "role": "user", "content": prompt }],
+            "messages": anthropic_messages(&messages, &prompt),
         });
         // Anthropic native authenticates with x-api-key; Anthropic-compatible
         // gateways (e.g. Moonshot /anthropic) expect Authorization: Bearer — the
@@ -300,10 +389,7 @@ pub async fn llm_complete(
         let base = resolve_base(&base_url, "https://api.openai.com/v1")?;
         let body = serde_json::json!({
             "model": model,
-            "messages": [
-                { "role": "system", "content": system },
-                { "role": "user", "content": prompt },
-            ],
+            "messages": openai_messages(&messages, &system, &prompt),
         });
         let resp = send_with_retry(
             client
@@ -344,7 +430,21 @@ pub async fn llm_stream(
     model: String,
     system: String,
     prompt: String,
+    messages: Option<Vec<serde_json::Value>>,
+    request_id: Option<String>,
 ) -> Result<String, String> {
+    // Cancellation: register (or adopt a pre-landed cancel) before firing the
+    // request; the guard removes the entry on every exit path.
+    let cancel_flag = request_id.as_ref().map(|id| {
+        let mut map = cancels().lock().unwrap_or_else(|p| p.into_inner());
+        map.entry(id.clone()).or_default().clone()
+    });
+    let _cancel_guard = request_id.clone().map(CancelGuard);
+    let is_cancelled =
+        || cancel_flag.as_ref().map(|f| f.load(Ordering::Relaxed)).unwrap_or(false);
+    if is_cancelled() {
+        return Ok(String::new()); // cancelled before we ever fired
+    }
     // Shared client; NO total timeout (the old 120s TOTAL cap killed long
     // generations mid-stream). Bounds instead: a headers-timeout around
     // send(), then a per-chunk IDLE timeout in the read loop. No retry — a
@@ -359,7 +459,7 @@ pub async fn llm_stream(
             "max_tokens": 1024,
             "stream": true,
             "system": system,
-            "messages": [{ "role": "user", "content": prompt }],
+            "messages": anthropic_messages(&messages, &prompt),
         });
         client
             .post(format!("{}/v1/messages", base))
@@ -374,10 +474,7 @@ pub async fn llm_stream(
         let body = serde_json::json!({
             "model": model,
             "stream": true,
-            "messages": [
-                { "role": "system", "content": system },
-                { "role": "user", "content": prompt },
-            ],
+            "messages": openai_messages(&messages, &system, &prompt),
         });
         client
             .post(format!("{}/chat/completions", base))
@@ -413,6 +510,12 @@ pub async fn llm_stream(
             .await
             .map_err(|_| "stream stalled (no data for 90s)".to_string())?;
         let Some(chunk) = next else { break };
+        if is_cancelled() {
+            // Dropping resp/stream closes the connection so the provider
+            // stops generating; partial text returns quietly (the surface
+            // that cancelled has already moved on).
+            return Ok(full);
+        }
         let bytes = chunk.map_err(|e| e.to_string())?;
         let text = crate::pty::decode_utf8_stream(&mut pending, &bytes);
         buf.push_str(&text.replace("\r\n", "\n"));

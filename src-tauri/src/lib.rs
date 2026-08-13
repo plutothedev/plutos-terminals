@@ -251,6 +251,7 @@ pub fn run() {
             commands::notebook_write,
             llm::llm_complete,
             llm::llm_stream,
+            llm::llm_stream_cancel,
             llm_tools::llm_tool_turn,
             sshconfig::parse_ssh_config,
             sshconfig::ssh_keys_list,

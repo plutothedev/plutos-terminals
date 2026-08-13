@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { resolveActiveLLM } from "./providers.js";
+import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
 import { SAsk } from "./toolbarIcons.jsx";
 
@@ -48,18 +49,26 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
     const prompt =
       `Exit code: ${block.exitCode}\n\n--- terminal (command + output) ---\n` +
       block.text.slice(-3500);
-    // Staleness guard: a slow llm_complete for a since-dismissed block (or a
-    // switch to a different failed block) must not overwrite the current answer
-    // or fire setState after unmount.
+    // Staleness guard + stream cancel (P3-T2): a since-dismissed block (or a
+    // switch to a different failed block) cancels the stream — Rust drops the
+    // connection so the provider stops generating — and mutes late deltas.
     let cancelled = false;
-    invoke("llm_complete", {
-      kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
-      model: llm.model, system: SYSTEM, prompt,
-    })
-      .then((t) => { if (!cancelled) setAnswer(typeof t === "string" ? t.trim() : ""); })
+    const { promise, cancel } = llmStream(
+      {
+        kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
+        model: llm.model, system: SYSTEM, prompt,
+      },
+      (piece) => {
+        if (cancelled) return;
+        setLoading(false);
+        setAnswer((cur) => cur + piece);
+      }
+    );
+    promise
+      .then((t) => { if (!cancelled && typeof t === "string" && t) setAnswer(t.trim()); })
       .catch((e) => { if (!cancelled) setError(String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; cancel(); };
   }, [block]);
 
   if (!block) return null;

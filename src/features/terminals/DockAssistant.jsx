@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { resolveActiveLLM } from "./providers.js";
+import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
 import { SSend } from "./toolbarIcons.jsx";
 import PromptSlashMenu from "./PromptSlashMenu.jsx";
@@ -24,6 +25,10 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
   const [error, setError] = useState(null);
   const [model, setModel] = useState(null);
   const listRef = useRef(null);
+  // Live stream cancel handle — invoked on unmount (dock tab switch) so a
+  // closed surface stops consuming (and billing) the stream. P3-T2.
+  const cancelRef = useRef(null);
+  useEffect(() => () => cancelRef.current?.(), []);
 
   // Saved-prompts "/" menu — all index/filter/keyboard state lives in the
   // shared hook (also consumed by AgentMode.jsx), so this and AgentMode can
@@ -51,21 +56,50 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
       `You are a concise terminal & developer assistant embedded in Pluto's Terminals on ${os}. ` +
       `The user's shell is ${shellName || "shell"}${cwd ? `, working directory ${cwd}` : ""}. ` +
       `Answer briefly. When you give a shell command, put it on its own line in a fenced code block.`;
-    // Only send the recent turns so the prompt (and cost/latency) stays bounded
-    // as the conversation grows.
-    const transcript = next
-      .slice(-12)
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n\n");
+    // Role-structured recent turns (P3-T2): the old path flattened them into
+    // ONE user string — losing role structure and any chance of provider-side
+    // prefix reuse. Bounded to the last 12 turns as before.
+    const history = next.slice(-12).map((m) => ({ role: m.role, content: m.content }));
     try {
-      const t = await invoke("llm_complete", {
-        kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
-        model: llm.model, system, prompt: `${transcript}\n\nAssistant:`,
+      // Streaming: an empty assistant message appends first, then deltas grow
+      // it in place — time-to-first-token instead of time-to-last.
+      setMessages((cur) => [...cur, { role: "assistant", content: "" }]);
+      const { promise, cancel } = llmStream(
+        {
+          kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
+          model: llm.model, system, messages: history,
+        },
+        (piece) => {
+          setMessages((cur) => {
+            const out = cur.slice();
+            const last = out[out.length - 1];
+            if (last?.role === "assistant") {
+              out[out.length - 1] = { ...last, content: last.content + piece };
+            }
+            return out;
+          });
+        }
+      );
+      cancelRef.current = cancel;
+      const t = await promise;
+      // Normalize the final text once complete (trim + authoritative full).
+      setMessages((cur) => {
+        const out = cur.slice();
+        const last = out[out.length - 1];
+        if (last?.role === "assistant") {
+          out[out.length - 1] = { ...last, content: String(t ?? last.content).trim() };
+        }
+        return out;
       });
-      setMessages((cur) => [...cur, { role: "assistant", content: String(t).trim() }]);
     } catch (e) {
       setError(String(e));
+      // Drop the empty/partial assistant placeholder on error.
+      setMessages((cur) => {
+        const last = cur[cur.length - 1];
+        return last?.role === "assistant" && !last.content ? cur.slice(0, -1) : cur;
+      });
     } finally {
+      cancelRef.current = null;
       setLoading(false);
     }
   };
