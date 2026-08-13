@@ -30,13 +30,14 @@ const stateA = {
 const projects = [{ id: "proj_1", name: "alpha", autoApprove: true }];
 
 describe("P2-T2 identity containment", () => {
-  it("switchTab persist keeps tabAutoApprove/tabProjectNames identities", () => {
+  it("switchTab persist keeps tabAutoApprove/tabProjectNames/paneTitles identities", () => {
     const { result, rerender } = renderHook(
       ({ state }) => useTabTelemetry({ state, projects }),
       { initialProps: { state: stateA } }
     );
     const ap1 = result.current.tabAutoApprove;
     const names1 = result.current.tabProjectNames;
+    const titles1 = result.current.paneTitles;
     // A REAL switchTab persist shape (T2 review: the first draft reused the
     // same panels reference, which the plain pre-T2 useMemo also survived —
     // vacuous). useWorkspaceTree's reducers return NEW panel/array references
@@ -49,6 +50,28 @@ describe("P2-T2 identity containment", () => {
     rerender({ state: stateB });
     expect(result.current.tabAutoApprove).toBe(ap1);
     expect(result.current.tabProjectNames).toBe(names1);
+    // paneTitles rides the same contract (copy-sweep review WARNING: it feeds
+    // the memo'd TerminalPanel — a fresh object per persist would bust the
+    // pane-tree memo on every tab switch).
+    expect(result.current.paneTitles).toBe(titles1);
+  });
+
+  it("a REAL tab rename produces a fresh paneTitles identity with the new label", () => {
+    const { result, rerender } = renderHook(
+      ({ state }) => useTabTelemetry({ state, projects }),
+      { initialProps: { state: stateA } }
+    );
+    const titles1 = result.current.paneTitles;
+    expect(titles1.tab_a).toBe("Terminal 1"); // untitled fallback
+    const renamed = {
+      ...stateA,
+      panels: stateA.panels.map((p, i) =>
+        i === 0 ? { ...p, tabs: [{ ...p.tabs[0], label: "api-server" }] } : p
+      ),
+    };
+    rerender({ state: renamed });
+    expect(result.current.paneTitles).not.toBe(titles1);
+    expect(result.current.paneTitles.tab_a).toBe("api-server");
   });
 
   it("H3: dispatch/project handlers keep identity across persists", () => {

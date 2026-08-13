@@ -610,7 +610,7 @@ export default function NotebookView({ name, tabId, visible, paneTitles }) {
                   leaf id to its tab label ("api-server", "api-server · 2" for
                   splits); "Terminal N" covers an id the map doesn't know yet. */}
               {liveIds.length === 0 && <option value="">no live terminal panes</option>}
-              {!targetLive && targetId && <option value="">{paneTitles?.[targetId] || "closed pane"} (offline)</option>}
+              {!targetLive && targetId && <option value="">{paneTitles?.[targetId] ? `${paneTitles[targetId]} (offline)` : "closed pane"}</option>}
               {liveIds.map((id, i) => (
                 <option key={id} value={id}>{paneTitles?.[id] || `Terminal ${i + 1}`}</option>
               ))}

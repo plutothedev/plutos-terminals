@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getLayout, leafIds } from "../splitTree";
-import { allRenderedPaneIds } from "../paneIds.js";
+import { allRenderedPaneIds, isSpecialTab } from "../paneIds.js";
 
 // Identity-stable shallow-map memo (P2-T2): recomputes per deps like useMemo,
 // but hands back the PREVIOUS object when the contents are shallow-equal —
@@ -130,6 +130,26 @@ export function useTabTelemetry({ state, projects }) {
     }
     return names;
   }, [state.panels, projects]);
+  // Pane-id -> display title for pickers (the notebook target-pane dropdown —
+  // copy-sweep bug fix 3, which previously showed raw internal ids). Split
+  // panes read "label · N"; untitled tabs fall back to "Terminal N". Stable-map
+  // (copy-sweep review WARNING): a switchTab persist rebuilds equal content —
+  // the previous identity holds so TerminalPanel's memo doesn't bust; a real
+  // rename/split/close changes contents and flows a fresh identity.
+  const paneTitles = useStableMap(() => {
+    const map = {};
+    let n = 0;
+    for (const panel of state.panels) {
+      for (const tab of panel.tabs || []) {
+        if (isSpecialTab(tab)) continue;
+        n += 1;
+        const base = (tab.label || "").trim() || `Terminal ${n}`;
+        const ids = leafIds(getLayout(tab));
+        ids.forEach((id, i) => { map[id] = ids.length > 1 ? `${base} · ${i + 1}` : base; });
+      }
+    }
+    return map;
+  }, [state.panels]);
 
   // Aggregate cost across all CURRENTLY-OPEN tabs/panes. tabCosts is never pruned
   // on close, so summing it raw keeps counting finished sessions (and double-counts
@@ -158,7 +178,7 @@ export function useTabTelemetry({ state, projects }) {
   return {
     tabCosts,
     handleTabCostUpdate,
-    tabAutoApprove, tabProjectNames,
+    tabAutoApprove, tabProjectNames, paneTitles,
     totalCost,
   };
 }

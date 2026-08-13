@@ -359,7 +359,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const {
     tabCosts,
     handleTabCostUpdate,
-    tabAutoApprove, tabProjectNames,
+    tabAutoApprove, tabProjectNames, paneTitles,
     totalCost,
   } = useTabTelemetry({ state, projects });
 
@@ -706,24 +706,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }), [projects, convertHomeToShell, openProjectInPanel]);
 
   // Pane-id → display title for the notebook target-pane picker. The picker
-  // previously listed raw internal leaf ids; this maps each live pane to its
-  // tab's label ("api-server", split panes as "api-server · 2"), falling back
-  // to "Terminal N" for untitled tabs. Keyed off state.panels only — renames /
-  // splits / closes all flow through persist, so the memo stays fresh.
-  const paneTitles = useMemo(() => {
-    const map = {};
-    let n = 0;
-    for (const panel of state.panels) {
-      for (const tab of panel.tabs || []) {
-        if (isSpecialTab(tab)) continue;
-        n += 1;
-        const base = (tab.label || "").trim() || `Terminal ${n}`;
-        const ids = leafIds(getLayout(tab));
-        ids.forEach((id, i) => { map[id] = ids.length > 1 ? `${base} · ${i + 1}` : base; });
-      }
-    }
-    return map;
-  }, [state.panels]);
+  // previously listed raw internal leaf ids. Lives in useTabTelemetry beside
+  // tabProjectNames (same stable-map identity contract, pinned by the
+  // renderContainment harness after the copy-sweep review flagged the gap).
 
   const startRecordingActive = useCallback(() => {
     if (!activeTabId) return;
