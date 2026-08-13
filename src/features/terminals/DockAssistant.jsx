@@ -26,8 +26,16 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
   const listRef = useRef(null);
   // Live stream cancel handle — invoked on unmount (dock tab switch) so a
   // closed surface stops consuming (and billing) the stream. P3-T2.
+  // aliveRef guards send()'s post-await tail (P3 re-review): a cancelled
+  // stream still RESOLVES Ok with partial text, and the unmounted tail would
+  // otherwise run its normalize/finally against the dead fiber — the same
+  // hazard class the W1 fix closed in SessionSummary.
   const cancelRef = useRef(null);
-  useEffect(() => () => cancelRef.current?.(), []);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => { aliveRef.current = false; cancelRef.current?.(); };
+  }, []);
 
   // Saved-prompts "/" menu — all index/filter/keyboard state lives in the
   // shared hook (also consumed by AgentMode.jsx), so this and AgentMode can
@@ -85,6 +93,7 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
       );
       cancelRef.current = cancel;
       const t = await promise;
+      if (!aliveRef.current) return;
       // Normalize the final text once complete (trim + authoritative full).
       setMessages((cur) => {
         const out = cur.slice();
@@ -95,6 +104,7 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
         return out;
       });
     } catch (e) {
+      if (!aliveRef.current) return;
       setError(String(e));
       // Drop the empty/partial assistant placeholder on error.
       setMessages((cur) => {
@@ -103,7 +113,7 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
       });
     } finally {
       cancelRef.current = null;
-      setLoading(false);
+      if (aliveRef.current) setLoading(false);
     }
   };
 
