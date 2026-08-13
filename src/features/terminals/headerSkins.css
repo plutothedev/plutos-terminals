@@ -970,7 +970,11 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-surface-border: #bdbdbd;
   --phn-text-fg: #2a2a2a;
   --phn-text-active: #000000;
-  --phn-text-dim: #6e6e6e;
+  /* Contrast on the #ececec surface: dim #666 ≈ 4.9:1 (body-secondary safe;
+     the old #6e6e6e sat at 4.3), faint #808080 ≈ 3.3:1 (fine for hints —
+     without an explicit value faint inherited dim, killing the hierarchy). */
+  --phn-text-dim: #666666;
+  --phn-text-faint: #808080;
   --phn-link: #1170cc;           /* Windows-blue accent */
   --phn-accent-subtle: rgba(17,112,204,0.13);
   --phn-hover-bg: rgba(0,0,0,0.07);

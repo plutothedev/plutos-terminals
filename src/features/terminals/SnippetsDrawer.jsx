@@ -419,7 +419,7 @@ export default function SnippetsDrawer({
                     e.currentTarget.style.color = "var(--phn-text-dim, #888)";
                   }}
                 >
-                  ×
+                  ✕
                 </span>
               )}
             </div>
@@ -532,7 +532,7 @@ export default function SnippetsDrawer({
                     e.currentTarget.style.color = "var(--phn-text-dim, #888)";
                   }}
                 >
-                  ×
+                  ✕
                 </span>
               )}
             </div>

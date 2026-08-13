@@ -457,14 +457,15 @@ function TerminalPanel({
         transition: "border-color 0.2s, box-shadow 0.2s",
       }}
     >
-      {/* Tab strip — MobaXterm look: white tab slabs sit on the dark terminal
-          background. Using PANEL_BG (the xterm theme bg) rather than the chrome
-          surface so tabs read like MobaXterm's "white slabs on black" tabs. */}
+      {/* Tab strip. Skins theme it via --phn-tabstrip-bg (moba/oled/moba-light
+          + custom themes define it; the old "--phn-surface" here was defined by
+          NO skin, so the strip was stuck on the dark fallback — dark-on-white
+          under the Light skin). The fallback keeps legacy skins as they were. */}
       <div
         style={{
           display: "flex",
           alignItems: "stretch",
-          background: "var(--phn-surface, #24272D)",
+          background: "var(--phn-tabstrip-bg, #24272D)",
           borderBottom: "1px solid var(--phn-surface-border, #34383F)",
           height: 30,
           fontSize: 12,
@@ -554,7 +555,7 @@ function TerminalPanel({
                     onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-danger, #e08784)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.color = ""; }}
                   >
-                    ×
+                    ✕
                   </span>
                 )}
               </div>
@@ -715,7 +716,7 @@ function TerminalPanel({
                             onClick={(e) => { e.stopPropagation(); onClosePane?.(tab.id, node.id); }}
                             title="Close this pane (Ctrl+Shift+X)"
                           >
-                            ×
+                            ✕
                           </span>
                         </>
                       )}

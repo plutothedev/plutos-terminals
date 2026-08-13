@@ -117,6 +117,21 @@ pub fn run() {
                 })
                 .build(),
         )
+        // Remember window geometry (size / position / maximized / fullscreen)
+        // across launches. VISIBLE is deliberately NOT tracked: the main window
+        // hides to the tray on close, so a tray-menu Quit while hidden would
+        // otherwise save "not visible" and the next launch would boot with an
+        // invisible window.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                        | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+                )
+                .build(),
+        )
         .setup(|app| {
             // Ensure the data directory exists for store + scrollback.
             let data_dir = commands::get_data_dir(app.handle());

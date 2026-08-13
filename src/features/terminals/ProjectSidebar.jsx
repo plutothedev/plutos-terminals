@@ -713,7 +713,7 @@ function ProjectSidebar({
                     onMouseOver={(e) => (e.currentTarget.style.color = "var(--phn-danger, #e08784)")}
                     onMouseOut={(e) => (e.currentTarget.style.color = FG_FAINT)}
                   >
-                    ×
+                    ✕
                   </span>
                 )}
                 </>

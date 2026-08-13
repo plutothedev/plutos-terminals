@@ -46,7 +46,7 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
     const prev = document.activeElement;
     const node = dialogRef.current;
     if (node && !node.contains(document.activeElement)) {
-      // Focus the first field in the BODY, not the header × (which is DOM-first) —
+      // Focus the first field in the BODY, not the header ✕ (which is DOM-first) —
       // otherwise every modal without its own autoFocus lands the user on Close.
       // Fall back to the dialog itself if the body has nothing focusable.
       const body = node.querySelector(".phn-modal-body");
@@ -64,7 +64,7 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
     if (e.key !== "Tab") return;
     const node = dialogRef.current;
     if (!node) return;
-    const items = focusablesIn(node); // whole dialog incl. the header × (Tab reaches it)
+    const items = focusablesIn(node); // whole dialog incl. the header ✕ (Tab reaches it)
     if (items.length === 0) { e.preventDefault(); node.focus(); return; }
     const firstEl = items[0];
     const lastEl = items[items.length - 1];
@@ -96,7 +96,7 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
             title="Close (Esc)"
             aria-label="Close dialog"
           >
-            ×
+            ✕
           </button>
         </div>
         <div className="phn-modal-body">{children}</div>

@@ -83,6 +83,9 @@ git2 = { version = "0.19", default-features = false, features = ["vendored-libgi
 # Model Context Protocol client (official SDK). stdio child-process + streamable
 # HTTP transports for connecting to MCP servers; protocol/handshake handled here.
 rmcp = { version = "1.7", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "client-side-sse"] }
+# Remember window size/position/maximized across launches (geometry only —
+# visibility is deliberately not tracked; see lib.rs).
+tauri-plugin-window-state = "2.4.1"
 
 [dev-dependencies]
 tempfile = "3"

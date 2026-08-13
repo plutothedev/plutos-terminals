@@ -13,7 +13,7 @@ const REPO_NAME = "plutos-terminals";
 const GITHUB_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 const RELEASES_URL = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases`;
 
-const PLUTO_MAGENTA = "#7c9cf5"; // legacy name; now the refined accent
+const ACCENT_BLUE = "#7c9cf5";
 const FG_ACTIVE = "#E6E6E6";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
@@ -111,7 +111,7 @@ export default function UpdateBanner({ currentVersion }) {
         bottom: 18,
         right: 18,
         background: "var(--phn-surface-bg, #181818)",
-        border: `1px solid ${PLUTO_MAGENTA}`,
+        border: `1px solid ${ACCENT_BLUE}`,
         borderRadius: 6,
         padding: "12px 14px",
         fontFamily: M,
@@ -123,7 +123,7 @@ export default function UpdateBanner({ currentVersion }) {
         lineHeight: 1.5,
       }}
     >
-      <div style={{ color: PLUTO_MAGENTA, fontSize: 10, letterSpacing: 0.5, marginBottom: 6 }}>
+      <div style={{ color: ACCENT_BLUE, fontSize: 10, letterSpacing: 0.5, marginBottom: 6 }}>
         UPDATE AVAILABLE
       </div>
       <div style={{ marginBottom: 10 }}>
@@ -133,7 +133,7 @@ export default function UpdateBanner({ currentVersion }) {
         <button
           onClick={() => openExternal(latest.url)}
           style={{
-            background: PLUTO_MAGENTA,
+            background: ACCENT_BLUE,
             color: "#fff",
             padding: "5px 12px",
             borderRadius: 3,
@@ -145,7 +145,7 @@ export default function UpdateBanner({ currentVersion }) {
             border: "none",
           }}
         >
-          download
+          Download
         </button>
         <button
           onClick={onDismiss}
@@ -160,7 +160,7 @@ export default function UpdateBanner({ currentVersion }) {
             cursor: "pointer",
           }}
         >
-          later
+          Later
         </button>
       </div>
     </div>

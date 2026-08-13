@@ -51,6 +51,17 @@
 - One product name everywhere: **Pluto's Terminal** (singular) across the
   README, LICENSE, docs, and in-app strings, matching the shipped window
   title and installer name.
+- **The window remembers its size, position, and maximized state** across
+  launches (visibility is deliberately not tracked, so quitting from the tray
+  while hidden can't save an invisible boot state).
+- **No more white flash at boot.** The window and page pre-paint the app
+  background before anything loads — dark by default, light when your saved
+  skin is light.
+- **Light theme fixes:** the tab strip now follows the Light skin (it was
+  stuck dark on a light page — the strip read a CSS token no skin defined),
+  and Light's secondary/faint text colors were bumped to readable contrast.
+- Close buttons use one glyph (✕) everywhere; the update banner's buttons are
+  now "Download" / "Later".
 
 ### Removed
 - Legacy prompt-pack files (`prompt-packs/`, the pack-submission issue

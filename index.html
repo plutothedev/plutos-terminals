@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pluto's Terminal</title>
+    <!-- Pre-paint background so boot never flashes white. Dark by default; the
+         script approximates headerSkins.js's skin resolution just enough to
+         keep light-skin users from getting the inverse (dark) flash. -->
+    <style>html { background: #0a0a0a; }</style>
+    <script>
+      try {
+        var w = new URLSearchParams(location.search).get("w");
+        var st = JSON.parse(localStorage.getItem("plutos-terminals:state:v0" + (w ? ":" + w : "")) || "{}");
+        var u = JSON.parse(localStorage.getItem("plutos-terminals:user:v0") || "{}");
+        var v = u.themeFollowOS
+          ? (matchMedia("(prefers-color-scheme: dark)").matches ? (u.themeDark || "oled") : (u.themeLight || "moba-light"))
+          : st.headerSkin;
+        var custom = typeof v === "string" && v.indexOf("custom:") === 0
+          ? (u.customThemes || []).filter(function (t) { return t && "custom:" + t.id === v; })[0]
+          : null;
+        if (v === "moba-light" || (custom && custom.dark === false)) {
+          document.documentElement.style.background = "#f5f5f5";
+        }
+      } catch (e) { /* first boot / blocked storage: keep the dark default */ }
+    </script>
   </head>
   <body>
     <div id="root"></div>
