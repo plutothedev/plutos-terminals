@@ -314,14 +314,11 @@ pub async fn gist_create(
     let token = resolve_token().ok_or_else(|| "no GitHub token".to_string())?;
     let body = build_gist_body(&filename, &content, public);
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .user_agent("plutos-terminals")
-        .build()
-        .map_err(|e| redact(e.to_string()))?;
-
-    let resp = client
+    // Shared client (P3-T1; UA now client-level there). No retry on CREATE —
+    // an ambiguous 429/503 after a landed create would double-post the gist.
+    let resp = crate::llm::http_client()
         .post("https://api.github.com/gists")
+        .timeout(std::time::Duration::from_secs(30))
         .bearer_auth(&token)
         .header("Accept", "application/vnd.github+json")
         .json(&body)
@@ -355,19 +352,16 @@ pub async fn gist_delete(id: String) -> Result<(), String> {
     }
     let token = resolve_token().ok_or_else(|| "no GitHub token".to_string())?;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .user_agent("plutos-terminals")
-        .build()
-        .map_err(|e| redact(e.to_string()))?;
-
-    let resp = client
-        .delete(format!("https://api.github.com/gists/{id}"))
-        .bearer_auth(&token)
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|e| redact(e.to_string()))?;
+    // Shared client; DELETE is idempotent so transient retries are safe.
+    let resp = crate::llm::send_with_retry(
+        crate::llm::http_client()
+            .delete(format!("https://api.github.com/gists/{id}"))
+            .timeout(std::time::Duration::from_secs(30))
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.github+json"),
+    )
+    .await
+    .map_err(redact)?;
 
     let status = resp.status();
     if status.is_success() || status == reqwest::StatusCode::NOT_FOUND {

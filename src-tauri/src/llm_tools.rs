@@ -193,9 +193,7 @@ pub async fn llm_tool_turn(
     messages: Vec<Value>,
     tools: Vec<Value>,
 ) -> Result<Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build().map_err(|e| e.to_string())?;
+    let client = crate::llm::http_client();
     let anthropic = kind == "anthropic" || kind == "anthropic-compat";
 
     let resp = if anthropic {
@@ -205,20 +203,22 @@ pub async fn llm_tool_turn(
             "messages": to_anthropic_messages(&messages),
         });
         if !tools.is_empty() { body["tools"] = tools_to_anthropic(&tools); }
-        client.post(format!("{}/v1/messages", base))
+        let req = client.post(format!("{}/v1/messages", base))
             .header("x-api-key", &api_key)
             .header("authorization", format!("Bearer {}", api_key))
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
-            .json(&body).send().await.map_err(|e| e.to_string())?
+            .json(&body).timeout(std::time::Duration::from_secs(120));
+        crate::llm::send_with_retry(req).await?
     } else {
         let base = resolve_base(&base_url, "https://api.openai.com/v1")?;
         let mut body = json!({ "model": model, "messages": to_openai_messages(&messages, &system) });
         if !tools.is_empty() { body["tools"] = tools_to_openai(&tools); }
-        client.post(format!("{}/chat/completions", base))
+        let req = client.post(format!("{}/chat/completions", base))
             .header("authorization", format!("Bearer {}", api_key))
             .header("content-type", "application/json")
-            .json(&body).send().await.map_err(|e| e.to_string())?
+            .json(&body).timeout(std::time::Duration::from_secs(120));
+        crate::llm::send_with_retry(req).await?
     };
 
     let status = resp.status();

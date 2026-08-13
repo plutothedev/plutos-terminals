@@ -28,6 +28,100 @@ pub(crate) async fn http_error(status: reqwest::StatusCode, resp: reqwest::Respo
     }
 }
 
+// ── Shared HTTP client + retry policy (P3-T1) ───────────────────────────────
+// A fresh Client per request discarded reqwest's connection pool: every agent
+// step paid DNS+TCP+TLS to the same host (14 handshakes/run ≈ 1.5-4s of pure
+// setup). One shared client; per-call TOTAL timeouts move to the REQUEST
+// (RequestBuilder::timeout — same total-including-body semantics), never the
+// client (a client-level timeout would cap streaming reads too). UA lives
+// here because GitHub's API rejects UA-less requests (gist sharing) and LLM
+// providers don't care. connect_timeout is explicit — reqwest has NO default.
+
+use std::sync::OnceLock;
+
+static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+pub(crate) fn http_client() -> &'static reqwest::Client {
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent("plutos-terminals")
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .build()
+            .expect("shared HTTP client (TLS backend init)")
+    })
+}
+
+/// Transient statuses worth retrying: rate limit, upstream unavailable, and
+/// Anthropic's 529 overloaded.
+pub(crate) fn is_retryable_status(status: u16) -> bool {
+    matches!(status, 429 | 503 | 529)
+}
+
+/// Delay before retry `attempt` (1-based): Retry-After wins (capped 30s),
+/// else 2s then 8s.
+pub(crate) fn retry_delay(attempt: u32, retry_after_secs: Option<u64>) -> std::time::Duration {
+    let secs = match retry_after_secs {
+        Some(s) => s.min(30),
+        None => match attempt {
+            1 => 2,
+            _ => 8,
+        },
+    };
+    std::time::Duration::from_secs(secs)
+}
+
+/// Send a NON-STREAMING request with <=2 retries on transient statuses,
+/// honoring Retry-After. Streaming paths must NOT use this — a mid-stream
+/// retry would duplicate partial output. The builder is cloned per attempt
+/// (JSON bodies are cloneable; a non-cloneable body just gets no retries).
+pub(crate) async fn send_with_retry(
+    builder: reqwest::RequestBuilder,
+) -> Result<reqwest::Response, String> {
+    let mut attempt: u32 = 0;
+    loop {
+        let this_try = match builder.try_clone() {
+            Some(b) => b,
+            None => return builder.send().await.map_err(|e| e.to_string()),
+        };
+        let resp = this_try.send().await.map_err(|e| e.to_string())?;
+        let status = resp.status().as_u16();
+        if !is_retryable_status(status) || attempt >= 2 {
+            return Ok(resp);
+        }
+        let retry_after = resp
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<u64>().ok());
+        attempt += 1;
+        tokio::time::sleep(retry_delay(attempt, retry_after)).await;
+    }
+}
+
+#[cfg(test)]
+mod retry_policy_tests {
+    use super::*;
+
+    #[test]
+    fn retryable_statuses() {
+        assert!(is_retryable_status(429));
+        assert!(is_retryable_status(503));
+        assert!(is_retryable_status(529));
+        assert!(!is_retryable_status(500));
+        assert!(!is_retryable_status(400));
+        assert!(!is_retryable_status(200));
+    }
+
+    #[test]
+    fn delays_honor_retry_after_capped_else_backoff() {
+        use std::time::Duration;
+        assert_eq!(retry_delay(1, Some(5)), Duration::from_secs(5));
+        assert_eq!(retry_delay(1, Some(300)), Duration::from_secs(30)); // cap
+        assert_eq!(retry_delay(1, None), Duration::from_secs(2));
+        assert_eq!(retry_delay(2, None), Duration::from_secs(8));
+    }
+}
+
 /// Is `host` a loopback / private / local-network address? Self-hosted LLMs
 /// (Ollama, LM Studio, llama.cpp) commonly run over plain http on the LAN, so we
 /// permit cleartext to those while still blocking cleartext to the public internet.
@@ -160,10 +254,7 @@ pub async fn llm_complete(
     system: String,
     prompt: String,
 ) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http_client();
     let anthropic = kind == "anthropic" || kind == "anthropic-compat";
 
     if anthropic {
@@ -178,16 +269,17 @@ pub async fn llm_complete(
         // gateways (e.g. Moonshot /anthropic) expect Authorization: Bearer — the
         // same token Claude Code sends as ANTHROPIC_AUTH_TOKEN. Send both so
         // whichever the endpoint honours works.
-        let resp = client
-            .post(format!("{}/v1/messages", base))
-            .header("x-api-key", &api_key)
-            .header("authorization", format!("Bearer {}", api_key))
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let resp = send_with_retry(
+            client
+                .post(format!("{}/v1/messages", base))
+                .timeout(std::time::Duration::from_secs(60))
+                .header("x-api-key", &api_key)
+                .header("authorization", format!("Bearer {}", api_key))
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&body),
+        )
+        .await?;
         let status = resp.status();
         if !status.is_success() {
             return Err(http_error(status, resp).await);
@@ -213,14 +305,15 @@ pub async fn llm_complete(
                 { "role": "user", "content": prompt },
             ],
         });
-        let resp = client
-            .post(format!("{}/chat/completions", base))
-            .header("authorization", format!("Bearer {}", api_key))
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let resp = send_with_retry(
+            client
+                .post(format!("{}/chat/completions", base))
+                .timeout(std::time::Duration::from_secs(60))
+                .header("authorization", format!("Bearer {}", api_key))
+                .header("content-type", "application/json")
+                .json(&body),
+        )
+        .await?;
         let status = resp.status();
         if !status.is_success() {
             return Err(http_error(status, resp).await);
@@ -252,13 +345,14 @@ pub async fn llm_stream(
     system: String,
     prompt: String,
 ) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| e.to_string())?;
+    // Shared client; NO total timeout (the old 120s TOTAL cap killed long
+    // generations mid-stream). Bounds instead: a headers-timeout around
+    // send(), then a per-chunk IDLE timeout in the read loop. No retry — a
+    // mid-stream retry would duplicate partial output.
+    let client = http_client();
     let anthropic = kind == "anthropic" || kind == "anthropic-compat";
 
-    let resp = if anthropic {
+    let send_fut = if anthropic {
         let base = resolve_base(&base_url, "https://api.anthropic.com")?;
         let body = serde_json::json!({
             "model": model,
@@ -275,8 +369,6 @@ pub async fn llm_stream(
             .header("content-type", "application/json")
             .json(&body)
             .send()
-            .await
-            .map_err(|e| e.to_string())?
     } else {
         let base = resolve_base(&base_url, "https://api.openai.com/v1")?;
         let body = serde_json::json!({
@@ -293,9 +385,11 @@ pub async fn llm_stream(
             .header("content-type", "application/json")
             .json(&body)
             .send()
-            .await
-            .map_err(|e| e.to_string())?
     };
+    let resp = tokio::time::timeout(std::time::Duration::from_secs(30), send_fut)
+        .await
+        .map_err(|_| "timed out waiting for the provider to respond".to_string())?
+        .map_err(|e| e.to_string())?;
 
     let status = resp.status();
     if !status.is_success() {
@@ -312,7 +406,13 @@ pub async fn llm_stream(
     // multibyte char straddling a chunk boundary must not become U+FFFD
     // (see pty::decode_utf8_stream).
     let mut pending: Vec<u8> = Vec::new();
-    while let Some(chunk) = stream.next().await {
+    loop {
+        // Idle timeout between chunks — long generations stream for minutes
+        // legitimately; 90s of SILENCE means the stream died.
+        let next = tokio::time::timeout(std::time::Duration::from_secs(90), stream.next())
+            .await
+            .map_err(|_| "stream stalled (no data for 90s)".to_string())?;
+        let Some(chunk) = next else { break };
         let bytes = chunk.map_err(|e| e.to_string())?;
         let text = crate::pty::decode_utf8_stream(&mut pending, &bytes);
         buf.push_str(&text.replace("\r\n", "\n"));
