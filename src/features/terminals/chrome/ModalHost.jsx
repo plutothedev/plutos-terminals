@@ -74,94 +74,122 @@ export default function ModalHost({
   // shared session context
   activeTab, activeTabId, shellName, insertSnippet,
 }) {
+  // P2-T3 (audited 24-modal classification): every modal below EXCEPT
+  // AgentMode renders conditionally — the old always-render shape executed
+  // all 24 components' hooks + built their full element trees on every
+  // TerminalsTab render just for Modal to discard them. Unmount-on-close is
+  // an IMPROVEMENT for four of them (SshKeys passphrase, SshPassword +
+  // MasterPassword fields, Settings' stale skin initializer). AgentMode stays
+  // mounted: its agent loop lives in component state — unmounting mid-run
+  // orphans the loop and hangs its next approval forever.
   return (
     <>
-      <TunnelsModal
-        open={tunnelsOpen}
-        host={activeTab?.connection?.host}
-        user={activeTab?.connection?.user}
-        forwards={forwards}
-        busy={tunnelBusy}
-        error={tunnelError}
-        onStart={startForward}
-        onStartSocks={startSocks}
-        onStop={stopForward}
-        onClose={() => setTunnelsOpen(false)}
-      />
+      {(tunnelsOpen) && (
+        <TunnelsModal
+          open={tunnelsOpen}
+          host={activeTab?.connection?.host}
+          user={activeTab?.connection?.user}
+          forwards={forwards}
+          busy={tunnelBusy}
+          error={tunnelError}
+          onStart={startForward}
+          onStartSocks={startSocks}
+          onStop={stopForward}
+          onClose={() => setTunnelsOpen(false)}
+        />
+      )}
 
-      <SerialModal
-        open={serialOpen}
-        onConnect={connectSerial}
-        onClose={() => setSerialOpen(false)}
-      />
+      {(serialOpen) && (
+        <SerialModal
+          open={serialOpen}
+          onConnect={connectSerial}
+          onClose={() => setSerialOpen(false)}
+        />
+      )}
 
-      <VncConnectModal
-        open={vncOpen || !!vncLaunch}
-        initial={vncLaunch?.project?.vnc || null}
-        lockConnection={!!vncLaunch}
-        title={vncLaunch ? `Connect — ${vncLaunch.project.name}` : undefined}
-        onConnect={vncLaunch ? launchVnc : connectVnc}
-        onSaveSession={vncLaunch ? undefined : (rec) => saveQuickConnection({ type: "vnc", ...rec })}
-        onClose={() => { setVncOpen(false); setVncLaunch(null); }}
-      />
+      {(vncOpen || !!vncLaunch) && (
+        <VncConnectModal
+          open={vncOpen || !!vncLaunch}
+          initial={vncLaunch?.project?.vnc || null}
+          lockConnection={!!vncLaunch}
+          title={vncLaunch ? `Connect — ${vncLaunch.project.name}` : undefined}
+          onConnect={vncLaunch ? launchVnc : connectVnc}
+          onSaveSession={vncLaunch ? undefined : (rec) => saveQuickConnection({ type: "vnc", ...rec })}
+          onClose={() => { setVncOpen(false); setVncLaunch(null); }}
+        />
+      )}
 
-      <RdpConnectModal
-        open={rdpOpen || !!rdpLaunch}
-        initial={rdpLaunch?.project?.rdp || null}
-        lockConnection={!!rdpLaunch}
-        title={rdpLaunch ? `Connect — ${rdpLaunch.project.name}` : undefined}
-        onConnect={rdpLaunch ? launchRdp : connectRdp}
-        onSaveSession={rdpLaunch ? undefined : (rec) => saveQuickConnection({ type: "rdp", ...rec })}
-        onClose={() => { setRdpOpen(false); setRdpLaunch(null); }}
-      />
+      {(rdpOpen || !!rdpLaunch) && (
+        <RdpConnectModal
+          open={rdpOpen || !!rdpLaunch}
+          initial={rdpLaunch?.project?.rdp || null}
+          lockConnection={!!rdpLaunch}
+          title={rdpLaunch ? `Connect — ${rdpLaunch.project.name}` : undefined}
+          onConnect={rdpLaunch ? launchRdp : connectRdp}
+          onSaveSession={rdpLaunch ? undefined : (rec) => saveQuickConnection({ type: "rdp", ...rec })}
+          onClose={() => { setRdpOpen(false); setRdpLaunch(null); }}
+        />
+      )}
 
-      <ProjectDialog
-        open={!!dialog}
-        initial={dialogInitial}
-        existingFolders={[...new Set(projects.map((p) => p.folder).filter(Boolean))]}
-        onClose={() => setDialog(null)}
-        onSave={handleSaveDialog}
-      />
+      {(!!dialog) && (
+        <ProjectDialog
+          open={!!dialog}
+          initial={dialogInitial}
+          existingFolders={[...new Set(projects.map((p) => p.folder).filter(Boolean))]}
+          onClose={() => setDialog(null)}
+          onSave={handleSaveDialog}
+        />
+      )}
 
-      <SshPasswordModal
-        open={!!sshPrompt}
-        host={sshPrompt?.project?.connection?.host}
-        user={sshPrompt?.project?.connection?.user}
-        onSubmit={submitSshPassword}
-        onCancel={() => setSshPrompt(null)}
-      />
+      {(!!sshPrompt) && (
+        <SshPasswordModal
+          open={!!sshPrompt}
+          host={sshPrompt?.project?.connection?.host}
+          user={sshPrompt?.project?.connection?.user}
+          onSubmit={submitSshPassword}
+          onCancel={() => setSshPrompt(null)}
+        />
+      )}
 
-      <SettingsModal
-        open={settingsOpen}
-        st={st}
-        save={save}
-        userSt={userSt}
-        saveUser={saveUser}
-        onClose={() => setSettingsOpen(false)}
-      />
+      {(settingsOpen) && (
+        <SettingsModal
+          open={settingsOpen}
+          st={st}
+          save={save}
+          userSt={userSt}
+          saveUser={saveUser}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
-      <DiffView
-        open={!!diffWorktree}
-        worktree={diffWorktree}
-        onClose={() => setDiffWorktree(null)}
-        onDiscard={discardWorktree}
-      />
+      {(!!diffWorktree) && (
+        <DiffView
+          open={!!diffWorktree}
+          worktree={diffWorktree}
+          onClose={() => setDiffWorktree(null)}
+          onDiscard={discardWorktree}
+        />
+      )}
 
-      <ModelPicker
-        open={modelsOpen}
-        userSt={userSt}
-        saveUser={saveUser}
-        onClose={() => setModelsOpen(false)}
-      />
+      {(modelsOpen) && (
+        <ModelPicker
+          open={modelsOpen}
+          userSt={userSt}
+          saveUser={saveUser}
+          onClose={() => setModelsOpen(false)}
+        />
+      )}
 
-      <AskBar
-        open={askOpen}
-        shellName={shellName}
-        cwd={activeTab?.cwd}
-        onClose={() => setAskOpen(false)}
-        onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
-        onInsert={(cmd) => insertSnippet(cmd)}
-      />
+      {(askOpen) && (
+        <AskBar
+          open={askOpen}
+          shellName={shellName}
+          cwd={activeTab?.cwd}
+          onClose={() => setAskOpen(false)}
+          onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
+          onInsert={(cmd) => insertSnippet(cmd)}
+        />
+      )}
 
       <AgentMode
         open={agentOpen}
@@ -173,86 +201,112 @@ export default function ModalHost({
         saveUser={saveUser}
       />
 
-      <SessionSummary
-        open={!!summary}
-        text={summary?.text || ""}
-        onClose={() => setSummary(null)}
-      />
+      {(!!summary) && (
+        <SessionSummary
+          open={!!summary}
+          text={summary?.text || ""}
+          onClose={() => setSummary(null)}
+        />
+      )}
 
-      <HistorySearch
-        open={historyOpen}
-        history={historyOpen ? getCommandHistory() : []}
-        onClose={() => setHistoryOpen(false)}
-        onInsert={(cmd) => insertSnippet(cmd)}
-        onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
-      />
+      {(historyOpen) && (
+        <HistorySearch
+          open={historyOpen}
+          history={historyOpen ? getCommandHistory() : []}
+          onClose={() => setHistoryOpen(false)}
+          onInsert={(cmd) => insertSnippet(cmd)}
+          onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
+        />
+      )}
 
-      <WorkspacesModal
-        open={workspacesOpen}
-        workspaces={workspaces}
-        onClose={() => setWorkspacesOpen(false)}
-        onSave={saveWorkspace}
-        onLoad={loadWorkspace}
-        onDelete={deleteWorkspace}
-      />
+      {(workspacesOpen) && (
+        <WorkspacesModal
+          open={workspacesOpen}
+          workspaces={workspaces}
+          onClose={() => setWorkspacesOpen(false)}
+          onSave={saveWorkspace}
+          onLoad={loadWorkspace}
+          onDelete={deleteWorkspace}
+        />
+      )}
 
-      <SharesModal
-        open={sharesOpen}
-        shareHistory={userSt?.shareHistory}
-        saveUser={saveUser}
-        onClose={() => setSharesOpen(false)}
-      />
+      {(sharesOpen) && (
+        <SharesModal
+          open={sharesOpen}
+          shareHistory={userSt?.shareHistory}
+          saveUser={saveUser}
+          onClose={() => setSharesOpen(false)}
+        />
+      )}
 
-      <BroadcastGroupModal
-        open={broadcastGroupOpen}
-        panels={panels}
-        liveTabIds={broadcastGroupOpen ? getLiveTabIds() : []}
-        current={bcastTargets}
-        onClose={() => setBroadcastGroupOpen(false)}
-        onApply={applyBroadcastGroup}
-        onUseAllVisible={useAllVisibleBroadcast}
-      />
+      {(broadcastGroupOpen) && (
+        <BroadcastGroupModal
+          open={broadcastGroupOpen}
+          panels={panels}
+          liveTabIds={broadcastGroupOpen ? getLiveTabIds() : []}
+          current={bcastTargets}
+          onClose={() => setBroadcastGroupOpen(false)}
+          onApply={applyBroadcastGroup}
+          onUseAllVisible={useAllVisibleBroadcast}
+        />
+      )}
 
-      <NetToolsModal
-        open={netToolsOpen}
-        initialHost={activeTab?.connection?.host || ""}
-        onClose={() => setNetToolsOpen(false)}
-      />
+      {(netToolsOpen) && (
+        <NetToolsModal
+          open={netToolsOpen}
+          initialHost={activeTab?.connection?.host || ""}
+          onClose={() => setNetToolsOpen(false)}
+        />
+      )}
 
-      <RemoteControlModal open={remoteOpen} onClose={() => setRemoteOpen(false)} />
+      {(remoteOpen) && (
+        <RemoteControlModal open={remoteOpen} onClose={() => setRemoteOpen(false)} />
+      )}
 
-      <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
+      {(sshKeysOpen) && (
+        <SshKeysModal open={sshKeysOpen} onClose={() => setSshKeysOpen(false)} />
+      )}
 
-      <MacrosModal
-        open={macrosOpen}
-        canReplay={!!activeTabId}
-        activeTabId={activeTabId}
-        onReplay={(data) => activeTabId && writeToTab(activeTabId, data)}
-        onClose={() => setMacrosOpen(false)}
-      />
+      {(macrosOpen) && (
+        <MacrosModal
+          open={macrosOpen}
+          canReplay={!!activeTabId}
+          activeTabId={activeTabId}
+          onReplay={(data) => activeTabId && writeToTab(activeTabId, data)}
+          onClose={() => setMacrosOpen(false)}
+        />
+      )}
 
-      <MasterPasswordModal
-        open={masterPwOpen}
-        userSt={userSt}
-        saveUser={saveUser}
-        onClose={() => setMasterPwOpen(false)}
-      />
+      {(masterPwOpen) && (
+        <MasterPasswordModal
+          open={masterPwOpen}
+          userSt={userSt}
+          saveUser={saveUser}
+          onClose={() => setMasterPwOpen(false)}
+        />
+      )}
 
-      <McpInstaller
-        open={mcpOpen}
-        onClose={() => setMcpOpen(false)}
-      />
+      {(mcpOpen) && (
+        <McpInstaller
+          open={mcpOpen}
+          onClose={() => setMcpOpen(false)}
+        />
+      )}
 
-      <SetupChecker
-        open={setupOpen}
-        onClose={() => setSetupOpen(false)}
-      />
+      {(setupOpen) && (
+        <SetupChecker
+          open={setupOpen}
+          onClose={() => setSetupOpen(false)}
+        />
+      )}
 
-      <CommandPalette
-        open={commandPaletteOpen}
-        commands={paletteCommands}
-        onClose={() => setCommandPaletteOpen(false)}
-      />
+      {(commandPaletteOpen) && (
+        <CommandPalette
+          open={commandPaletteOpen}
+          commands={paletteCommands}
+          onClose={() => setCommandPaletteOpen(false)}
+        />
+      )}
 
       {!userSt?.terminalsOnboarded && (
         <OnboardingOverlay
