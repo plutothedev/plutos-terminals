@@ -1,7 +1,7 @@
 // (C)
 // The command-palette item array, extracted from TerminalsTab as a hook
 // (Stream B2 Task 7; .jsx because the body is full of icon JSX). The array
-// was once rebuilt inline on EVERY render — including the 2.5s sysStats poll
+// was once rebuilt inline on EVERY render — including the 5s sysStats poll
 // and per-token cost telemetry, which don't touch any value it reads. The
 // useMemo keeps its identity stable across those hot paths so CommandPalette
 // can bail out of re-rendering.

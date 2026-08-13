@@ -50,7 +50,7 @@ import {
 import { isPrimaryWindow } from "./storageKeys.js";
 import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
-import { writeToTab, writeBroadcast, getTabDims, getTabText, getPtyId } from "./ptyBridge.js";
+import { writeToTab, writeBroadcast, getTabText, getPtyId } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
 import { navigatePane } from "./paneNav.js";
 import { reconcile, getEntry } from "./paneRegistry.js";
@@ -777,7 +777,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // ── Stable ProjectSidebar handlers ─────────────────────────────────────
   // ProjectSidebar is memo()'d, so its function props must keep identity across
-  // the hot re-render paths (the 2.5s sysStats poll, per-token cost telemetry).
+  // the hot re-render paths (the 5s sysStats poll, per-token cost telemetry).
   // The hook-returned handlers (removeProject/colorProject/renameProject/
   // runProjectScript/setProjectFolder/openAgentWorktree) are already useCallback-
   // stable; these wrap the previously-inline arrow props so the whole prop set is
@@ -811,7 +811,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, [forgetSessionPassword, toast]);
 
   // Command-palette item array — memoized in the hook so its identity stays
-  // stable across the hot-path ticks (2.5s sysStats poll, per-token cost
+  // stable across the hot-path ticks (5s sysStats poll, per-token cost
   // telemetry) and CommandPalette can bail out of re-rendering. Dep contract
   // lives in chrome/usePaletteCommands.jsx: 22 args fields + toast/confirm
   // read from context inside the hook.

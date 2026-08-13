@@ -833,7 +833,7 @@ function TerminalPanel({
 }
 
 // Memoized so a TerminalsTab re-render that doesn't change THIS panel's props
-// (e.g. the 2.5s sysStats poll, a modal toggle, dock resize) skips re-rendering
+// (e.g. the 5s sysStats poll, a modal toggle, dock resize) skips re-rendering
 // the panel + its xterm panes. All props are stable refs (panelId-bound
 // callbacks via the `h` map; data props are useMemo/useState/primitives), so
 // the default shallow compare correctly re-renders only on real panel changes.

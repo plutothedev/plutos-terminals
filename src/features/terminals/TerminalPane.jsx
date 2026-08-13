@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { listen } from "@backend";
 import { setPaneActivity } from "./activityStore.js";
+import { stripAnsi, detectPendingPrompt } from "./promptDetect.js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -209,10 +210,9 @@ function sumModelLines(text) {
   return total;
 }
 
-const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
-function stripAnsi(s) {
-  return s.replace(ANSI_RE, "");
-}
+// stripAnsi + the permission-prompt detector live in promptDetect.js (P2-T5
+// review: the detector needed to be pure + tested; sharing one import keeps
+// the transcript strip and the detector's strip from drifting).
 
 // Exported so the block/transcript share handlers (Stream D) can stamp the
 // share filename's date at click time — the modal and buildShare stay pure and
@@ -499,21 +499,10 @@ export default function TerminalPane({
   const hasPendingPrompt = () => {
     const e = entryRef.current;
     if (!e) return false;
-    // Cheap prefilter (P2-T5): "❯" is a REQUIRED marker below and a single
-    // char, so ANSI interleaving can't split it in the raw buffer — a miss
-    // here is exactly a full-scan miss (same false return, so the caller's
-    // waiting→active un-block branch still runs; a bare early-return anywhere
-    // ABOVE the caller's no-match handling would freeze "waiting" forever).
-    // False positives (shell prompts print ❯) just fall through to the full
-    // stripAnsi scan — today's cost.
-    if (!e.counters.recentOut.includes("❯")) return false;
-    const text = stripAnsi(e.counters.recentOut);
-    return (
-      /❯\s*1[.)]/.test(text) &&
-      /\bYes\b/.test(text) &&
-      (/\(esc\)/i.test(text) || /\[esc\]/i.test(text)) &&
-      /Do you want\b/i.test(text)
-    );
+    // Pure + tested detector (promptDetect.js): prefilter + four-marker scan.
+    // A miss — prefilter or full — returns false through the same path, so
+    // the caller's waiting→active un-block branch always runs.
+    return detectPendingPrompt(e.counters.recentOut);
   };
 
   const checkAutoApprove = (ptyId) => {

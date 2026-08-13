@@ -904,7 +904,7 @@ function ctxBtnStyle() {
   };
 }
 
-// Memoized so a TerminalsTab re-render (e.g. the 2.5s sysStats poll or per-token
+// Memoized so a TerminalsTab re-render (e.g. the 5s sysStats poll or per-token
 // cost telemetry) skips re-rendering the sidebar when its props are unchanged.
 // Relies on stable function props from the parent (the handlers below are
 // useCallback-wrapped in TerminalsTab; the inline arrow props are stabilized via
