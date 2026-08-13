@@ -10,13 +10,14 @@ import Modal from "../../../components/Modal.jsx";
 import { Button } from "../../../components/ui.jsx";
 import { toNotebookName } from "../notebookIo.js";
 import MobaMenuBar from "../MobaMenuBar.jsx";
+import ActiveDims from "./ActiveDims.jsx";
 
 export default function MenuBar({
   addTab, addHomeTab, addNotebookTab, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
   activeTabId, activeTab, panels, activePanelId,
   importSshConfig, selectRibbon, openTunnels,
   broadcast, toggleBroadcast, ribbon,
-  activeDims, activeModelName, toggleTheme, headerSkinId, exitApp,
+  activeModelName, toggleTheme, headerSkinId, exitApp,
   setDialog, setSshKeysOpen, setSerialOpen, setVncOpen, setRdpOpen, setNetToolsOpen,
   setMacrosOpen, setAskOpen, setSummary, setHistoryOpen, setModelsOpen,
   setBroadcastGroupOpen, setRemoteOpen, setMcpOpen, setSetupOpen,
@@ -152,7 +153,7 @@ export default function MenuBar({
         brand={<><span className="moba-brand-dot" />Pluto</>}
         right={
           <>
-            {activeDims && <span className="moba-mb-dim">{activeDims.cols}×{activeDims.rows}</span>}
+            <ActiveDims tabId={activeTabId} className="moba-mb-dim" />
             <span className="moba-mb-model"><span className="moba-mb-modeldot" />{activeModelName || "claude"}</span>
             <button className="moba-mb-icon" onClick={toggleTheme} title="Toggle dark / light chrome (Ctrl+\\)">{headerSkinId === "moba-light" ? <IconSun size={14} /> : <IconMoon size={14} />}</button>
             <button className="moba-mb-icon" onClick={exitApp} title="Quit (closes all sessions)"><IconExit size={14} /></button>

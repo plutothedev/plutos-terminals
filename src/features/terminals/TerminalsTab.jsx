@@ -22,7 +22,7 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { KEY_ACTIONS, comboFromEvent, resolveBindings, setResolved, isCapturing, formatCombo } from "./keybindings.js";
 import { gridDims, MAX_PANELS } from "./grid";
-import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useDimsListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
+import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useRegistryListener, useHeaderSkinSetup } from "./hooks/independentEffects.js";
 import { useDockResize } from "./hooks/useDockResize.js";
 import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { useSnippets } from "./hooks/useSnippets.js";
@@ -121,10 +121,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // persisted — auto-typing into every pane after a restart would surprise.
   const { broadcast, bcastTargets, toggleBroadcast, applyBroadcastGroup, useAllVisibleBroadcast } = useBroadcastMode(toast);
 
-  // Re-render the status bar when the active terminal's dimensions change.
-  // The returned version also drives the sessionListJson memo below (#27) —
-  // one bridge subscription instead of two.
-  const bridgeVersion = useDimsListener();
+  // Pane spawn/death channel (P2-T5): drives the companion sessionListJson
+  // re-derivation. Dims churn no longer re-renders TerminalsTab at all — the
+  // cols×rows readout lives in the ActiveDims leaf inside StatusBar/MenuBar.
+  const registryVersion = useRegistryListener();
 
   // Recording state for the status-bar indicator + command-palette labels
   // (recordingCapHit = MAX_EVENTS auto-stop reached).
@@ -429,12 +429,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     toast.info(`Inserted: ${command.length > 40 ? command.slice(0, 40) + "…" : command}`);
   }, [activeTabId, broadcast, toast]);
 
-  // Active terminal size for the status bar (cols × rows), reported by
-  // TerminalPane via the bridge. The bridgeVersion subscription (top of the
-  // component) re-renders us on every bridge change, forcing this re-read.
-  const activeDims = activeTabId ? getTabDims(activeTabId) : null;
   // Active model label — read once here so both StatusBar and MenuBar (chrome/)
   // receive an identical string prop instead of each re-deriving it from userSt.
+  // (cols×rows moved into the ActiveDims leaf — P2-T5.)
   const activeModelName = userSt?.activeModel?.model;
 
   // ── Phone companion: publish the live session list ──────────────────────────
@@ -468,10 +465,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       }
     }
     return JSON.stringify(out);
-    // bridgeVersion re-derives when a pane spawns/dies (getPtyId changes); equal
-    // JSON short-circuits the push effect below (string identity).
+    // registryVersion re-derives when a pane spawns/dies (getPtyId changes);
+    // equal JSON short-circuits the push effect below (string identity).
+    // Dims churn deliberately does NOT re-derive this (P2-T5 channel split).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.panels, state.activePanelId, bridgeVersion]);
+  }, [state.panels, state.activePanelId, registryVersion]);
   useEffect(() => {
     // Only the primary window owns the companion's session mirror. Secondary
     // (?w=) windows have their own per-window layout; if they pushed too, the two
@@ -830,7 +828,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         broadcast={broadcast}
         toggleBroadcast={toggleBroadcast}
         ribbon={ribbon}
-        activeDims={activeDims}
+        activeTabId={activeTabId}
         activeModelName={activeModelName}
         toggleTheme={toggleTheme}
         headerSkinId={headerSkinId}
@@ -1122,7 +1120,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         activeTab={activeTab}
         activeTabId={activeTabId}
         tabActivities={tabActivities}
-        activeDims={activeDims}
         shellName={shellName}
         broadcast={broadcast}
         bcastTargets={bcastTargets}

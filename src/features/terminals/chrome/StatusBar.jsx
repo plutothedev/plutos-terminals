@@ -2,12 +2,12 @@
 import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../../appMeta.js";
 import { SAsk, SBroadcast } from "../toolbarIcons.jsx";
 import * as recording from "../recording.js";
+import ActiveDims from "./ActiveDims.jsx";
 
 export default function StatusBar({
   activeTab,
   activeTabId,
   tabActivities,
-  activeDims,
   shellName,
   broadcast,
   bcastTargets,
@@ -38,7 +38,7 @@ export default function StatusBar({
       {activeTab && (
         <span className="moba-stat" title="Active session · terminal size (columns × rows)">
           <span className="dot" style={{ background: tabActivities[activeTabId] === "active" ? "#4FB8E6" : tabActivities[activeTabId] === "done" ? "var(--phn-success, #5FB87A)" : "var(--phn-text-faint, #586068)" }} />
-          {activeTab.label}{activeDims ? <span style={{ opacity: 0.55, marginLeft: 5 }}>{activeDims.cols}×{activeDims.rows}</span> : null}
+          {activeTab.label}<ActiveDims tabId={activeTabId} style={{ opacity: 0.55, marginLeft: 5 }} />
         </span>
       )}
       <span title="Shell · encoding · line ending" style={{ opacity: 0.8 }}>{shellName || "shell"} · UTF-8 · LF</span>

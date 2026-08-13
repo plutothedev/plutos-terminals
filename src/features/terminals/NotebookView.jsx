@@ -33,7 +33,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { noteWrite, readNotebook } from "./notebookIo.js";
 import { parseBlocks, writeOutput, setFrontmatterTarget, runnableKind, runnableLines } from "./notebookModel.js";
-import { runAndCapture, getLiveTabIds, subscribeBridge, getBridgeVersion } from "./ptyBridge.js";
+import { runAndCapture, getLiveTabIds, subscribeRegistry, getRegistryVersion } from "./ptyBridge.js";
 import { useToast } from "../../components/Toast.jsx";
 
 // ── isNew signal ────────────────────────────────────────────────────────────
@@ -172,8 +172,9 @@ export default function NotebookView({ name, tabId, visible }) {
 
   const parsed = useMemo(() => parseBlocks(content || ""), [content]);
 
-  // Live PTY panes, refreshed whenever the bridge changes (pane spawn/close).
-  const bridgeV = useSyncExternalStore(subscribeBridge, getBridgeVersion);
+  // Live PTY panes, refreshed on pane spawn/close (registry channel — the
+  // dims channel would re-derive this on every resize for nothing; P2-T5).
+  const bridgeV = useSyncExternalStore(subscribeRegistry, getRegistryVersion);
   const liveIds = useMemo(() => getLiveTabIds(), [bridgeV]);
   const targetLive = !!targetId && liveIds.includes(targetId);
 

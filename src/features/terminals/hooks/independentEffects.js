@@ -7,7 +7,12 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { invoke } from "@backend";
 import * as recording from "../recording.js";
-import { subscribeBridge, getBridgeVersion } from "../ptyBridge.js";
+import {
+  subscribeDims,
+  getDimsVersion,
+  subscribeRegistry,
+  getRegistryVersion,
+} from "../ptyBridge.js";
 import { injectHeaderSkinsCss } from "../headerSkins";
 
 // Live system stats (CPU / memory / disk) for DockMonitor (its only consumer).
@@ -78,12 +83,18 @@ export function useRecordingState() {
   return { recordingTabIds, recordingCapHit };
 }
 
-// Force a re-render when any terminal's dimensions change (the status bar reads
-// getTabDims on render), via useSyncExternalStore (#27) instead of a bespoke
-// bump-state effect. Returns the live bridge version so a caller that also
-// needs a change-token (e.g. a memo dep) doesn't need its own subscription.
+// Re-render on terminal DIMENSION changes (per-resize churn — subscribe only
+// in the leaf that renders cols×rows, never in chrome roots; a split-drag
+// bumps this per mousemove).
 export function useDimsListener() {
-  return useSyncExternalStore(subscribeBridge, getBridgeVersion);
+  return useSyncExternalStore(subscribeDims, getDimsVersion);
+}
+
+// Re-render on PTY REGISTRY changes (pane spawn/death — rare). TerminalsTab's
+// companion session-list derivation subscribes here (P2-T5: it used to ride
+// the dims channel, paying a full chrome re-render per resize step).
+export function useRegistryListener() {
+  return useSyncExternalStore(subscribeRegistry, getRegistryVersion);
 }
 
 // Inject the header-skin CSS once on mount (idempotent inside injectHeaderSkinsCss).

@@ -13,8 +13,15 @@ const readers = new Map(); // tabId -> () => string (recent terminal text)
 const ptyIds = new Map(); // tabId -> live pty channel id ("pty-…", from pty_spawn)
 const dims = new Map(); // tabId -> { cols, rows }
 const visible = new Set(); // tabIds whose pane is currently shown
+// TWO version channels (P2-T5, replacing the single #27 counter): dims churn
+// (split-drag = per-mousemove bumps) must not re-render the registry
+// consumers (companion session list re-derivation), and pane spawn/death must
+// not depend on a dims subscription living in TerminalsTab. unregisterPty
+// mutates both maps → bumps both.
 const dimsListeners = new Set(); // () => void
-let bridgeVersion = 0; // bumped once per emitDims() call — see subscribeBridge below
+const registryListeners = new Set(); // () => void
+let dimsVersion = 0;
+let registryVersion = 0;
 
 // MultiExec broadcast mode (module-level, so per-window). When on, a keystroke
 // or snippet goes to every visible terminal rather than just the focused one.
@@ -25,8 +32,19 @@ let broadcastMode = false;
 let broadcastTargets = null;
 
 function emitDims() {
-  bridgeVersion++;
+  dimsVersion++;
   for (const cb of dimsListeners) {
+    try {
+      cb();
+    } catch {
+      /* a bad listener shouldn't break the others */
+    }
+  }
+}
+
+function emitRegistry() {
+  registryVersion++;
+  for (const cb of registryListeners) {
     try {
       cb();
     } catch {
@@ -60,7 +78,10 @@ export function unregisterPty(tabId) {
   // gone, so no block-done can ever arrive to resolve it).
   const cap = pendingCapture.get(tabId);
   if (cap) { pendingCapture.delete(tabId); cap.resolve(null); }
+  // Both maps mutated → both channels bump (keeps the two-channel invariant
+  // honest even though today's consumers would survive either alone).
   emitDims();
+  emitRegistry();
 }
 
 // ── Live PTY channel ids (TerminalPane registers; the phone companion reads) ──
@@ -74,7 +95,7 @@ export function setPtyId(tabId, ptyId) {
   if (!tabId) return;
   if (ptyId) ptyIds.set(tabId, ptyId);
   else ptyIds.delete(tabId);
-  emitDims();
+  emitRegistry();
 }
 
 export function getPtyId(tabId) {
@@ -133,21 +154,29 @@ export function getTabDims(tabId) {
   return dims.get(tabId) || null;
 }
 
-// ── Bridge version (useSyncExternalStore surface, #27) ──────────────────────
-// getBridgeVersion/subscribeBridge give React's useSyncExternalStore a
-// (subscribe, getSnapshot) pair instead of a bespoke bump-state effect.
-// Single-channel: every event that already calls emitDims (dims resize,
-// ptyId assign/clear, unregister) bumps bridgeVersion and fires every
-// subscriber, so a consumer never misses a change. (The old onDimsChange
-// callback API was deleted once its last consumer moved here.)
+// ── Version channels (useSyncExternalStore surfaces) ────────────────────────
+// Two (subscribe, getSnapshot) pairs. DIMS: per-resize churn — consumed only
+// by the ActiveDims chrome leaf, so a split-drag re-renders one span instead
+// of the whole chrome. REGISTRY: pane spawn/death (setPtyId/unregisterPty) —
+// consumed by TerminalsTab's sessionListJson so the phone companion's session
+// list re-derives exactly when the live PTY set changes.
 
-export function getBridgeVersion() {
-  return bridgeVersion;
+export function getDimsVersion() {
+  return dimsVersion;
 }
 
-export function subscribeBridge(cb) {
+export function subscribeDims(cb) {
   dimsListeners.add(cb);
   return () => dimsListeners.delete(cb);
+}
+
+export function getRegistryVersion() {
+  return registryVersion;
+}
+
+export function subscribeRegistry(cb) {
+  registryListeners.add(cb);
+  return () => registryListeners.delete(cb);
 }
 
 // ── Visibility (drives MultiExec broadcast targeting) ───────────────────────

@@ -2,18 +2,23 @@
 // Locks the Native-Agent-Mode capture path in ptyBridge, including the
 // 2026-07-01 fix: closing a tab (unregisterPty) with an in-flight runAndCapture
 // must resolve it immediately instead of hanging until the 120s timeout.
-// Also locks the bridgeVersion/subscribeBridge surface (#27): a
-// useSyncExternalStore-compatible subscription that piggybacks on the same
-// dimsListeners notify path emitDims already drives.
+// Also locks the TWO-CHANNEL version surface (P2-T5, replacing the #27
+// single channel): dims changes and pty-registry changes (spawn/death) bump
+// SEPARATE counters, so a split-drag resize storm no longer re-renders the
+// registry consumers (companion session list) and vice versa. unregisterPty
+// mutates both maps, so it bumps BOTH.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   registerPtyWriter,
   unregisterPty,
   runAndCapture,
   reportBlockDone,
-  getBridgeVersion,
-  subscribeBridge,
+  getDimsVersion,
+  subscribeDims,
+  getRegistryVersion,
+  subscribeRegistry,
   setTabDims,
+  setPtyId,
 } from "./ptyBridge.js";
 
 beforeEach(() => vi.useFakeTimers());
@@ -70,30 +75,60 @@ describe("ptyBridge runAndCapture", () => {
   });
 });
 
-describe("ptyBridge bridge version (#27 useSyncExternalStore surface)", () => {
-  it("bumps the version when setTabDims changes a tab's dimensions", () => {
-    const before = getBridgeVersion();
+describe("ptyBridge two-channel version surface (P2-T5)", () => {
+  it("setTabDims bumps ONLY the dims channel", () => {
+    const dimsBefore = getDimsVersion();
+    const regBefore = getRegistryVersion();
     setTabDims("bv1", 80, 24);
-    expect(getBridgeVersion()).toBeGreaterThan(before);
+    expect(getDimsVersion()).toBeGreaterThan(dimsBefore);
+    expect(getRegistryVersion()).toBe(regBefore);
   });
 
-  it("subscribeBridge fires the subscriber on a dims change", () => {
-    let calls = 0;
-    const unsubscribe = subscribeBridge(() => { calls += 1; });
+  it("setPtyId bumps ONLY the registry channel", () => {
+    const dimsBefore = getDimsVersion();
+    const regBefore = getRegistryVersion();
+    setPtyId("bv-reg", "pty-abc123");
+    expect(getRegistryVersion()).toBeGreaterThan(regBefore);
+    expect(getDimsVersion()).toBe(dimsBefore);
+    setPtyId("bv-reg", null); // cleanup (also bumps registry — fine)
+  });
+
+  it("unregisterPty bumps BOTH channels (it mutates both maps)", () => {
+    registerPtyWriter("bv-both", () => {});
+    setTabDims("bv-both", 80, 24);
+    setPtyId("bv-both", "pty-def456");
+    const dimsBefore = getDimsVersion();
+    const regBefore = getRegistryVersion();
+    unregisterPty("bv-both");
+    expect(getDimsVersion()).toBeGreaterThan(dimsBefore);
+    expect(getRegistryVersion()).toBeGreaterThan(regBefore);
+  });
+
+  it("each channel's subscribers fire only for their own events", () => {
+    let dimsCalls = 0;
+    let regCalls = 0;
+    const unsubDims = subscribeDims(() => { dimsCalls += 1; });
+    const unsubReg = subscribeRegistry(() => { regCalls += 1; });
     setTabDims("bv2", 100, 40);
-    expect(calls).toBe(1);
-    unsubscribe();
+    expect(dimsCalls).toBe(1);
+    expect(regCalls).toBe(0);
+    setPtyId("bv2", "pty-xyz");
+    expect(dimsCalls).toBe(1);
+    expect(regCalls).toBe(1);
+    unsubDims();
+    unsubReg();
+    setPtyId("bv2", null);
   });
 
   it("stops delivering to an unsubscribed callback while the version keeps moving", () => {
     let calls = 0;
-    const unsubscribe = subscribeBridge(() => { calls += 1; });
+    const unsubscribe = subscribeDims(() => { calls += 1; });
     setTabDims("bv3", 80, 24);
     expect(calls).toBe(1);
-    const versionAtUnsubscribe = getBridgeVersion();
+    const versionAtUnsubscribe = getDimsVersion();
     unsubscribe();
-    setTabDims("bv3", 120, 30); // a real dims change — emitDims fires again
-    expect(getBridgeVersion()).toBeGreaterThan(versionAtUnsubscribe); // version still moves
-    expect(calls).toBe(1); // but the unsubscribed callback does not fire again
+    setTabDims("bv3", 120, 30); // a real dims change — emit fires again
+    expect(getDimsVersion()).toBeGreaterThan(versionAtUnsubscribe);
+    expect(calls).toBe(1);
   });
 });
