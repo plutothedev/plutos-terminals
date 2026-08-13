@@ -130,6 +130,18 @@ pub fn run() {
                         | tauri_plugin_window_state::StateFlags::MAXIMIZED
                         | tauri_plugin_window_state::StateFlags::FULLSCREEN,
                 )
+                // Detached windows get a fresh timestamp label per spawn
+                // (win-<id>), so per-label state could never restore AND the
+                // state file grew one dead entry per historical detach
+                // (Tier-1 review W2). Collapse them onto one shared slot:
+                // every detached window opens where the last one was.
+                .map_label(|label| {
+                    if label.starts_with("win-") {
+                        "win-secondary"
+                    } else {
+                        label
+                    }
+                })
                 .build(),
         )
         .setup(|app| {

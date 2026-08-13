@@ -451,4 +451,17 @@ export function applyActiveTheme(stored, customThemes) {
     const id = getSkinId(stored);
     root.dataset.phnSkin = HEADER_SKINS.find((s) => s.id === id) ? id : "default";
   }
+  // Boot-flash contract (Tier-1 review W1): index.html's pre-paint script
+  // reads ONE per-window key holding the RESOLVED page background — written
+  // here, the single place themes apply — instead of re-deriving skin logic
+  // pre-paint (the derived version silently missed light skins like
+  // "daylight" and would drift with every new skin). Computed AFTER the
+  // dataset lands so custom themes and future skins are covered for free.
+  try {
+    const bg = getComputedStyle(root).getPropertyValue("--phn-page-bg").trim();
+    if (/^#[0-9a-fA-F]{3,8}$/.test(bg)) {
+      const w = new URLSearchParams(location.search).get("w");
+      localStorage.setItem("plutos-terminals:boot-bg" + (w ? ":" + w : ""), bg);
+    }
+  } catch { /* blocked storage: next boot keeps the dark default */ }
 }

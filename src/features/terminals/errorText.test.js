@@ -109,4 +109,14 @@ describe("humanizeError fallback + composition", () => {
     expect(humanizeError("   ").message).toBe("Unknown error");
     expect(humanizeError(null, "Delete failed").message).toBe("Delete failed: Unknown error");
   });
+
+  it("maps connection reset / broken pipe to the dropped-connection sentence", () => {
+    expect(humanizeError("read: connection reset by peer").message)
+      .toBe("The connection was dropped by the other side");
+    expect(humanizeError("write failed: Broken pipe (os error 32)").message)
+      .toBe("The connection was dropped by the other side");
+    // "connection refused" must still win its own more specific rule.
+    expect(humanizeError("connect ECONNREFUSED 127.0.0.1:22").message)
+      .toBe("Connection refused — nothing is listening at that address");
+  });
 });

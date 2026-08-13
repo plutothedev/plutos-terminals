@@ -74,7 +74,7 @@ export default function RdpView({ host, port, username, domain, tabId, visible }
         if (!alive) { unExit(); return; }
         unlisten.push(unExit);
       } catch (err) {
-        if (alive) setStatus(humanizeError(err, "Connection failed").message);
+        if (alive) setStatus(humanizeError(err, "RDP").message);
       }
     })();
     return () => {
