@@ -12,6 +12,11 @@ import { FileIcon } from "./LocalFileBrowser.jsx";
 import { IconHome, IconUp, IconRefresh, IconUpload, IconNewFolder } from "./icons.jsx";
 import { SFolder, STrash } from "./toolbarIcons.jsx";
 import RemoteEditor from "./RemoteEditor.jsx";
+
+const LISTING_TTL_MS = 10_000;
+const listingCache = new Map(); // `${sessionId}\0${path}` -> { entries, at }
+const homeCache = new Map(); // sessionId -> home path
+
 import "./terminals.css";
 
 function fmtSize(n) {
@@ -53,19 +58,46 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
   const [listError, setListError] = useState(null);
   const [editTarget, setEditTarget] = useState(null); // remote file open in the editor
 
+  // Listing cache (P3-T5): keyed (sessionId, path) — path-only would serve
+  // session A's listing to session B in the docked browser (audit M6). TTL
+  // ~10s, render-immediately-then-revalidate: a cached entry paints with no
+  // spinner while a background refetch replaces it. Mutations invalidate
+  // their cwd BEFORE refresh() so a just-deleted row never repaints from
+  // cache. Module-level so a dock collapse/reopen keeps warm listings.
   const list = useCallback(async (path) => {
     if (!sessionId) return;
-    setLoading(true);
+    const key = `${sessionId}\u0000${path}`;
+    const cached = listingCache.get(key);
+    const fresh = cached && Date.now() - cached.at < LISTING_TTL_MS;
+    if (cached) {
+      // Paint immediately from cache (stale-while-revalidate).
+      setEntries(cached.entries);
+      setCwd(path);
+      setListError(null);
+      if (fresh) { setLoading(false); return; }
+    } else {
+      setLoading(true);
+    }
     setListError(null);
     try {
       const items = await invoke("sftp_list", { id: sessionId, path });
-      setEntries(Array.isArray(items) ? items : []);
+      const entries = Array.isArray(items) ? items : [];
+      listingCache.set(key, { entries, at: Date.now() });
+      setEntries(entries);
       setCwd(path);
     } catch (e) {
-      setListError(String(e));
+      // A failed revalidate over a cached paint keeps the cached view.
+      if (!cached) setListError(String(e));
     } finally {
       setLoading(false);
     }
+  }, [sessionId]);
+
+  // Drop the cached listing for a path (and optionally a removed dir's own
+  // listing) before refetching — called by every mutation path.
+  const invalidateListing = useCallback((path, alsoPath) => {
+    if (path != null) listingCache.delete(`${sessionId}\u0000${path}`);
+    if (alsoPath != null) listingCache.delete(`${sessionId}\u0000${alsoPath}`);
   }, [sessionId]);
 
   // When a session connects, resolve the home dir and list it.
@@ -74,7 +106,11 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
     let alive = true;
     (async () => {
       try {
-        const home = await invoke("sftp_home", { id: sessionId });
+        let home = homeCache.get(sessionId);
+        if (!home) {
+          home = await invoke("sftp_home", { id: sessionId });
+          if (home) homeCache.set(sessionId, home);
+        }
         if (alive) await list(home || "/");
       } catch (e) {
         if (alive) setListError(String(e));
@@ -83,11 +119,21 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
     return () => { alive = false; };
   }, [open, docked, sessionId, list]);
 
-  const refresh = useCallback(() => { if (cwd) list(cwd); }, [cwd, list]);
+  const refresh = useCallback(() => {
+    if (!cwd) return;
+    invalidateListing(cwd);
+    list(cwd);
+  }, [cwd, list, invalidateListing]);
   const goHome = useCallback(async () => {
     if (!sessionId) return;
-    try { const home = await invoke("sftp_home", { id: sessionId }); await list(home || "/"); }
-    catch (e) { setListError(String(e)); }
+    try {
+      let home = homeCache.get(sessionId);
+      if (!home) {
+        home = await invoke("sftp_home", { id: sessionId });
+        if (home) homeCache.set(sessionId, home);
+      }
+      await list(home || "/");
+    } catch (e) { setListError(String(e)); }
   }, [sessionId, list]);
 
   const onDownload = async (entry) => {

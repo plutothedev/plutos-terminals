@@ -276,24 +276,38 @@ fn worker(sess: ssh2::Session, rx: mpsc::Receiver<SftpReq>) {
 /// Send a request to a session's worker and block on the reply. The registry
 /// lock is held only long enough to enqueue — never across the (possibly slow)
 /// transfer — so concurrent commands don't serialize on the mutex.
-fn dispatch<T>(
+/// P3-T5: the old sync dispatch blocked `rx.recv()` on whatever thread the
+/// command ran on — a tokio worker for the async commands (a slow remote
+/// listing or an 8MB read parked it for the duration), the MAIN thread for
+/// the old sync download/upload. The worker Sender is cloned out under a
+/// short registry lock on the async side (the State guard can't cross into
+/// the 'static closure), then send+recv run on the blocking pool.
+async fn dispatch_async<T: Send + 'static>(
     state: &State<'_, SftpRegistry>,
     id: &str,
-    make: impl FnOnce(Reply<T>) -> SftpReq,
+    make: impl FnOnce(Reply<T>) -> SftpReq + Send + 'static,
 ) -> Result<T, String> {
-    let (tx, rx) = mpsc::channel::<Result<T, String>>();
-    {
+    let sender = {
         let sessions = state
             .sessions
             .lock()
             .map_err(|_| "sftp registry poisoned".to_string())?;
-        let h = sessions.get(id).ok_or("sftp session not found")?;
-        h.req
+        sessions
+            .get(id)
+            .ok_or("sftp session not found")?
+            .req
+            .clone()
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let (tx, rx) = mpsc::channel::<Result<T, String>>();
+        sender
             .send(make(tx))
             .map_err(|_| "sftp session closed".to_string())?;
-    }
-    rx.recv()
-        .map_err(|_| "sftp worker did not reply".to_string())?
+        rx.recv()
+            .map_err(|_| "sftp worker did not reply".to_string())?
+    })
+    .await
+    .map_err(|e| format!("sftp task failed: {e}"))?
 }
 
 // ── Commands ────────────────────────────────────────────────────────────────
@@ -308,7 +322,13 @@ pub async fn sftp_connect(
     user: String,
     auth: SshAuth,
 ) -> Result<String, String> {
-    let sess = connect_session(&host, port, &user, &auth, None)?;
+    // Full TCP+SSH handshake off the runtime (P3-T5 — it parked a tokio
+    // worker for the whole negotiation).
+    let sess = tauri::async_runtime::spawn_blocking(move || {
+        connect_session(&host, port, &user, &auth, None)
+    })
+    .await
+    .map_err(|e| format!("sftp task failed: {e}"))??;
     let (tx, rx) = mpsc::channel::<SftpReq>();
     thread::spawn(move || worker(sess, rx));
     let id = new_id("sftp");
@@ -323,10 +343,11 @@ pub async fn sftp_connect(
 /// Absolute path of the login home directory (resolve ".").
 #[tauri::command]
 pub async fn sftp_home(state: State<'_, SftpRegistry>, id: String) -> Result<String, String> {
-    dispatch(&state, &id, |reply| SftpReq::Realpath {
+    dispatch_async(&state, &id, |reply| SftpReq::Realpath {
         path: ".".into(),
         reply,
     })
+    .await
 }
 
 #[tauri::command]
@@ -335,67 +356,76 @@ pub async fn sftp_list(
     id: String,
     path: String,
 ) -> Result<Vec<SftpEntry>, String> {
-    dispatch(&state, &id, |reply| SftpReq::List { path, reply })
+    dispatch_async(&state, &id, |reply| SftpReq::List { path, reply }).await
 }
 
 /// Download a remote file. Prompts for a local save path; returns the chosen
 /// path, or None if the user cancelled.
 #[tauri::command]
-pub fn sftp_download(
+pub async fn sftp_download(
     state: State<'_, SftpRegistry>,
     id: String,
     path: String,
 ) -> Result<Option<String>, String> {
+    // P3-T5: this was a SYNC command — the dialog AND the whole (possibly
+    // multi-GB) transfer blocked the MAIN thread. AsyncFileDialog marshals
+    // the picker correctly from any thread; the transfer rides the blocking
+    // pool via dispatch_async.
     let name = Path::new(&path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("download")
         .to_string();
-    let Some(local) = rfd::FileDialog::new().set_file_name(&name).save_file() else {
+    let Some(local) = rfd::AsyncFileDialog::new()
+        .set_file_name(&name)
+        .save_file()
+        .await
+    else {
         return Ok(None);
     };
-    let local_str = local.to_string_lossy().into_owned();
-    dispatch(&state, &id, |reply| SftpReq::Download {
+    let local_str = local.path().to_string_lossy().into_owned();
+    let local_for_req = local_str.clone();
+    dispatch_async(&state, &id, move |reply| SftpReq::Download {
         remote: path,
-        local: local_str.clone(),
+        local: local_for_req,
         reply,
-    })?;
+    })
+    .await?;
     Ok(Some(local_str))
 }
 
 /// Upload a local file into a remote directory. Prompts for the local file;
 /// returns the resulting remote path, or None if cancelled.
 #[tauri::command]
-pub fn sftp_upload(
+pub async fn sftp_upload(
     state: State<'_, SftpRegistry>,
     id: String,
     dir: String,
 ) -> Result<Option<String>, String> {
-    let Some(local) = rfd::FileDialog::new().pick_file() else {
+    // Async for the same reasons as sftp_download above.
+    let Some(local) = rfd::AsyncFileDialog::new().pick_file().await else {
         return Ok(None);
     };
-    let name = local
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("upload")
-        .to_string();
+    let name = local.file_name();
     let remote = if dir.ends_with('/') {
         format!("{dir}{name}")
     } else {
         format!("{dir}/{name}")
     };
-    let local_str = local.to_string_lossy().into_owned();
-    dispatch(&state, &id, |reply| SftpReq::Upload {
+    let local_str = local.path().to_string_lossy().into_owned();
+    let remote_for_req = remote.clone();
+    dispatch_async(&state, &id, move |reply| SftpReq::Upload {
         local: local_str,
-        remote: remote.clone(),
+        remote: remote_for_req,
         reply,
-    })?;
+    })
+    .await?;
     Ok(Some(remote))
 }
 
 #[tauri::command]
 pub async fn sftp_mkdir(state: State<'_, SftpRegistry>, id: String, path: String) -> Result<(), String> {
-    dispatch(&state, &id, |reply| SftpReq::Mkdir { path, reply })
+    dispatch_async(&state, &id, |reply| SftpReq::Mkdir { path, reply }).await
 }
 
 #[tauri::command]
@@ -405,11 +435,11 @@ pub async fn sftp_remove(
     path: String,
     is_dir: bool,
 ) -> Result<(), String> {
-    dispatch(&state, &id, |reply| SftpReq::Remove {
+    dispatch_async(&state, &id, move |reply| SftpReq::Remove {
         path,
         is_dir,
         reply,
-    })
+    }).await
 }
 
 #[tauri::command]
@@ -419,7 +449,7 @@ pub async fn sftp_rename(
     from: String,
     to: String,
 ) -> Result<(), String> {
-    dispatch(&state, &id, |reply| SftpReq::Rename { from, to, reply })
+    dispatch_async(&state, &id, |reply| SftpReq::Rename { from, to, reply }).await
 }
 
 /// Read a remote text file into a string (for the in-app Monaco editor).
@@ -429,10 +459,11 @@ pub async fn sftp_read_file(
     id: String,
     path: String,
 ) -> Result<String, String> {
-    dispatch(&state, &id, |reply| SftpReq::ReadText {
+    dispatch_async(&state, &id, |reply| SftpReq::ReadText {
         remote: path,
         reply,
     })
+    .await
 }
 
 /// Write a string back to a remote file (save from the in-app editor).
@@ -443,11 +474,12 @@ pub async fn sftp_write_file(
     path: String,
     content: String,
 ) -> Result<(), String> {
-    dispatch(&state, &id, |reply| SftpReq::WriteText {
+    dispatch_async(&state, &id, |reply| SftpReq::WriteText {
         remote: path,
         content,
         reply,
     })
+    .await
 }
 
 /// Tear down an SFTP session: dropping the handle closes the request channel,

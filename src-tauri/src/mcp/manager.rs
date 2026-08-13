@@ -72,12 +72,23 @@ pub async fn mcp_servers_list(app: tauri::AppHandle) -> Result<Vec<ServerCfg>, S
 
 #[tauri::command]
 pub async fn mcp_server_add(app: tauri::AppHandle, cfg: ServerCfg) -> Result<(), String> {
-    let _w = cfg_write_lock().lock().await; // serialize the read-modify-write
-    let path = config_path(&app)?;
-    let mut cfgs = load_configs(&path)?;
-    cfgs.retain(|c| c.id != cfg.id); // replace existing by id
-    cfgs.push(cfg);
-    save_configs(&path, &cfgs)
+    let id = cfg.id.clone();
+    // Scope the write lock so it's dropped before conns()/the tool cache —
+    // same never-nest ordering as mcp_server_remove.
+    {
+        let _w = cfg_write_lock().lock().await; // serialize the read-modify-write
+        let path = config_path(&app)?;
+        let mut cfgs = load_configs(&path)?;
+        cfgs.retain(|c| c.id != cfg.id); // replace existing by id
+        cfgs.push(cfg);
+        save_configs(&path, &cfgs)?;
+    }
+    // Edit-by-replace must also drop the LIVE conn (P3-T5, audit M7): without
+    // this, ensure_conn sees the id present and the tool cache refills from
+    // the OLD process/env/url.
+    conns().lock().await.remove(&id);
+    tool_cache().lock().await.remove(&id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -92,7 +103,17 @@ pub async fn mcp_server_remove(app: tauri::AppHandle, id: String) -> Result<(), 
         save_configs(&path, &cfgs)?;
     }
     conns().lock().await.remove(&id);
+    tool_cache().lock().await.remove(&id);
     Ok(())
+}
+
+/// Per-server tool-list cache (P3-T5): every agent START re-queried every
+/// enabled server (an HTTP round trip / stdio exchange per server per run)
+/// for lists that change only on add/remove/reconnect — exactly the three
+/// choke points that invalidate this.
+fn tool_cache() -> &'static Mutex<HashMap<String, Vec<Tool>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Vec<Tool>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 #[tauri::command]
@@ -100,10 +121,17 @@ pub async fn mcp_list_tools(app: tauri::AppHandle) -> Result<Vec<Tool>, String> 
     let cfgs = load_configs(&config_path(&app)?)?;
     let mut all = Vec::new();
     for cfg in cfgs.iter().filter(|c| c.enabled) {
+        if let Some(cached) = tool_cache().lock().await.get(&cfg.id).cloned() {
+            all.extend(cached);
+            continue;
+        }
         if ensure_conn(&app, &cfg.id).await.is_err() { continue; } // skip servers that won't connect
         let conn = conns().lock().await.get(&cfg.id).cloned(); // brief global lock: clone the Arc out
         if let Some(conn) = conn {
-            if let Ok(tools) = conn.lock().await.list_tools().await { all.extend(tools); }
+            if let Ok(tools) = conn.lock().await.list_tools().await {
+                tool_cache().lock().await.insert(cfg.id.clone(), tools.clone());
+                all.extend(tools);
+            }
         }
     }
     Ok(all)
@@ -119,7 +147,12 @@ pub async fn mcp_call_tool(app: tauri::AppHandle, server: String, tool: String, 
 
 #[tauri::command]
 pub async fn mcp_reconnect(_app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
-    let mut map = conns().lock().await;
-    match id { Some(i) => { map.remove(&i); } None => map.clear() }
+    {
+        let mut map = conns().lock().await;
+        match id.as_deref() { Some(i) => { map.remove(i); } None => map.clear() }
+    }
+    // Tool lists follow the conns (P3-T5 cache invalidation choke point).
+    let mut cache = tool_cache().lock().await;
+    match id { Some(i) => { cache.remove(&i); } None => cache.clear() }
     Ok(())
 }

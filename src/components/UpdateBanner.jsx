@@ -46,8 +46,45 @@ export default function UpdateBanner({ currentVersion }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(GITHUB_API, { headers: { Accept: "application/vnd.github+json" } })
-      .then((r) => (r.ok ? r.json() : null))
+    // 24h gate + ETag (P3-T5): this fired an unconditional GitHub API hit on
+    // EVERY launch (and twice through the welcome flow / StrictMode), against
+    // the same 60/hr unauthenticated budget gist sharing uses. A cached
+    // check inside 24h short-circuits entirely; past it, If-None-Match turns
+    // an unchanged release into a free 304.
+    const CACHE_KEY = "plutos-terminals:update-check";
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); } catch { /* ignore */ }
+    if (cached && Date.now() - (cached.checkedAt || 0) < 24 * 60 * 60 * 1000) {
+      if (cached.tag && isNewer(cached.tag, currentVersion)) {
+        setLatest({ tag: cached.tag, url: cached.url || RELEASES_URL });
+      }
+      return () => { cancelled = true; };
+    }
+    const headers = { Accept: "application/vnd.github+json" };
+    if (cached?.etag) headers["If-None-Match"] = cached.etag;
+    fetch(GITHUB_API, { headers })
+      .then(async (r) => {
+        if (r.status === 304) {
+          // Unchanged release — refresh the clock, keep the cached verdict.
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cached, checkedAt: Date.now() })); } catch { /* ignore */ }
+          if (cached?.tag && isNewer(cached.tag, currentVersion) && !cancelled) {
+            setLatest({ tag: cached.tag, url: cached.url || RELEASES_URL });
+          }
+          return null;
+        }
+        if (!r.ok) return null;
+        const data = await r.json();
+        const etag = r.headers.get("etag") || undefined;
+        if (data?.tag_name) {
+          try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({
+              tag: data.tag_name, url: data.html_url || RELEASES_URL,
+              etag, checkedAt: Date.now(),
+            }));
+          } catch { /* ignore */ }
+        }
+        return data;
+      })
       .then((data) => {
         if (cancelled || !data || !data.tag_name) return;
         if (isNewer(data.tag_name, currentVersion)) {

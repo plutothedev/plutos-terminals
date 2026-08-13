@@ -46,41 +46,52 @@ fn run_text(mut cmd: Command) -> Result<String, String> {
     }
 }
 
-/// ping the host a few times and return the raw output.
+/// ping the host a few times and return the raw output. Subprocess wait runs
+/// off the runtime (P3-T5 — ~3-4s parked a tokio worker).
 #[tauri::command]
 pub async fn net_ping(host: String) -> Result<String, String> {
-    let host = host.trim();
-    if !valid_host(host) {
+    let host = host.trim().to_string();
+    if !valid_host(&host) {
         return Err("invalid host".into());
     }
-    let mut cmd = silent("ping");
-    #[cfg(target_os = "windows")]
-    cmd.args(["-n", "4", host]);
-    #[cfg(not(target_os = "windows"))]
-    cmd.args(["-c", "4", host]);
-    run_text(cmd)
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cmd = silent("ping");
+        #[cfg(target_os = "windows")]
+        cmd.args(["-n", "4", &host]);
+        #[cfg(not(target_os = "windows"))]
+        cmd.args(["-c", "4", &host]);
+        run_text(cmd)
+    })
+    .await
+    .map_err(|e| format!("ping task failed: {e}"))?
 }
 
 /// traceroute / tracert to the host (capped hop count) and return the output.
+/// Off the runtime (P3-T5): worst case ~67s (15 hops × 3 probes × 1500ms) —
+/// that used to park a tokio worker for the whole walk.
 #[tauri::command]
 pub async fn net_traceroute(host: String) -> Result<String, String> {
-    let host = host.trim();
-    if !valid_host(host) {
+    let host = host.trim().to_string();
+    if !valid_host(&host) {
         return Err("invalid host".into());
     }
-    #[cfg(target_os = "windows")]
-    let cmd = {
-        let mut c = silent("tracert");
-        c.args(["-h", "15", "-w", "1500", host]);
-        c
-    };
-    #[cfg(not(target_os = "windows"))]
-    let cmd = {
-        let mut c = silent("traceroute");
-        c.args(["-m", "15", "-w", "2", host]);
-        c
-    };
-    run_text(cmd)
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let cmd = {
+            let mut c = silent("tracert");
+            c.args(["-h", "15", "-w", "1500", &host]);
+            c
+        };
+        #[cfg(not(target_os = "windows"))]
+        let cmd = {
+            let mut c = silent("traceroute");
+            c.args(["-m", "15", "-w", "2", &host]);
+            c
+        };
+        run_text(cmd)
+    })
+    .await
+    .map_err(|e| format!("traceroute task failed: {e}"))?
 }
 
 /// Parse a port spec like "22,80,443" or "1-1024" or a mix into a deduped,
