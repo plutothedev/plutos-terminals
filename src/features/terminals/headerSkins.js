@@ -205,22 +205,26 @@ export const HEADER_SKINS = [
     // since on a light background more contrast — not more luminance — is what
     // "bright" has to mean.
     //
-    // Hues come from the One Light family, then each was darkened until it
-    // cleared WCAG AA (4.5:1) against the background, with bright variants at
-    // 5.5:1 so they stay distinguishable from their base. The stock One Light
-    // values sit at 3.0-3.9 against white — fine for a marketing page, thin for
-    // terminal-sized text (yellow was the worst at 3.06). brightBlack stays
-    // deliberately faint: it is what tools use for de-emphasized text.
+    // Palette v2 (2026-08-13, pluto: light is his daily driver): the first
+    // pass darkened every One Light hue to WCAG AA 4.5:1, which crushed hue
+    // identity — dark mustard/teal/forest at terminal size read as plain
+    // black ("why did you remove the colors"). SATURATION, not just contrast,
+    // is what makes a color read as a color at 12px. These are the proven
+    // light-terminal class (VS Code Light+ / solarized-adjacent): vivid
+    // chroma at ~3.3-4.6:1 — every major light terminal ships this range.
+    // Yellow is the one real compromise on white; solarized's golden #b58900
+    // is the readable end of yellow. brightBlack stays deliberately faint:
+    // it is what tools use for de-emphasized text.
     xterm: {
       background: "#fafafa",
       foreground: "#383a42",
       cursor: "#526fff",
       selectionBackground: "rgba(82,111,255,0.20)",
-      black: "#383a42", red: "#c44b3f", green: "#407e3f", yellow: "#976801",
-      blue: "#3a6edd", magenta: "#a626a4", cyan: "#0178ac", white: "#6f737b",
-      brightBlack: "#a0a1a7", brightRed: "#ad4337", brightGreen: "#3a7239",
-      brightYellow: "#865c01", brightBlue: "#315fbe", brightMagenta: "#8e1b8c",
-      brightCyan: "#016b98", brightWhite: "#60646a",
+      black: "#383a42", red: "#cd3131", green: "#107c10", yellow: "#b58900",
+      blue: "#0451a5", magenta: "#bc05bc", cyan: "#0598bc", white: "#6f737b",
+      brightBlack: "#a0a1a7", brightRed: "#b02a2a", brightGreen: "#0d680d",
+      brightYellow: "#997300", brightBlue: "#043f82", brightMagenta: "#9a049a",
+      brightCyan: "#04809e", brightWhite: "#60646a",
     },
   },
   {

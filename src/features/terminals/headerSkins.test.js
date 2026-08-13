@@ -32,15 +32,22 @@ describe("Light skin terminal palette", () => {
     expect(lum(t.foreground)).toBeLessThan(0.2); // dark text
   });
 
-  it("every ANSI colour clears WCAG AA against the background", () => {
+  it("every ANSI colour clears the 3:1 readability floor; body text clears AA", () => {
+    // Palette v2 contract (pluto uses light daily): the original pin was a
+    // blanket 4.5:1, and darkening every hue to hit it crushed chroma —
+    // mustard/teal/forest at terminal size read as plain black ("why did you
+    // remove the colors"). Accent colours now target the proven light-terminal
+    // range (VS Code Light+ class): vivid at >= 3:1 (the WCAG large-text /
+    // graphics floor). Body-text roles (foreground, black, white) keep 4.5.
     const t = light();
     const dim = new Set(["brightBlack"]); // de-emphasized text, faint by design
     const nonText = new Set(["background", "cursor", "selectionBackground"]);
+    const bodyText = new Set(["foreground", "black", "white", "brightWhite"]);
     const failures = Object.entries(t)
       .filter(([k, v]) => typeof v === "string" && v.startsWith("#") && !dim.has(k) && !nonText.has(k))
-      .map(([k, v]) => [k, v, contrast(v, t.background)])
-      .filter(([, , ratio]) => ratio < 4.5)
-      .map(([k, v, ratio]) => `${k} ${v} @ ${ratio.toFixed(2)}`);
+      .map(([k, v]) => [k, v, contrast(v, t.background), bodyText.has(k) ? 4.5 : 3.0])
+      .filter(([, , ratio, floor]) => ratio < floor)
+      .map(([k, v, ratio, floor]) => `${k} ${v} @ ${ratio.toFixed(2)} (needs ${floor})`);
     expect(failures).toEqual([]);
   });
 
