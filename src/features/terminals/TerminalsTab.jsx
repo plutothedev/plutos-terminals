@@ -54,9 +54,14 @@ import { writeToTab, writeBroadcast, getTabText, getPtyId } from "./ptyBridge.js
 import { getLayout, leafIds } from "./splitTree.js";
 import { navigatePane } from "./paneNav.js";
 import { reconcile, getEntry } from "./paneRegistry.js";
-import { allRenderedPaneIds } from "./paneIds.js";
+import { allRenderedPaneIds, tabPaneIdGroups } from "./paneIds.js";
 import { setProjectIndex, pruneActivities } from "./activityStore.js";
 import { sshAccount } from "./sshAccount.js";
+
+// P4-T5 trickle guard — module-level so ONE trickle runs per window realm no
+// matter how the tab tree remounts. Holds the pending timeout id (null = no
+// trickle active). Owned by the trickle effect below.
+let trickleTimer = null;
 
 export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {} }) {
   const state = st?.terminalsState || defaultState();
@@ -145,6 +150,38 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     reconcile(live);
     pruneActivities(live);
   }, [state.panels]);
+
+  // Boot-stagger trickle (P4-T5): hidden restored tabs spawn one TAB per tick
+  // after boot settles, so background sessions (agent tabs with startCommands
+  // the user expects running) still come up without a reveal — bounded by
+  // N×300ms. Tree-anchored (one instance per window realm via the module
+  // timer guard), tabId-keyed via tabPaneIdGroups so a 3-split tab releases
+  // together instead of eating 3 slots. Reads panels through a ref — layout
+  // changes mid-trickle are picked up next tick, and the reveal/startSpawn
+  // latch makes double-release harmless. StrictMode: cleanup clears + nulls
+  // the module timer, so the remount restarts cleanly.
+  const trickleStateRef = useRef(state.panels);
+  trickleStateRef.current = state.panels;
+  useEffect(() => {
+    if (trickleTimer !== null) return; // another mount in this realm owns it
+    const tick = () => {
+      trickleTimer = null;
+      for (const { paneIds } of tabPaneIdGroups(trickleStateRef.current)) {
+        const entries = paneIds.map(getEntry).filter(Boolean);
+        if (entries.some((e) => e.spawnState === "unspawned")) {
+          for (const e of entries) e.startSpawn?.();
+          trickleTimer = setTimeout(tick, 300);
+          return;
+        }
+      }
+      // Nothing unspawned — trickle done (a later-created pane spawns via
+      // its own mount/reveal path, not the trickle).
+    };
+    trickleTimer = setTimeout(tick, 1000); // let the visible panes' boot burst settle first
+    return () => {
+      if (trickleTimer !== null) { clearTimeout(trickleTimer); trickleTimer = null; }
+    };
+  }, []);
 
   // Root-pane→project index for the activity store's project rollups (P2-T1).
   // Root tab ids only — today's rollup semantics. Rebuilt on layout/project

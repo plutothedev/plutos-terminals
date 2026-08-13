@@ -766,7 +766,10 @@ function TerminalPane({
       flushTranscript();
       detachHost(tabId);
       const e = getEntry(tabId);
-      if (e && e === entry && e.spawnState === "starting") destroyEntry(tabId); // mid-spawn: no live handoff (decision 6)
+      // "unspawned" destroys too (P4-T5, re-verify H4 checklist item): a pane
+      // that unmounts before startSpawn ever fires has nothing live to hand
+      // off — parking would strand an empty entry forever.
+      if (e && e === entry && (e.spawnState === "starting" || e.spawnState === "unspawned")) destroyEntry(tabId); // no live handoff (decision 6)
       // otherwise: park. The PTY, xterm, event listeners, and bridge
       // registrations stay live on the entry; the destroy hooks own their
       // teardown (the old six-statement close block dissolved into them).
@@ -1163,7 +1166,19 @@ function TerminalPane({
     });
     registerDestroyHook(tabId, () => unregisterTranscriptFlusher(tabId));
 
-    (async () => {
+    // Boot stagger (P4-T5): the spawn body below no longer auto-fires on
+    // first mount. It's parked on the entry as a once-latched startSpawn —
+    // the latch is the spawnState transition itself ("unspawned" → "starting"
+    // happens synchronously, so the first caller wins and every later
+    // reveal/trickle call no-ops). Visible/active panes fire immediately
+    // (identical behavior to before for everything the user can see); hidden
+    // restored panes wait for first reveal ([visible] effect) or the
+    // TerminalsTab trickle. Scrollback replay rides inside — a hidden pane's
+    // replay defers with its spawn.
+    entry.startSpawn = () => {
+      if (entry.spawnState !== "unspawned") return;
+      entry.spawnState = "starting";
+      (async () => {
       const restored = await replayScrollback();
       try {
         const cols = Math.max(term.cols, MIN_COLS);
@@ -1725,7 +1740,13 @@ function TerminalPane({
           entry.jumpFwdId = null;
         }
       }
-    })();
+      })();
+    };
+    // At-boot-visible (and every user-opened) pane spawns immediately — the
+    // stagger only defers panes nobody is looking at. `active` implies
+    // `visible` (TerminalPanel passes active={tabVisible && paneActive}), so
+    // `visible` alone is the full immediate set.
+    if (visible) entry.startSpawn();
 
     const ro = new ResizeObserver(safeFit);
     ro.observe(container);
@@ -1747,6 +1768,9 @@ function TerminalPane({
   // When a hidden pane becomes visible, refit + focus + reset activity.
   useEffect(() => {
     if (!visible) return;
+    // First reveal fires the deferred spawn (P4-T5) — latched, so this is a
+    // no-op on every reveal after the first (or when the trickle beat us).
+    entryRef.current?.startSpawn?.();
     // Reset via entry.ui: the activity machine is create-once (it lives in
     // the FIRST mount's closures), so a later fiber's local reset would miss
     // it and leave the dot stuck after a move.

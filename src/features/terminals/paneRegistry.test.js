@@ -32,8 +32,29 @@ describe("paneRegistry", () => {
     const a = R.ensureEntry("p1");
     const b = R.ensureEntry("p1");
     expect(b).toBe(a);
-    expect(a.spawnState).toBe("starting");
+    // P4-T5 boot stagger: entries are born UNSPAWNED (spawn requested later
+    // by visibility/trickle via startSpawn), no longer auto-"starting".
+    expect(a.spawnState).toBe("unspawned");
+    expect(a.startSpawn).toBe(null);
     expect(typeof a.host.appendChild).toBe("function");
+  });
+
+  it("startSpawn latch: state transition is the once-latch (P4-T5)", async () => {
+    const R = await load();
+    R.destroyAll();
+    const e = R.ensureEntry("p-latch");
+    // Mirror TerminalPane's wiring: the guard IS the spawnState check.
+    let fired = 0;
+    e.startSpawn = () => {
+      if (e.spawnState !== "unspawned") return;
+      e.spawnState = "starting";
+      fired++;
+    };
+    e.startSpawn(); // reveal
+    e.startSpawn(); // trickle arriving late
+    e.startSpawn(); // second reveal
+    expect(fired).toBe(1);
+    expect(e.spawnState).toBe("starting");
   });
 
   it("attachHost moves the SAME host node between slots (implicit re-parent)", async () => {

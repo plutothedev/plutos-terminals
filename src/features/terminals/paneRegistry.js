@@ -28,16 +28,24 @@
 //
 // StrictMode / mid-spawn semantics: React 18 dev StrictMode mounts, unmounts,
 // and remounts synchronously before the first real commit. This module
-// exposes `spawnState` ("starting" | "live") precisely so a caller's
-// cleanup can tell the two cases apart: if cleanup runs while the entry is
-// still "starting" (the PTY hasn't finished spawning), there is nothing live
-// to hand off to a next mount, so the caller destroys the entry outright
+// exposes `spawnState` ("unspawned" | "starting" | "live") precisely so a
+// caller's cleanup can tell the cases apart: if cleanup runs while the entry
+// is still "unspawned" (spawn never requested — P4-T5 boot stagger) or
+// "starting" (the PTY hasn't finished spawning), there is nothing live to
+// hand off to a next mount, so the caller destroys the entry outright
 // instead of parking it; the in-flight spawn callback then checks
 // getEntry(id) on arrival and kills the orphaned PTY if the entry is already
 // gone. Once spawnState is "live", cleanup parks — only the sweep
 // or destroyAll ever destroys a live entry. This module provides the
-// primitives (spawnState, destroyEntry, detachHost); TerminalPane (Task 3)
-// is what actually branches on them.
+// primitives (spawnState, startSpawn, destroyEntry, detachHost);
+// TerminalPane is what actually branches on them.
+//
+// Boot stagger (P4-T5): entries are born "unspawned" with a `startSpawn`
+// slot TerminalPane's first mount fills (once-latched — the first caller
+// wins, every later call no-ops). Visible/active panes fire it immediately;
+// hidden panes wait for first reveal (TerminalPane's [visible] effect) or
+// the TerminalsTab trickle (one hidden TAB per tick), so a 20-tab restore
+// no longer means 20 simultaneous ConPTY spawns + replays.
 //
 // Lock screen / crash recovery / destroyAll: this module has no notion of
 // "locked" or "crashed" — App.jsx's lock-transition effect and
@@ -76,7 +84,8 @@ function makeEntry() {
     search: null,
     ptyId: null,
     jumpFwdId: null,
-    spawnState: "starting", // "starting" | "live" — flips at spawn success; nothing assigns a third state
+    spawnState: "unspawned", // "unspawned" | "starting" | "live" — startSpawn flips to "starting", spawn success to "live"
+    startSpawn: null, // filled by TerminalPane's first mount (once-latched); trickle/reveal call it
     setupDone: false,
     onDestroy: [],
     ui: null, // per-mount pointer table; repointed on EVERY mount (decision 4)

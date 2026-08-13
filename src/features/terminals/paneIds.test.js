@@ -1,6 +1,6 @@
 // (C)
 import { describe, it, expect } from "vitest";
-import { allRenderedPaneIds } from "./paneIds.js";
+import { allRenderedPaneIds, tabPaneIdGroups } from "./paneIds.js";
 import { getLayout, leafIds } from "./splitTree.js";
 
 // Fixture cases (per the B1 plan, Task 2 Step 2):
@@ -101,5 +101,42 @@ describe("allRenderedPaneIds", () => {
     expect(allRenderedPaneIds([])).toEqual([]);
     expect(allRenderedPaneIds([{ id: "p1", tabs: [] }])).toEqual([]);
     expect(allRenderedPaneIds(undefined)).toEqual([]);
+  });
+});
+
+describe("tabPaneIdGroups (P4-T5 trickle grouping)", () => {
+  it("groups pane ids by owning tab — a split tab is ONE group (one trickle slot)", () => {
+    const panels = [
+      {
+        id: "panel1",
+        activeTabId: "tabA",
+        tabs: [
+          { id: "tabA" },
+          {
+            id: "tabB",
+            layout: {
+              id: "split-1", dir: "row", ratio: 0.5,
+              a: { id: "tabB-leaf-1" },
+              b: { id: "tabB-leaf-2" },
+            },
+          },
+          { id: "nb", notebook: { name: "n.md" } }, // special — excluded
+        ],
+      },
+      { id: "panel2", activeTabId: "tabC", tabs: [{ id: "tabC" }] },
+    ];
+    expect(tabPaneIdGroups(panels)).toEqual([
+      { tabId: "tabA", paneIds: ["tabA"] },
+      { tabId: "tabB", paneIds: ["tabB-leaf-1", "tabB-leaf-2"] },
+      { tabId: "tabC", paneIds: ["tabC"] },
+    ]);
+    // Flat union must equal allRenderedPaneIds — the sweep and the trickle
+    // must never disagree about what exists.
+    expect(tabPaneIdGroups(panels).flatMap((g) => g.paneIds)).toEqual(allRenderedPaneIds(panels));
+  });
+
+  it("tolerates empty/undefined", () => {
+    expect(tabPaneIdGroups([])).toEqual([]);
+    expect(tabPaneIdGroups(undefined)).toEqual([]);
   });
 });

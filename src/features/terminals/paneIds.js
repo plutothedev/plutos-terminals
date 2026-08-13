@@ -32,6 +32,21 @@ export function isSpecialTab(tab) {
   return !!(tab && (tab.home || tab.vnc || tab.rdp || tab.notebook));
 }
 
+// Pane ids grouped by owning TAB, in render order (P4-T5 trickle). tabId
+// keying is what stops a 3-split tab from consuming 3 trickle slots — the
+// whole tab's panes release together. Same special-tab exclusion as
+// allRenderedPaneIds (no TerminalPane mounts → nothing to spawn).
+export function tabPaneIdGroups(panels) {
+  const groups = [];
+  for (const panel of panels || []) {
+    for (const tab of panel.tabs || []) {
+      if (isSpecialTab(tab)) continue;
+      groups.push({ tabId: tab.id, paneIds: leafIds(getLayout(tab)) });
+    }
+  }
+  return groups;
+}
+
 export function allRenderedPaneIds(panels) {
   const ids = [];
   for (const panel of panels || []) {
