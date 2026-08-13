@@ -55,6 +55,7 @@ import { getLayout, leafIds } from "./splitTree.js";
 import { navigatePane } from "./paneNav.js";
 import { reconcile, getEntry } from "./paneRegistry.js";
 import { allRenderedPaneIds } from "./paneIds.js";
+import { setProjectIndex, pruneActivities } from "./activityStore.js";
 import { sshAccount } from "./sshAccount.js";
 
 export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {} }) {
@@ -137,9 +138,27 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // covers every close path (tab/panel/pane close, reset-workspace, workspace
   // load, worktree discard) with one mechanism. Runs after unmounted panes'
   // cleanups in the same commit (React child-cleanup-before-parent-effect order).
+  // The activity store prunes on the same sweep (P2-T1): stale entries would
+  // otherwise pin needs-you dots to dead/reused ids.
   useEffect(() => {
-    reconcile(new Set(allRenderedPaneIds(state.panels)));
+    const live = new Set(allRenderedPaneIds(state.panels));
+    reconcile(live);
+    pruneActivities(live);
   }, [state.panels]);
+
+  // Root-pane→project index for the activity store's project rollups (P2-T1).
+  // Root tab ids only — today's rollup semantics. Rebuilt on layout/project
+  // changes, which re-render everything anyway; the store routes per-write
+  // project notifications through it.
+  useEffect(() => {
+    const idx = new Map();
+    for (const panel of state.panels) {
+      for (const tab of panel.tabs || []) {
+        if (tab.projectId) idx.set(tab.id, tab.projectId);
+      }
+    }
+    setProjectIndex(idx);
+  }, [state.panels, projects]);
 
   // Session-restore confirmation toast — fires once per app launch (not per
   // React remount) when there's a non-trivial saved state to restore.
@@ -291,13 +310,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Per-tab activity + Claude /cost telemetry (transient) and the derived
-  // aggregates the chrome reads. See useTabTelemetry.
+  // Claude /cost telemetry (transient) + per-tab project maps. Activity lives
+  // in activityStore (P2-T1) — consumers subscribe to their own slice.
   const {
-    tabActivities, tabCosts,
-    handleTabCostUpdate, handleTabActivityChange,
+    tabCosts,
+    handleTabCostUpdate,
     tabAutoApprove, tabProjectNames,
-    totalCost, projectActivities,
+    totalCost,
   } = useTabTelemetry({ state, projects });
 
   const persist = useCallback((next) => {
@@ -626,16 +645,18 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Actions surfaced on the MobaXterm launch screen (home tabs). useState
   // setters have stable identity, so they're omitted from the dep list.
+  // (Activity rollups left this object in P2-T1 — MobaHomeScreen subscribes
+  // to useProjectRollups itself, so an agent flip no longer churns homeApi's
+  // identity through every panel.)
   const homeApi = useMemo(() => ({
     projects,
-    projectActivities,
     startLocal: convertHomeToShell,
     openProject: openProjectInPanel,
     newSession: () => setDialog({ mode: "add" }),
     vnc: () => setVncOpen(true),
     rdp: () => setRdpOpen(true),
     serial: () => setSerialOpen(true),
-  }), [projects, projectActivities, convertHomeToShell, openProjectInPanel]);
+  }), [projects, convertHomeToShell, openProjectInPanel]);
 
   const startRecordingActive = useCallback(() => {
     if (!activeTabId) return;
@@ -894,7 +915,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 docked
                 onCollapse={sidebarCollapse}
                 projects={projects}
-                projectActivities={projectActivities}
                 onAddProject={sidebarAddProject}
                 onEditProject={sidebarEditProject}
                 onRemoveProject={removeProject}
@@ -920,7 +940,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               <AgentDashboard
                 panels={state.panels}
                 activePanelId={state.activePanelId}
-                tabActivities={tabActivities}
                 tabCosts={tabCosts}
                 onFocusTab={(panelId, tabId) => switchTab(panelId, tabId)}
                 onReviewDiff={(wt) => setDiffWorktree(wt)}
@@ -960,7 +979,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               panel={panel}
               isActive={panel.id === state.activePanelId}
               canClosePanel={canClosePanel}
-              tabActivities={tabActivities}
               xtermTheme={xtermTheme}
               promptEditor={!!st?.promptEditor}
               promptEditorVim={!!st?.promptEditorVim}
@@ -972,7 +990,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onCloseTab={closeTab}
               onSwitchTab={switchTab}
               onClosePanel={closePanel}
-              onTabActivityChange={handleTabActivityChange}
               onTabCostUpdate={handleTabCostUpdate}
               onRenameTab={renameTab}
               onSetTabColor={setTabColor}
@@ -1007,7 +1024,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 {dockTab === "assistant" ? (
                   <DockAssistant onSendToTerminal={sendToActiveTerminal} shellName={shellName} cwd={activeTab?.cwd} prompts={savedPrompts} />
                 ) : dockTab === "monitor" ? (
-                  <DockMonitor sysStats={sysStats} panels={state.panels} activities={tabActivities} />
+                  <DockMonitor sysStats={sysStats} panels={state.panels} />
                 ) : activeTab?.connection ? (
                   <SftpBrowser
                     docked
@@ -1119,7 +1136,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <StatusBar
         activeTab={activeTab}
         activeTabId={activeTabId}
-        tabActivities={tabActivities}
         shellName={shellName}
         broadcast={broadcast}
         bcastTargets={bcastTargets}

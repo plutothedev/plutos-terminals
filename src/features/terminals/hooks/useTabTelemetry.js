@@ -46,9 +46,9 @@ export function activityCounts(tabs, activities) {
 }
 
 export function useTabTelemetry({ state, projects }) {
-  // Per-tab activity state ({tabId: 'idle'|'active'|'done'}). NOT persisted —
-  // it's transient and meaningless across app restarts (PTYs respawn fresh).
-  const [tabActivities, setTabActivities] = useState({});
+  // (Activity state moved to activityStore.js in P2-T1 — producers write the
+  // module store; consumers subscribe to their slice. This hook keeps costs
+  // and the per-tab project maps.)
 
   // Per-tab cost tracking ({tabId: { tokens, cost }}). Aggregated for the
   // header display. Not persisted — cumulative figures come from Claude's
@@ -80,20 +80,6 @@ export function useTabTelemetry({ state, projects }) {
         return { ...prev, [tabId]: latest };
       });
     }, 1000));
-  }, []);
-
-  const handleTabActivityChange = useCallback((tabId, nextState) => {
-    setTabActivities(prev => {
-      if (prev[tabId] === nextState) return prev;
-      // 'idle' is the default — drop the entry instead of storing it, so the
-      // map stays small as tabs cycle through states.
-      if (nextState === "idle") {
-        if (!(tabId in prev)) return prev;
-        const { [tabId]: _, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [tabId]: nextState };
-    });
   }, []);
 
   // Maps from tab id -> project metadata, so each TerminalPane knows which
@@ -134,26 +120,13 @@ export function useTabTelemetry({ state, projects }) {
     return { cost, tokens };
   }, [tabCosts, livePaneIds]);
 
-  // Per-project activity: aggregate of any open tab tied to this project.
-  // 'active' wins over 'done' wins over 'idle'.
-  const projectActivities = useMemo(() => {
-    const result = {};
-    if (!projects.length) return result;
-    for (const panel of state.panels) {
-      for (const tab of panel.tabs) {
-        if (!tab.projectId) continue;
-        const ts = tabActivities[tab.id];
-        if (!ts || ts === "idle") continue;
-        result[tab.projectId] = mergeActivity(result[tab.projectId], ts);
-      }
-    }
-    return result;
-  }, [tabActivities, state.panels, projects]);
+  // (projectActivities moved to the activity store's useProjectRollups —
+  // driven by the root-pane→project index TerminalsTab maintains. P2-T1.)
 
   return {
-    tabActivities, tabCosts,
-    handleTabCostUpdate, handleTabActivityChange,
+    tabCosts,
+    handleTabCostUpdate,
     tabAutoApprove, tabProjectNames,
-    totalCost, projectActivities,
+    totalCost,
   };
 }

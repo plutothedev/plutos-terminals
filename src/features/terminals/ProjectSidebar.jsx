@@ -3,6 +3,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import "./terminals.css";
 import { SLocal, SSsh, SWindows, SServer, SBox, SBot, SModels, SFolder, SAgents } from "./toolbarIcons.jsx";
+import { useProjectRollups } from "./activityStore.js";
 
 const SIDEBAR_BG = "var(--phn-surface-alt-bg, #0d0d0d)";
 const HEADER_BG = "var(--phn-surface-bg, #181818)";
@@ -134,7 +135,6 @@ const WAITING_FG = "#E0A93C";
 
 function ProjectSidebar({
   projects,
-  projectActivities,
   collapsed = false,
   onToggleCollapse,
   onCollapse,
@@ -216,6 +216,11 @@ function ProjectSidebar({
   // Recent files per project. Fetched on first expand; cached for the session.
   const [recentFiles, setRecentFiles] = useState({}); // {projectId: string[]}
   const [expandedId, setExpandedId] = useState(null); // only one project expanded at a time
+
+  // Per-project activity rollups from the store (P2-T1): cached-object
+  // subscription — an agent flip re-renders the sidebar (rows + shake below),
+  // but no longer the whole app on the way here.
+  const projectActivities = useProjectRollups();
 
   // Shake projects whose tied tab just transitioned active→done. Tracks
   // previous per-project activity in a ref; a 400ms class flicker drives

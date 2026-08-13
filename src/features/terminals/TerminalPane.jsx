@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { listen } from "@backend";
+import { setPaneActivity } from "./activityStore.js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -244,7 +245,8 @@ export function transcriptName(projectName, tabId) {
 // `tabId` keys the on-disk scrollback file.
 // `projectName` shapes the transcript filename.
 // `autoApprove` enables Claude permission auto-confirmation.
-// `onActivityChange(state)` and `onCostUpdate({tokens, cost})` report up.
+// `onCostUpdate({tokens, cost})` reports up; activity goes straight to the
+// module activity store (P2-T1).
 export default function TerminalPane({
   visible,
   active = true,
@@ -257,7 +259,6 @@ export default function TerminalPane({
   tabId,
   projectName,
   autoApprove,
-  onActivityChange,
   onCostUpdate,
   promptEditor = false, // opt-in app-owned prompt editor (Milestone 2, slice 1)
   promptEditorVim = false, // vim keybindings inside the prompt editor
@@ -321,8 +322,6 @@ export default function TerminalPane({
   activeRef.current = active;
 
   // Live-prop refs so we don't have to re-run the spawn effect on prop change.
-  const onActivityRef = useRef(onActivityChange);
-  onActivityRef.current = onActivityChange;
   const onCostRef = useRef(onCostUpdate);
   onCostRef.current = onCostUpdate;
   const autoApproveRef = useRef(autoApprove);
@@ -408,9 +407,11 @@ export default function TerminalPane({
     if (activityRef.current === next) return;
     const prev = activityRef.current;
     activityRef.current = next;
-    // Report through entry.ui so the CURRENT fiber's callback gets the event
-    // even when this closure belongs to an earlier mount (decision 4).
-    try { (entryRef.current?.ui?.onActivity ?? onActivityRef.current)?.(next); } catch {}
+    // Straight into the module-level activity store (P2-T1). The store is
+    // fiber-agnostic, which retires the entry.ui.onActivity indirection this
+    // line used to need for moved panes — and only THIS pane's subscribers
+    // re-render instead of the whole app.
+    try { setPaneActivity(tabIdRef.current, next); } catch {}
     // v0.1.25: audio cue when an agent transitions from working to done.
     // Soft Web-Audio-generated tone — no asset to bundle. Only fires when
     // the tab is NOT currently visible (you don't need a ding for the tab
@@ -696,7 +697,6 @@ export default function TerminalPane({
       isActive: () => activeRef.current,
       projectName: () => projectNameRef.current,
       onCost: (next) => onCostRef.current?.(next),
-      onActivity: (a) => onActivityRef.current?.(a),
       resizeReprint: (cols) => { bannerRedrawRef.current?.(cols); },
       bannerRedraw: { get: () => bannerRedrawRef.current, set: (fn) => { bannerRedrawRef.current = fn; } },
       bannerCols: { get: () => bannerColsRef.current, set: (v) => { bannerColsRef.current = v; } },

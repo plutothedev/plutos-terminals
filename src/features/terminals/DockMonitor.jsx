@@ -5,6 +5,7 @@
 // line. Read-only; no extra polling of its own.
 
 import { ACTIVITY_RANK, tabStatus } from "./hooks/useTabTelemetry.js";
+import { useActivitiesSnapshot } from "./activityStore.js";
 
 function loadColor(p) {
   return p < 60 ? "#6FB85C" : p < 85 ? "#E0A93C" : "#E0574A";
@@ -27,7 +28,10 @@ function Gauge({ label, value, pct }) {
 // of you. active/done keep their established colours.
 const DOT = { waiting: "#E0A93C", active: "#4FB8E6", done: "#6FB85C", idle: "#586068" };
 
-export default function DockMonitor({ sysStats, panels, activities }) {
+export default function DockMonitor({ sysStats, panels }) {
+  // Whole-map subscription (P2-T1) — this dock is conditionally mounted, so
+  // the blast radius of a flip is one open panel, not the app.
+  const activities = useActivitiesSnapshot();
   const sessions = [];
   (panels || []).forEach((pan) =>
     (pan.tabs || []).forEach((t) => sessions.push(t))

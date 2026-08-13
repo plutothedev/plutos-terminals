@@ -11,6 +11,7 @@ import { SSplitRow, SSplitCol } from "./toolbarIcons.jsx";
 import { dropZone, zoneToSplit, zonePreviewRect } from "./splitDropZones.js";
 import { isSpecialTab } from "./paneIds.js";
 import { mergeActivity } from "./hooks/useTabTelemetry.js";
+import { getPaneActivity, usePanelActivityStamp } from "./activityStore.js";
 import "./terminals.css";
 
 // Colors come from the active app skin via CSS vars on <html>. Module-level
@@ -79,20 +80,22 @@ function markTabInsert(el, after) {
 // Activity for a single tab = the "loudest" of its panes (active > done > idle).
 // Both rollups go through the shared mergeActivity (waiting > active > done >
 // idle) so the tab dot, the panel dot, the project row and the agent dashboard
-// can never disagree about what a session is doing.
-function aggregateTabActivity(tab, tabActivities) {
+// can never disagree about what a session is doing. Reads come straight from
+// the activity store (P2-T1) inside a render the panel's own leaf-set
+// subscription triggered — no map prop, no app-wide identity churn.
+function aggregateTabActivity(tab) {
   let best = "idle";
   for (const id of leafIds(getLayout(tab))) {
-    best = mergeActivity(best, tabActivities?.[id] || "idle");
+    best = mergeActivity(best, getPaneActivity(id));
     if (best === "waiting") break;
   }
   return best;
 }
 
-function aggregatePanelActivity(panel, tabActivities) {
+function aggregatePanelActivity(panel) {
   let best = "idle";
   for (const t of panel.tabs) {
-    best = mergeActivity(best, aggregateTabActivity(t, tabActivities));
+    best = mergeActivity(best, aggregateTabActivity(t));
     if (best === "waiting") break;
   }
   return best;
@@ -130,7 +133,6 @@ function TerminalPanel({
   panel,
   isActive,
   canClosePanel,
-  tabActivities,
   xtermTheme,
   promptEditor,
   promptEditorVim,
@@ -144,7 +146,6 @@ function TerminalPanel({
   onCloseTab,
   onSwitchTab,
   onClosePanel,
-  onTabActivityChange,
   onTabCostUpdate,
   onRenameTab,
   onSetTabColor,
@@ -176,7 +177,15 @@ function TerminalPanel({
   }), [panel.id, onActivate, onAddTab, onCloseTab, onSwitchTab, onClosePanel, onDuplicateTab, onDetachTab, onCloseOthers]);
 
   const activeTab = panel.tabs.find(t => t.id === panel.activeTabId) || panel.tabs[0];
-  const panelState = aggregatePanelActivity(panel, tabActivities);
+  // Subscribe to THIS panel's leaf set only (P2-T1): an activity flip in one
+  // of our panes re-renders this panel's strip; flips elsewhere don't touch
+  // us. The stamp is a primitive, so unchanged sets never re-render.
+  const leafKey = useMemo(
+    () => panel.tabs.flatMap((t) => leafIds(getLayout(t))).join(","),
+    [panel.tabs]
+  );
+  usePanelActivityStamp(leafKey);
+  const panelState = aggregatePanelActivity(panel);
 
   // Panel bg = xterm bg so the active tab visually merges with the terminal
   // output area below. Falls back to dark if no xterm theme provided yet.
@@ -443,7 +452,7 @@ function TerminalPanel({
         <div className="moba-tabstrip" style={{ display: "flex", flex: 1, minWidth: 0, overflowX: "auto", overflowY: "hidden", alignItems: "stretch" }}>
           {panel.tabs.map((tab, ti) => {
             const active = tab.id === panel.activeTabId;
-            const tabState = aggregateTabActivity(tab, tabActivities);
+            const tabState = aggregateTabActivity(tab);
             const isRenamingThis = renamingId === tab.id;
             const paneCount = leafIds(getLayout(tab)).length;
             const dotBg = tab.color
@@ -642,7 +651,6 @@ function TerminalPanel({
                       tabId={node.id}
                       projectName={isRoot ? (tabProjectNames?.[tab.id] || null) : null}
                       autoApprove={isRoot ? (tabAutoApprove?.[tab.id] || false) : false}
-                      onActivityChange={(state) => onTabActivityChange?.(node.id, state)}
                       onCostUpdate={(c) => onTabCostUpdate?.(node.id, c)}
                       saveUser={saveUser}
                     />

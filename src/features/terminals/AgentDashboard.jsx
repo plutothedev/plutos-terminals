@@ -7,6 +7,7 @@ import { useState } from "react";
 import { getLayout, leafIds } from "./splitTree";
 import { SBot, SAgents, SLink, SSerial, SWindows, SLocal, SAsk } from "./toolbarIcons.jsx";
 import { tabStatus } from "./hooks/useTabTelemetry.js";
+import { useActivitiesSnapshot } from "./activityStore.js";
 import "./terminals.css";
 
 function tabCostTokens(tab, tabCosts) {
@@ -23,8 +24,12 @@ const fmtTokens = (t) => (t >= 1000 ? `${(t / 1000).toFixed(1)}k` : `${t}`);
 const DOT = { waiting: "#E0A93C", active: "#FBBF24", done: "#34D399", idle: "#5a5a5a" };
 const LABEL = { waiting: "needs you", active: "working", done: "done", idle: "idle" };
 
-export default function AgentDashboard({ panels, activePanelId, tabActivities, tabCosts, onFocusTab, onReviewDiff, onSummarize }) {
+export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocusTab, onReviewDiff, onSummarize }) {
   const [filter, setFilter] = useState("all"); // all | waiting | active | done
+  // Whole-map subscription (P2-T1): header counts, filter pills and the
+  // waiting-first sort all need every tab's status; the dashboard mounts only
+  // while its ribbon is open.
+  const tabActivities = useActivitiesSnapshot();
 
   const rows = [];
   let total = 0, totalTokens = 0, working = 0, waiting = 0;

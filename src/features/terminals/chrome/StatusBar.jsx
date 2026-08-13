@@ -3,11 +3,11 @@ import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../../app
 import { SAsk, SBroadcast } from "../toolbarIcons.jsx";
 import * as recording from "../recording.js";
 import ActiveDims from "./ActiveDims.jsx";
+import { useTabActivity } from "../activityStore.js";
 
 export default function StatusBar({
   activeTab,
   activeTabId,
-  tabActivities,
   shellName,
   broadcast,
   bcastTargets,
@@ -21,6 +21,8 @@ export default function StatusBar({
   activeModelName,
   claudeAvailable,
 }) {
+  // Slice subscription (P2-T1): only THIS tab's activity re-renders the bar.
+  const activeActivity = useTabActivity(activeTabId);
   return (
     <div
       className="phn-statusbar"
@@ -37,7 +39,7 @@ export default function StatusBar({
       {/* LEFT — active session · shell/encoding */}
       {activeTab && (
         <span className="moba-stat" title="Active session · terminal size (columns × rows)">
-          <span className="dot" style={{ background: tabActivities[activeTabId] === "active" ? "#4FB8E6" : tabActivities[activeTabId] === "done" ? "var(--phn-success, #5FB87A)" : "var(--phn-text-faint, #586068)" }} />
+          <span className="dot" style={{ background: activeActivity === "active" ? "#4FB8E6" : activeActivity === "done" ? "var(--phn-success, #5FB87A)" : "var(--phn-text-faint, #586068)" }} />
           {activeTab.label}<ActiveDims tabId={activeTabId} style={{ opacity: 0.55, marginLeft: 5 }} />
         </span>
       )}

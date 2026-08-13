@@ -6,6 +6,7 @@
 // TerminalsTab (start a shell in-place, open a saved session, open a modal).
 import "./terminals.css";
 import { SLocal, SSsh, SMouse, SWindows, SSerial } from "./toolbarIcons.jsx";
+import { useProjectRollups } from "./activityStore.js";
 
 const QUICK = [
   { id: "local", icon: <SLocal size={22} />, label: "Local shell", desc: "Start a shell here" },
@@ -17,7 +18,10 @@ const QUICK = [
 
 export default function MobaHomeScreen({ panelId, tabId, api }) {
   const projects = api?.projects || [];
-  const acts = api?.projectActivities || {};
+  // Direct store subscription (P2-T1): home tabs are the only mount, and
+  // keeping rollups out of homeApi keeps agent flips from churning that
+  // object's identity through every panel.
+  const acts = useProjectRollups();
 
   const onQuick = (id) => {
     if (id === "local") api?.startLocal?.(panelId, tabId);
