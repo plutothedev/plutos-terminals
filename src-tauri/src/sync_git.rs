@@ -238,13 +238,31 @@ fn maybe_gc_at(dir: &Path, pat: Option<String>, threshold: usize) -> bool {
     loose_object_count(dir) >= threshold && gc_at(dir, pat).is_ok()
 }
 
+// ── Repo-op serialization + off-runtime execution (P3-T4) ───────────────────
+// The three command bodies are blocking git2 network I/O; as bare async fns
+// they parked tokio workers for seconds (a slow remote stalled unrelated
+// IPC). Each now runs in spawn_blocking, and ALL repo operations — including
+// the detached gc below — serialize on one static mutex: unserialized, gc's
+// clone-and-swap on POSIX renames the live dir under a concurrent push's open
+// handles and the push can commit the OLD workdir (silent settings revert).
+// The lock is taken via blocking_lock() as the FIRST statement INSIDE each
+// blocking closure (legal on the blocking pool; the guard-across-await
+// alternative releases early if the outer future is dropped).
+static REPO_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tauri::command]
 pub async fn sync_clone_or_open(
     app: tauri::AppHandle,
     repo_url: String,
     pat: Option<String>,
 ) -> Result<(), String> {
-    clone_or_open_at(&repo_dir(&app)?, &repo_url, pat)
+    let dir = repo_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _repo = REPO_LOCK.blocking_lock();
+        clone_or_open_at(&dir, &repo_url, pat)
+    })
+    .await
+    .map_err(|e| format!("sync task failed: {e}"))?
 }
 
 #[tauri::command]
@@ -252,7 +270,13 @@ pub async fn sync_pull(
     app: tauri::AppHandle,
     pat: Option<String>,
 ) -> Result<PullResult, String> {
-    pull_at(&repo_dir(&app)?, pat)
+    let dir = repo_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _repo = REPO_LOCK.blocking_lock();
+        pull_at(&dir, pat)
+    })
+    .await
+    .map_err(|e| format!("sync task failed: {e}"))?
 }
 
 #[tauri::command]
@@ -263,11 +287,25 @@ pub async fn sync_push(
     pat: Option<String>,
 ) -> Result<(), String> {
     let dir = repo_dir(&app)?;
-    push_at(&dir, salt, blob, pat.clone())?;
-    // Right after a successful push local == remote, the only moment gc_at's
-    // clone-and-swap is guaranteed lossless. Best-effort by design: the push
-    // above already succeeded, so a gc failure must not fail this command.
-    let _ = maybe_gc_at(&dir, pat, GC_LOOSE_OBJECT_THRESHOLD);
+    let gc_dir = dir.clone();
+    let gc_pat = pat.clone();
+    let pushed = tauri::async_runtime::spawn_blocking(move || {
+        let _repo = REPO_LOCK.blocking_lock();
+        push_at(&dir, salt, blob, pat)
+    })
+    .await
+    .map_err(|e| format!("sync task failed: {e}"))?;
+    pushed?;
+    // gc runs DETACHED so the caller's latency never pays the ~every-21st-push
+    // full re-clone, but still under REPO_LOCK: right after a successful push
+    // local == remote (gc_at's lossless precondition), and any sync that
+    // sneaks in before the gc acquires the lock re-establishes that same
+    // equality — the lock only has to prevent MID-SWAP concurrency, and does.
+    // Best-effort by design: the push already succeeded.
+    tauri::async_runtime::spawn_blocking(move || {
+        let _repo = REPO_LOCK.blocking_lock();
+        let _ = maybe_gc_at(&gc_dir, gc_pat, GC_LOOSE_OBJECT_THRESHOLD);
+    });
     Ok(())
 }
 

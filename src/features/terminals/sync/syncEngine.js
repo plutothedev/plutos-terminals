@@ -6,7 +6,7 @@
 import { invoke } from "@backend";
 import { encrypt, decrypt, newSalt, CorruptBlobError } from "./crypto.js";
 import { merge } from "./merge.js";
-import { writeSurface, deriveLocal, surfaceValueKey } from "./syncState.js";
+import { writeSurface, readSurface, deriveLocal, surfaceValueKey } from "./syncState.js";
 import { pushWithRePull } from "./pushRetry.js";
 import { getPassphrase, getPat } from "./syncSecrets.js";
 
@@ -15,6 +15,10 @@ const POLL_MS = 5 * 60 * 1000;
 const SNAP_KEY = "plutos-terminals:syncsnap:v0";
 
 let timer = null, poll = null, busy = false;
+// P3-T4: pendingResync = a change arrived mid-sync (re-run once on finish);
+// lastSyncedKey = surface key of the last SUCCESSFUL sync, gating notifyChange.
+let pendingResync = false;
+let lastSyncedKey = null;
 const listeners = new Set();
 let cfg = { getStores: null, applyStores: null, getRepoUrl: null, setStatus: () => {} };
 
@@ -77,7 +81,12 @@ async function doPush(pass, pat, merged, salt) {
 }
 
 export async function syncNow() {
-  if (busy) return;
+  if (busy) {
+    // A change during an in-flight sync used to wait for the 5-min poll
+    // (audit: busy-drop). Flag it; the finally block re-runs once.
+    pendingResync = true;
+    return;
+  }
   busy = true; // set synchronously before any await
   try {
     const repoUrl = cfg.getRepoUrl();
@@ -98,14 +107,34 @@ export async function syncNow() {
       );
     }
     status({ state: "ok", at: Date.now() });
+    // Record the surface key of what ACTUALLY synced — recorded here, on
+    // success, never at notify time (audit M8: a busy-dropped debounce would
+    // otherwise leave changed-but-recorded state stuck until the poll).
+    lastSyncedKey = surfaceValueKey(merged);
   } catch (e) {
     status(classifyError(e));
   } finally {
     busy = false;
+    if (pendingResync) {
+      pendingResync = false;
+      // Re-run once for the change that arrived mid-sync.
+      timer = setTimeout(() => { syncNow(); }, 250);
+    }
   }
 }
 
 export function notifyChange() {
+  // Gate (P3-T4): EVERY persist called this — pane focus, splits, closes —
+  // scheduling a full git fetch after the debounce, though only the small
+  // synced surface (skin/editor flags/snippets/prompts/macros/themes)
+  // matters. Early-return when that surface is unchanged since the last
+  // SUCCESSFUL sync. The 5-min poll stays ungated (remote-inbound changes).
+  try {
+    if (lastSyncedKey !== null && cfg?.getStores) {
+      const key = surfaceValueKey(readSurface(cfg.getStores()));
+      if (key === lastSyncedKey) return;
+    }
+  } catch { /* fall through to a normal sync on any read error */ }
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => { syncNow(); }, PUSH_DEBOUNCE_MS);
 }

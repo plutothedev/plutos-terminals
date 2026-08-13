@@ -15,6 +15,12 @@ export async function pushWithRePull(tryPush, rePull, attempts = 4) {
     } catch (e) {
       lastErr = e;
       if (i === attempts - 1) break;
+      // Backoff + jitter (P3-T4): the old loop retried with ZERO delay — on a
+      // contended remote that was 4 back-to-back pull+merge+push rounds. 1s
+      // then 3s, ±20% jitter so two machines don't lockstep.
+      const base = i === 0 ? 1000 : 3000;
+      const jitter = base * 0.2 * (Math.random() * 2 - 1);
+      await new Promise((r) => setTimeout(r, Math.max(0, base + jitter)));
       await rePull();
     }
   }
