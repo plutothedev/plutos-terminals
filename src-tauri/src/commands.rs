@@ -2794,3 +2794,18 @@ mod scrollback_race_tests {
         assert_eq!(out, "older-half\nnewer\n");
     }
 }
+
+#[cfg(test)]
+mod git_status_tests {
+    use super::*;
+
+    #[test]
+    fn non_git_and_missing_dirs_are_none() {
+        let dir = std::env::temp_dir()
+            .join("plutos-terminals-tests")
+            .join(format!("nongit-{}", crate::session::new_id("t")));
+        fs::create_dir_all(&dir).unwrap();
+        assert!(git_branch_status_sync(dir.to_str().unwrap()).is_none());
+        assert!(git_branch_status_sync("Z:/definitely/not/a/dir").is_none());
+    }
+}

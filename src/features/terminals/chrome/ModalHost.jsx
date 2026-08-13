@@ -212,7 +212,7 @@ export default function ModalHost({
       {(historyOpen) && (
         <HistorySearch
           open={historyOpen}
-          history={historyOpen ? getCommandHistory() : []}
+          history={getCommandHistory()}
           onClose={() => setHistoryOpen(false)}
           onInsert={(cmd) => insertSnippet(cmd)}
           onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
@@ -243,7 +243,7 @@ export default function ModalHost({
         <BroadcastGroupModal
           open={broadcastGroupOpen}
           panels={panels}
-          liveTabIds={broadcastGroupOpen ? getLiveTabIds() : []}
+          liveTabIds={getLiveTabIds()}
           current={bcastTargets}
           onClose={() => setBroadcastGroupOpen(false)}
           onApply={applyBroadcastGroup}

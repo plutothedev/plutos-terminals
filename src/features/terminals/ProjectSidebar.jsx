@@ -174,11 +174,15 @@ function ProjectSidebar({
       inFlight = true;
       try {
         const hosts = ssh.map((p) => [p.connection.host, p.connection.port || 22]);
-        const byHost = await invoke("net_latency_many", { hosts });
-        if (!cancelled && byHost) {
+        const byKey = await invoke("net_latency_many", { hosts });
+        if (!cancelled && byKey) {
           setLatency((m) => {
             const next = { ...m };
-            for (const p of ssh) next[p.id] = byHost[p.connection.host] ?? null;
+            // host:port keys (T4 review W1): host-only lookup collapsed two
+            // projects on one box with different sshd ports.
+            for (const p of ssh) {
+              next[p.id] = byKey[`${p.connection.host}:${p.connection.port || 22}`] ?? null;
+            }
             return next;
           });
         }

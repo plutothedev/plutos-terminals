@@ -160,18 +160,9 @@ pub async fn net_port_scan(host: String, ports: String) -> Result<Vec<u16>, Stri
 /// Latency to a host's SSH port (or `port`) via a timed TCP connect — bounded
 /// and portable (no ICMP/ping-flag differences). Returns round-trip ms, or None
 /// if it times out / is refused. Used for the session-tree latency readout.
-#[tauri::command]
-pub async fn net_latency(host: String, port: Option<u16>) -> Result<Option<u32>, String> {
-    let host = host.trim().to_string();
-    if !valid_host(&host) {
-        return Err("invalid host".into());
-    }
-    // Blocking DNS + connect off the runtime (P2-T4): as a bare async fn this
-    // parked a tokio worker for up to 1.5s per unreachable addr.
-    Ok(tauri::async_runtime::spawn_blocking(move || net_latency_sync(&host, port))
-        .await
-        .unwrap_or(None))
-}
+// (The single-target net_latency command was deleted in the T4 review round:
+// zero callers remained after the sidebar moved to the batch. The sync core
+// below is the shared probe.)
 
 fn net_latency_sync(host: &str, port: Option<u16>) -> Option<u32> {
     let p = port.unwrap_or(22);
@@ -214,7 +205,10 @@ pub async fn net_latency_many(
                             } else {
                                 None
                             };
-                            (host, ms)
+                            // Key by host:port (T4 review W1): host-only keys
+                            // collapsed two projects on one box with different
+                            // sshd ports onto a single reading.
+                            (format!("{}:{}", host, port.unwrap_or(22)), ms)
                         })
                     })
                     .collect();
@@ -249,5 +243,24 @@ pub async fn net_dns(host: String) -> Result<Vec<String>, String> {
         Err("no addresses resolved".into())
     } else {
         Ok(ips)
+    }
+}
+
+#[cfg(test)]
+mod latency_batch_tests {
+    use super::*;
+
+    #[test]
+    fn results_are_keyed_host_colon_port_and_invalid_hosts_map_to_none() {
+        // Invalid hosts short-circuit before any network I/O, so this stays
+        // fast while pinning the keying contract the sidebar reads by.
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let out = rt.block_on(net_latency_many(vec![
+            ("bad host!".into(), None),
+            ("also bad!".into(), Some(2222)),
+        ]));
+        assert_eq!(out.get("bad host!:22"), Some(&None));
+        assert_eq!(out.get("also bad!:2222"), Some(&None));
+        assert_eq!(out.len(), 2, "one entry per (host,port), ports distinct");
     }
 }
