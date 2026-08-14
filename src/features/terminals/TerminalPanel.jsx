@@ -473,7 +473,7 @@ function TerminalPanel({
           overflow: "hidden",
         }}
       >
-        <div className="moba-tabstrip" style={{ display: "flex", flex: 1, minWidth: 0, overflowX: "auto", overflowY: "hidden", alignItems: "stretch" }}>
+        <div className="moba-tabstrip" data-tour="tab-strip" style={{ display: "flex", flex: 1, minWidth: 0, overflowX: "auto", overflowY: "hidden", alignItems: "stretch" }}>
           {panel.tabs.map((tab, ti) => {
             const active = tab.id === panel.activeTabId;
             const tabState = aggregateTabActivity(tab);

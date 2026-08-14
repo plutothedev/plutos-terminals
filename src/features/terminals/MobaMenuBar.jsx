@@ -32,6 +32,7 @@ export default function MobaMenuBar({ menus, brand, right }) {
         <div key={menu.label} className="moba-menu">
           <button
             className={open === i ? "moba-menu-btn active" : "moba-menu-btn"}
+            data-tour={`menu-${(menu.label || "").toLowerCase()}`}
             onClick={() => setOpen(open === i ? null : i)}
             onMouseEnter={() => { if (open !== null) setOpen(i); }}
           >

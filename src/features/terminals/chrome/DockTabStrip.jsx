@@ -12,13 +12,14 @@ export default function DockTabStrip({ dockTab, setDockTab, collapseDock }) {
         <span
           key={t.id}
           className={dockTab === t.id ? "moba-rd-tab active" : "moba-rd-tab"}
+          data-tour={`dock-${t.id}`}
           onClick={() => setDockTab(t.id)}
           title={t.label}
         >
           <span style={{ display: "inline-flex" }}>{t.icon}</span> {t.label}
         </span>
       ))}
-      <button className="moba-rd-collapse" onClick={() => collapseDock(true)} title="Collapse panel">›</button>
+      <button className="moba-rd-collapse" data-tour="dock-collapse" onClick={() => collapseDock(true)} title="Collapse panel">›</button>
     </div>
   );
 }

@@ -967,7 +967,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
             ›<span className="lbl">Sessions</span>
           </div>
         ) : (
-        <div className="moba-dock">
+        <div className="moba-dock" data-tour="sessions-tree">
           <div className="moba-dock-body">
               <ProjectSidebar
                 docked

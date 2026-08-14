@@ -55,6 +55,7 @@ export default function MobaToolbar({ brand, groups = [], right }) {
   const button = (it) => (
     <button
       className={it.active ? "moba-tool-btn active" : "moba-tool-btn"}
+      data-tour={it.id}
       onClick={(e) => { if (it.menu) toggle(it, e); else { setOpenId(null); it.onClick?.(e); } }}
       disabled={it.disabled}
       title={it.title || it.label}

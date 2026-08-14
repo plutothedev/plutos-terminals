@@ -24,6 +24,7 @@ export default function StatusBar({
   return (
     <div
       className="phn-statusbar"
+      data-tour="status-bar"
       style={{
         flexShrink: 0,
         padding: "6px 14px",

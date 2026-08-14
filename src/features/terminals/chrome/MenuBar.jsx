@@ -173,7 +173,7 @@ export default function MenuBar({
               <span className="moba-mb-modeldot" style={activeModelName ? undefined : { background: "var(--phn-text-faint, #586068)" }} />
               {activeModelName || "No model"}
             </button>
-            <button className="moba-mb-icon" onClick={toggleTheme} title="Toggle dark / light theme (Ctrl+\\)">{headerSkinId === "moba-light" ? <IconSun size={14} /> : <IconMoon size={14} />}</button>
+            <button className="moba-mb-icon" data-tour="theme-toggle" onClick={toggleTheme} title="Toggle dark / light theme (Ctrl+\\)">{headerSkinId === "moba-light" ? <IconSun size={14} /> : <IconMoon size={14} />}</button>
             <button className="moba-mb-icon" onClick={exitApp} title="Quit (closes all sessions)"><IconExit size={14} /></button>
           </>
         }

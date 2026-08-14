@@ -56,7 +56,7 @@ export default function Toolbar({
               {totalCost.tokens > 0 && ` · ${totalCost.tokens >= 1000 ? `${(totalCost.tokens / 1000).toFixed(1)}k` : totalCost.tokens} tok`}
             </span>
           )}
-          <div className="moba-qc-inline" title="Quick connect — opens an SSH session to what you type (Enter)">
+          <div className="moba-qc-inline" data-tour="quick-connect" title="Quick connect — opens an SSH session to what you type (Enter)">
             <SSearch size={13} />
             <input
               placeholder="user@server or 192.168.1.10"
