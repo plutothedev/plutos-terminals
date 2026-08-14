@@ -11,7 +11,6 @@ import { Button } from "../../../components/ui.jsx";
 import { toNotebookName } from "../notebookIo.js";
 import { humanizeError } from "../errorText.js";
 import MobaMenuBar from "../MobaMenuBar.jsx";
-import ActiveDims from "./ActiveDims.jsx";
 
 export default function MenuBar({
   addTab, addHomeTab, addNotebookTab, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
@@ -159,7 +158,8 @@ export default function MenuBar({
         brand={<><span className="moba-brand-dot" />Pluto</>}
         right={
           <>
-            <ActiveDims tabId={activeTabId} className="moba-mb-dim" />
+            {/* cols×rows readout lives in the status bar only (pluto 2026-08-14:
+                the menu-bar copy was noise). */}
             {/* One model chip for the whole app (UI-polish pass): real name
                 when a model is picked, honest dim "No model" when not — the
                 old "claude" fallback implied Claude was active. Click opens

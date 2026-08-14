@@ -573,7 +573,6 @@
   margin-left: auto; display: flex; align-items: center; gap: 12px;
   padding: 0 12px; color: var(--phn-text-dim, #8A909A); font-size: 11px; -webkit-app-region: no-drag;
 }
-.moba-mb-dim { font-family: var(--phn-mono-font); font-size: 10.5px; }
 .moba-mb-model { display: flex; align-items: center; gap: 6px; color: var(--phn-text-fg, #D3D7DD); }
 .moba-mb-modeldot { width: 6px; height: 6px; border-radius: 50%; background: var(--phn-success, #5FB87A); }
 .moba-mb-icon { background: transparent; border: none; cursor: pointer; color: var(--phn-text-dim, #8A909A); display: flex; align-items: center; padding: 4px; border-radius: 4px; }
