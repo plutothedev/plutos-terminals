@@ -22,7 +22,7 @@ export default function MenuBar({
   setMacrosOpen, setAskOpen, setSummary, setHistoryOpen, setModelsOpen,
   setBroadcastGroupOpen, setRemoteOpen, setMcpOpen, setSetupOpen,
   setCommandPaletteOpen, setWorkspacesOpen, setSettingsOpen, setMasterPwOpen,
-  setSharesOpen,
+  setSharesOpen, onStartTour,
 }) {
   const toast = useToast();
   const prompt = usePrompt();
@@ -137,6 +137,8 @@ export default function MenuBar({
     {
       label: "Help",
       items: [
+        { label: "Take the tour", action: () => onStartTour?.() },
+        { divider: true },
         { label: "GitHub repository", action: () => openExternal(GITHUB_URL) },
         { label: "Pluto Discord", action: () => openExternal(DISCORD_URL) },
         { divider: true },
@@ -147,7 +149,7 @@ export default function MenuBar({
     addTab, addHomeTab, newNotebook, openNotebook, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
     activeTabId, activeTab, panels, activePanelId,
     toast, importSshConfig, selectRibbon, openTunnels,
-    broadcast, toggleBroadcast, ribbon,
+    broadcast, toggleBroadcast, ribbon, onStartTour,
   ]);
 
   return (

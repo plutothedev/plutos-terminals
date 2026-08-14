@@ -23,6 +23,8 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { KEY_ACTIONS, comboFromEvent, resolveBindings, setResolved, isCapturing, formatCombo } from "./keybindings.js";
 import { gridDims, MAX_PANELS } from "./grid";
 import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useRegistryListener, useWindowTitle } from "./hooks/independentEffects.js";
+import TourOverlay from "./tour/TourOverlay.jsx";
+import TourOffer from "./tour/TourOffer.jsx";
 import { useDockResize } from "./hooks/useDockResize.js";
 import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { useSnippets } from "./hooks/useSnippets.js";
@@ -113,6 +115,25 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [dockTab, setDockTab] = useState("files"); // right-dock tab: files | assistant | monitor (the dock is always open)
   // Right-dock + session-tree sizing/visibility (persisted to localStorage).
   const { dockWidth, dockCollapsed, treeCollapsed, collapseDock, collapseTree, startDockResize } = useDockResize();
+
+  // Guided tour (spotlight walkthrough of the whole chrome). Offered once
+  // after onboarding; replayable forever from Help > Take the tour. Both the
+  // offer's outcomes and a finished/skipped tour write phn.tourDone, so the
+  // corner card never returns.
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourOffered, setTourOffered] = useState(() => {
+    try { return localStorage.getItem("phn.tourDone") === "1"; } catch { return true; }
+  });
+  const finishTour = useCallback(() => {
+    setTourOpen(false);
+    setTourOffered(true);
+    try { localStorage.setItem("phn.tourDone", "1"); } catch { /* private mode */ }
+  }, []);
+  const startTour = useCallback(() => {
+    setTourOffered(true);
+    try { localStorage.setItem("phn.tourDone", "1"); } catch { /* private mode */ }
+    setTourOpen(true);
+  }, []);
 
   // Persisted user snippets (seeded from the starter set; written to the
   // window-independent st.snippets key, not the per-window panel state).
@@ -890,6 +911,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* MobaXterm menu bar — classic dropdown menus wired to existing actions. */}
       <MenuBar
+        onStartTour={startTour}
         addTab={addTab}
         addHomeTab={addHomeTab}
         addNotebookTab={addNotebookTab}
@@ -1100,6 +1122,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           </>
         )}
       </div>
+
+      {/* Guided tour: corner offer (once, post-onboarding) + the spotlight
+          overlay itself. ctx hands the engine the dock setters so dock stops
+          can put the UI in the right state before measuring. */}
+      {userSt?.terminalsOnboarded === true && !tourOffered && (
+        <TourOffer onStart={startTour} onDismiss={finishTour} />
+      )}
+      <TourOverlay open={tourOpen} onClose={finishTour} ctx={{ setDockTab, collapseDock }} />
 
       {/* Modal / overlay layer — pure JSX re-home; every flag/payload/handler
           stays in this component and passes through. See chrome/ModalHost.jsx. */}
