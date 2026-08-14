@@ -21,22 +21,22 @@ export function buildWelcomeBanner({ paneCols }) {
   // and colour is layered on after. CRUCIALLY the box is sized to the
   // pane's actual column count and content is word-wrapped, so a narrow
   // split pane never wraps a line past the border.
-  const BORDER = "1;35"; // magenta frame, like the MobaXterm reference
+  const BORDER = "35"; // magenta frame, like the MobaXterm reference
   const wrap = (code, s) => (code ? `${E}[${code}m${s}${E}[0m` : s);
   const C = (c, t) => [t, c];  // coloured segment
   const T = (t) => [t, null];  // plain segment
   const lines = [
-    { center: true, segs: [C("1;32", `• Pluto's Terminal v${APP_VERSION} •`)] },
+    { center: true, segs: [C("32", `• Pluto's Terminal v${APP_VERSION} •`)] },
     { center: true, segs: [C("32", "(SSH client, multi-terminal and AI tools)")] },
     { segs: [] },
-    { hang: 2, segs: [C("1;32", "➤ "), T("Saved sessions live in the "), C("1;36", "Sessions"), T(" panel — "), C("1;35", "SSH"), T(" · local · serial · RDP/VNC")] },
-    { hang: 2, segs: [C("1;32", "➤ "), T("Scrollback is "), C("1;36", "persistent"), T(" — every tab is saved and replayed on restart")] },
-    { hang: 2, segs: [C("1;32", "➤ "), C("1;36", "Broadcast"), T(" sends your typing to every visible terminal at once")] },
-    { hang: 2, segs: [C("1;32", "➤ "), T("Route AI to "), C("1;36", "any LLM"), T(" — Claude · GPT · Gemini · GLM · Kimi · 16 providers")] },
-    { hang: 2, segs: [C("1;32", "➤ "), T("Each command status is specified by a special symbol ("), C("1;32", "✓"), T(" or "), C("1;31", "✗"), T(")")] },
+    { hang: 2, segs: [C("32", "➤ "), T("Saved sessions live in the "), C("36", "Sessions"), T(" panel — "), C("35", "SSH"), T(" · local · serial · RDP/VNC")] },
+    { hang: 2, segs: [C("32", "➤ "), T("Scrollback is "), C("36", "persistent"), T(" — every tab is saved and replayed on restart")] },
+    { hang: 2, segs: [C("32", "➤ "), C("36", "Broadcast"), T(" sends your typing to every visible terminal at once")] },
+    { hang: 2, segs: [C("32", "➤ "), T("Route AI to "), C("36", "any LLM"), T(" — Claude · GPT · Gemini · GLM · Kimi · 16 providers")] },
+    { hang: 2, segs: [C("32", "➤ "), T("Each command status is specified by a special symbol ("), C("32", "✓"), T(" or "), C("31", "✗"), T(")")] },
     { segs: [] },
-    { hang: 2, segs: [C("1;31", "• Tip:")] },
-    { hang: 2, segs: [T("Run "), C("1;36", "Claude Code"), T(", Codex and other AI agents side by side, each in its own git worktree, on any model you pick. Split panes, drag tabs and pin sessions to shape your workspace. "), C("1;33", "Ctrl+K"), T(" opens the command palette.")] },
+    { hang: 2, segs: [C("31", "• Tip:")] },
+    { hang: 2, segs: [T("Run "), C("36", "Claude Code"), T(", Codex and other AI agents side by side, each in its own git worktree, on any model you pick. Split panes, drag tabs and pin sessions to shape your workspace. "), C("33", "Ctrl+K"), T(" opens the command palette.")] },
     { segs: [] },
     { hang: 2, segs: [T("For more information: "), C("4;35", "https://github.com/plutothedev/plutos-terminals")] },
     { hang: 2, segs: [T("Community: "), C("4;36", "https://discord.gg/3cZQVgKF")] },

@@ -854,6 +854,13 @@ function TerminalPane({
       // pluto's screen. MobaXterm renders bold in saturated base tones —
       // that's the reference look.
       drawBoldTextInBrightColors: false,
+      // Bold renders at NORMAL weight (2026-08-14, the ragged-box endgame):
+      // the box bytes reaching xterm were byte-perfect (58-wide, sealed
+      // borders — transcript-verified) yet columns drifted on screen. In the
+      // DOM renderer, bold runs whose glyphs fall back to a different font
+      // (or synthesize) advance at a different width, dragging every later
+      // cell in the row. Normal-weight bold pins one metric for everything.
+      fontWeightBold: "normal",
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
