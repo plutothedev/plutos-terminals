@@ -1609,13 +1609,15 @@ function TerminalPane({
           // display command below emits BOOT_MARKER right before its clear,
           // which releases the gate; the 4s timer is the can't-go-blank fallback.
           concealRef.current = { buf: "", timer: setTimeout(flushConceal, 4000) };
-          // Let the shell render its first prompt before we send the (now short)
-          // welcome line so the colours/box land cleanly. 150ms (P4-T4, was
-          // 450): the conceal gate armed above already absorbs a slow shell —
-          // its 4s flush is the safety net — so this pause only needs to cover
-          // the COMMON case. Pluto smoke: verify heavy profiles (WSL, slow
-          // PowerShell) still land the banner clean. Marker flow unchanged.
-          await new Promise(r => setTimeout(r, 150));
+          // Let the shell render its first prompt AND the pane finish its
+          // first fit before the banner measures term.cols. 450ms — RESTORED
+          // (2026-08-14): P4-T4 cut this to 150ms for boot feel, and that was
+          // the change that broke the welcome box on pluto's machine — the
+          // banner built against pre-settle columns and ConPTY hard-wrapped
+          // the frame ("the right side of the box is still open"). The probe
+          // proved banner bytes render pixel-perfect when widths agree; this
+          // delay is what makes them agree. Do not re-shorten for perf.
+          await new Promise(r => setTimeout(r, 450));
           // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less
           // + a few quality-of-life aliases. (Kept short so the welcome init fits
           // comfortably in one shell line alongside the big welcome box.)
