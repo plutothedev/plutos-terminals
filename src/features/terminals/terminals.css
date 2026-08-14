@@ -368,11 +368,13 @@
 .moba-qc-input:focus { border-color: var(--phn-link, #7c9cf5); }
 
 /* ── Chrome-style trapezoid tabs (MobaXterm reference, 2026-08-14) ──────
-   The classic slanted-tab silhouette: the tab body is a ::before skewed by
-   a tiny perspective-rotateX, so the sides flare outward and the top
-   corners stay rounded (clip-path would cut the radius). Tabs overlap a
-   few px like Chrome; the active tab sits on top and flush with the strip
-   bottom. Colors ride the existing per-skin --phn-tab-* tokens. */
+   The classic slanted-tab silhouette, WIDE AT THE FOOT (/▔▔\): skew moves
+   each half's top edge inward, feet stay at the element bounds. v3 shipped
+   the mirror image (wide top) — slants crossed near the top and every tab
+   junction read as a wedge artifact. Feet of adjacent tabs may just touch
+   (-2px margin); a token hairline traces the silhouette so tabs stay
+   distinct even where fill-vs-strip contrast is low (light skin). Colors
+   ride the existing per-skin --phn-tab-* tokens. */
 .moba-tab {
   position: relative;
   display: inline-flex;
@@ -380,7 +382,7 @@
   gap: 7px;
   height: 27px;
   box-sizing: border-box;
-  margin: 3px -7px 0 -7px;
+  margin: 3px -2px 0 -2px;
   padding: 0 20px;
   border-radius: 0;
   color: var(--phn-tab-fg, #9a9da3);
@@ -406,18 +408,21 @@
   width: 60%;
   z-index: -1;
   background: var(--phn-tab-bg, transparent);
+  border-top: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07));
   transition: background 0.12s ease;
 }
 .moba-tab::before {
   left: 0;
   border-radius: 8px 0 0 0;
-  transform: skewX(14deg);
+  border-left: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07));
+  transform: skewX(-14deg);
   transform-origin: bottom left;
 }
 .moba-tab::after {
   right: 0;
   border-radius: 0 8px 0 0;
-  transform: skewX(-14deg);
+  border-right: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07));
+  transform: skewX(14deg);
   transform-origin: bottom right;
 }
 .moba-tab > .moba-tab-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
