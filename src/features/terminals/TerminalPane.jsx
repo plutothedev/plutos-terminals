@@ -1130,15 +1130,19 @@ function TerminalPane({
     });
     vis.observe(container);
 
-    // Once the bundled powerline font is ready, RE-ASSIGN fontFamily so xterm
-    // rebuilds its glyph atlas with MesloLGS NF (a plain refresh() keeps the
-    // fallback atlas, so the  powerline glyphs wouldn't render otherwise),
-    // then re-fit for the corrected glyph widths.
+    // Once the bundled powerline font is ready, force a glyph-atlas rebuild.
+    // Re-assigning the same fontFamily string is a NO-OP — xterm's
+    // OptionsService skips same-value writes (rawOptions[key] !== value
+    // guard before firing onOptionChange), so the previous "re-assign
+    // MONO_STACK" here never rebuilt anything: a pane whose atlas was built
+    // before MesloLGS NF finished loading kept tofu prompt glyphs forever
+    // (the packaged app consistently lost that race at boot).
+    // clearTextureAtlas() is xterm's API for exactly this forced redraw.
     if (document.fonts?.ready) {
       document.fonts.ready.then(() => {
         if (!alive) return;
         try {
-          term.options.fontFamily = MONO_STACK;
+          term.clearTextureAtlas();
           safeFit();
           if (opened) term.refresh(0, term.rows - 1);
         } catch {}
