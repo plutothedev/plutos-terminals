@@ -178,11 +178,14 @@ export const HEADER_SKINS = [
       foreground: "#c6c8cc",
       cursor: "#c6c8cc",
       selectionBackground: "rgba(124,156,245,0.30)",
-      black: "#26282b", red: "#e08784", green: "#7fbf8a", yellow: "#d2b36b",
-      blue: "#7c9cf5", magenta: "#c49ad1", cyan: "#6fbcc9", white: "#c6c8cc",
-      brightBlack: "#67696e", brightRed: "#eda3a0", brightGreen: "#9bd3a5",
-      brightYellow: "#e3ca8e", brightBlue: "#9cb5f7", brightMagenta: "#d7b3e2",
-      brightCyan: "#8fd0db", brightWhite: "#eceef0",
+      // Vivid ANSI (2026-08-14, pluto): the mockup-23 pastel set read as
+      // white-on-black in real terminal output — the MobaXterm-style banner
+      // lost its color punch. Chrome stays refined; the terminal pops.
+      black: "#26282b", red: "#ff5f56", green: "#3ddc84", yellow: "#ffc233",
+      blue: "#5c9dff", magenta: "#d67aff", cyan: "#00e5ff", white: "#c6c8cc",
+      brightBlack: "#67696e", brightRed: "#ff8a80", brightGreen: "#69f0ae",
+      brightYellow: "#ffd54f", brightBlue: "#82b1ff", brightMagenta: "#ea80fc",
+      brightCyan: "#84ffff", brightWhite: "#ffffff",
     },
   },
   {
@@ -238,11 +241,14 @@ export const HEADER_SKINS = [
       foreground: "#c6c8cc",
       cursor: "#c6c8cc",
       selectionBackground: "rgba(124,156,245,0.30)",
-      black: "#26282b", red: "#e08784", green: "#7fbf8a", yellow: "#d2b36b",
-      blue: "#7c9cf5", magenta: "#c49ad1", cyan: "#6fbcc9", white: "#c6c8cc",
-      brightBlack: "#67696e", brightRed: "#eda3a0", brightGreen: "#9bd3a5",
-      brightYellow: "#e3ca8e", brightBlue: "#9cb5f7", brightMagenta: "#d7b3e2",
-      brightCyan: "#8fd0db", brightWhite: "#eceef0",
+      // Vivid ANSI (2026-08-14, pluto): the mockup-23 pastel set read as
+      // white-on-black in real terminal output — the MobaXterm-style banner
+      // lost its color punch. Chrome stays refined; the terminal pops.
+      black: "#26282b", red: "#ff5f56", green: "#3ddc84", yellow: "#ffc233",
+      blue: "#5c9dff", magenta: "#d67aff", cyan: "#00e5ff", white: "#c6c8cc",
+      brightBlack: "#67696e", brightRed: "#ff8a80", brightGreen: "#69f0ae",
+      brightYellow: "#ffd54f", brightBlue: "#82b1ff", brightMagenta: "#ea80fc",
+      brightCyan: "#84ffff", brightWhite: "#ffffff",
     },
   },
 ];
