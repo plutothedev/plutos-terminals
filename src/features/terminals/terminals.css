@@ -380,8 +380,8 @@
   gap: 7px;
   height: 27px;
   box-sizing: border-box;
-  margin: 3px -4px 0 -4px;
-  padding: 0 18px;
+  margin: 3px -7px 0 -7px;
+  padding: 0 20px;
   border-radius: 0;
   color: var(--phn-tab-fg, #9a9da3);
   background: transparent;
@@ -393,22 +393,38 @@
   transition: color 0.12s ease;
   z-index: 1;
 }
-.moba-tab::before {
+/* Two skewed halves = straight slanted sides + rounded OUTER top corners
+   (the canonical Chrome-tab construction; a perspective-rotateX single
+   pseudo only ever gives a curved foot-flare). Each half carries the same
+   token background; they meet seamlessly at the middle. */
+.moba-tab::before,
+.moba-tab::after {
   content: "";
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  width: 60%;
   z-index: -1;
   background: var(--phn-tab-bg, transparent);
-  border-radius: 9px 9px 0 0;
-  transform: perspective(30px) rotateX(4deg);
-  transform-origin: bottom;
   transition: background 0.12s ease;
+}
+.moba-tab::before {
+  left: 0;
+  border-radius: 8px 0 0 0;
+  transform: skewX(14deg);
+  transform-origin: bottom left;
+}
+.moba-tab::after {
+  right: 0;
+  border-radius: 0 8px 0 0;
+  transform: skewX(-14deg);
+  transform-origin: bottom right;
 }
 .moba-tab > .moba-tab-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .moba-tab.active { color: var(--phn-tab-fg-active, #eceef0); z-index: 3; }
-.moba-tab.active::before { background: var(--phn-tab-bg-active, #1b1c1f); }
+.moba-tab.active::before, .moba-tab.active::after { background: var(--phn-tab-bg-active, #1b1c1f); }
 .moba-tab:not(.active):hover { color: var(--phn-text-fg, #d6d8dc); }
-.moba-tab:not(.active):hover::before { background: var(--phn-tab-bg-hover, rgba(255,255,255,0.04)); }
+.moba-tab:not(.active):hover::before, .moba-tab:not(.active):hover::after { background: var(--phn-tab-bg-hover, rgba(255,255,255,0.04)); }
 .moba-tab-x {
   color: var(--phn-text-faint, #586068);
   cursor: pointer;
