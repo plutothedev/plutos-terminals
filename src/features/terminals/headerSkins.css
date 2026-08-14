@@ -920,11 +920,13 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-danger: #e08784;
   --phn-focus-ring: rgba(124,156,245,0.50);
   --phn-hover-bg: rgba(255,255,255,0.05);
-  --phn-tabstrip-bg: #101113;    /* strip matches the chrome; tabs are pills */
-  /* Pill tabs (see .moba-tab): inactive transparent, active elevated */
-  --phn-tab-bg: transparent;
-  --phn-tab-bg-hover: rgba(255,255,255,0.04);
-  --phn-tab-bg-active: #1b1c1f;
+  --phn-tabstrip-bg: #101113;    /* strip behind the chrome-style tabs */
+  /* Chrome-style trapezoid tabs (see .moba-tab): every tab gets a VISIBLE
+     filled body like the MobaXterm reference — transparent inactives made
+     the trapezoid silhouette invisible on dark chrome (2026-08-14). */
+  --phn-tab-bg: #1a1b1e;
+  --phn-tab-bg-hover: #222327;
+  --phn-tab-bg-active: #2c2e33;
   --phn-tab-fg: #9a9da3;
   --phn-tab-fg-active: #eceef0;
 }
@@ -954,9 +956,11 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-focus-ring: rgba(124,156,245,0.50);
   --phn-hover-bg: rgba(255,255,255,0.06);
   --phn-tabstrip-bg: #000000;
-  --phn-tab-bg: transparent;
-  --phn-tab-bg-hover: rgba(255,255,255,0.05);
-  --phn-tab-bg-active: #101113;
+  /* OLED: visible tab bodies (transparent inactives + near-black active
+     hid the chrome-tab shape entirely on #000). */
+  --phn-tab-bg: #141518;
+  --phn-tab-bg-hover: #1d1e22;
+  --phn-tab-bg-active: #292b30;
   --phn-tab-fg: #9a9da3;
   --phn-tab-fg-active: #eceef0;
 }
