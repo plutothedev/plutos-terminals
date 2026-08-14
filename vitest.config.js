@@ -7,6 +7,10 @@ export default defineConfig({
       "@backend": fileURLToPath(new URL("./src/backend.js", import.meta.url)),
     },
   },
+  // App source uses the React 17+ automatic JSX runtime (vite plugin-react);
+  // vitest's bare esbuild defaults to the classic transform, which would make
+  // every .jsx import demand `import React`. Mirror the app here.
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     // .jsx tests = the P2-T2 render-containment harness (hook renders need

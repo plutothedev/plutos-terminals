@@ -452,6 +452,38 @@
 .moba-tab.tab-drop-before { box-shadow: inset 2px 0 0 var(--phn-link, #7c9cf5); }
 .moba-tab.tab-drop-after { box-shadow: inset -2px 0 0 var(--phn-link, #7c9cf5); }
 
+/* ── Guided tour (spotlight + card) ─────────────────────────────────── */
+.phn-tour { position: fixed; inset: 0; z-index: 100000; font-family: var(--phn-ui-font); }
+.phn-tour-dim { position: absolute; background: rgba(0, 0, 0, 0.55); }
+.phn-tour-ring { position: absolute; border: 2px solid var(--phn-link, #7c9cf5); border-radius: 6px;
+  box-shadow: 0 0 0 4px rgba(124, 156, 245, 0.25), 0 0 22px rgba(124, 156, 245, 0.35); pointer-events: none; }
+.phn-tour-card { position: absolute; background: var(--phn-elevated-bg, #1b1c1f);
+  border: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07)); border-radius: 8px;
+  padding: 12px 14px; color: var(--phn-text-fg, #d6d8dc); box-shadow: 0 12px 40px rgba(0,0,0,0.5); box-sizing: border-box; }
+.phn-tour-chapter { font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--phn-link, #7c9cf5); margin-bottom: 3px; }
+.phn-tour-title { font-size: 14px; font-weight: 700; color: var(--phn-text-active, #eceef0); margin-bottom: 6px; }
+.phn-tour-body { font-size: 12px; line-height: 1.5; }
+.phn-tour-usecase { margin-top: 6px; color: var(--phn-text-dim, #9a9da3); font-style: italic; }
+.phn-tour-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.phn-tour-progress { color: var(--phn-text-faint, #67696e); font-size: 11px; margin-left: auto; }
+.phn-tour-btn { background: var(--phn-surface-bg, #101113); border: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07));
+  color: var(--phn-text-fg, #d6d8dc); border-radius: 5px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
+.phn-tour-btn.primary { background: var(--phn-link, #7c9cf5); border-color: transparent; color: var(--phn-accent-fg, #0e1018); font-weight: 600; }
+.phn-tour-btn.quiet { background: transparent; border-color: transparent; color: var(--phn-text-faint, #67696e); }
+.phn-tour-btn:disabled { opacity: 0.4; cursor: default; }
+.phn-tour-btns { display: inline-flex; gap: 6px; }
+.phn-tour-link { background: none; border: none; color: var(--phn-link, #7c9cf5); font-size: 11px; cursor: pointer; padding: 0; font-family: inherit; }
+.phn-tour-chlist { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; border-top: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07)); padding-top: 8px; }
+.phn-tour-chitem { background: var(--phn-surface-bg, #101113); border: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07));
+  color: var(--phn-text-dim, #9a9da3); border-radius: 999px; padding: 2px 9px; font-size: 11px; cursor: pointer; font-family: inherit; }
+.phn-tour-chitem.active { color: var(--phn-accent-fg, #0e1018); background: var(--phn-link, #7c9cf5); border-color: transparent; }
+.phn-tour-offer { position: fixed; right: 18px; bottom: 46px; z-index: 9000;
+  background: var(--phn-elevated-bg, #1b1c1f); border: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07));
+  border-radius: 8px; padding: 12px 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); font-family: var(--phn-ui-font); }
+.phn-tour-offer-title { font-weight: 700; font-size: 13px; color: var(--phn-text-active, #eceef0); }
+.phn-tour-offer-body { font-size: 12px; color: var(--phn-text-fg, #d6d8dc); margin: 4px 0 10px; }
+.phn-tour-offer-btns { display: flex; gap: 8px; }
+
 /* ── MobaXterm grouped icon toolbar (big icon-over-label buttons) ────── */
 .moba-toolbar {
   display: flex;
