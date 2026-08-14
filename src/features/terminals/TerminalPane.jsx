@@ -848,6 +848,12 @@ function TerminalPane({
       // fill, ~150MB across 8 packed panes.
       scrollback: 10000,
       allowProposedApi: true,
+      // Bold text keeps its BASE color + bold weight (2026-08-14): xterm's
+      // default remaps bold (1;3X) onto the bright palette slots, whose light
+      // pastel values washed the whole welcome banner toward white on
+      // pluto's screen. MobaXterm renders bold in saturated base tones —
+      // that's the reference look.
+      drawBoldTextInBrightColors: false,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
