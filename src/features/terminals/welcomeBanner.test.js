@@ -38,8 +38,8 @@ test("box fits the pane: no printed line exceeds the boot-time column count", ()
 
 test("the border is coloured (magenta SGR wraps the frame)", () => {
   const raw = buildWelcomeBanner({ paneCols: 80 });
-  expect(raw).toContain("\x1b[1;35m┌");
-  expect(raw).toContain("\x1b[1;35m│");
+  expect(raw).toContain("\x1b[35m┌");
+  expect(raw).toContain("\x1b[35m│");
 });
 
 test("still renders the title and docs link", () => {
