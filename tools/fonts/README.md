@@ -14,7 +14,7 @@ pyftsubset tools/fonts/MesloLGS-NF-Regular.ttf \
   --output-file=public/fonts/MesloLGS-NF-Regular.woff2 \
   --flavor=woff2 \
   --unicodes=U+0020-007E,U+00A0-00FF,U+0100-017F,U+2000-206F,U+2190-21FF,U+2300-23FF,U+2500-257F,U+2580-259F,U+25A0-25FF,U+2700-27BF,U+2800-28FF,U+E000-F8FF \
-  --no-hinting --desubroutinize --layout-features='*'
+  --desubroutinize --layout-features='*'
 ```
 
 Ranges (audit M3):
@@ -34,9 +34,7 @@ Ranges (audit M3):
 | U+2800-28FF | Braille (spinners) — **source TTF has zero braille glyphs**, so this range is a no-op today; kept in the command so a future source that has them picks them up. Braille spinners render via the fallback stack (Cascadia Code leads it) exactly as they always did. |
 | U+E000-F8FF | Full BMP PUA — nerd-font icons land all over the PUA (calendar U+F073 / clock U+F017 in the prompt), not just the powerline strip U+E0A0-E0D7 |
 
-Subset result: 4,133 of the source's 13,791 glyphs. `--no-hinting` is safe:
-DirectWrite (WebView2) and Core Text (WKWebView) both ignore embedded TTF
-hints. FFTM/PfEd subsetter warnings are FontForge private tables — dropped
+Subset result: 4,133 of the source's 13,791 glyphs. `--no-hinting`Hinting is KEPT (2026-08-14, +12KB): stripping it subtly changed glyph rendering on Windows and read as a font change. FFTM/PfEd subsetter warnings are FontForge private tables — dropped
 by design.
 
 Verification probe (paste into a repo-root python):
