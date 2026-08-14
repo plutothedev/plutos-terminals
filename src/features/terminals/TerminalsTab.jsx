@@ -1129,7 +1129,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       {userSt?.terminalsOnboarded === true && !tourOffered && (
         <TourOffer onStart={startTour} onDismiss={finishTour} />
       )}
-      <TourOverlay open={tourOpen} onClose={finishTour} ctx={{ setDockTab, collapseDock }} />
+      <TourOverlay open={tourOpen} onClose={finishTour} ctx={{ setDockTab, collapseDock, collapseTree }} />
 
       {/* Modal / overlay layer — pure JSX re-home; every flag/payload/handler
           stays in this component and passes through. See chrome/ModalHost.jsx. */}

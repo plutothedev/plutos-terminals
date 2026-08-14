@@ -41,6 +41,7 @@ export const TOUR_STEPS = [
     title: "Session tree",
     body: "Your saved session library. Folder it however you like; each SSH session shows a live latency dot so you can see health before you connect. Double-click connects; right-click for edit, duplicate, SFTP, tunnels.",
     useCase: "Use it when: you manage more than a couple of machines and never want to retype a host.",
+    prep: (ctx) => { ctx.collapseTree?.(false); },
   },
 
   // ── Workspace ────────────────────────────────────────────────────────
