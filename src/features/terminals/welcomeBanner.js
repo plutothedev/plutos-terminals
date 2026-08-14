@@ -84,6 +84,15 @@ export function buildWelcomeBanner({ paneCols }) {
   };
   // Box frame: sharp corners, magenta border (the reference look), every row
   // padded to the exact inner width on PLAIN text so the right border aligns.
+  // Padding is NBSP (U+00A0), not spaces (2026-08-14, pluto's screenshot):
+  // the banner round-trips through the SHELL (load-bearing — ConPTY's screen
+  // model must own it or resize repaints mangle it), and ConPTY re-encodes
+  // SPACE runs as ECH+CUF erase/skip sequences that collapsed on pluto's
+  // machine, leaving the right border ragged ("the right side of the box is
+  // still open"). NBSP is a real glyph ConPTY passes through literally —
+  // alignment survives any optimizer. Renders blank; width 1; in the font
+  // subset (Latin-1).
+  const PAD = " "; // NBSP
   const out = [INDENT + wrap(RULE_COLOR, "┌" + "─".repeat(W + 2) + "┐")];
   const pushRow = (rowSegs, center) => {
     const plainLen = rowSegs.reduce((n, [t]) => n + t.length, 0);
@@ -91,9 +100,9 @@ export function buildWelcomeBanner({ paneCols }) {
     const left = center ? Math.floor(pad / 2) : 0;
     const right = pad - left;
     out.push(
-      INDENT + wrap(RULE_COLOR, "│") + " " + " ".repeat(left) +
+      INDENT + wrap(RULE_COLOR, "│") + PAD + PAD.repeat(left) +
       rowSegs.map(([t, c]) => wrap(c, t)).join("") +
-      " ".repeat(right) + " " + wrap(RULE_COLOR, "│")
+      PAD.repeat(right) + PAD + wrap(RULE_COLOR, "│")
     );
   };
   lines.forEach((l) => {
