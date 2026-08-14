@@ -367,35 +367,48 @@
 .moba-qc-input::placeholder { color: var(--phn-text-dim, #8a8a8a); }
 .moba-qc-input:focus { border-color: var(--phn-link, #7c9cf5); }
 
-/* ── Pill tabs (mockup 23) ──────────────────────────────────────────────
-   Rounded pill tabs floating on the chrome rail: inactive = transparent with
-   dim text, hover = faint white wash, active = elevated fill + bright text.
-   No top border, no per-tab divider — separation comes from spacing. */
+/* ── Chrome-style trapezoid tabs (MobaXterm reference, 2026-08-14) ──────
+   The classic slanted-tab silhouette: the tab body is a ::before skewed by
+   a tiny perspective-rotateX, so the sides flare outward and the top
+   corners stay rounded (clip-path would cut the radius). Tabs overlap a
+   few px like Chrome; the active tab sits on top and flush with the strip
+   bottom. Colors ride the existing per-skin --phn-tab-* tokens. */
 .moba-tab {
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 24px;
+  height: 27px;
   box-sizing: border-box;
-  margin: 3px 1px;
-  padding: 0 11px;
-  border-radius: 6px;
+  margin: 3px -4px 0 -4px;
+  padding: 0 18px;
+  border-radius: 0;
   color: var(--phn-tab-fg, #9a9da3);
-  background: var(--phn-tab-bg, transparent);
+  background: transparent;
   font-family: var(--phn-ui-font);
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: color 0.12s ease;
+  z-index: 1;
+}
+.moba-tab::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--phn-tab-bg, transparent);
+  border-radius: 9px 9px 0 0;
+  transform: perspective(30px) rotateX(4deg);
+  transform-origin: bottom;
+  transition: background 0.12s ease;
 }
 .moba-tab > .moba-tab-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-.moba-tab.active {
-  background: var(--phn-tab-bg-active, #1b1c1f);
-  color: var(--phn-tab-fg-active, #eceef0);
-}
-.moba-tab:not(.active):hover { background: var(--phn-tab-bg-hover, rgba(255,255,255,0.04)); color: var(--phn-text-fg, #d6d8dc); }
+.moba-tab.active { color: var(--phn-tab-fg-active, #eceef0); z-index: 3; }
+.moba-tab.active::before { background: var(--phn-tab-bg-active, #1b1c1f); }
+.moba-tab:not(.active):hover { color: var(--phn-text-fg, #d6d8dc); }
+.moba-tab:not(.active):hover::before { background: var(--phn-tab-bg-hover, rgba(255,255,255,0.04)); }
 .moba-tab-x {
   color: var(--phn-text-faint, #586068);
   cursor: pointer;
