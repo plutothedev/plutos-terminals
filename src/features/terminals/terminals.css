@@ -367,14 +367,16 @@
 .moba-qc-input::placeholder { color: var(--phn-text-dim, #8a8a8a); }
 .moba-qc-input:focus { border-color: var(--phn-link, #7c9cf5); }
 
-/* ── Chrome-style trapezoid tabs (MobaXterm reference, 2026-08-14) ──────
+/* ── MobaXterm trapezoid tabs (matched to pluto's reference screenshot,
+   2026-08-14) ──────────────────────────────────────────────────────────
    The classic slanted-tab silhouette, WIDE AT THE FOOT (/▔▔\): skew moves
-   each half's top edge inward, feet stay at the element bounds. v3 shipped
-   the mirror image (wide top) — slants crossed near the top and every tab
-   junction read as a wedge artifact. Feet of adjacent tabs may just touch
-   (-2px margin); a token hairline traces the silhouette so tabs stay
-   distinct even where fill-vs-strip contrast is low (light skin). Colors
-   ride the existing per-skin --phn-tab-* tokens. */
+   each half's top edge inward, feet stay at the element bounds. MobaXterm
+   traits: tabs SEPARATED by a small gap (never overlapping), steep 18°
+   flare, dome shoulders (r10 blending into the slant), a token hairline
+   outline, and a soft top-light gloss like the classic gradient tab.
+   Fills stay on the per-skin --phn-tab-* tokens (shape parity, not color
+   parity — Moba's silver-on-dark is its own theme, not ours). Fills use
+   background-COLOR so the gloss background-image survives active/hover. */
 .moba-tab {
   position: relative;
   display: inline-flex;
@@ -382,7 +384,7 @@
   gap: 7px;
   height: 27px;
   box-sizing: border-box;
-  margin: 3px -2px 0 -2px;
+  margin: 3px 3px 0 3px;
   padding: 0 20px;
   border-radius: 0;
   color: var(--phn-tab-fg, #9a9da3);
@@ -396,9 +398,10 @@
   z-index: 1;
 }
 /* Two skewed halves = straight slanted sides + rounded OUTER top corners
-   (the canonical Chrome-tab construction; a perspective-rotateX single
-   pseudo only ever gives a curved foot-flare). Each half carries the same
-   token background; they meet seamlessly at the middle. */
+   (the canonical construction; a perspective-rotateX single pseudo only
+   ever gives a curved foot-flare). Each half carries the same token
+   background; they meet seamlessly at the middle. The vertical gloss
+   gradient is unaffected by skewX (color varies with y only). */
 .moba-tab::before,
 .moba-tab::after {
   content: "";
@@ -407,29 +410,30 @@
   bottom: 0;
   width: 60%;
   z-index: -1;
-  background: var(--phn-tab-bg, transparent);
+  background-color: var(--phn-tab-bg, transparent);
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0) 55%);
   border-top: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07));
-  transition: background 0.12s ease;
+  transition: background-color 0.12s ease;
 }
 .moba-tab::before {
   left: 0;
-  border-radius: 8px 0 0 0;
+  border-radius: 10px 0 0 0;
   border-left: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07));
-  transform: skewX(-14deg);
+  transform: skewX(-18deg);
   transform-origin: bottom left;
 }
 .moba-tab::after {
   right: 0;
-  border-radius: 0 8px 0 0;
+  border-radius: 0 10px 0 0;
   border-right: 1px solid var(--phn-surface-border, rgba(255,255,255,0.07));
-  transform: skewX(14deg);
+  transform: skewX(18deg);
   transform-origin: bottom right;
 }
 .moba-tab > .moba-tab-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .moba-tab.active { color: var(--phn-tab-fg-active, #eceef0); z-index: 3; }
-.moba-tab.active::before, .moba-tab.active::after { background: var(--phn-tab-bg-active, #1b1c1f); }
+.moba-tab.active::before, .moba-tab.active::after { background-color: var(--phn-tab-bg-active, #1b1c1f); }
 .moba-tab:not(.active):hover { color: var(--phn-text-fg, #d6d8dc); }
-.moba-tab:not(.active):hover::before, .moba-tab:not(.active):hover::after { background: var(--phn-tab-bg-hover, rgba(255,255,255,0.04)); }
+.moba-tab:not(.active):hover::before, .moba-tab:not(.active):hover::after { background-color: var(--phn-tab-bg-hover, rgba(255,255,255,0.04)); }
 .moba-tab-x {
   color: var(--phn-text-faint, #586068);
   cursor: pointer;
