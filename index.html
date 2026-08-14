@@ -4,21 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pluto's Terminal</title>
-    <!-- Pre-paint background so boot never flashes white. Dark by default;
-         headerSkins.js writes the RESOLVED page background to one per-window
-         key every time a theme applies (see applyActiveTheme), so this stays
-         correct for every skin — light, custom, future — with zero duplicated
-         theme logic here. -->
-    <style>html { background: #0a0a0a; }</style>
-    <script>
-      try {
-        var w = new URLSearchParams(location.search).get("w");
-        var bg = localStorage.getItem("plutos-terminals:boot-bg" + (w ? ":" + w : ""));
-        if (bg && /^#[0-9a-fA-F]{3,8}$/.test(bg)) {
-          document.documentElement.style.background = bg;
-        }
-      } catch (e) { /* first boot / blocked storage: keep the dark default */ }
-    </script>
+    <!-- Boot flash guard. EXTERNAL files, never inline: Tauri hashes inline
+         <style>/<script> into the CSP, and a hash's presence disables
+         'unsafe-inline' — which xterm's runtime-generated stylesheet needs
+         (the 2026-08-14 white-terminal incident). -->
+    <link rel="stylesheet" href="/boot.css" />
+    <script src="/boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,0 +1,7 @@
+/* Pre-paint background so boot never flashes white. External file, NOT an
+   inline <style>: Tauri hashes inline elements into the CSP, and a hash's
+   presence disables 'unsafe-inline' — which xterm's runtime-generated
+   stylesheet needs (the 2026-08-14 white-terminal incident: every cell
+   rendered unstyled system-ui gray). boot.js refines this to the resolved
+   theme background. */
+html { background: #0a0a0a; }
