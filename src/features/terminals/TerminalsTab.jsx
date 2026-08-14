@@ -22,7 +22,7 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { KEY_ACTIONS, comboFromEvent, resolveBindings, setResolved, isCapturing, formatCombo } from "./keybindings.js";
 import { gridDims, MAX_PANELS } from "./grid";
-import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useRegistryListener } from "./hooks/independentEffects.js";
+import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useRegistryListener, useWindowTitle } from "./hooks/independentEffects.js";
 import { useDockResize } from "./hooks/useDockResize.js";
 import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { useSnippets } from "./hooks/useSnippets.js";
@@ -465,6 +465,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Active panel / tab derivation (plain, un-memoized — see useActiveTab). Sits
   // here so every reader below keeps the same declaration order.
   const { activePanel, activeTabId, activeTab, activeTabRecording } = useActiveTab(state, recordingTabIds);
+
+  // OS titlebar / taskbar / alt-tab mirror the active tab (Tier-2 polish).
+  useWindowTitle(activeTab?.label);
 
   // Snippet insert: type the command into the active tab's shell (no trailing
   // newline — the user reviews it and presses Enter). Bridges via ptyBridge so

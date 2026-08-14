@@ -75,6 +75,28 @@ export function useShellName() {
   return shellName;
 }
 
+// Dynamic window title: the OS titlebar / taskbar / alt-tab mirror the active
+// tab, MobaXterm-style ("label - app"). Chrome effect only — the label arrives
+// pre-computed, no workspace-tree coupling. document.title covers the browser/
+// phone transport; the native titlebar needs an explicit setTitle (Tauri does
+// not sync document.title), fetched lazily so non-Tauri transports just skip.
+export function formatWindowTitle(label) {
+  const l = typeof label === "string" ? label.trim() : "";
+  return l ? `${l} - Pluto's Terminal` : "Pluto's Terminal";
+}
+export function useWindowTitle(label) {
+  useEffect(() => {
+    const title = formatWindowTitle(label);
+    document.title = title;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().setTitle(title);
+      } catch { /* browser / phone transport — document.title is all we have */ }
+    })();
+  }, [label]);
+}
+
 // Whether the `claude` CLI is on PATH — checked once on mount (informational).
 export function useClaudeAvailable() {
   const [claudeAvailable, setClaudeAvailable] = useState(null);
