@@ -1140,11 +1140,19 @@ function TerminalPane({
     // clearTextureAtlas() is xterm's API for exactly this forced redraw.
     if (document.fonts?.ready) {
       document.fonts.ready.then(() => {
-        if (!alive) return;
+        // entryLive(), NOT the per-mount `alive` (audit H5): a tab dragged to
+        // another panel before the bundled font finished loading unmounts this
+        // first fiber (alive=false) — and the re-attach path registers no
+        // fonts.ready handler, so gating on `alive` left that pane's glyph
+        // atlas never rebuilt = tofu prompt glyphs forever. entry.term survives
+        // the move, so operate on it directly and gate on the entry's liveness.
+        if (!entryLive()) return;
+        const t = entry.term;
+        if (!t) return;
         try {
-          term.clearTextureAtlas();
-          safeFit();
-          if (opened) term.refresh(0, term.rows - 1);
+          t.clearTextureAtlas();
+          entry.fit?.fit();
+          if (t.element) t.refresh(0, t.rows - 1);
         } catch {}
       }).catch(() => {});
     }
