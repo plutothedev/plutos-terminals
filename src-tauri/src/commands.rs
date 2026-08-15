@@ -370,9 +370,12 @@ pub fn quit_app(app: tauri::AppHandle) {
 //
 // Each new window gets its own URL fragment (?w=<id>) so the React app
 // can isolate localStorage state per window via STORAGE_KEY suffix. The
-// window inherits app config + dev tools + tray-hide behavior. Closing
-// secondary windows hides them like the main window (so PTY sessions
-// keep running). True quit still happens via the tray menu.
+// window inherits app config + dev tools. Close behavior differs by label:
+// the MAIN window hides to tray on close (PTYs keep running; true quit is
+// the tray menu), but SECONDARY ("win-*") windows CLOSE for real — their
+// sessions are reaped in Rust by the WindowEvent::Destroyed handler
+// (audit H8), since the global SessionRegistry would otherwise keep them
+// alive after the webview is gone.
 
 #[tauri::command]
 pub async fn spawn_new_window(app: tauri::AppHandle, window_id: String) -> Result<String, String> {

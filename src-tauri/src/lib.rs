@@ -251,7 +251,12 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 let label = window.label();
                 if label.starts_with("win-") {
-                    pty::kill_window_sessions(&window.state::<pty::SessionRegistry>(), label);
+                    // try_state (not state) to match the ExitRequested handler's
+                    // defensive precedent for exit-adjacent code — a no-op if the
+                    // registry somehow isn't managed rather than a panic.
+                    if let Some(registry) = window.try_state::<pty::SessionRegistry>() {
+                        pty::kill_window_sessions(&registry, label);
+                    }
                 }
             }
         })

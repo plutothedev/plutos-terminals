@@ -264,6 +264,11 @@ fn coalescer_remove(app: &AppHandle, id: &str) {
     let registry = app.state::<SessionRegistry>();
     lock_recover(&registry.coalescers).remove(id);
     registry.dirty.clear(id);
+    // Drop the H8 window-ownership tag too (review W2): every natural-exit
+    // teardown (local EOF, SSH drop, serial unplug) funnels through here, so a
+    // session that ends itself no longer leaks a stale id→window tag until its
+    // window is destroyed / the app exits. (pty_kill removes the tag directly.)
+    lock_recover(&registry.owner).remove(id);
 }
 
 /// Snapshot ticker-session Arcs (map lock released before any per-session
@@ -826,14 +831,20 @@ fn expand_env_vars_with_extra(s: &str, extra: &Option<HashMap<String, String>>) 
 #[tauri::command]
 pub async fn pty_spawn(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     cwd: Option<String>,
     cols: u16,
     rows: u16,
     extra_env: Option<HashMap<String, String>>,
     tab_id: Option<String>,
 ) -> Result<String, String> {
+    // Owning-window label captured here (audit H8, review W1): tag ownership at
+    // BIRTH inside the sync core alongside the sessions insert, not later at
+    // pty_ready — so a window destroyed during the spawn→ready gap can't leave
+    // an untagged, unreapable orphan.
+    let owner_label = window.label().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        pty_spawn_sync(app, cwd, cols, rows, extra_env, tab_id)
+        pty_spawn_sync(app, owner_label, cwd, cols, rows, extra_env, tab_id)
     })
     .await
     .map_err(|e| format!("spawn task failed: {e}"))?
@@ -841,6 +852,7 @@ pub async fn pty_spawn(
 
 fn pty_spawn_sync(
     app: AppHandle,
+    owner_label: String,
     cwd: Option<String>,
     cols: u16,
     rows: u16,
@@ -918,6 +930,9 @@ fn pty_spawn_sync(
         .lock()
         .map_err(|_| "registry mutex poisoned".to_string())?
         .insert(id.clone(), Session::Local(session));
+    // Tag ownership at birth (audit H8) — sessions lock above is already
+    // released, so this second lock never nests (lock-order safe).
+    lock_recover(&app.state::<SessionRegistry>().owner).insert(id.clone(), owner_label);
 
     // Build the scrollback writer if the renderer supplied a tab_id. Owning
     // the file from this thread (rather than from a renderer-side unmount
@@ -1152,33 +1167,25 @@ pub async fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(
 /// on this before its first emit so the initial prompt/MOTD burst can't race
 /// the subscription. Safe to call for any session id — an unknown id is a no-op.
 #[tauri::command]
-pub fn pty_ready(
-    state: State<'_, SessionRegistry>,
-    window: tauri::WebviewWindow,
-    id: String,
-) -> Result<(), String> {
+pub fn pty_ready(state: State<'_, SessionRegistry>, id: String) -> Result<(), String> {
+    let sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "registry mutex poisoned".to_string())?;
     // Each reader thread recv's exactly once; a redundant/late send (e.g. after
     // the timeout fallback already let it proceed) is buffered+unread, so
-    // ignoring the result is safe for every variant. Capture existence so we can
-    // tag ownership AFTER dropping the sessions lock (avoids a lock-order
-    // inversion with kill_window_sessions, which takes owner before sessions).
-    let exists = {
-        let sessions = state
-            .sessions
-            .lock()
-            .map_err(|_| "registry mutex poisoned".to_string())?;
-        match sessions.get(&id) {
-            Some(Session::Local(s)) => { let _ = s.ready.send(()); true }
-            Some(Session::Ssh(h)) => { let _ = h.ready.send(()); true }
-            Some(Session::Serial(h)) => { let _ = h.ready.send(()); true }
-            None => false,
+    // ignoring the result is safe for every variant.
+    match sessions.get(&id) {
+        Some(Session::Local(s)) => {
+            let _ = s.ready.send(());
         }
-    };
-    // Tag the session with its owning window (audit H8) — the one post-spawn
-    // point every transport funnels through, so local/ssh/serial are all covered
-    // with no change to the spawn hot paths.
-    if exists {
-        lock_recover(&state.owner).insert(id, window.label().to_string());
+        Some(Session::Ssh(h)) => {
+            let _ = h.ready.send(());
+        }
+        Some(Session::Serial(h)) => {
+            let _ = h.ready.send(());
+        }
+        None => {}
     }
     Ok(())
 }
@@ -1394,6 +1401,7 @@ pub fn connect_session(
 #[tauri::command]
 pub async fn ssh_spawn(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, SessionRegistry>,
     host: String,
     port: u16,
@@ -1443,6 +1451,7 @@ pub async fn ssh_spawn(
                 ready: ready_tx,
             }),
         );
+    lock_recover(&state.owner).insert(id.clone(), window.label().to_string()); // tag at birth (audit H8)
 
     let mut scrollback_writer = tab_id
         .as_ref()
@@ -1648,6 +1657,7 @@ pub fn serial_list() -> Vec<String> {
 #[tauri::command]
 pub async fn serial_spawn(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, SessionRegistry>,
     path: String,
     baud: u32,
@@ -1676,6 +1686,7 @@ pub async fn serial_spawn(
                 ready: ready_tx,
             }),
         );
+    lock_recover(&state.owner).insert(id.clone(), window.label().to_string()); // tag at birth (audit H8)
 
     let mut scrollback_writer = tab_id
         .as_ref()
