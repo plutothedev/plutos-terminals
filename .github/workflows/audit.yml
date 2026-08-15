@@ -1,13 +1,17 @@
 # Dependency vulnerability scanning — npm (frontend) + cargo-audit (Rust backend).
 # Runs on pushes/PRs to the working branches, weekly, and on demand.
 #
-# Posture: continue-on-error is TRUE for now. The Rust tree carries known
-# advisories with no fixed upstream version yet — notably rsa RUSTSEC-2023-0071
-# (the "Marvin" timing side-channel, still no patched release) and the
-# unmaintained `vnc 0.4.0` crate. The scan REPORTS them so they stay visible; it
-# does not block. Once the tree is clean, or the residual unfixable advisories
-# are explicitly acknowledged in src-tauri/audit.toml ([advisories] ignore = [...]),
-# flip continue-on-error to false to gate merges on a clean scan.
+# Posture: the scan is now a GATE. cargo-audit fails the job on any
+# vulnerability-class advisory EXCEPT the explicitly-ignored known residual set
+# below (each unfixable upstream or capped by a parent crate's semver, each with
+# a reason). So a newly-disclosed advisory turns CI red instead of hiding in a
+# wall of perennial noise. Warnings (unmaintained/unsound/yanked — the gtk-rs
+# GTK3 Linux stack, etc.) are not errors in cargo-audit and stay informational.
+#
+# When a fix lands upstream: drop the matching --ignore line and let the bump
+# flow through Cargo.lock (that's how crossbeam-epoch RUSTSEC-2026-0204 and
+# quinn-proto RUSTSEC-2026-0185 already left the list — a plain `cargo update`).
+
 name: audit
 
 on:
@@ -33,9 +37,8 @@ jobs:
           cache: "npm"
       - run: npm ci
       # Shipped risk only (dev tooling like vite/vitest doesn't reach users),
-      # gate-worthy severity. continue-on-error keeps it reporting, not blocking.
+      # gate-worthy severity. Blocking: production deps must be clean at high+.
       - name: npm audit (production deps, high+)
-        continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
 
   cargo-audit:
@@ -52,7 +55,21 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked || true
       # Cargo.lock lives under src-tauri (this is a Tauri app, not a workspace root).
+      # --ignore = known residual advisories, each unfixable or parent-capped:
+      #   RUSTSEC-2023-0071  rsa "Marvin" timing side-channel. No patched release
+      #     since 2023. Transitive (SSH keygen); the attack needs a remote
+      #     decryption oracle with fine timing, which this desktop app doesn't
+      #     expose — keygen is local + one-shot.
+      #   RUSTSEC-2026-0194 / -0195  quick-xml quadratic-attr + namespace-alloc
+      #     DoS. Fixed >=0.41.0 but tauri/plist pins 0.39.x (cargo update caps at
+      #     0.39.4). XML input is app-authored config, not hostile streams.
+      #   RUSTSEC-2026-0235  rkyv OOB read on a malicious archive. Fixed >=0.8.17
+      #     but parent-capped. We never deserialize untrusted rkyv archives.
       - name: cargo audit
-        continue-on-error: true
         working-directory: src-tauri
-        run: cargo audit
+        run: >
+          cargo audit
+          --ignore RUSTSEC-2023-0071
+          --ignore RUSTSEC-2026-0194
+          --ignore RUSTSEC-2026-0195
+          --ignore RUSTSEC-2026-0235
