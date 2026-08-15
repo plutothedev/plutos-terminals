@@ -449,8 +449,13 @@
 .moba-tabstrip { scrollbar-width: none; }
 .moba-tabstrip::-webkit-scrollbar { width: 0; height: 0; }
 /* Drag-to-reorder: insertion bar on the target tab's leading/trailing edge. */
-.moba-tab.tab-drop-before { box-shadow: inset 2px 0 0 var(--phn-link, #7c9cf5); }
-.moba-tab.tab-drop-after { box-shadow: inset -2px 0 0 var(--phn-link, #7c9cf5); }
+/* Drag-reorder drop bar: a positive-z child (see TerminalPanel) so it paints
+   ABOVE the trapezoid ::before/::after fills, which sit at z-index:-1 and used
+   to cover an inset box-shadow on the tab (audit M6). */
+.moba-tab-dropbar { position: absolute; top: 3px; bottom: 2px; width: 2px; z-index: 4;
+  background: var(--phn-link, #7c9cf5); border-radius: 1px; display: none; pointer-events: none; }
+.moba-tab.tab-drop-before .moba-tab-dropbar { display: block; left: 0; right: auto; }
+.moba-tab.tab-drop-after .moba-tab-dropbar { display: block; right: 0; left: auto; }
 
 /* ── Guided tour (spotlight + card) ─────────────────────────────────── */
 .phn-tour { position: fixed; inset: 0; z-index: 100000; font-family: var(--phn-ui-font); }

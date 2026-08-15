@@ -498,6 +498,10 @@ function TerminalPanel({
                 style={{ cursor: isRenamingThis ? "text" : "pointer" }}
                 title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click to rename)`}
               >
+                {/* Drag-reorder drop bar (audit M6): a positive-z child, not a
+                    box-shadow on the tab — the trapezoid ::before/::after fills
+                    (z-index:-1) paint ABOVE the tab's own box-shadow and hid it. */}
+                <span className="moba-tab-dropbar" aria-hidden="true" />
                 <span
                   className={tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
                   title={tab.home ? "Session launch screen" : tab.worktree ? `Agent worktree (${tab.worktree.branch})` : tab.rdp ? "RDP desktop" : tab.vnc ? "VNC desktop" : tab.notebook ? "Notebook" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}
