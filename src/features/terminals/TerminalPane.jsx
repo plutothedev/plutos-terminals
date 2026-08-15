@@ -29,6 +29,31 @@ function attachImageAddon(entry, t) {
     try { t.loadAddon(new Cls()); } catch { /* ignore */ }
   });
 }
+
+// Renderer selection (audit M1). macOS WKWebView renders BLANK GLYPHS under the
+// GPU renderers (WebGL was tried + rejected — see the term.open note below), so
+// macOS stays on xterm's default DOM renderer. Windows (WebView2/Chromium) and
+// Linux (WebKitGTK) render the canvas addon correctly and far faster than the
+// DOM renderer under heavy output. Per-OS gated, DOM as the safe default; on any
+// load/attach failure we silently stay on DOM. Latched once per terminal.
+// NEEDS-PLUTO-PACKAGED-VERIFICATION on Windows + Linux before this ships.
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent || "");
+let CanvasAddonCls = null;
+async function loadCanvasAddonCls() {
+  if (!CanvasAddonCls) {
+    try { CanvasAddonCls = (await import("@xterm/addon-canvas")).CanvasAddon; }
+    catch { /* leave null — fall back to the DOM renderer */ }
+  }
+  return CanvasAddonCls;
+}
+function attachCanvasRenderer(entry, t) {
+  if (IS_MAC) return; // DOM renderer on macOS (WKWebView blank-glyph)
+  loadCanvasAddonCls().then((Cls) => {
+    if (!Cls || !t || !t.element || entry.canvasAddonDone) return;
+    entry.canvasAddonDone = true;
+    try { t.loadAddon(new Cls()); } catch { /* stay on the DOM renderer */ }
+  });
+}
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
@@ -799,6 +824,7 @@ function TerminalPane({
         if (!t.element) {
           try {
             t.open(entry.host);
+            attachCanvasRenderer(entry, t); // audit M1; before image addon
             attachImageAddon(entry, t);
           } catch { /* ignore */ }
         }
@@ -954,9 +980,10 @@ function TerminalPane({
     // Opening into a hidden / 0×0 / off-Space container leaves xterm's renderer
     // uncreated (its IntersectionObserver pauses it) and a later async write-flush
     // then throws on the missing renderer. The WebGL renderer (@xterm/addon-webgl)
-    // was tried but renders blank glyphs in Tauri's WKWebView, so we stay on the
-    // default DOM renderer; ImageAddon (Sixel + iTerm2 inline images) loads in
-    // openIfVisible since it needs the renderer.
+    // renders blank glyphs in macOS's WKWebView, so macOS stays on the default
+    // DOM renderer; Windows/Linux get the faster canvas renderer via
+    // attachCanvasRenderer (audit M1, per-OS gated). ImageAddon (Sixel + iTerm2
+    // inline images) loads in openIfVisible since it needs the renderer.
     // Command blocks via OSC 133 shell integration. The shell (see promptSetup)
     // emits ESC]133;A BEL at each prompt and ESC]133;D;<exit> BEL when a command
     // finishes. We pair them: A opens a block (record the prompt line), the next
@@ -1140,6 +1167,7 @@ function TerminalPane({
       if (opened || !alive || !container.clientWidth || !container.clientHeight) return;
       opened = true;
       term.open(entry.host); // registry-owned host — the xterm DOM moves with it across slots
+      attachCanvasRenderer(entry, term); // GPU renderer on Win/Linux (audit M1); before image addon
       attachImageAddon(entry, term);
       safeFit();
     };
