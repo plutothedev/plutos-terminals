@@ -82,13 +82,20 @@ export function formatWindowTitle(label) {
   const l = typeof label === "string" ? label.trim() : "";
   return l ? `${l} - Pluto's Terminal` : "Pluto's Terminal";
 }
+// Latest label wins: fast tab-switching fires several of these, and the async
+// native setTitle can resolve out of order under variable IPC latency, leaving
+// the OS titlebar on a stale tab's name (audit M8). document.title (sync) is
+// always correct; guard only the async native write against staleness.
+let titleSeq = 0;
 export function useWindowTitle(label) {
   useEffect(() => {
     const title = formatWindowTitle(label);
     document.title = title;
+    const mySeq = ++titleSeq;
     (async () => {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        if (mySeq !== titleSeq) return; // a newer label superseded us before the import resolved
         await getCurrentWindow().setTitle(title);
       } catch { /* browser / phone transport — document.title is all we have */ }
     })();
