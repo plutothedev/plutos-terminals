@@ -1,9 +1,10 @@
 // (C)
+import { memo } from "react";
 import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../../appMeta.js";
 import { SBroadcast } from "../toolbarIcons.jsx";
 import * as recording from "../recording.js";
 
-export default function StatusBar({
+function StatusBar({
   shellName,
   broadcast,
   bcastTargets,
@@ -95,3 +96,5 @@ export default function StatusBar({
     </div>
   );
 }
+
+export default memo(StatusBar);

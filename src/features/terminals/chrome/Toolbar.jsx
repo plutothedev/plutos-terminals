@@ -1,11 +1,11 @@
 // (C)
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import {
   SLocal, SSsh, SSerial, SSplit, SSplitRow, SSplitCol, SMultiX, STunnel, SAsk, SModels, SSnips, SAgents, SSearch,
 } from "../toolbarIcons.jsx";
 import MobaToolbar from "../MobaToolbar";
 
-export default function Toolbar({
+function Toolbar({
   activeTabId, activeTab, splitPane, broadcast, toggleBroadcast,
   tunnelsOpen, setTunnelsOpen, openTunnels, ribbon, selectRibbon,
   setDialog, setSerialOpen, setAskOpen, setAgentOpen, setModelsOpen,
@@ -70,3 +70,5 @@ export default function Toolbar({
     />
   );
 }
+
+export default memo(Toolbar);

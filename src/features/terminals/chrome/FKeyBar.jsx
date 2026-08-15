@@ -1,8 +1,9 @@
 // (C)
+import { memo } from "react";
 import { GITHUB_URL, openExternal } from "../../../appMeta.js";
 import { modCombo } from "../keybindings.js";
 
-export default function FKeyBar({
+function FKeyBar({
   addTab,
   activePanelId,
   activeTabId,
@@ -37,3 +38,5 @@ export default function FKeyBar({
     </div>
   );
 }
+
+export default memo(FKeyBar);

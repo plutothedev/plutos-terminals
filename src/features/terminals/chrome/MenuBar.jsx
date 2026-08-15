@@ -1,5 +1,5 @@
 // (C)
-import { useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { invoke } from "@backend";
 import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../../appMeta.js";
 import { IconMoon, IconSun, IconExit } from "../icons.jsx";
@@ -12,7 +12,7 @@ import { toNotebookName } from "../notebookIo.js";
 import { humanizeError } from "../errorText.js";
 import MobaMenuBar from "../MobaMenuBar.jsx";
 
-export default function MenuBar({
+function MenuBar({
   addTab, addHomeTab, addNotebookTab, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
   activeTabId, activeTab, panels, activePanelId,
   importSshConfig, selectRibbon, openTunnels,
@@ -228,3 +228,5 @@ export default function MenuBar({
     </>
   );
 }
+
+export default memo(MenuBar);

@@ -1,7 +1,8 @@
 // (C)
+import { memo } from "react";
 import { SFolder, SAsk, SPulse } from "../toolbarIcons.jsx";
 
-export default function DockTabStrip({ dockTab, setDockTab, collapseDock }) {
+function DockTabStrip({ dockTab, setDockTab, collapseDock }) {
   return (
     <div className="moba-rd-tabs">
       {[
@@ -23,3 +24,5 @@ export default function DockTabStrip({ dockTab, setDockTab, collapseDock }) {
     </div>
   );
 }
+
+export default memo(DockTabStrip);

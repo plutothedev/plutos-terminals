@@ -1,4 +1,5 @@
 // (C)
+import { memo } from "react";
 // Every modal / overlay TerminalsTab renders, re-homed verbatim (Stream B2
 // Task 5). Pure JSX relocation: all open-flags, payloads, and handlers stay in
 // the parent and arrive as pass-through props; no modal's own props changed.
@@ -31,7 +32,7 @@ import SetupChecker from "../../../components/SetupChecker.jsx";
 import CommandPalette from "../../../components/CommandPalette.jsx";
 import { writeToTab, getCommandHistory, getLiveTabIds } from "../ptyBridge.js";
 
-export default function ModalHost({
+function ModalHost({
   // tunnels
   tunnelsOpen, setTunnelsOpen, forwards, tunnelBusy, tunnelError, startForward, startSocks, stopForward,
   // serial
@@ -316,3 +317,5 @@ export default function ModalHost({
     </>
   );
 }
+
+export default memo(ModalHost);
