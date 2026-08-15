@@ -52,6 +52,7 @@ import {
 import { isPrimaryWindow } from "./storageKeys.js";
 import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
+import { hasUnsavedRemoteEdits } from "./remoteEditDirty.js";
 import { writeToTab, writeBroadcast, getTabText, getPtyId } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
 import { navigatePane } from "./paneNav.js";
@@ -441,6 +442,22 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio, equalizePanes, moveTabIntoSplit,
   } = useWorkspaceTree({ state, persist, toast });
 
+  // Closing a tab unmounts any open remote-file editor (a floating Modal owned
+  // by the dock) without hitting the editor's own onClose dirty-guard, so guard
+  // every UI close path here (audit C4 review). Coarse by design: any unsaved
+  // remote edit anywhere prompts — the editor is tied to the active session, so
+  // a close is almost always closing its host.
+  const guardedCloseTab = useCallback(async (panelId, tabId) => {
+    if (hasUnsavedRemoteEdits()) {
+      const ok = await confirm(
+        "A remote file has unsaved changes. Close this tab and discard them?",
+        { title: "Discard changes?", confirmLabel: "Discard", destructive: true }
+      );
+      if (!ok) return;
+    }
+    closeTab(panelId, tabId);
+  }, [closeTab, confirm]);
+
   // Discard an agent worktree from the diff-review modal. Close EVERY tab bound
   // to it first — a live shell cwd'd inside the folder would block git's --force
   // remove on Windows (there's normally exactly one owner; closing all defends a
@@ -822,8 +839,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // (audit C5): offer each inflight .cast for save or discard. Gated on
   // onboarded so it never collides with first-run modals; inflight is empty in
   // the normal case, so this stays silent unless a real interruption happened.
+  const recoveryRanRef = useRef(false);
   useEffect(() => {
     if (userSt?.terminalsOnboarded !== true) return;
+    if (recoveryRanRef.current) return; // StrictMode double-invoke guard
+    recoveryRanRef.current = true;
     let cancelled = false;
     (async () => {
       const names = await recording.listInflightRecordings();
@@ -880,7 +900,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       closeActiveTab: () => {
         const panel = state.panels.find((p) => p.id === state.activePanelId);
         if (panel && panel.tabs.length > 1 && panel.activeTabId) {
-          closeTab(panel.id, panel.activeTabId);
+          guardedCloseTab(panel.id, panel.activeTabId);
         }
       },
       openCommandPalette: () => setCommandPaletteOpen(true),
@@ -996,7 +1016,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         canAddPanel={canAddPanel}
         splitPane={splitPane}
         equalizePanes={equalizePanes}
-        closeTab={closeTab}
+        closeTab={guardedCloseTab}
         activeTab={activeTab}
         panels={state.panels}
         activePanelId={state.activePanelId}
@@ -1146,7 +1166,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               homeApi={homeApi}
               onActivate={setActivePanel}
               onAddTab={addTab}
-              onCloseTab={closeTab}
+              onCloseTab={guardedCloseTab}
               onSwitchTab={switchTab}
               onClosePanel={closePanel}
               onTabCostUpdate={handleTabCostUpdate}

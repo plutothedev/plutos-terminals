@@ -38,17 +38,23 @@ static DISKS: OnceLock<Mutex<sysinfo::Disks>> = OnceLock::new();
 static LAST_DISK_PCT: OnceLock<Mutex<f32>> = OnceLock::new();
 
 fn last_disk_pct() -> f32 {
-    LAST_DISK_PCT
+    // Plain lock (poison-recovering): the critical section is a single f32
+    // read/write that can never hang, so try_lock here would only ever lose a
+    // nanosecond race and spuriously serve 0.0 (review LOW) — the exact wrong
+    // value this cache exists to avoid. Only DISKS itself needs try_lock.
+    let g = LAST_DISK_PCT
         .get_or_init(|| Mutex::new(0.0))
-        .try_lock()
-        .map(|g| *g)
-        .unwrap_or(0.0)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *g
 }
 
 fn store_disk_pct(v: f32) {
-    if let Ok(mut g) = LAST_DISK_PCT.get_or_init(|| Mutex::new(0.0)).try_lock() {
-        *g = v;
-    }
+    let mut g = LAST_DISK_PCT
+        .get_or_init(|| Mutex::new(0.0))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *g = v;
 }
 
 /// Async wrapper (P2-T5): the body stats the disk. `system_stats_sync` now

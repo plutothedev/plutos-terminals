@@ -23,6 +23,18 @@ use crate::pty::{connect_session, SshAuth};
 
 const XFER_BUF: usize = 32 * 1024;
 
+// A per-transfer-unique temp filename. Two independent SFTP workers (different
+// sessions/tabs) can target the SAME destination path concurrently — same-named
+// file downloaded to the OS default dir from two hosts, same file re-uploaded
+// from two tabs — and a purely dest-derived temp name would let them interleave
+// writes into one temp and produce a garbled result (review MEDIUM). Process id
+// + a monotonic counter makes the temp unique per transfer.
+static XFER_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn unique_tmp(dest: &str) -> String {
+    let n = XFER_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{dest}.pluto-{}-{n}.tmp~", std::process::id())
+}
+
 /// One remote directory entry, serialized to the file-browser UI.
 #[derive(Serialize, Clone)]
 pub struct SftpEntry {
@@ -112,7 +124,7 @@ fn to_entry(path: &Path, stat: &ssh2::FileStat) -> SftpEntry {
 /// untouched — a dropped download never truncates an existing local file
 /// (audit C3). Mirror of `do_write_text`'s remote-side pattern for the local FS.
 fn stream_to_file_atomic(src: &mut impl Read, dest: &str) -> Result<u64, String> {
-    let tmp = format!("{dest}.plutotmp~");
+    let tmp = unique_tmp(dest);
     let mut lf = fs::File::create(&tmp).map_err(|e| format!("create temp: {e}"))?;
     let mut buf = [0u8; XFER_BUF];
     let mut total = 0u64;
@@ -171,7 +183,7 @@ fn do_write_text(sftp: &ssh2::Sftp, remote: &str, content: &str) -> Result<(), S
     // write, so a mid-write failure (dropped link, full disk, libssh2 timeout) would
     // leave the user's file empty/half-written. Temp+rename keeps the original intact
     // until the full payload is durably written.
-    let tmp = format!("{remote}.plutotmp~");
+    let tmp = unique_tmp(remote);
     {
         let mut rf = sftp
             .create(Path::new(&tmp))
@@ -199,7 +211,7 @@ fn do_upload(sftp: &ssh2::Sftp, local: &str, remote: &str) -> Result<u64, String
     // would destroy content that existed before the user even tried to update
     // it (audit C3). Temp+rename keeps the original intact until fully staged.
     let mut lf = fs::File::open(local).map_err(|e| format!("open local: {e}"))?;
-    let tmp = format!("{remote}.plutotmp~");
+    let tmp = unique_tmp(remote);
     let mut total = 0u64;
     let streamed = (|| -> Result<(), String> {
         let mut rf = sftp

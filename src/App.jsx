@@ -94,9 +94,15 @@ function AppInner() {
   // recovered from the durable Rust backup instead of silently resetting the
   // whole layout to empty (audit C2). corrupt-on-boot is handled async below.
   const bootCorruptRef = useRef(false);
+  // While a corrupt-boot recovery is still reading the durable backup, suspend
+  // the mirror write — otherwise a synchronous migration effect's save({}) can
+  // flush the empty fallback and CLOBBER store.json before recovery reads it,
+  // then "recover" the file it just overwrote (review finding).
+  const mirrorSuspendedRef = useRef(false);
   const [st, setSt] = useState(() => {
     const { state, corrupt } = parseWorkspace(localStorage.getItem(STORAGE_KEY));
     bootCorruptRef.current = corrupt;
+    mirrorSuspendedRef.current = corrupt;
     return state;
   });
 
@@ -148,9 +154,17 @@ function AppInner() {
     // Durable mirror to the atomic Rust store (audit C2): localStorage is the
     // only home for the layout, so a WebView2 profile corruption would lose it
     // with no backup. Primary window only — secondary windows are ephemeral and
-    // would clobber each other's copy in the single store.json.
-    if (json != null && isPrimaryWindow()) {
-      invoke("write_store", { data: json }).catch(() => {});
+    // would clobber each other's copy in the single store.json. SECRET_FIELDS
+    // are stripped first: the window blob can carry a legacy plaintext
+    // anthropicKey, and store.json is a NEW, more discoverable at-rest location
+    // — mirror it unfiltered and the durability fix leaks the key (review
+    // CRITICAL). Same allowlist discipline the keychain + cloud-sync paths use.
+    if (json != null && isPrimaryWindow() && !mirrorSuspendedRef.current) {
+      try {
+        const safe = { ...next };
+        for (const f of SECRET_FIELDS) delete safe[f];
+        invoke("write_store", { data: JSON.stringify(safe) }).catch(() => {});
+      } catch { /* mirror is best-effort */ }
     }
   }, []);
 
@@ -224,6 +238,10 @@ function AppInner() {
         }
       } catch {
         if (!cancelled) toast.error("Your saved workspace couldn't be read — starting fresh.");
+      } finally {
+        // Recovery done (or the component went away) — let the mirror resume so
+        // the recovered/fresh state persists to store.json going forward.
+        mirrorSuspendedRef.current = false;
       }
     })();
     return () => { cancelled = true; };

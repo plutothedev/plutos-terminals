@@ -9,6 +9,7 @@ import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
+import { markRemoteEditDirty, clearRemoteEditDirty } from "./remoteEditDirty.js";
 import { modCombo } from "./keybindings.js";
 import { humanizeError } from "./errorText.js";
 
@@ -66,6 +67,16 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
   }, [open, sessionId, path]);
 
   const dirty = text !== orig;
+
+  // Publish dirtiness to the module registry so tab-close paths (which unmount
+  // this editor without hitting its own onClose guard) can confirm first (audit
+  // C4). Keyed by session+path; cleared on clean, and on unmount.
+  useEffect(() => {
+    const key = `${sessionId}:${path}`;
+    if (dirty) markRemoteEditDirty(key);
+    else clearRemoteEditDirty(key);
+    return () => clearRemoteEditDirty(key);
+  }, [dirty, sessionId, path]);
 
   const save = async () => {
     if (saving || !sessionId || !path) return;
