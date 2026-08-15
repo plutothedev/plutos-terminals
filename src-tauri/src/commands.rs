@@ -72,6 +72,19 @@ pub fn read_store(app: AppHandle) -> Result<String, String> {
     }
 }
 
+// A per-write-unique tmp suffix (pid + monotonic counter). A FIXED tmp name is
+// safe within one process's serialized writes, but two windows or two app
+// instances writing the same target concurrently would race the shared tmp:
+// one writer clobbers the other's half-written tmp, and the loser's rename then
+// operates on the wrong content or a missing source (audit H2). A unique suffix
+// makes each writer's tmp private, so concurrent writes degrade to clean
+// last-write-wins on the atomic rename instead of corrupting.
+static STORE_TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn unique_tmp_suffix() -> String {
+    let n = STORE_TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("tmp-{}-{n}", std::process::id())
+}
+
 #[tauri::command]
 pub fn write_store(app: AppHandle, data: String) -> Result<(), String> {
     let dir = get_data_dir(&app);
@@ -79,10 +92,14 @@ pub fn write_store(app: AppHandle, data: String) -> Result<(), String> {
     let path = dir.join("store.json");
     // Atomic replace (write-tmp + rename, same pattern as the scrollback
     // tail-truncation in pty.rs) so a crash/power-cut mid-write can't leave a
-    // truncated or half-written store.json behind.
-    let tmp = dir.join("store.json.tmp");
+    // truncated or half-written store.json behind. Unique tmp per write so
+    // concurrent instances can't clobber each other's tmp (audit H2).
+    let tmp = dir.join(format!("store.json.{}", unique_tmp_suffix()));
     fs::write(&tmp, data).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    fs::rename(&tmp, &path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 // ── Native folder picker (used by Terminals tab project sidebar) ──
@@ -2256,7 +2273,9 @@ fn notebook_write_sync(dir: &std::path::Path, name: &str, content: &str) -> Resu
         .file_name()
         .ok_or_else(|| "invalid notebook path".to_string())?
         .to_os_string();
-    tmp_name.push(".tmp");
+    // Unique tmp per write (audit H2): two windows/instances saving the same
+    // notebook would otherwise race a shared "<name>.md.tmp" and corrupt it.
+    tmp_name.push(format!(".{}", unique_tmp_suffix()));
     let tmp = path.with_file_name(tmp_name);
     fs::write(&tmp, content).map_err(|e| e.to_string())?;
     fs::rename(&tmp, &path).map_err(|e| {
@@ -2494,8 +2513,36 @@ mod notebook_io_tests {
     fn write_is_atomic_no_tmp_file_left_behind() {
         let tmp = tempfile::tempdir().unwrap();
         notebook_write_sync(tmp.path(), "notes.md", "content").unwrap();
-        assert!(!tmp.path().join("notes.md.tmp").exists());
+        // No tmp sibling (unique-suffixed now) left behind.
+        let leftover = fs::read_dir(tmp.path()).unwrap().flatten().any(|e| {
+            let n = e.file_name();
+            let n = n.to_string_lossy();
+            n.starts_with("notes.md.") && n != "notes.md"
+        });
+        assert!(!leftover, "a notes.md.* tmp was left behind");
         assert!(tmp.path().join("notes.md").exists());
+    }
+
+    #[test]
+    fn concurrent_notebook_writes_are_clean_last_write_wins() {
+        // Two threads hammer the SAME notebook with distinct content. With a
+        // unique tmp per write, the file must always end as ONE writer's full
+        // content (clean last-write-wins), never a torn interleave, and neither
+        // writer errors (audit H2).
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().to_path_buf();
+        let a = "AAAA".repeat(4096);
+        let b = "BBBB".repeat(4096);
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                let (da, ca) = (dir.clone(), a.clone());
+                let (db, cb) = (dir.clone(), b.clone());
+                s.spawn(move || { notebook_write_sync(&da, "race.md", &ca).unwrap(); });
+                s.spawn(move || { notebook_write_sync(&db, "race.md", &cb).unwrap(); });
+            }
+        });
+        let got = notebook_read_sync(tmp.path(), "race.md").unwrap();
+        assert!(got == a || got == b, "file was torn: len {}", got.len());
     }
 
     #[test]
