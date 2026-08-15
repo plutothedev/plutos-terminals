@@ -283,8 +283,26 @@ fn setup_askpass(cmd: &mut Command, passphrase: &str) -> Result<AskpassScript, S
     Ok(AskpassScript(script))
 }
 
+/// Async wrapper (audit H6): a non-async `#[tauri::command]` runs INLINE on the
+/// webview's UI event-loop thread, so blocking on `ssh-keygen` (RSA-4096 can
+/// take real seconds, worse on entropy-starved VMs) froze the whole window —
+/// all tabs, panes, keystrokes. spawn_blocking keeps the UI (and the tokio
+/// workers) clear of it, matching every other subprocess command in the crate.
 #[tauri::command]
-pub fn ssh_key_generate(
+pub async fn ssh_key_generate(
+    name: String,
+    key_type: String,
+    comment: String,
+    passphrase: String,
+) -> Result<SshKey, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        ssh_key_generate_sync(name, key_type, comment, passphrase)
+    })
+    .await
+    .map_err(|e| format!("ssh-keygen task failed: {e}"))?
+}
+
+fn ssh_key_generate_sync(
     name: String,
     key_type: String,
     comment: String,
