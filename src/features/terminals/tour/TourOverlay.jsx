@@ -6,6 +6,7 @@
 // Esc / Skip end the tour (onClose(false)); finishing the last step calls
 // onClose(true). The caller owns persistence.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { focusablesIn } from "../../../components/Modal.jsx";
 import { pickPlacement } from "./placement.js";
 import { TOUR_STEPS, TOUR_CHAPTERS } from "./tourSteps.js";
 
@@ -83,6 +84,20 @@ export default function TourOverlay({ open, onClose, ctx, steps = TOUR_STEPS, ch
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(false); }
       else if (e.key === "ArrowRight" || e.key === "Enter") { e.preventDefault(); e.stopPropagation(); goto(i + 1, 1); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); goto(i - 1, -1); }
+      else if (e.key === "Tab") {
+        // Hard focus trap: Tab cycles INSIDE the card only. Without this, Tab
+        // walks focus onto real chrome under the overlay and Space activates
+        // it natively (keyup semantics the keydown branches never see) —
+        // theme toggles, modals opening invisibly (re-review finding).
+        const node = cardRef.current;
+        if (!node) return;
+        e.preventDefault(); e.stopPropagation();
+        const items = focusablesIn(node);
+        if (items.length === 0) { node.focus(); return; }
+        const at = items.indexOf(document.activeElement);
+        if (at === -1) { items[0].focus(); return; }
+        items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length].focus();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);

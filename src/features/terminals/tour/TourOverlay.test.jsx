@@ -81,6 +81,22 @@ describe("TourOverlay", () => {
     expect(leak).not.toHaveBeenCalled();
   });
 
+  test("Tab is trapped inside the card — focus can never reach chrome beneath", async () => {
+    document.body.innerHTML = '<div data-tour="exists">x</div><button id="outside">chrome btn</button>';
+    mount();
+    // Focus something OUTSIDE the card (simulates the pre-trap escape route),
+    // then Tab: the trap must pull focus back into the card.
+    document.getElementById("outside").focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    const card = document.querySelector(".phn-tour-card");
+    expect(card.contains(document.activeElement)).toBe(true);
+    // Cycling stays inside across many Tabs, both directions.
+    for (let k = 0; k < 10; k++) fireEvent.keyDown(window, { key: "Tab" });
+    expect(card.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(card.contains(document.activeElement)).toBe(true);
+  });
+
   test("a backward skip hitting a missing-target step 0 flips forward instead of freezing", async () => {
     const steps = [
       { id: "m0", chapter: "One", target: '[data-tour="missing"]', title: "M0", body: "mmmm mmmm mmmm mmmm mmmm mmmm mmmm mmmm mmmm mmmm", useCase: "Use it when: never." },

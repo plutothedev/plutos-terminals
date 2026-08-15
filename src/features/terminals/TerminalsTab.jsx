@@ -148,6 +148,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     try { localStorage.setItem("phn.tourDone", "1"); } catch { /* private mode */ }
   }, [collapseDock, collapseTree]);
   const startTour = useCallback(() => {
+    if (tourOpenRef.current) return; // re-entrancy: never re-snapshot mid-tour
     setTourOffered(true);
     try { localStorage.setItem("phn.tourDone", "1"); } catch { /* private mode */ }
     tourLayoutSnapRef.current = { dockCollapsed, treeCollapsed, dockTab };
@@ -378,18 +379,26 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     if (st?.setupSeen) return;
     let cancelled = false;
     (async () => {
+      // Guided tour open: never auto-open Setup INVISIBLY under the tour's
+      // overlay (re-review finding). Defer, don't lose: skip the setupSeen
+      // write too (finally runs even on early return), so the next launch
+      // re-runs this check and shows the modal normally.
+      let deferredForTour = false;
       try {
         const claudeVersion = await invoke("check_command_version", { name: "claude" });
         if (cancelled) return;
+        if (tourOpenRef.current) { deferredForTour = true; return; }
         if (!claudeVersion) {
           setSetupOpen(true);
         }
       } catch (_) {
         // If the check itself errors (Tauri command not registered, etc.),
         // open the setup modal anyway — better safe than silent.
-        if (!cancelled) setSetupOpen(true);
+        if (cancelled) return;
+        if (tourOpenRef.current) { deferredForTour = true; return; }
+        setSetupOpen(true);
       } finally {
-        if (!cancelled) {
+        if (!cancelled && !deferredForTour) {
           // Mark seen even if claude was found, so subsequent launches skip.
           // Functional form: `st` was captured before the await — spreading it
           // here would clobber any save that landed during the version check.

@@ -11,7 +11,8 @@ const FOCUSABLE =
 
 // Visible focusables within a node — one definition so the initial-focus pick and
 // the Tab-trap agree on what "focusable" means (offsetParent filters hidden ones).
-function focusablesIn(node) {
+// Exported: the guided tour's focus trap (tour/TourOverlay.jsx) reuses it.
+export function focusablesIn(node) {
   return Array.from(node.querySelectorAll(FOCUSABLE)).filter((el) => el.offsetParent !== null);
 }
 
