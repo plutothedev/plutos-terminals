@@ -624,7 +624,7 @@ pub fn start(
     state: &CompanionState,
     port: u16,
 ) -> Result<(u16, String, String), String> {
-    let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let mut guard = state.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if guard.is_some() {
         return Err("companion already running".into());
     }
@@ -697,7 +697,7 @@ pub fn start(
 /// Tailscale Serve proxy and forgets push subscriptions — stop must revoke the
 /// whole external surface, not just the loopback socket. No-op if not running.
 pub fn stop(state: &CompanionState) -> Result<(), String> {
-    let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let mut guard = state.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(r) = guard.take() {
         let _ = r.shutdown.send(());
         serve_off(r.port);
@@ -770,7 +770,7 @@ pub fn companion_set_sessions(
     state: tauri::State<'_, CompanionState>,
     sessions: String,
 ) -> Result<(), String> {
-    let mut guard = state.sessions.lock().map_err(|e| e.to_string())?;
+    let mut guard = state.sessions.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     *guard = sessions;
     Ok(())
 }
@@ -783,7 +783,7 @@ pub fn companion_set_snippets(
     state: tauri::State<'_, CompanionState>,
     snippets: String,
 ) -> Result<(), String> {
-    let mut guard = state.snippets.lock().map_err(|e| e.to_string())?;
+    let mut guard = state.snippets.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     *guard = snippets;
     Ok(())
 }
@@ -796,7 +796,7 @@ pub fn companion_set_models(
     state: tauri::State<'_, CompanionState>,
     models: String,
 ) -> Result<(), String> {
-    let mut guard = state.models.lock().map_err(|e| e.to_string())?;
+    let mut guard = state.models.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     *guard = models;
     Ok(())
 }

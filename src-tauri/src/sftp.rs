@@ -348,7 +348,7 @@ async fn dispatch_async<T: Send + 'static>(
         let sessions = state
             .sessions
             .lock()
-            .map_err(|_| "sftp registry poisoned".to_string())?;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         sessions
             .get(id)
             .ok_or("sftp session not found")?
@@ -392,7 +392,7 @@ pub async fn sftp_connect(
     state
         .sessions
         .lock()
-        .map_err(|_| "sftp registry poisoned".to_string())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(id.clone(), SftpHandle { req: tx });
     Ok(id)
 }
@@ -546,7 +546,7 @@ pub fn sftp_disconnect(state: State<'_, SftpRegistry>, id: String) -> Result<(),
     state
         .sessions
         .lock()
-        .map_err(|_| "sftp registry poisoned".to_string())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(&id);
     Ok(())
 }

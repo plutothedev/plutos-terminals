@@ -3,6 +3,8 @@
 // into the active terminal (or broadcast it) later. Recording taps TerminalPane's
 // onData (the same byte stream sent to the PTY), so it captures control chars and
 // Enter exactly as typed. Macros persist in localStorage.
+import { loadJSON } from "./safeParse.js";
+
 const KEY = "plutos-terminals:macros:v0";
 
 let recording = false;
@@ -62,11 +64,8 @@ export function recordInput(tabId, data) {
 }
 
 export function loadMacros() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr : [];
-  } catch { return []; }
+  const arr = loadJSON(KEY, { fallback: [] });
+  return Array.isArray(arr) ? arr : [];
 }
 
 export function saveMacros(list) {

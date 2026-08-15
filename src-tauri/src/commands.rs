@@ -427,7 +427,20 @@ pub fn save_text_to_file(
     let chosen = dialog.save_file();
     match chosen {
         Some(path) => {
-            fs::write(&path, contents).map_err(|e| e.to_string())?;
+            // Atomic write (audit L5): tmp sibling + rename, so a crash/full-disk
+            // mid-write can't truncate the file the user picked to overwrite.
+            // Same-dir tmp guarantees a same-filesystem (atomic) rename.
+            let mut tmp_name = path
+                .file_name()
+                .ok_or_else(|| "invalid save path".to_string())?
+                .to_os_string();
+            tmp_name.push(format!(".{}", unique_tmp_suffix()));
+            let tmp = path.with_file_name(tmp_name);
+            fs::write(&tmp, contents).map_err(|e| e.to_string())?;
+            fs::rename(&tmp, &path).map_err(|e| {
+                let _ = fs::remove_file(&tmp);
+                e.to_string()
+            })?;
             Ok(Some(path.to_string_lossy().to_string()))
         }
         None => Ok(None),

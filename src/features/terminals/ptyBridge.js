@@ -8,6 +8,8 @@
 // unmount. Consumers (TerminalsTab) look a tab up by id and write to it, read
 // its live dimensions, or fan a write out to every visible terminal at once.
 
+import { loadJSON } from "./safeParse.js";
+
 const writers = new Map(); // tabId -> (data: string) => void
 const readers = new Map(); // tabId -> () => string (recent terminal text)
 const ptyIds = new Map(); // tabId -> live pty channel id ("pty-…", from pty_spawn)
@@ -121,11 +123,10 @@ export function getTabText(tabId) {
 const HISTORY_KEY = "plutos-terminals:cmdhistory:v0";
 const HISTORY_CAP = 500;
 let cmdHistory = [];
-try {
-  const raw = localStorage.getItem(HISTORY_KEY);
-  const parsed = raw ? JSON.parse(raw) : [];
+{
+  const parsed = loadJSON(HISTORY_KEY, { fallback: [] });
   if (Array.isArray(parsed)) cmdHistory = parsed;
-} catch { /* ignore */ }
+}
 
 export function recordCommand(cmd) {
   const c = String(cmd || "").trim();

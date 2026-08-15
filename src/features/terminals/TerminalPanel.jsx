@@ -252,6 +252,11 @@ function TerminalPanel({
   // of app state so a drag doesn't hammer localStorage; committed on mouseup.
   const [dragRatios, setDragRatios] = useState({});
   const [zoomedPaneId, setZoomedPaneId] = useState(null); // pane zoomed to fill its tab
+  // Abort an in-flight tab/divider drag on unmount so document mousemove/mouseup
+  // listeners (and, for tab-drag, the floating ghost + drop highlights) never
+  // outlive the panel (audit L1). Each handler stores its AbortController here.
+  const dragAbortRef = useRef(null);
+  useEffect(() => () => dragAbortRef.current?.abort(), []);
 
   // Tab drag between panels. Mouse-event based (HTML5 drag is broken in
   // WebView2 per the code-rule memo). On drop over a different panel, the
@@ -345,15 +350,15 @@ function TerminalPanel({
         }
       }
     };
+    dragAbortRef.current?.abort(); // end any prior drag first
+    const ac = new AbortController();
+    dragAbortRef.current = ac;
+    const { signal } = ac;
     const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      if (ghost) ghost.remove();
+      // Read drop intent BEFORE abort clears the visual state, then commit.
       const pendingSplit = splitDrop;
-      clearSplitPreview();
       const tgt = lastTargetEl?.getAttribute("data-panel-id");
-      clearTabDropHighlights();
-      clearTabInserts();
+      ac.abort(); // removes listeners + clears ghost/preview/highlights/inserts
       if (dragging && pendingSplit) {
         onSplitDropTab?.(tab.id, pendingSplit.targetTabId, pendingSplit.targetPaneId, pendingSplit.dir, pendingSplit.newFirst);
       } else if (dragging && tgt && tgt !== panel.id) {
@@ -366,8 +371,16 @@ function TerminalPanel({
         if (to !== from) onReorderTab?.(tab.id, to);
       }
     };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    // Teardown reached by mouseup AND unmount-mid-drag: drop the floating ghost
+    // and every drop-target highlight so nothing is stranded on screen (L1).
+    signal.addEventListener("abort", () => {
+      if (ghost) ghost.remove();
+      clearSplitPreview();
+      clearTabDropHighlights();
+      clearTabInserts();
+    });
+    document.addEventListener("mousemove", onMove, { signal });
+    document.addEventListener("mouseup", onUp, { signal });
   };
 
   // Divider drag. The divider's parent is the tab's pane-area element, so its
@@ -394,18 +407,20 @@ function TerminalPanel({
       ratio = Math.max(0.1, Math.min(0.9, ratio));
       setDragRatios(prev => ({ ...prev, [divider.splitId]: ratio }));
     };
+    dragAbortRef.current?.abort(); // end any prior drag first
+    const ac = new AbortController();
+    dragAbortRef.current = ac;
     const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
       setDragRatios(prev => {
         const final = prev[divider.splitId];
         if (final != null) onSetPaneRatio?.(tabId, divider.splitId, final);
         const { [divider.splitId]: _drop, ...rest } = prev;
         return rest;
       });
+      ac.abort(); // removes both listeners (also fires on unmount-mid-drag)
     };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    document.addEventListener("mousemove", onMove, { signal: ac.signal });
+    document.addEventListener("mouseup", onUp, { signal: ac.signal });
   };
 
   const startRename = (tab) => {

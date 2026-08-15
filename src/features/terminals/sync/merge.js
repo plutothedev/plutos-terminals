@@ -8,13 +8,31 @@ export const TOMBSTONE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 function idOf(item) { return item.id != null ? item.id : item.name; }
 
+// Deterministic, symmetric tie-break for equal timestamps (audit L6). LWW here
+// trusts wall-clock timestamps: a device with a skewed-fast clock can make its
+// OLDER edit win a real comparison — a true fix needs hybrid logical clocks and
+// is out of scope. But the cheap, important case is an EXACT-timestamp tie:
+// without a stable rule each device would keep its OWN value and the two would
+// silently diverge forever. Comparing serialized values makes both devices pick
+// the same winner, so a tie converges instead of splitting. Returns >0 if a wins.
+function stableCmp(a, b) {
+  const sa = JSON.stringify(a) ?? "";
+  const sb = JSON.stringify(b) ?? "";
+  return sa < sb ? -1 : sa > sb ? 1 : 0;
+}
+
 function mergeScalars(local, remote, result) {
   const keys = new Set([...Object.keys(local.fields), ...Object.keys(remote.fields)]);
   let changed = false;
   for (const k of keys) {
     const lt = local.fieldMeta[k] ?? -Infinity;
     const rt = remote.fieldMeta[k] ?? -Infinity;
-    if (rt > lt) {
+    // On an exact tie with differing values, break deterministically toward
+    // remote when it wins the stable compare (audit L6) — the mirror decision
+    // runs on the other device, so both converge on the same value.
+    const tieToRemote = rt === lt && (k in remote.fields)
+      && (!(k in local.fields) || (local.fields[k] !== remote.fields[k] && stableCmp(remote.fields[k], local.fields[k]) > 0));
+    if (rt > lt || tieToRemote) {
       result.fields[k] = remote.fields[k];
       result.fieldMeta[k] = rt;
       changed = true;

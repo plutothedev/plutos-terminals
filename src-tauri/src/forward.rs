@@ -366,7 +366,7 @@ pub async fn port_forward_start(
     state
         .forwards
         .lock()
-        .map_err(|_| "forward registry poisoned".to_string())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(id.clone(), ForwardHandle { _stop: stop_tx });
     Ok(id)
 }
@@ -392,7 +392,7 @@ pub async fn socks_forward_start(
     state
         .forwards
         .lock()
-        .map_err(|_| "forward registry poisoned".to_string())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(id.clone(), ForwardHandle { _stop: stop_tx });
     Ok(id)
 }
@@ -438,7 +438,7 @@ pub async fn jump_forward_start(
     state
         .forwards
         .lock()
-        .map_err(|_| "forward registry poisoned".to_string())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(id.clone(), ForwardHandle { _stop: stop_tx });
     Ok(JumpForward { id, local_port })
 }
@@ -450,7 +450,7 @@ pub fn port_forward_stop(state: State<'_, ForwardRegistry>, id: String) -> Resul
     state
         .forwards
         .lock()
-        .map_err(|_| "forward registry poisoned".to_string())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(&id);
     Ok(())
 }

@@ -266,7 +266,7 @@ pub async fn rdp_connect(
     state
         .sessions
         .lock()
-        .map_err(|_| "rdp registry poisoned".to_string())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(id.clone(), RdpHandle { ctrl: ctrl_tx });
 
     let id_t = id.clone();
@@ -453,7 +453,7 @@ pub fn rdp_pointer(
     let sessions = state
         .sessions
         .lock()
-        .map_err(|_| "rdp registry poisoned".to_string())?;
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(h) = sessions.get(&id) {
         if let Some(b) = button {
             let mb = match b {
@@ -488,7 +488,7 @@ pub fn rdp_key(
     let sessions = state
         .sessions
         .lock()
-        .map_err(|_| "rdp registry poisoned".to_string())?;
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(h) = sessions.get(&id) {
         let sc = Scancode::from(scancode);
         let op = if down {
@@ -506,7 +506,7 @@ pub fn rdp_disconnect(state: State<'_, RdpRegistry>, id: String) -> Result<(), S
     state
         .sessions
         .lock()
-        .map_err(|_| "rdp registry poisoned".to_string())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(&id);
     Ok(())
 }
