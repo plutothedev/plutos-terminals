@@ -106,11 +106,16 @@ export function useSessionDispatch({
           try {
             saved = await invoke("secret_get", { account: sshAccount(project.connection) });
           } catch { /* keychain unavailable — fall through to prompt */ }
+          // Re-read the active panel AFTER the await (audit M7): `panelId` was
+          // resolved before the keychain round-trip; a panel switch during it
+          // would otherwise spawn the tab in the wrong panel. Mirrors
+          // openAgentWorktree's post-await read below.
+          const livePanelId = rawPanelId ?? stateRef.current.activePanelId;
           if (saved) {
             setTabPassword(tabId, saved);
-            spawnSessionTab(panelId, tab);
+            spawnSessionTab(livePanelId, tab);
           } else {
-            setSshPrompt({ panelId, tab, project });
+            setSshPrompt({ panelId: livePanelId, tab, project });
           }
         })();
         return;

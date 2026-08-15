@@ -8,7 +8,7 @@
 // app state. setSshPrompt is returned so the grid's openProjectInPanel can open
 // the prompt for a saved password-auth session.
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
@@ -16,6 +16,11 @@ import { freshId } from "../ids.js";
 import { humanizeError } from "../errorText.js";
 
 export function useSshConnect({ state, spawnSessionTab, toast }) {
+  // Live state for post-await reads: the keychain lookup below is async, and the
+  // user can switch panels while it's in flight — a captured state.activePanelId
+  // would spawn the tab in the panel active at CLICK time, not now (audit M7).
+  const stateRef = useRef(state);
+  stateRef.current = state;
   // SSH password prompt: { panelId, tab, project } or null. On submit, stash the
   // password transiently in the bridge (keyed by the pending tab id) and create
   // the tab — TerminalPane reads the password at ssh_spawn time.
@@ -55,10 +60,12 @@ export function useSshConnect({ state, spawnSessionTab, toast }) {
     (async () => {
       let saved = null;
       try { saved = await invoke("secret_get", { account: sshAccount(tab.connection) }); } catch { /* none */ }
-      if (saved) { setTabPassword(tabId, saved); spawnSessionTab(state.activePanelId, tab); }
-      else { setSshPrompt({ panelId: state.activePanelId, tab, project }); }
+      // Re-read the ACTIVE panel after the await — not the one captured at click.
+      const panelId = stateRef.current.activePanelId;
+      if (saved) { setTabPassword(tabId, saved); spawnSessionTab(panelId, tab); }
+      else { setSshPrompt({ panelId, tab, project }); }
     })();
-  }, [state.activePanelId, toast, spawnSessionTab]);
+  }, [toast, spawnSessionTab]);
 
   return { sshPrompt, setSshPrompt, submitSshPassword, quickConnect };
 }
