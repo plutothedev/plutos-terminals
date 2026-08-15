@@ -442,21 +442,27 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio, equalizePanes, moveTabIntoSplit,
   } = useWorkspaceTree({ state, persist, toast });
 
-  // Closing a tab unmounts any open remote-file editor (a floating Modal owned
-  // by the dock) without hitting the editor's own onClose dirty-guard, so guard
-  // every UI close path here (audit C4 review). Coarse by design: any unsaved
-  // remote edit anywhere prompts — the editor is tied to the active session, so
-  // a close is almost always closing its host.
+  // Closing/detaching a tab unmounts any open remote-file editor (a floating
+  // Modal owned by the dock) without hitting the editor's own onClose dirty-
+  // guard, so every destructive tab op is guarded here (audit C4 + review).
+  // Coarse by design: any unsaved remote edit anywhere prompts — the editor is
+  // tied to the active session, so a close/detach is almost always its host.
+  const confirmDiscardIfDirty = useCallback(async () => {
+    if (!hasUnsavedRemoteEdits()) return true;
+    return confirm(
+      "A remote file has unsaved changes. Continue and discard them?",
+      { title: "Discard changes?", confirmLabel: "Discard", destructive: true }
+    );
+  }, [confirm]);
   const guardedCloseTab = useCallback(async (panelId, tabId) => {
-    if (hasUnsavedRemoteEdits()) {
-      const ok = await confirm(
-        "A remote file has unsaved changes. Close this tab and discard them?",
-        { title: "Discard changes?", confirmLabel: "Discard", destructive: true }
-      );
-      if (!ok) return;
-    }
-    closeTab(panelId, tabId);
-  }, [closeTab, confirm]);
+    if (await confirmDiscardIfDirty()) closeTab(panelId, tabId);
+  }, [closeTab, confirmDiscardIfDirty]);
+  const guardedCloseOtherTabs = useCallback(async (...args) => {
+    if (await confirmDiscardIfDirty()) closeOtherTabs(...args);
+  }, [closeOtherTabs, confirmDiscardIfDirty]);
+  const guardedDetachTab = useCallback(async (...args) => {
+    if (await confirmDiscardIfDirty()) detachTab(...args);
+  }, [detachTab, confirmDiscardIfDirty]);
 
   // Discard an agent worktree from the diff-review modal. Close EVERY tab bound
   // to it first — a live shell cwd'd inside the folder would block git's --force
@@ -1173,8 +1179,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onRenameTab={renameTab}
               onSetTabColor={setTabColor}
               onDuplicateTab={duplicateTab}
-              onDetachTab={detachTab}
-              onCloseOthers={closeOtherTabs}
+              onDetachTab={guardedDetachTab}
+              onCloseOthers={guardedCloseOtherTabs}
               onMoveTab={moveTab}
               onReorderTab={reorderTab}
               onSplitPane={splitPane}

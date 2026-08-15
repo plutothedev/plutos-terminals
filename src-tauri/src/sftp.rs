@@ -581,6 +581,22 @@ mod tests {
         p.to_string_lossy().into_owned()
     }
 
+    // True if any `<dest>.pluto-*` transfer temp was left behind. Scans the
+    // sibling dir rather than checking a hardcoded name (unique_tmp embeds a
+    // pid + counter, so the old fixed-name assertion was vacuously true).
+    fn leftover_temp_exists(dest: &str) -> bool {
+        let p = std::path::Path::new(dest);
+        let (dir, stem) = (p.parent().unwrap(), p.file_name().unwrap().to_string_lossy());
+        let prefix = format!("{stem}.pluto-");
+        fs::read_dir(dir)
+            .map(|rd| {
+                rd.flatten().any(|e| {
+                    e.file_name().to_string_lossy().starts_with(prefix.as_str())
+                })
+            })
+            .unwrap_or(false)
+    }
+
     #[test]
     fn atomic_stream_leaves_existing_file_untouched_on_midstream_error() {
         let dest = tmp_path("keepme.txt");
@@ -595,7 +611,7 @@ mod tests {
         // The original file is byte-for-byte intact...
         assert_eq!(fs::read(&dest).unwrap(), b"ORIGINAL CONTENT THAT MUST SURVIVE");
         // ...and no temp turd is left behind.
-        assert!(!std::path::Path::new(&format!("{dest}.plutotmp~")).exists());
+        assert!(!leftover_temp_exists(&dest), "a .pluto-* transfer temp was left behind");
         let _ = fs::remove_file(&dest);
     }
 
@@ -607,7 +623,7 @@ mod tests {
         let n = stream_to_file_atomic(&mut src, &dest).unwrap();
         assert_eq!(n, 100 * 1024);
         assert_eq!(fs::read(&dest).unwrap().len(), 100 * 1024);
-        assert!(!std::path::Path::new(&format!("{dest}.plutotmp~")).exists());
+        assert!(!leftover_temp_exists(&dest), "a .pluto-* transfer temp was left behind");
         let _ = fs::remove_file(&dest);
     }
 }

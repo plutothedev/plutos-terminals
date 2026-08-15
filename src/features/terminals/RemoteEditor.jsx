@@ -70,13 +70,17 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
 
   // Publish dirtiness to the module registry so tab-close paths (which unmount
   // this editor without hitting its own onClose guard) can confirm first (audit
-  // C4). Keyed by session+path; cleared on clean, and on unmount.
+  // C4). Gated on `open`: after a discard-close the buffer stays dirty until the
+  // next file loads, and path flips to undefined — without the open gate that
+  // left a phantom "<session>:undefined" key marked forever, spuriously
+  // confirming EVERY later tab-close app-wide (review regression). Keyed by
+  // session+path; cleared when closed/clean and on unmount.
   useEffect(() => {
     const key = `${sessionId}:${path}`;
-    if (dirty) markRemoteEditDirty(key);
+    if (open && dirty) markRemoteEditDirty(key);
     else clearRemoteEditDirty(key);
     return () => clearRemoteEditDirty(key);
-  }, [dirty, sessionId, path]);
+  }, [open, dirty, sessionId, path]);
 
   const save = async () => {
     if (saving || !sessionId || !path) return;
