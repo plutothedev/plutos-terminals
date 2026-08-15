@@ -107,23 +107,45 @@ fn to_entry(path: &Path, stat: &ssh2::FileStat) -> SftpEntry {
     }
 }
 
+/// Stream `src` into `dest` atomically: write a sibling temp, then rename over
+/// `dest`. On ANY read/write error the temp is removed and `dest` is left
+/// untouched — a dropped download never truncates an existing local file
+/// (audit C3). Mirror of `do_write_text`'s remote-side pattern for the local FS.
+fn stream_to_file_atomic(src: &mut impl Read, dest: &str) -> Result<u64, String> {
+    let tmp = format!("{dest}.plutotmp~");
+    let mut lf = fs::File::create(&tmp).map_err(|e| format!("create temp: {e}"))?;
+    let mut buf = [0u8; XFER_BUF];
+    let mut total = 0u64;
+    let streamed = (|| -> Result<(), String> {
+        loop {
+            let n = src.read(&mut buf).map_err(|e| format!("read: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            lf.write_all(&buf[..n])
+                .map_err(|e| format!("write temp: {e}"))?;
+            total += n as u64;
+        }
+        lf.flush().map_err(|e| format!("flush temp: {e}"))
+    })();
+    drop(lf); // close the handle before rename/remove
+    match streamed {
+        Ok(()) => fs::rename(&tmp, dest).map(|_| total).map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("rename temp→dest: {e}")
+        }),
+        Err(e) => {
+            let _ = fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
 fn do_download(sftp: &ssh2::Sftp, remote: &str, local: &str) -> Result<u64, String> {
     let mut rf = sftp
         .open(Path::new(remote))
         .map_err(|e| format!("open remote: {e}"))?;
-    let mut lf = fs::File::create(local).map_err(|e| format!("create local: {e}"))?;
-    let mut buf = [0u8; XFER_BUF];
-    let mut total = 0u64;
-    loop {
-        let n = rf.read(&mut buf).map_err(|e| format!("read remote: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        lf.write_all(&buf[..n])
-            .map_err(|e| format!("write local: {e}"))?;
-        total += n as u64;
-    }
-    Ok(total)
+    stream_to_file_atomic(&mut rf, local)
 }
 
 fn do_read_text(sftp: &ssh2::Sftp, remote: &str) -> Result<String, String> {
@@ -171,21 +193,44 @@ fn do_write_text(sftp: &ssh2::Sftp, remote: &str, content: &str) -> Result<(), S
 }
 
 fn do_upload(sftp: &ssh2::Sftp, local: &str, remote: &str) -> Result<u64, String> {
+    // Atomic upload: stream into a remote sibling temp, then rename over the
+    // destination. A plain create(remote) is O_CREAT|O_TRUNC — it zeroes the
+    // existing remote file BEFORE the write, so a dropped connection mid-upload
+    // would destroy content that existed before the user even tried to update
+    // it (audit C3). Temp+rename keeps the original intact until fully staged.
     let mut lf = fs::File::open(local).map_err(|e| format!("open local: {e}"))?;
-    let mut rf = sftp
-        .create(Path::new(remote))
-        .map_err(|e| format!("create remote: {e}"))?;
-    let mut buf = [0u8; XFER_BUF];
+    let tmp = format!("{remote}.plutotmp~");
     let mut total = 0u64;
-    loop {
-        let n = lf.read(&mut buf).map_err(|e| format!("read local: {e}"))?;
-        if n == 0 {
-            break;
+    let streamed = (|| -> Result<(), String> {
+        let mut rf = sftp
+            .create(Path::new(&tmp))
+            .map_err(|e| format!("create remote temp: {e}"))?;
+        let mut buf = [0u8; XFER_BUF];
+        loop {
+            let n = lf.read(&mut buf).map_err(|e| format!("read local: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            rf.write_all(&buf[..n])
+                .map_err(|e| format!("write remote temp: {e}"))?;
+            total += n as u64;
         }
-        rf.write_all(&buf[..n])
-            .map_err(|e| format!("write remote: {e}"))?;
-        total += n as u64;
+        rf.flush().map_err(|e| format!("flush remote temp: {e}"))
+        // rf dropped here → the remote handle closes before the rename
+    })();
+    if let Err(e) = streamed {
+        let _ = sftp.unlink(Path::new(&tmp)); // best-effort cleanup, original untouched
+        return Err(e);
     }
+    sftp.rename(
+        Path::new(&tmp),
+        Path::new(remote),
+        Some(ssh2::RenameFlags::OVERWRITE | ssh2::RenameFlags::ATOMIC | ssh2::RenameFlags::NATIVE),
+    )
+    .map_err(|e| {
+        let _ = sftp.unlink(Path::new(&tmp));
+        format!("rename remote temp→dest: {e}")
+    })?;
     Ok(total)
 }
 
@@ -492,4 +537,65 @@ pub fn sftp_disconnect(state: State<'_, SftpRegistry>, id: String) -> Result<(),
         .map_err(|_| "sftp registry poisoned".to_string())?
         .remove(&id);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{self, Read};
+
+    // A reader that yields `good` bytes, then errors — simulates a dropped
+    // transfer mid-stream.
+    struct FailingReader {
+        remaining: usize,
+    }
+    impl Read for FailingReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "link dropped"));
+            }
+            let n = self.remaining.min(buf.len());
+            for b in &mut buf[..n] {
+                *b = b'x';
+            }
+            self.remaining -= n;
+            Ok(n)
+        }
+    }
+
+    fn tmp_path(name: &str) -> String {
+        let mut p = std::env::temp_dir();
+        p.push(format!("plutosftp-test-{}-{name}", std::process::id()));
+        p.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn atomic_stream_leaves_existing_file_untouched_on_midstream_error() {
+        let dest = tmp_path("keepme.txt");
+        let _ = fs::remove_file(&dest);
+        fs::write(&dest, b"ORIGINAL CONTENT THAT MUST SURVIVE").unwrap();
+
+        // Stream something that errors after 64KB (past the first buffer).
+        let mut src = FailingReader { remaining: 64 * 1024 };
+        let res = stream_to_file_atomic(&mut src, &dest);
+
+        assert!(res.is_err(), "a mid-stream error must surface as Err");
+        // The original file is byte-for-byte intact...
+        assert_eq!(fs::read(&dest).unwrap(), b"ORIGINAL CONTENT THAT MUST SURVIVE");
+        // ...and no temp turd is left behind.
+        assert!(!std::path::Path::new(&format!("{dest}.plutotmp~")).exists());
+        let _ = fs::remove_file(&dest);
+    }
+
+    #[test]
+    fn atomic_stream_writes_full_payload_on_success() {
+        let dest = tmp_path("newfile.txt");
+        let _ = fs::remove_file(&dest);
+        let mut src = io::Cursor::new(vec![b'z'; 100 * 1024]);
+        let n = stream_to_file_atomic(&mut src, &dest).unwrap();
+        assert_eq!(n, 100 * 1024);
+        assert_eq!(fs::read(&dest).unwrap().len(), 100 * 1024);
+        assert!(!std::path::Path::new(&format!("{dest}.plutotmp~")).exists());
+        let _ = fs::remove_file(&dest);
+    }
 }
