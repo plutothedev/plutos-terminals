@@ -36,6 +36,12 @@ describe("pickPlacement", () => {
     expect(p.x).toBeGreaterThanOrEqual(M);
   });
 
+  test("a target scrolled above the viewport cannot drag the card off-screen", () => {
+    const t = { left: 400, top: -50, width: 120, height: 30 };
+    const p = pickPlacement(t, CARD, VP);
+    expect(p.y).toBeGreaterThanOrEqual(M);
+  });
+
   test("null target centers the card", () => {
     const p = pickPlacement(null, CARD, VP);
     expect(p.side).toBe("center");

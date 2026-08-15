@@ -17,6 +17,10 @@ describe("tour step data integrity", () => {
     }
   });
 
+  test("step 0 is a centered (null-target) stop — the engine's front-skip flip relies on a safe landing", () => {
+    expect(TOUR_STEPS[0].target).toBe(null);
+  });
+
   test("ids are unique", () => {
     const ids = TOUR_STEPS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);

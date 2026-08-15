@@ -124,16 +124,38 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const [tourOffered, setTourOffered] = useState(() => {
     try { return localStorage.getItem("phn.tourDone") === "1"; } catch { return true; }
   });
+  // The global shortcut dispatcher reads this ref (it registers once): while
+  // the tour is open, app shortcuts stand down entirely — otherwise Ctrl+K
+  // etc. would open real modals INVISIBLY underneath the tour's z-100000
+  // overlay and steal keystrokes (review finding, 2026-08-14).
+  const tourOpenRef = useRef(false);
+  useEffect(() => { tourOpenRef.current = tourOpen; }, [tourOpen]);
+  // Tour prep hooks force the dock/tree open and switch dock tabs; those
+  // writes persist (localStorage-backed). Snapshot the user's layout when the
+  // tour starts and restore it when the tour ends, so a replay never
+  // permanently rearranges their workspace (review finding, 2026-08-14).
+  const tourLayoutSnapRef = useRef(null);
   const finishTour = useCallback(() => {
     setTourOpen(false);
     setTourOffered(true);
+    const snap = tourLayoutSnapRef.current;
+    tourLayoutSnapRef.current = null;
+    if (snap) {
+      collapseDock(snap.dockCollapsed);
+      collapseTree(snap.treeCollapsed);
+      setDockTab(snap.dockTab);
+    }
     try { localStorage.setItem("phn.tourDone", "1"); } catch { /* private mode */ }
-  }, []);
+  }, [collapseDock, collapseTree]);
   const startTour = useCallback(() => {
     setTourOffered(true);
     try { localStorage.setItem("phn.tourDone", "1"); } catch { /* private mode */ }
+    tourLayoutSnapRef.current = { dockCollapsed, treeCollapsed, dockTab };
     setTourOpen(true);
-  }, []);
+  }, [dockCollapsed, treeCollapsed, dockTab]);
+  // Stable ctx so the engine's measurement effect only re-fires on step
+  // changes, not on every TerminalsTab re-render (review finding).
+  const tourCtx = useMemo(() => ({ setDockTab, collapseDock, collapseTree }), [collapseDock, collapseTree]);
 
   // Persisted user snippets (seeded from the starter set; written to the
   // window-independent st.snippets key, not the per-window panel state).
@@ -292,6 +314,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     const onKey = (e) => {
       // Stand down while the Keybindings remap UI is capturing a keystroke.
       if (isCapturing()) return;
+      // Stand down while the guided tour owns the keyboard — shortcuts would
+      // open modals invisibly UNDER the tour overlay (see tour state block).
+      if (tourOpenRef.current) return;
       // Only act on combos with a non-Shift modifier — never swallow plain
       // typing in the terminal.
       if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
@@ -1129,7 +1154,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       {userSt?.terminalsOnboarded === true && !tourOffered && (
         <TourOffer onStart={startTour} onDismiss={finishTour} />
       )}
-      <TourOverlay open={tourOpen} onClose={finishTour} ctx={{ setDockTab, collapseDock, collapseTree }} />
+      <TourOverlay open={tourOpen} onClose={finishTour} ctx={tourCtx} />
 
       {/* Modal / overlay layer — pure JSX re-home; every flag/payload/handler
           stays in this component and passes through. See chrome/ModalHost.jsx. */}

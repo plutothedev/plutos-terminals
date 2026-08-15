@@ -59,4 +59,40 @@ describe("TourOverlay", () => {
     fireEvent.click(screen.getByText("Finish"));
     expect(onClose).toHaveBeenCalledWith(true);
   });
+
+  test("onClose fires exactly once per open (double Finish / key repeat)", async () => {
+    const onClose = mount();
+    fireEvent.click(screen.getByText("Chapters"));
+    fireEvent.click(screen.getByText("Two"));
+    await screen.findByText("D");
+    fireEvent.click(screen.getByText("Finish"));
+    fireEvent.click(screen.getByText("Finish"));
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("handled keys stop propagating past the tour", () => {
+    mount();
+    const leak = vi.fn();
+    document.addEventListener("keydown", leak); // bubble target beneath the overlay
+    fireEvent.keyDown(window, { key: "Enter" });
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    document.removeEventListener("keydown", leak);
+    expect(leak).not.toHaveBeenCalled();
+  });
+
+  test("a backward skip hitting a missing-target step 0 flips forward instead of freezing", async () => {
+    const steps = [
+      { id: "m0", chapter: "One", target: '[data-tour="missing"]', title: "M0", body: "mmmm mmmm mmmm mmmm mmmm mmmm mmmm mmmm mmmm mmmm", useCase: "Use it when: never." },
+      { id: "ok", chapter: "One", target: '[data-tour="exists"]', title: "OK", body: "oooo oooo oooo oooo oooo oooo oooo oooo oooo oooo", useCase: "Use it when: testing." },
+    ];
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    render(<TourOverlay open steps={steps} chapters={["One"]} ctx={{}} onClose={vi.fn()} />, { container: host });
+    // Mount lands on m0 (missing) -> forward to OK; Back from OK walks into m0,
+    // which is missing -> backward skip hits the front -> flips forward to OK.
+    expect(await screen.findByText("OK")).toBeTruthy();
+    fireEvent.click(screen.getByText("Back"));
+    expect(await screen.findByText("OK")).toBeTruthy();
+  });
 });

@@ -17,18 +17,36 @@ export default function TourOverlay({ open, onClose, ctx, steps = TOUR_STEPS, ch
   const [rect, setRect] = useState(null); // null = centered card
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const dirRef = useRef(1);
+  const closedRef = useRef(false); // onClose fires exactly once per open (key-repeat / double-click guard)
+  const cardRef = useRef(null);
   const step = steps[i];
 
+  const close = useCallback((completed) => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    onClose(completed);
+  }, [onClose]);
+
+  // remeasure bumps when goto lands on the CURRENT index (front-clamp case):
+  // setI(same) bails out of a render, so the measurement effect keys on this
+  // nonce too — otherwise a missing-target step 0 would freeze the tour.
+  const [remeasure, setRemeasure] = useState(0);
   const goto = useCallback((idx, dir) => {
-    dirRef.current = dir;
+    // A backward auto-skip that hits the front flips forward: without this,
+    // a missing-target step 0 would clamp to itself forever (frozen Back).
+    dirRef.current = idx < 0 ? 1 : dir;
     if (idx < 0) idx = 0;
-    if (idx >= steps.length) { onClose(true); return; }
+    if (idx >= steps.length) { close(true); return; }
     setChaptersOpen(false);
-    setI(idx);
-  }, [steps.length, onClose]);
+    if (idx === i) setRemeasure((n) => n + 1);
+    else setI(idx);
+  }, [steps.length, close, i]);
 
   // Reset to the first step whenever the tour opens fresh.
-  useEffect(() => { if (open) { setI(0); dirRef.current = 1; } }, [open]);
+  useEffect(() => { if (open) { setI(0); dirRef.current = 1; closedRef.current = false; } }, [open]);
+
+  // Keep focus on the card so nothing beneath the overlay can hold it.
+  useEffect(() => { if (open) cardRef.current?.focus?.(); }, [open, i]);
 
   // Measure the current step's target; skip (in travel direction) if absent.
   useLayoutEffect(() => {
@@ -42,7 +60,7 @@ export default function TourOverlay({ open, onClose, ctx, steps = TOUR_STEPS, ch
       setRect(el.getBoundingClientRect());
     });
     return () => cancelAnimationFrame(raf);
-  }, [open, i, step, ctx, goto]);
+  }, [open, i, remeasure, step, ctx, goto]);
 
   // Re-measure on window resize.
   useEffect(() => {
@@ -56,17 +74,19 @@ export default function TourOverlay({ open, onClose, ctx, steps = TOUR_STEPS, ch
     return () => window.removeEventListener("resize", re);
   }, [open, step]);
 
-  // Keyboard: arrows advance, Esc leaves. Capture phase so terminals never see it.
+  // Keyboard: arrows advance, Esc leaves. Capture phase so terminals never
+  // see it, and stopPropagation so nothing beneath the overlay (a focused
+  // input in a stray modal, xterm) receives the same keystroke.
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(false); }
-      else if (e.key === "ArrowRight" || e.key === "Enter") { e.preventDefault(); goto(i + 1, 1); }
-      else if (e.key === "ArrowLeft") { e.preventDefault(); goto(i - 1, -1); }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(false); }
+      else if (e.key === "ArrowRight" || e.key === "Enter") { e.preventDefault(); e.stopPropagation(); goto(i + 1, 1); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); goto(i - 1, -1); }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [open, i, goto, onClose]);
+  }, [open, i, goto, close]);
 
   if (!open || !step) return null;
 
@@ -92,7 +112,9 @@ export default function TourOverlay({ open, onClose, ctx, steps = TOUR_STEPS, ch
         role="dialog"
         aria-modal="true"
         aria-label={`Tour step ${i + 1} of ${steps.length}: ${step.title}`}
-        style={{ left: p.x, top: p.y, width: CARD.w }}
+        ref={cardRef}
+        tabIndex={-1}
+        style={{ left: p.x, top: p.y, width: CARD.w, outline: "none" }}
       >
         <div className="phn-tour-chapter">{step.chapter}</div>
         <div className="phn-tour-title">{step.title}</div>
@@ -106,7 +128,7 @@ export default function TourOverlay({ open, onClose, ctx, steps = TOUR_STEPS, ch
           <span className="phn-tour-btns">
             <button className="phn-tour-btn" disabled={i === 0} onClick={() => goto(i - 1, -1)}>Back</button>
             <button className="phn-tour-btn primary" onClick={() => goto(i + 1, 1)}>{i === steps.length - 1 ? "Finish" : "Next"}</button>
-            <button className="phn-tour-btn quiet" onClick={() => onClose(false)}>Skip</button>
+            <button className="phn-tour-btn quiet" onClick={() => close(false)}>Skip</button>
           </span>
         </div>
         {chaptersOpen && (
