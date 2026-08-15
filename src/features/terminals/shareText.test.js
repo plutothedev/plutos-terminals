@@ -13,7 +13,11 @@ describe("buildShare", () => {
   });
 
   it("an AWS key in rawText is masked and hits lists it", () => {
-    const rawText = `curl -H "X-Key: ${AWS_KEY}" https://example.com`;
+    // Neutral context: a KEY/SECRET-named container (e.g. `X-Key: <key>`) is now
+    // ALSO caught by the broader env-secret pattern (audit M5) and would mask
+    // the whole pair under that label — still safe, but this test targets the
+    // specific aws-access-key path, so keep the key out of a named assignment.
+    const rawText = `the deploy step authenticates with ${AWS_KEY} at runtime`;
     const { masked, hits } = buildShare("block", rawText, "2026-07-21");
     expect(masked).toContain("[masked aws-access-key]");
     expect(masked).not.toContain(AWS_KEY);

@@ -113,7 +113,7 @@ export default function ShareModal({ open, kind, title, rawText, dateStamp, onCl
       </div>
       <div style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.5, marginBottom: 8 }}>
         The text below is uploaded to a GitHub gist as{" "}
-        <code style={{ fontFamily: M, color: FG }}>{filename}</code>. Detected secrets are masked.
+        <code style={{ fontFamily: M, color: FG }}>{filename}</code>. Scanned for known key formats; matches are masked.
         The original unmasked text and the command title are never sent.
       </div>
 

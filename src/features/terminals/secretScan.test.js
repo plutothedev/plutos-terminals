@@ -28,6 +28,11 @@ describe("scanSecrets", () => {
     ["slack-token", "xapp-1-A0123456789-abcdefghijklm"],
     ["pem-private-key", FAKE_PEM],
     ["jwt", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"],
+    // env-dump / config secrets (audit M5)
+    ["env-secret", "DB_PASSWORD=hunter2secret"],
+    ["env-secret", "  AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLE"],
+    ["env-secret", "export API_TOKEN=abcdef123456"],
+    ["url-credential", "DATABASE_URL=postgres://admin:s3cr3tpass@db.host:5432/app"],
   ];
   for (const [name, text] of cases) {
     it(`detects ${name}`, () => {
@@ -44,6 +49,16 @@ describe("scanSecrets", () => {
       "eyJhbGciOiJIUzI1NiJ9.onlytwoparts",          // 2-part, not a JWT
       "ghp_short",                                  // wrong length
       "xoxq-000",                                   // wrong slack letter + short
+    ].join("\n");
+    expect(scanSecrets(benign)).toEqual([]);
+  });
+
+  it("does not false-positive the env/url shapes on benign prose (audit M5)", () => {
+    const benign = [
+      "the key to success = happiness in life",   // KEY but name isn't contiguous with =value
+      "press any key to continue",                 // no assignment
+      "visit https://user.example.com/path here",  // url, but no user:pass@ credential
+      "KEY=1",                                     // value too short (<6)
     ].join("\n");
     expect(scanSecrets(benign)).toEqual([]);
   });

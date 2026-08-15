@@ -15,6 +15,15 @@ const PATTERNS = [
   { name: "slack-token", re: /\bx(?:ox[abprs]|app)-[A-Za-z0-9-]{10,}\b/g },
   { name: "pem-private-key", re: /-----BEGIN ([A-Z ]*)PRIVATE KEY-----[\s\S]+?-----END \1PRIVATE KEY-----/g },
   { name: "jwt", re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g },
+  // Env-dump / config secrets (audit M5): a var-like name CONTAINING a secret
+  // word, then = or :, then a non-trivial value. Catches `cat .env`,
+  // `kubectl get secret -o yaml`, CI variable exports — the shapes this app's
+  // actual use case surfaces. Conservative: requires the secret word in the
+  // NAME and a 6+ char value, so `KEY=1` or prose "the key to X" don't match.
+  { name: "env-secret", re: /\b[A-Z0-9_]{0,40}(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|PWD)[A-Z0-9_]{0,40}\s*[:=]\s*["']?[^\s"'`;|&]{6,}/gi },
+  // Credentials embedded in a connection URL (DATABASE_URL, amqp://, etc.):
+  // scheme://user:pass@ — mask through the '@'.
+  { name: "url-credential", re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:[^\s:@/]+@/gi },
 ];
 
 // ── Unpaired-banner fallback (line-classified) ────────────────────────────
