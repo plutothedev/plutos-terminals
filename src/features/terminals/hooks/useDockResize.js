@@ -28,16 +28,27 @@ export function useDockResize() {
     const startX = e.clientX;
     let startW = 320;
     setDockWidth((w) => { startW = w; return w; });
+    // Coalesce mousemove -> one setDockWidth per animation frame (audit M3):
+    // committing raw per-mousemove re-renders the whole (now memoized) chrome
+    // tree every pixel; a rAF gate caps it to ~60/s and stays current.
+    let raf = 0;
+    let pendingW = null;
+    const flush = () => { raf = 0; if (pendingW != null) setDockWidth(pendingW); };
     const onMove = (ev) => {
-      const w = Math.max(220, Math.min(640, startW + (startX - ev.clientX)));
-      setDockWidth(w);
+      pendingW = Math.max(220, Math.min(640, startW + (startX - ev.clientX)));
+      if (!raf) raf = requestAnimationFrame(flush);
     };
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      setDockWidth((w) => { localStorage.setItem("pt:dockWidth", String(w)); return w; });
+      setDockWidth((w) => {
+        const finalW = pendingW != null ? pendingW : w; // commit the last pixel
+        localStorage.setItem("pt:dockWidth", String(finalW));
+        return finalW;
+      });
     };
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
