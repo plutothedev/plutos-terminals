@@ -158,19 +158,29 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
       approveRef.current = resolve;
     });
 
-    await runAgentLoop({
-      goal: g,
-      maxSteps: MAX_STEPS,
-      shouldStop: () => stopRef.current,
-      toolTurn: (messages) => toolTurn(llm, system, messages, tools),
-      needsApproval: (call) => needsApproval(call, meta, autoRunRef.current),
-      requestApproval,
-      executeTool,
-      onStep,
-    });
-
-    setPending(null); approveRef.current = null;
-    setRunning(false);
+    // finally, not trailing code (review H4 follow-up): if runAgentLoop or a
+    // requestApproval executor throws (e.g. JSON.stringify on non-JSON-safe
+    // MCP tool args), the cleanup must still run — otherwise `running` stays
+    // true, and the new runningRef reopen-gate would leave Agent Mode
+    // PERMANENTLY un-resettable (the old unconditional reopen-reset used to
+    // self-heal this; the gate removed that net, so own the cleanup here).
+    try {
+      await runAgentLoop({
+        goal: g,
+        maxSteps: MAX_STEPS,
+        shouldStop: () => stopRef.current,
+        toolTurn: (messages) => toolTurn(llm, system, messages, tools),
+        needsApproval: (call) => needsApproval(call, meta, autoRunRef.current),
+        requestApproval,
+        executeTool,
+        onStep,
+      });
+    } catch (e) {
+      try { onStep({ type: "error", text: `Agent stopped: ${e?.message || e}` }); } catch { /* onStep must not throw here */ }
+    } finally {
+      setPending(null); approveRef.current = null;
+      setRunning(false);
+    }
   };
 
   const resolveApproval = (action) => {
