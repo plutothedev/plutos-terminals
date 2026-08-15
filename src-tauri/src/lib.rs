@@ -240,6 +240,20 @@ pub fn run() {
                 }
                 // else: let the close proceed (api.prevent_close not called).
             }
+            // Secondary-window teardown (audit H8): the SessionRegistry is global
+            // app state, NOT owned by the webview, so destroying a "win-*" window
+            // does NOT drop its PTYs — only the frontend's per-tab pty_kill does,
+            // and Alt+F4 / an unresponsive unmount can outrun that. Proactively
+            // reap this window's sessions in Rust so nothing orphans. (The "main"
+            // window hides rather than closes, so it never reaches Destroyed in
+            // normal use; guarding on the win- prefix keeps a belt-and-suspenders
+            // main-window destroy from nuking sessions the tray still owns.)
+            if let tauri::WindowEvent::Destroyed = event {
+                let label = window.label();
+                if label.starts_with("win-") {
+                    pty::kill_window_sessions(&window.state::<pty::SessionRegistry>(), label);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::read_store,

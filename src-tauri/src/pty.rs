@@ -457,6 +457,12 @@ pub struct SessionRegistry {
     /// path never contends with the session map that guards writes/kills.
     coalescers: Mutex<HashMap<String, Arc<CoEntry>>>,
     dirty: DirtySignal,
+    /// session id → owning window label (audit H8). Recorded at pty_ready (the
+    /// one transport-agnostic post-spawn choke point). Lets the
+    /// WindowEvent::Destroyed handler proactively reap a secondary window's
+    /// sessions when a fast close / Alt+F4 outruns the frontend's per-tab
+    /// pty_kill, instead of leaking the shell child + threads until app exit.
+    owner: Mutex<HashMap<String, String>>,
 }
 
 /// On-disk scrollback writer owned by a single PTY reader thread.
@@ -1125,6 +1131,7 @@ pub async fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(
             .map_err(|_| "registry mutex poisoned".to_string())?;
         sessions.remove(&id)
     };
+    lock_recover(&state.owner).remove(&id); // drop the H8 ownership tag (no-op if untagged)
     match removed {
         Some(Session::Local(s)) => {
             // ConPTY kill+wait can block; keep it off the async runtime too.
@@ -1145,25 +1152,33 @@ pub async fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(
 /// on this before its first emit so the initial prompt/MOTD burst can't race
 /// the subscription. Safe to call for any session id — an unknown id is a no-op.
 #[tauri::command]
-pub fn pty_ready(state: State<'_, SessionRegistry>, id: String) -> Result<(), String> {
-    let sessions = state
-        .sessions
-        .lock()
-        .map_err(|_| "registry mutex poisoned".to_string())?;
+pub fn pty_ready(
+    state: State<'_, SessionRegistry>,
+    window: tauri::WebviewWindow,
+    id: String,
+) -> Result<(), String> {
     // Each reader thread recv's exactly once; a redundant/late send (e.g. after
     // the timeout fallback already let it proceed) is buffered+unread, so
-    // ignoring the result is safe for every variant.
-    match sessions.get(&id) {
-        Some(Session::Local(s)) => {
-            let _ = s.ready.send(());
+    // ignoring the result is safe for every variant. Capture existence so we can
+    // tag ownership AFTER dropping the sessions lock (avoids a lock-order
+    // inversion with kill_window_sessions, which takes owner before sessions).
+    let exists = {
+        let sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "registry mutex poisoned".to_string())?;
+        match sessions.get(&id) {
+            Some(Session::Local(s)) => { let _ = s.ready.send(()); true }
+            Some(Session::Ssh(h)) => { let _ = h.ready.send(()); true }
+            Some(Session::Serial(h)) => { let _ = h.ready.send(()); true }
+            None => false,
         }
-        Some(Session::Ssh(h)) => {
-            let _ = h.ready.send(());
-        }
-        Some(Session::Serial(h)) => {
-            let _ = h.ready.send(());
-        }
-        None => {}
+    };
+    // Tag the session with its owning window (audit H8) — the one post-spawn
+    // point every transport funnels through, so local/ssh/serial are all covered
+    // with no change to the spawn hot paths.
+    if exists {
+        lock_recover(&state.owner).insert(id, window.label().to_string());
     }
     Ok(())
 }
@@ -1727,6 +1742,7 @@ pub fn kill_all(registry: &SessionRegistry) {
     // these global locks is recovered like everywhere else (re-review W4).
     lock_recover(&registry.coalescers).clear();
     lock_recover(&registry.dirty.set).clear();
+    lock_recover(&registry.owner).clear(); // H8 ownership tags — moot at exit
     // Drain under ONE short lock (recovered on poison — leaving children
     // alive at exit is strictly worse than touching a poisoned map), then do
     // every kill+reap on owned values outside it (P1-T4: 10 live panes used
@@ -1767,6 +1783,116 @@ pub fn kill_all(registry: &SessionRegistry) {
         if left.is_zero() || rx.recv_timeout(left).is_err() {
             break;
         }
+    }
+}
+
+/// Kill every PTY owned by `label` (audit H8). Called from the
+/// WindowEvent::Destroyed handler for a secondary ("win-*") window, so a fast
+/// close / Alt+F4 / unresponsive unmount that outruns the frontend's per-tab
+/// pty_kill can't leave that window's shell children + reader threads +
+/// coalescers + scrollback writers alive invisibly until full app exit.
+///
+/// Lock discipline: take `owner` first (collect ids, drop the tags), release it,
+/// THEN touch coalescers/dirty/sessions — never two registry locks at once, so
+/// there's no ordering hazard with pty_ready (which tags owner only after it has
+/// already released the sessions lock) or the hot flush path.
+pub fn kill_window_sessions(registry: &SessionRegistry, label: &str) {
+    let ids: Vec<String> = {
+        let mut owner = lock_recover(&registry.owner);
+        let ids: Vec<String> = owner
+            .iter()
+            .filter(|(_, w)| w.as_str() == label)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &ids {
+            owner.remove(id);
+        }
+        ids
+    };
+    if ids.is_empty() {
+        return;
+    }
+    {
+        let mut co = lock_recover(&registry.coalescers);
+        for id in &ids {
+            co.remove(id);
+        }
+    }
+    {
+        let mut dirty = lock_recover(&registry.dirty.set);
+        for id in &ids {
+            dirty.remove(id);
+        }
+    }
+    let drained: Vec<Session> = {
+        let mut sessions = lock_recover(&registry.sessions);
+        ids.iter().filter_map(|id| sessions.remove(id)).collect()
+    };
+    // Reap off-lock, one detached thread per local child (mirrors kill_all).
+    // No join here: the window is already gone, so nothing waits on this — the
+    // children die promptly and their handles close regardless.
+    for session in drained {
+        match session {
+            Session::Local(s) => {
+                thread::spawn(move || s.reap());
+            }
+            Session::Serial(h) => {
+                h.alive.store(false, Ordering::Relaxed);
+            }
+            Session::Ssh(_) => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod window_ownership_tests {
+    // Audit H8: kill_window_sessions must reap ONLY the target window's tagged
+    // sessions and leave every other window's alone. Real Session values need
+    // live PTY handles, so this exercises the id-selection + tag/coalescer/dirty
+    // cleanup (the window-scoping logic that's the actual risk) against an empty
+    // sessions map — filter_map over it is a no-op, which is exactly the
+    // "already-dead session, tag lingers" case the handler must tolerate.
+    use super::*;
+
+    #[test]
+    fn reaps_only_the_target_windows_tags() {
+        let reg = SessionRegistry::default();
+        {
+            let mut o = lock_recover(&reg.owner);
+            o.insert("s1".into(), "win-A".into());
+            o.insert("s2".into(), "win-A".into());
+            o.insert("s3".into(), "win-B".into());
+        }
+        {
+            let mut d = lock_recover(&reg.dirty.set);
+            d.insert("s1".into());
+            d.insert("s3".into());
+        }
+
+        kill_window_sessions(&reg, "win-A");
+
+        let o = lock_recover(&reg.owner);
+        assert!(!o.contains_key("s1"), "win-A tag s1 should be cleared");
+        assert!(!o.contains_key("s2"), "win-A tag s2 should be cleared");
+        assert!(o.contains_key("s3"), "win-B tag s3 must survive");
+        let d = lock_recover(&reg.dirty.set);
+        assert!(!d.contains("s1"), "s1 dirty entry swept with its window");
+        assert!(d.contains("s3"), "s3 (win-B) dirty entry untouched");
+    }
+
+    #[test]
+    fn no_matching_label_is_a_noop() {
+        let reg = SessionRegistry::default();
+        lock_recover(&reg.owner).insert("s1".into(), "win-A".into());
+        kill_window_sessions(&reg, "win-does-not-exist");
+        assert!(lock_recover(&reg.owner).contains_key("s1"));
+    }
+
+    #[test]
+    fn empty_registry_is_a_noop() {
+        let reg = SessionRegistry::default();
+        kill_window_sessions(&reg, "win-A"); // must not panic on empty maps
+        assert!(lock_recover(&reg.owner).is_empty());
     }
 }
 
