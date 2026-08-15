@@ -130,6 +130,13 @@ function AppInner() {
   });
   const [unlocked, setUnlocked] = useState(isUnlockedThisSession);
 
+  // Toast held in a ref so the stable ([]-dep) flushNow can reach it without
+  // re-minting on every render.
+  const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  const quotaWarnedRef = useRef(false);
+
   // Persisting the whole state blob on every interaction (tab click, split-drag
   // release) means a synchronous JSON.stringify + localStorage write on the main
   // thread each time. Debounce the write so bursts coalesce; React state stays
@@ -150,6 +157,12 @@ function AppInner() {
       localStorage.setItem(STORAGE_KEY, json);
     } catch (err) {
       console.warn("Pluto's Terminal: localStorage write failed", err);
+      // Quota exceeded (big workspace + many custom themes) silently stops ALL
+      // further persistence — surface it ONCE so it's discoverable (audit M11).
+      if (!quotaWarnedRef.current) {
+        quotaWarnedRef.current = true;
+        try { toastRef.current?.error("Storage is full — layout changes may stop saving. Trim custom themes or saved workspaces."); } catch { /* toast best-effort */ }
+      }
     }
     // Durable mirror to the atomic Rust store (audit C2): localStorage is the
     // only home for the layout, so a WebView2 profile corruption would lose it
@@ -219,8 +232,8 @@ function AppInner() {
   // Corruption recovery (audit C2): if the localStorage blob was garbled at
   // boot, try the durable Rust backup before living with an empty layout.
   // Async (read_store is an IPC round-trip) so it runs here, not in the sync
-  // init. Primary window only — it's the one that writes the backup.
-  const toast = useToast();
+  // init. Primary window only — it's the one that writes the backup. (`toast`
+  // is declared above, near flushNow.)
   useEffect(() => {
     if (!bootCorruptRef.current || !isPrimaryWindow()) return;
     bootCorruptRef.current = false;
