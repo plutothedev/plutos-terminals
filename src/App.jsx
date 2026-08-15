@@ -6,6 +6,7 @@ import LockScreen from "./features/terminals/LockScreen.jsx";
 import { isUnlockedThisSession } from "./features/terminals/masterPassword.js";
 import { destroyAll } from "./features/terminals/paneRegistry.js";
 import { USER_STORAGE_KEY, getWindowStorageKey, allOpenTabIds } from "./features/terminals/storageKeys.js";
+import { parseWorkspace } from "./features/terminals/workspaceBoot.js";
 import { invoke } from "./backend.js";
 import {
   migrateAndLoad,
@@ -13,7 +14,7 @@ import {
   getCachedSecretKeys,
   keychainAvailable,
 } from "./features/terminals/secretVault.js";
-import { ToastProvider } from "./components/Toast.jsx";
+import { ToastProvider, useToast } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
 import { PromptProvider } from "./components/PromptModal.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
@@ -89,13 +90,14 @@ export default function App() {
 }
 
 function AppInner() {
+  // Distinguish first-run from CORRUPTION so a garbled localStorage blob can be
+  // recovered from the durable Rust backup instead of silently resetting the
+  // whole layout to empty (audit C2). corrupt-on-boot is handled async below.
+  const bootCorruptRef = useRef(false);
   const [st, setSt] = useState(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
+    const { state, corrupt } = parseWorkspace(localStorage.getItem(STORAGE_KEY));
+    bootCorruptRef.current = corrupt;
+    return state;
   });
 
   // Shared user-level state. Synchronous one-time migration on first run
@@ -136,10 +138,19 @@ function AppInner() {
     const next = pendingRef.current;
     if (next == null) return;
     pendingRef.current = null;
+    let json;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      json = JSON.stringify(next);
+      localStorage.setItem(STORAGE_KEY, json);
     } catch (err) {
       console.warn("Pluto's Terminal: localStorage write failed", err);
+    }
+    // Durable mirror to the atomic Rust store (audit C2): localStorage is the
+    // only home for the layout, so a WebView2 profile corruption would lose it
+    // with no backup. Primary window only — secondary windows are ephemeral and
+    // would clobber each other's copy in the single store.json.
+    if (json != null && isPrimaryWindow()) {
+      invoke("write_store", { data: json }).catch(() => {});
     }
   }, []);
 
@@ -190,6 +201,34 @@ function AppInner() {
       flushNow(); // belt-and-suspenders: persist any pending write on teardown
     };
   }, [flushNow]);
+
+  // Corruption recovery (audit C2): if the localStorage blob was garbled at
+  // boot, try the durable Rust backup before living with an empty layout.
+  // Async (read_store is an IPC round-trip) so it runs here, not in the sync
+  // init. Primary window only — it's the one that writes the backup.
+  const toast = useToast();
+  useEffect(() => {
+    if (!bootCorruptRef.current || !isPrimaryWindow()) return;
+    bootCorruptRef.current = false;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await invoke("read_store"); // "null" when no backup file
+        if (cancelled) return;
+        const { state, corrupt } = parseWorkspace(raw);
+        if (!corrupt && Object.keys(state).length > 0) {
+          save(state);
+          toast.success("Recovered your workspace from the local backup.");
+        } else {
+          toast.error("Your saved workspace couldn't be read — starting fresh.");
+        }
+      } catch {
+        if (!cancelled) toast.error("Your saved workspace couldn't be read — starting fresh.");
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Same object-or-updater contract as `save` (see above). userStRef is also
   // refreshed by the two non-saveUser setUserSt paths (keychain migration,
