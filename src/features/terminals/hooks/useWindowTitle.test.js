@@ -1,5 +1,5 @@
 // (C)
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { describe, test, expect } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { formatWindowTitle, useWindowTitle } from "./independentEffects.js";
