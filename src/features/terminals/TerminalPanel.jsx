@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@backend";
 import TerminalPane, { todayDate, transcriptName } from "./TerminalPane";
+import { PaneBoundary } from "../../components/ErrorBoundary.jsx";
 import VncView from "./VncView";
 import RdpView from "./RdpView";
 import MobaHomeScreen from "./MobaHomeScreen";
@@ -625,11 +626,11 @@ function TerminalPanel({
               {tab.home ? (
                 <MobaHomeScreen panelId={panel.id} tabId={tab.id} api={homeApi} />
               ) : tab.vnc ? (
-                <VncView host={tab.vnc.host} port={tab.vnc.port} tabId={tab.id} visible={tabVisible} />
+                <PaneBoundary label="VNC desktop"><VncView host={tab.vnc.host} port={tab.vnc.port} tabId={tab.id} visible={tabVisible} /></PaneBoundary>
               ) : tab.rdp ? (
-                <RdpView host={tab.rdp.host} port={tab.rdp.port} username={tab.rdp.username} domain={tab.rdp.domain} tabId={tab.id} visible={tabVisible} />
+                <PaneBoundary label="RDP desktop"><RdpView host={tab.rdp.host} port={tab.rdp.port} username={tab.rdp.username} domain={tab.rdp.domain} tabId={tab.id} visible={tabVisible} /></PaneBoundary>
               ) : tab.notebook ? (
-                <NotebookView name={tab.notebook.name} tabId={tab.id} visible={tabVisible} paneTitles={paneTitles} />
+                <PaneBoundary label="Notebook"><NotebookView name={tab.notebook.name} tabId={tab.id} visible={tabVisible} paneTitles={paneTitles} /></PaneBoundary>
               ) : (
               /* Dev drift-guard (release-audit): this arm must be reached ONLY
                  for plain terminal tabs. If isSpecialTab() (paneIds.js — the

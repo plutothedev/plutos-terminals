@@ -8,6 +8,47 @@
 import { Component } from "react";
 import { destroyAll } from "../features/terminals/paneRegistry.js";
 
+// Pane/surface-scoped boundary (audit H3): the top-level ErrorBoundary below
+// calls destroyAll() on catch — correct for an unattributable app-wide crash,
+// but far too broad for a fragile SINGLE surface (a Monaco editor, the VNC
+// canvas, a custom-theme CSS apply). A render throw in one of those otherwise
+// tore down EVERY other pane's live SSH/SFTP/serial session in the window.
+// This variant catches locally, shows a small inline fallback, and leaves all
+// live sessions untouched. `label` names the surface; children can recover on
+// remount (the key bump via "Try again").
+export class PaneBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, tries: 0 };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    try { console.error(`Pluto's Terminal: ${this.props.label || "surface"} render error`, error, info); } catch { /* never throw */ }
+    // Deliberately NO destroyAll — other panes' sessions stay alive.
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div style={{ padding: 16, color: "#cfd6dd", fontFamily: "-apple-system, 'Segoe UI', sans-serif", fontSize: 13 }}>
+        <div style={{ color: "#E05B5B", fontWeight: 600, marginBottom: 6 }}>
+          {this.props.label || "This view"} hit an error.
+        </div>
+        <div style={{ color: "#8a939e", fontSize: 12, marginBottom: 10 }}>
+          Your other sessions are unaffected.
+        </div>
+        <button
+          style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #333", background: "#1e2228", color: "#cfd6dd", cursor: "pointer", fontSize: 12 }}
+          onClick={() => this.setState((s) => ({ error: null, tries: s.tries + 1 }))}
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+}
+
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props);

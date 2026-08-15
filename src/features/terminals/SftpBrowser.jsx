@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@backend";
 import { useToast } from "../../components/Toast.jsx";
+import { PaneBoundary } from "../../components/ErrorBoundary.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { usePrompt } from "../../components/PromptModal.jsx";
 import { FileIcon } from "./LocalFileBrowser.jsx";
@@ -304,13 +305,15 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
         )}
       </div>
 
-      <RemoteEditor
-        open={!!editTarget}
-        sessionId={sessionId}
-        path={editTarget?.path}
-        name={editTarget?.name}
-        onClose={() => setEditTarget(null)}
-      />
+      <PaneBoundary label="Remote editor">
+        <RemoteEditor
+          open={!!editTarget}
+          sessionId={sessionId}
+          path={editTarget?.path}
+          name={editTarget?.name}
+          onClose={() => setEditTarget(null)}
+        />
+      </PaneBoundary>
     </div>
   );
 }

@@ -27,6 +27,7 @@ import VncConnectModal from "../VncConnectModal";
 import RdpConnectModal from "../RdpConnectModal";
 import OnboardingOverlay from "../OnboardingOverlay";
 import SettingsModal from "../../../components/SettingsModal.jsx";
+import { PaneBoundary } from "../../../components/ErrorBoundary.jsx";
 import McpInstaller from "../../../components/McpInstaller.jsx";
 import SetupChecker from "../../../components/SetupChecker.jsx";
 import CommandPalette from "../../../components/CommandPalette.jsx";
@@ -164,12 +165,14 @@ function ModalHost({
       )}
 
       {(!!diffWorktree) && (
-        <DiffView
-          open={!!diffWorktree}
-          worktree={diffWorktree}
-          onClose={() => setDiffWorktree(null)}
-          onDiscard={discardWorktree}
-        />
+        <PaneBoundary label="Diff view">
+          <DiffView
+            open={!!diffWorktree}
+            worktree={diffWorktree}
+            onClose={() => setDiffWorktree(null)}
+            onDiscard={discardWorktree}
+          />
+        </PaneBoundary>
       )}
 
       {(modelsOpen) && (
