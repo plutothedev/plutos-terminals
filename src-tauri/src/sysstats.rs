@@ -4,6 +4,7 @@
 //! (not `sysinfo`) so the module does not shadow the `sysinfo` crate it uses.
 
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -25,21 +26,53 @@ static SYS: OnceLock<Mutex<sysinfo::System>> = OnceLock::new();
 // every 2.5s re-walked the mount table (steady-state wasted syscalls, and a
 // stale network mount stalls the whole status bar on the OS stat timeout).
 static DISKS: OnceLock<Mutex<sysinfo::Disks>> = OnceLock::new();
+// Last good disk-used%, served whenever a refresh is already in flight (or the
+// mutex is poisoned). A stalled network mount / sleeping external / locked
+// volume makes `Disks::refresh(true)` hang on the OS stat call while holding
+// the DISKS lock (audit C1). Before this, every OTHER poller — every window's
+// loop AND the phone companion — blocked on `DISKS.lock()` forever (promise
+// never resolved, status bar wedged, one leaked blocking-pool thread per
+// caller). Now callers `try_lock`: at most the ONE thread actively inside a
+// stalled refresh is stuck; everyone else fast-returns this cached value, so
+// disk% merely freezes at last-good while the rest of the bar keeps updating.
+static LAST_DISK_PCT: OnceLock<Mutex<f32>> = OnceLock::new();
 
-/// Async wrapper (P2-T5): the body stats the disk — a stale network mount can
-/// stall on the OS timeout, and as a sync command that stall sat ON THE MAIN
-/// THREAD every poll. spawn_blocking keeps both the UI and the tokio workers
-/// clear of it.
+fn last_disk_pct() -> f32 {
+    LAST_DISK_PCT
+        .get_or_init(|| Mutex::new(0.0))
+        .try_lock()
+        .map(|g| *g)
+        .unwrap_or(0.0)
+}
+
+fn store_disk_pct(v: f32) {
+    if let Ok(mut g) = LAST_DISK_PCT.get_or_init(|| Mutex::new(0.0)).try_lock() {
+        *g = v;
+    }
+}
+
+/// Async wrapper (P2-T5): the body stats the disk. `system_stats_sync` now
+/// `try_lock`s the disk mutex so it can never BLOCK, but the one thread that
+/// wins the lock can still stall inside `refresh(true)` on a dead mount — so
+/// bound even that caller with a timeout and serve cached stats on expiry.
 #[tauri::command]
 pub async fn system_stats() -> SystemStats {
-    tauri::async_runtime::spawn_blocking(system_stats_sync)
-        .await
-        .unwrap_or(SystemStats {
-            cpu: 0.0,
-            mem_used: 0,
-            mem_total: 0,
-            disk_used_pct: 0.0,
-        })
+    let cached = || SystemStats {
+        cpu: 0.0,
+        mem_used: 0,
+        mem_total: 0,
+        disk_used_pct: last_disk_pct(),
+    };
+    match tokio::time::timeout(
+        Duration::from_secs(2),
+        tauri::async_runtime::spawn_blocking(system_stats_sync),
+    )
+    .await
+    {
+        Ok(Ok(stats)) => stats,
+        // timeout (dead mount refresh) or join error → last-good, never wedge
+        _ => cached(),
+    }
 }
 
 pub fn system_stats_sync() -> SystemStats {
@@ -73,8 +106,11 @@ pub fn system_stats_sync() -> SystemStats {
     // prefix match also picks a separate /home mount on unix. Reuse the cached
     // Disks handle and refresh space figures in place rather than
     // re-enumerating the mount table on every poll.
+    // try_lock, NEVER blocking-lock: if another caller is mid-refresh (possibly
+    // stalled on a dead mount), serve the last-good value instead of queueing
+    // behind it (audit C1).
     let disks_mutex = DISKS.get_or_init(|| Mutex::new(sysinfo::Disks::new_with_refreshed_list()));
-    let disk_used_pct = match disks_mutex.lock() {
+    let disk_used_pct = match disks_mutex.try_lock() {
         Ok(mut disks) => {
             disks.refresh(true);
             let home = crate::commands::local_home();
@@ -97,9 +133,11 @@ pub fn system_stats_sync() -> SystemStats {
                     p = pct(d.total_space(), d.available_space());
                 }
             }
+            store_disk_pct(p);
             p
         }
-        Err(_) => 0.0,
+        // contended (someone refreshing) or poisoned → last-good, no block
+        Err(_) => last_disk_pct(),
     };
 
     SystemStats {
@@ -107,5 +145,53 @@ pub fn system_stats_sync() -> SystemStats {
         mem_used,
         mem_total,
         disk_used_pct,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex as StdMutex;
+    use std::time::Instant;
+
+    // Serialize these tests: they both touch the global DISKS lock, and the
+    // whole point of one is to HOLD it — running concurrently would make the
+    // other flaky.
+    static TEST_GUARD: StdMutex<()> = StdMutex::new(());
+
+    fn guard() -> std::sync::MutexGuard<'static, ()> {
+        TEST_GUARD.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    #[test]
+    fn stats_are_in_range_and_prompt() {
+        let _g = guard();
+        let s = system_stats_sync();
+        assert!((0.0..=100.0).contains(&s.disk_used_pct), "disk pct out of range: {}", s.disk_used_pct);
+        assert!((0.0..=100.0).contains(&s.cpu), "cpu out of range: {}", s.cpu);
+    }
+
+    #[test]
+    fn a_held_disk_lock_does_not_block_the_caller() {
+        let _g = guard();
+        // Warm the one-time inits (System::new_all + Disks enumeration) so the
+        // timed call measures only the contended-disk path, not first-run cost.
+        let _ = system_stats_sync();
+        // Seed a known last-good value, then hold the DISKS lock to simulate a
+        // stalled refresh mid-flight.
+        store_disk_pct(42.0);
+        let disks = DISKS.get_or_init(|| Mutex::new(sysinfo::Disks::new_with_refreshed_list()));
+        let held = disks.lock().unwrap_or_else(|p| p.into_inner());
+
+        let start = Instant::now();
+        let s = system_stats_sync(); // must NOT block behind `held`
+        let elapsed = start.elapsed();
+
+        drop(held);
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "system_stats_sync blocked on a held DISKS lock ({elapsed:?})"
+        );
+        assert_eq!(s.disk_used_pct, 42.0, "should have served the cached last-good pct");
     }
 }
