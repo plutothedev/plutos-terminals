@@ -806,13 +806,56 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       });
       if (path) {
         toast.success(`Saved recording to ${path}`);
+        recording.finalizeRecording(activeTabId); // drop the crash-net copy
       } else {
-        toast.info("Recording discarded (save canceled).");
+        // Save canceled: the inflight crash-net copy is KEPT (audit C5) and
+        // offered on next launch, instead of being lost.
+        toast.info("Save canceled — the recording is kept and offered next launch.");
       }
     } catch (err) {
       toast.error(humanizeError(err, "Save failed"));
+      // inflight copy left in place — recoverable on next launch
     }
   }, [activeTabId, activeTab, toast]);
+
+  // Recover recordings orphaned by a crash / force-kill / cancelled Save
+  // (audit C5): offer each inflight .cast for save or discard. Gated on
+  // onboarded so it never collides with first-run modals; inflight is empty in
+  // the normal case, so this stays silent unless a real interruption happened.
+  useEffect(() => {
+    if (userSt?.terminalsOnboarded !== true) return;
+    let cancelled = false;
+    (async () => {
+      const names = await recording.listInflightRecordings();
+      if (cancelled || !Array.isArray(names) || names.length === 0) return;
+      for (const name of names) {
+        if (cancelled) return;
+        const ok = await confirm(
+          `An interrupted recording ("${name}") was recovered. Save it now? Cancel discards it.`,
+          { title: "Recovered recording", confirmLabel: "Save", cancelLabel: "Discard" }
+        );
+        if (!ok) { recording.discardInflightRecording(name); continue; }
+        const cast = await recording.readInflightRecording(name);
+        if (!cast) { recording.discardInflightRecording(name); continue; }
+        try {
+          const path = await invoke("save_text_to_file", {
+            suggestedName: `${name}.cast`,
+            extension: "cast",
+            extensionLabel: "Asciinema cast file (.cast)",
+            contents: cast,
+          });
+          if (path) {
+            toast.success(`Saved recovered recording to ${path}`);
+            recording.discardInflightRecording(name);
+          } // save canceled → keep it for next launch
+        } catch (e) {
+          toast.error(humanizeError(e, "Save failed"));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Recording-jump: switch to the tab that's actively recording so the user
   // can trigger stop-and-save from a natural place. Hoisted out of the status

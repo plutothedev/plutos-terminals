@@ -1281,6 +1281,85 @@ fn transcripts_dir(app: &AppHandle) -> PathBuf {
     get_data_dir(app).join("terminals").join("transcripts")
 }
 
+// ── Session-recording crash-safety checkpoints (audit C5) ──────────
+// A recording streams incrementally to an inflight .cast under
+// <data>/terminals/recordings-inflight/, so a crash / force-kill / cancelled
+// Save loses at most the last unflushed tail instead of the whole in-memory
+// session. Name validation reuses transcript_name_valid (full-string
+// reconstruction-equality, no path traversal). Finalized (saved) recordings
+// are discarded via recording_discard; orphans left by a crash are surfaced on
+// next launch via recording_list_inflight.
+
+fn recordings_inflight_dir(app: &AppHandle) -> PathBuf {
+    get_data_dir(app)
+        .join("terminals")
+        .join("recordings-inflight")
+}
+
+fn recording_inflight_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
+    if !transcript_name_valid(name) {
+        return Err("invalid recording name".into());
+    }
+    Ok(recordings_inflight_dir(app).join(format!("{name}.cast")))
+}
+
+#[tauri::command]
+pub async fn recording_checkpoint(
+    app: AppHandle,
+    name: String,
+    chunk: String,
+    reset: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Write;
+        let path = recording_inflight_file(&app, &name)?;
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let mut f = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(!reset)
+            .truncate(reset)
+            .open(&path)
+            .map_err(|e| e.to_string())?;
+        f.write_all(chunk.as_bytes()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("checkpoint task failed: {e}"))?
+}
+
+#[tauri::command]
+pub fn recording_discard(app: AppHandle, name: String) -> Result<(), String> {
+    let path = recording_inflight_file(&app, &name)?;
+    if path.exists() {
+        let _ = fs::remove_file(&path);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn recording_list_inflight(app: AppHandle) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(rd) = fs::read_dir(recordings_inflight_dir(&app)) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) == Some("cast") {
+                if let Some(stem) = p.file_stem().and_then(|x| x.to_str()) {
+                    out.push(stem.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+#[tauri::command]
+pub fn recording_read_inflight(app: AppHandle, name: String) -> Result<String, String> {
+    let path = recording_inflight_file(&app, &name)?;
+    fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
 #[derive(Serialize, Debug, PartialEq)]
 pub struct TranscriptEntry {
     pub date: String,
