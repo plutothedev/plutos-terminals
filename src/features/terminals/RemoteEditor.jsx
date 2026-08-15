@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
+import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { modCombo } from "./keybindings.js";
 import { humanizeError } from "./errorText.js";
 
@@ -26,6 +27,7 @@ function languageForFile(name = "") {
 
 export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [text, setText] = useState("");
   const [orig, setOrig] = useState("");
   const [loading, setLoading] = useState(false);
@@ -91,12 +93,25 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, name, sessionId, path]); // eslint-disable-line
 
+  // Never discard unsaved edits silently (audit C4): Escape / backdrop / ✕ all
+  // route through Modal's onClose, so gate it behind a confirm when dirty.
+  const requestClose = async () => {
+    if (dirty && !saving) {
+      const ok = await confirm(
+        `"${name}" has unsaved changes. Close and discard them?`,
+        { title: "Discard changes?", confirmLabel: "Discard", destructive: true }
+      );
+      if (!ok) return;
+    }
+    onClose();
+  };
+
   if (!open) return null;
 
   const useMonaco = Editor && !monacoFailed;
 
   return (
-    <Modal open={open} title={`${dirty ? "● " : ""}${name}`} onClose={onClose} width={860}>
+    <Modal open={open} title={`${dirty ? "● " : ""}${name}`} onClose={requestClose} width={860}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", fontFamily: "'MesloLGS NF', monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={path}>{path}</span>
         <button
