@@ -175,7 +175,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Pane spawn/death channel (P2-T5): drives the companion sessionListJson
   // re-derivation. Dims churn no longer re-renders TerminalsTab at all — the
-  // cols×rows readout lives in the ActiveDims leaf inside StatusBar/MenuBar.
+  // cols×rows readout was removed entirely 2026-08-14 (pluto: noise); the
+  // ptyBridge dims channel still publishes for any future consumer.
   const registryVersion = useRegistryListener();
 
   // Recording state for the status-bar indicator + command-palette labels
@@ -553,7 +554,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Active model label — read once here so both StatusBar and MenuBar (chrome/)
   // receive an identical string prop instead of each re-deriving it from userSt.
-  // (cols×rows moved into the ActiveDims leaf — P2-T5.)
   const activeModelName = userSt?.activeModel?.model;
 
   // ── Phone companion: publish the live session list ──────────────────────────
@@ -1258,8 +1258,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
       {/* Status bar — bottom strip with version, claude availability, cost. Skin-controlled. */}
       <StatusBar
-        activeTab={activeTab}
-        activeTabId={activeTabId}
         shellName={shellName}
         broadcast={broadcast}
         bcastTargets={bcastTargets}

@@ -2,12 +2,8 @@
 import { APP_VERSION, GITHUB_URL, DISCORD_URL, openExternal } from "../../../appMeta.js";
 import { SBroadcast } from "../toolbarIcons.jsx";
 import * as recording from "../recording.js";
-import ActiveDims from "./ActiveDims.jsx";
-import { useTabActivity } from "../activityStore.js";
 
 export default function StatusBar({
-  activeTab,
-  activeTabId,
   shellName,
   broadcast,
   bcastTargets,
@@ -19,8 +15,6 @@ export default function StatusBar({
   onJumpToRecording,
   totalCost,
 }) {
-  // Slice subscription (P2-T1): only THIS tab's activity re-renders the bar.
-  const activeActivity = useTabActivity(activeTabId);
   return (
     <div
       className="phn-statusbar"
@@ -35,13 +29,9 @@ export default function StatusBar({
         letterSpacing: 0.2,
       }}
     >
-      {/* LEFT — active session · shell/encoding */}
-      {activeTab && (
-        <span className="moba-stat" title="Active session · terminal size (columns × rows)">
-          <span className="dot" style={{ background: activeActivity === "active" ? "#4FB8E6" : activeActivity === "done" ? "var(--phn-success, #5FB87A)" : "var(--phn-text-faint, #586068)" }} />
-          {activeTab.label}<ActiveDims tabId={activeTabId} style={{ opacity: 0.55, marginLeft: 5 }} />
-        </span>
-      )}
+      {/* LEFT — shell/indicators. The "session label + cols×rows" cluster was
+          removed 2026-08-14 (pluto: noise) — the tab strip already names the
+          active session, and dims live in the resize flow itself. */}
       {/* UI-polish pass: the old "· UTF-8 · LF" suffix here was HARDCODED
           decoration (nothing detected it; terminals don't have a file
           encoding) — fake status is worse than no status. */}

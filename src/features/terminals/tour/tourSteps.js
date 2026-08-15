@@ -160,8 +160,8 @@ export const TOUR_STEPS = [
   {
     id: "status-bar", chapter: "Speed", target: '[data-tour="status-bar"]',
     title: "Status bar",
-    body: "Live session facts: active session name, terminal size in columns x rows, your shell, recording indicator, app version, and the GitHub and Discord links.",
-    useCase: "Use it when: quick 'what am I looking at' checks.",
+    body: "Live app facts: your default shell, broadcast and recording indicators when they're on, live AI spend, app version, and the GitHub and Discord links.",
+    useCase: "Use it when: quick 'what's running' checks.",
   },
   {
     id: "theme-toggle", chapter: "Speed", target: '[data-tour="theme-toggle"]',

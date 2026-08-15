@@ -155,9 +155,9 @@ export function getTabDims(tabId) {
 }
 
 // ── Version channels (useSyncExternalStore surfaces) ────────────────────────
-// Two (subscribe, getSnapshot) pairs. DIMS: per-resize churn — consumed only
-// by the ActiveDims chrome leaf, so a split-drag re-renders one span instead
-// of the whole chrome. REGISTRY: pane spawn/death (setPtyId/unregisterPty) —
+// Two (subscribe, getSnapshot) pairs. DIMS: per-resize churn — currently has
+// NO UI consumer (the cols×rows readout was removed 2026-08-14); the channel
+// still publishes for any future subscriber. REGISTRY: pane spawn/death (setPtyId/unregisterPty) —
 // consumed by TerminalsTab's sessionListJson so the phone companion's session
 // list re-derives exactly when the live PTY set changes.
 

@@ -8,8 +8,6 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { invoke } from "@backend";
 import * as recording from "../recording.js";
 import {
-  subscribeDims,
-  getDimsVersion,
   subscribeRegistry,
   getRegistryVersion,
 } from "../ptyBridge.js";
@@ -123,13 +121,6 @@ export function useRecordingState() {
     return unsubscribe;
   }, []);
   return { recordingTabIds, recordingCapHit };
-}
-
-// Re-render on terminal DIMENSION changes (per-resize churn — subscribe only
-// in the leaf that renders cols×rows, never in chrome roots; a split-drag
-// bumps this per mousemove).
-export function useDimsListener() {
-  return useSyncExternalStore(subscribeDims, getDimsVersion);
 }
 
 // Re-render on PTY REGISTRY changes (pane spawn/death — rare). TerminalsTab's
