@@ -59,8 +59,23 @@ describe("scanSecrets", () => {
       "press any key to continue",                 // no assignment
       "visit https://user.example.com/path here",  // url, but no user:pass@ credential
       "KEY=1",                                     // value too short (<6)
+      "Password: (leave blank for none)",          // parenthetical hint, not a value
+      "--passphrase: (optional, prompts if omitted)",
     ].join("\n");
     expect(scanSecrets(benign)).toEqual([]);
+  });
+
+  it("credential is always masked even when env-secret and url-credential cross (audit M5)", () => {
+    // Neither span contains the other, but they share the user:pass@ core.
+    for (const raw of [
+      "curl https://TOKEN:abc123xyz@example.com/api",
+      "DATABASE_URL=https://TOKEN:pass123@host",
+    ]) {
+      const masked = maskSecrets(raw, scanSecrets(raw));
+      expect(masked).not.toContain("abc123xyz");
+      expect(masked).not.toContain("pass123");
+      expect(masked).not.toContain("TOKEN:"); // the credential core is gone
+    }
   });
 
   // Regression: unpaired-BEGIN fallback (closes the fail-open gap where a BEGIN

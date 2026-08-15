@@ -83,22 +83,37 @@ export function formatWindowTitle(label) {
   return l ? `${l} - Pluto's Terminal` : "Pluto's Terminal";
 }
 // Latest label wins: fast tab-switching fires several of these, and the async
-// native setTitle can resolve out of order under variable IPC latency, leaving
-// the OS titlebar on a stale tab's name (audit M8). document.title (sync) is
-// always correct; guard only the async native write against staleness.
-let titleSeq = 0;
+// native setTitle can COMPLETE out of order under variable IPC latency, leaving
+// the OS titlebar on a stale tab's name (audit M8). A seq-check BEFORE the slow
+// call doesn't help — the reorder happens during the call. Instead serialize:
+// one native write in flight at a time, and after each completes, apply the
+// latest pending title (the useSystemStats inFlight pattern). Module state is
+// per-window (each webview is its own JS context), so windows don't interfere.
+let titleInFlight = false;
+let titlePending = null;
+async function applyNativeTitle(title) {
+  titlePending = title;
+  if (titleInFlight) return; // an in-flight drain will pick up titlePending
+  titleInFlight = true;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    while (titlePending !== null) {
+      const t = titlePending;
+      titlePending = null;
+      await win.setTitle(t); // serialized; the loop re-checks for a newer title
+    }
+  } catch {
+    // browser / phone transport — document.title is all we have
+  } finally {
+    titleInFlight = false;
+  }
+}
 export function useWindowTitle(label) {
   useEffect(() => {
     const title = formatWindowTitle(label);
     document.title = title;
-    const mySeq = ++titleSeq;
-    (async () => {
-      try {
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        if (mySeq !== titleSeq) return; // a newer label superseded us before the import resolved
-        await getCurrentWindow().setTitle(title);
-      } catch { /* browser / phone transport — document.title is all we have */ }
-    })();
+    applyNativeTitle(title);
   }, [label]);
 }
 

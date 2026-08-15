@@ -20,7 +20,7 @@ const PATTERNS = [
   // `kubectl get secret -o yaml`, CI variable exports — the shapes this app's
   // actual use case surfaces. Conservative: requires the secret word in the
   // NAME and a 6+ char value, so `KEY=1` or prose "the key to X" don't match.
-  { name: "env-secret", re: /\b[A-Z0-9_]{0,40}(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|PWD)[A-Z0-9_]{0,40}\s*[:=]\s*["']?[^\s"'`;|&]{6,}/gi },
+  { name: "env-secret", re: /\b[A-Z0-9_]{0,40}(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|PWD)[A-Z0-9_]{0,40}\s*[:=]\s*["']?[^\s"'`;|&(][^\s"'`;|&]{5,}/gi },
   // Credentials embedded in a connection URL (DATABASE_URL, amqp://, etc.):
   // scheme://user:pass@ — mask through the '@'.
   { name: "url-credential", re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:[^\s:@/]+@/gi },
@@ -176,9 +176,16 @@ export function maskSecrets(text, hits) {
   if (!hits || !hits.length) return out0;
   let out = out0;
   // Replace longest-first so overlapping/nested matches can't resurrect bytes.
-  // Assumes no partial (crossing) overlaps: every pattern anchors on a distinct
-  // literal prefix, so matches never partially cross; revisit if a pattern
-  // without a literal prefix is added.
+  // NOTE (audit M5): the env-secret and url-credential patterns have no fixed
+  // literal prefix and CAN partially cross — e.g. `https://TOKEN:pass@host`
+  // matches url-credential (`https://TOKEN:pass@`) and env-secret
+  // (`TOKEN:pass@host`), neither containing the other. This is safe because in
+  // every such crossing the two spans share the sensitive `user:pass@` core, so
+  // whichever wins the longest-first race still removes the credential bytes;
+  // only non-sensitive boilerplate (a scheme or a trailing host char) can be
+  // left visible. A regression test pins this. A FUTURE prefix-less pattern
+  // whose sensitive region is NOT a shared subset would break the guarantee —
+  // revisit maskSecrets (add span-merge) before adding one.
   const uniq = [...new Set(hits.map((h) => h.match))].sort((a, b) => b.length - a.length);
   for (const m of uniq) {
     const name = (hits.find((h) => h.match === m) || {}).name || "secret";

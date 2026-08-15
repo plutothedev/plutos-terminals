@@ -39,6 +39,11 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
   const autoRunRef = useRef(false);
   const approveRef = useRef(null);
   const goalRef = useRef(null);
+  // Live mirror of `running` for the reopen effect (review H4): closing mid-run
+  // sets stopRef=true, but the loop may not reach its next shouldStop() before
+  // the user reopens — the reopen reset must NOT clear stopRef while a stale
+  // loop is still in flight, or that loop resumes invisibly.
+  const runningRef = useRef(false);
   const scrollRef = useRef(null);
   autoRunRef.current = autoRun;
 
@@ -51,14 +56,18 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
   const { prompts } = useSavedPrompts({ userSt, saveUser });
   const promptMenu = usePromptSlashMenu({ value: goal, setValue: setGoal, prompts });
 
+  useEffect(() => { runningRef.current = running; }, [running]);
   useEffect(() => {
-    if (open) {
-      // Keep the previous run's step log visible on reopen so it stays reviewable;
-      // a new run clears it (see start()).
-      setGoal(""); setRunning(false); stopRef.current = false;
-      setPending(null); approveRef.current = null;
-      setTimeout(() => goalRef.current?.focus(), 30);
-    }
+    if (!open) return;
+    setTimeout(() => goalRef.current?.focus(), 30);
+    // Only reset run state if the PREVIOUS run actually finished. If a run is
+    // still in flight (closed mid-toolTurn, reopened before it wound down),
+    // leave stopRef=true so it terminates and keep running=true so start()'s
+    // `if (running) return` blocks a second run from clobbering shared
+    // approveRef/pending (review H4). The step log stays visible either way.
+    if (runningRef.current) return;
+    setGoal(""); setRunning(false); stopRef.current = false;
+    setPending(null); approveRef.current = null;
   }, [open]);
   useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight); }, [steps]);
 
