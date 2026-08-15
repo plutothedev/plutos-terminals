@@ -12,7 +12,15 @@
 
 // POSIX (zsh/bash) shell-integration setup. Returns the three strings the
 // component writes to the PTY on a fresh local tab.
-export function buildPosixShellInit() {
+//
+// `cmdNonce` (audit H1) is a per-session secret baked into the PlutoCmd emit so
+// the OSC-1337 handler can tell a report from OUR OWN injected preexec hook from
+// one printed by arbitrary stream content — a cat'd file, an MOTD, a compromised
+// process. Only reports carrying the matching nonce are promoted into the
+// trusted, persistent, one-click-re-runnable command history. The nonce is
+// injected only into LOCAL shells (SSH/serial connect to remote shells we never
+// inject into), so every un-nonced remote report is correctly rejected.
+export function buildPosixShellInit(cmdNonce = "") {
   // Colorful output like MobaXterm: BSD/GNU ls colors + colored grep/less
   // + a few quality-of-life aliases. (Kept short so the welcome init fits
   // comfortably in one shell line alongside the big welcome box.)
@@ -45,16 +53,17 @@ export function buildPosixShellInit() {
   // pipeline repeats). Sent as its own line so promptSetup stays under
   // the tty canonical line-length limit (MAX_CANON).
   const cmdCapture =
-    `__pltcmdz(){ printf '\\033]1337;PlutoCmd=%s\\007' "$(printf '%s' "$1" | base64 | tr -d '\\n')"; }; ` +
-    `__pltcmdb(){ case "$BASH_COMMAND" in __plt*|"$PROMPT_COMMAND") return;; esac; printf '\\033]1337;PlutoCmd=%s\\007' "$(printf '%s' "$BASH_COMMAND" | base64 2>/dev/null | tr -d '\\n')"; }; ` +
+    `__pltcmdz(){ printf '\\033]1337;PlutoCmd=${cmdNonce}:%s\\007' "$(printf '%s' "$1" | base64 | tr -d '\\n')"; }; ` +
+    `__pltcmdb(){ case "$BASH_COMMAND" in __plt*|"$PROMPT_COMMAND") return;; esac; printf '\\033]1337;PlutoCmd=${cmdNonce}:%s\\007' "$(printf '%s' "$BASH_COMMAND" | base64 2>/dev/null | tr -d '\\n')"; }; ` +
     `if [ -n "$ZSH_VERSION" ]; then autoload -Uz add-zsh-hook 2>/dev/null; add-zsh-hook preexec __pltcmdz 2>/dev/null; ` +
     `elif [ -n "$BASH_VERSION" ]; then trap '__pltcmdb' DEBUG; fi`;
   return { promptSetup, cmdCapture };
 }
 
 // Windows PowerShell shell-integration setup. Returns the four strings the
-// component writes to the PTY on a fresh local tab on Windows.
-export function buildPowerShellInit() {
+// component writes to the PTY on a fresh local tab on Windows. `cmdNonce` is
+// baked into the PlutoCmd emit — see buildPosixShellInit (audit H1).
+export function buildPowerShellInit(cmdNonce = "") {
   const psEnc = `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8`;
   // Themed powerline prompt (green date  cyan time  yellow cwd) that ALSO
   // emits OSC-133: D;<exit> closes the previous command block, A opens the
@@ -73,7 +82,7 @@ export function buildPowerShellInit() {
   const psHist =
     `if (Get-Module PSReadLine) { Set-PSReadLineOption -AddToHistoryHandler { param($l) ` +
     `try { $e=[char]27; $b=[char]7; $x=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($l)); ` +
-    `[Console]::Write("$e]1337;PlutoCmd=$x$b") } catch {}; $true } }`;
+    `[Console]::Write("$e]1337;PlutoCmd=${cmdNonce}:$x$b") } catch {}; $true } }`;
   // Autosuggestions + Tab completion (Milestone 2): PSReadLine renders
   // fish-style inline ghost text (accept with →/End/Ctrl+F) + a Tab
   // completion menu — natively, right in xterm. Needs PSReadLine >= 2.1

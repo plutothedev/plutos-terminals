@@ -1037,7 +1037,15 @@ function TerminalPane({
       }
       return true; // handled (don't pass the OSC through to the screen)
     });
-    // Command history: the shell's preexec hook emits ESC]1337;PlutoCmd=<base64>
+    // Per-session nonce baked into our injected PlutoCmd emit so the handler
+    // can reject reports that didn't come from our own hook (audit H1). Set
+    // once per entry; survives tab-moves (create-once, on the persistent entry).
+    if (!entry.oscNonce) {
+      entry.oscNonce = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+    // Command history: the shell's preexec hook emits ESC]1337;PlutoCmd=<nonce>:<base64>
     // with each command it's about to run (1337 is iTerm2's namespace — we only
     // claim the PlutoCmd payload and pass anything else through).
     term.parser.registerOscHandler(1337, (data) => {
@@ -1054,8 +1062,17 @@ function TerminalPane({
       }
       if (!data.startsWith("PlutoCmd=")) return false;
       if (restoringScrollback) return true; // don't re-record replayed scrollback
+      // Provenance gate (audit H1): only reports carrying THIS session's nonce
+      // came from our own injected preexec hook (local shells only). A report
+      // without it — a command string printed by a remote SSH host, a cat'd
+      // file, an MOTD, a compromised process — is swallowed but NEVER promoted
+      // into the trusted, persistent, one-click-re-runnable command history.
+      const payload = data.slice("PlutoCmd=".length);
+      const sep = payload.indexOf(":");
+      const reportNonce = sep >= 0 ? payload.slice(0, sep) : "";
+      if (!entry.oscNonce || reportNonce !== entry.oscNonce) return true;
       try {
-        const bin = atob(data.slice("PlutoCmd=".length));
+        const bin = atob(payload.slice(sep + 1));
         const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
         const cmd = new TextDecoder().decode(bytes);
         recordCommand(cmd);
@@ -1665,7 +1682,7 @@ function TerminalPane({
               await invoke("pty_write", { id: ptyId, data: cmd + "\r" });
             } catch { /* best-effort refresh */ }
           };
-          const { promptSetup, cmdCapture } = buildPosixShellInit();
+          const { promptSetup, cmdCapture } = buildPosixShellInit(entry.oscNonce);
           // Fresh tabs: write the box to a file, then `${promptSetup}; clear; cat
           // '<file>'` — a short command whose output (the box) lands before the
           // first prompt (clean ordering, box sits above the prompt where ZLE
@@ -1682,7 +1699,7 @@ function TerminalPane({
             // PowerShell prompt / OSC-133 / command-capture / autosuggest setup.
             // Pure builders extracted to shellIntegration.js — output bytes
             // identical to the old inline PowerShell equivalents.
-            const { psEnc, psPrompt, psHist, psComplete } = buildPowerShellInit();
+            const { psEnc, psPrompt, psHist, psComplete } = buildPowerShellInit(entry.oscNonce);
             if (entryLive() && ptyId) {
               try { await invoke("pty_write", { id: ptyId, data: `${psEnc}; ${psPrompt}` + "\r" }); } catch {}
               try { await invoke("pty_write", { id: ptyId, data: psHist + "\r" }); } catch {}
