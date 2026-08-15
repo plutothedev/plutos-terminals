@@ -176,8 +176,21 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
 
   const color = (t) => t === "error" ? "#E05B5B" : t === "done" ? "#6FB85C" : t === "ask" ? "#E0A04F" : t === "skip" ? "#888" : "#7c9cf5";
 
+  // Closing the modal must STOP the loop, not just hide it (audit H4): the
+  // modal is always-mounted (ModalHost toggles `open`), so Escape/backdrop/✕
+  // otherwise left the agent running invisibly — firing auto-run tools with no
+  // visible approval — or hung forever on an approval promise nobody could
+  // reach. A closed Agent Mode is a stopped Agent Mode.
+  const requestClose = () => {
+    if (running) {
+      stopRef.current = true;
+      if (approveRef.current) resolveApproval("stop");
+    }
+    onClose();
+  };
+
   return (
-    <Modal open={open} title="Agent Mode" onClose={onClose} width={700}>
+    <Modal open={open} title="Agent Mode" onClose={requestClose} width={700}>
       {(() => {
         const off = userSt?.agentContextEnabled === false;
         const seg = [];
