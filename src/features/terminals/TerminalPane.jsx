@@ -6,6 +6,7 @@ import { stripAnsi, detectPendingPrompt } from "./promptDetect.js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openExternal } from "../../appMeta.js";
 import { SearchAddon } from "@xterm/addon-search";
 // ImageAddon (sixel/iTerm2 inline images) is dynamic (P4-T1): ~20kB gz off the
 // critical path. Both instantiation sites (openIfVisible + refitOnly's
@@ -864,7 +865,11 @@ function TerminalPane({
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    // Route link clicks through the app's hardened opener (open_path: no-shell
+    // spawn, control-char rejection) instead of the addon's default unmanaged
+    // window.open, so terminal output — including attacker-controlled remote
+    // output — uses the one audited URL path (audit M4).
+    term.loadAddon(new WebLinksAddon((_e, uri) => openExternal(uri)));
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;
