@@ -137,8 +137,13 @@ Tag sessions by owning window label (map beside `SessionRegistry`); on `WindowEv
 
 ## Batch C — Renderer + boot (higher risk)
 
-### Task C1 — M2: stagger tab mount at boot (JS)
+### Task C1 — M2: stagger tab mount at boot (JS)  **DOWNGRADED — already mitigated (2026-08-15)**
 `TerminalPanel.jsx:603` — render non-active restored tabs behind a lightweight placeholder; reveal via the existing `trickle` cadence so the first paint isn't a synchronous N-terminal mount. Test: mount-count assertion at boot. Commit.
+
+**Investigation finding (2026-08-15): NOT implemented — premise already substantially mitigated, and the proposed fix conflicts with existing architecture.**
+- The two *expensive* boot operations are ALREADY deferred: `term.open()` (DOM host + renderer) is gated behind `openIfVisible` / IntersectionObserver (`TerminalPane.jsx:1139`), so a hidden restored tab never builds its renderer until first shown; and PTY *spawn* is already staggered one-tab-per-tick by the `trickle` core (`trickle.js`, P4-T5). What remains synchronous at boot is only N `new Terminal()` JS-object constructions (no DOM) — modest for realistic tab counts.
+- The proposed "placeholder until trickle reveals it" MOUNT-gate conflicts with the entry lifecycle: registry entries are created *on mount* via `ensureEntry` (`paneRegistry.js:105`), and `trickleTick` iterates `getEntry(paneId)` to find spawnable panes — it returns `null` for an un-mounted tab. Deferring mount would hide those tabs from the very trickle meant to reveal them, unless the entry/mount/trickle contract is restructured (pre-create all entries at boot; drive mount AND spawn from trickle). That's a meaningful change to a delicate, heavily-audited component for marginal gain.
+- **Decision:** left as-is. Revisit only if profiling a large (15+ tab) workspace shows the `new Terminal()` burst is a measured jank source.
 
 ### Task C2 — M1: per-OS renderer gate (JS)  **NEEDS-PLUTO-PACKAGED-VERIFICATION**
 `TerminalPane.jsx:948` — add `@xterm/addon-canvas`; gate: DOM on macOS (the WKWebView blank-glyph reason), canvas on Windows/Linux. Ship behind the gate but DO NOT mark done on green tests — pluto verifies glyph rendering in the packaged app on Windows (and Linux if reachable) before this batch closes. If any blank-glyph regression, revert to DOM everywhere. Commit only after pluto's visual OK.
