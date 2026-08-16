@@ -5,7 +5,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "PLACEHOLDER_SEE_docs/updater.md_RUN_TAURI_SIGNER_GENERATE",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgyRTk0NkI4NUIyRTlCNDgKUldSSW15NWJ1RWJwZ25nUkM2SGN4Rm9Wemt6WHlDeVZENUxJMXIrZDNkaC93YU5FZUJ4VGhqR0EK",
       "endpoints": [
         "https://github.com/plutothedev/plutos-terminals/releases/latest/download/latest.json"
       ]
