@@ -13,7 +13,7 @@ a built-in AI assistant and agent mode across 16+ LLM providers, a Warp-style
 prompt editor, an SFTP file browser, a live system monitor, SSH/serial sessions,
 port forwarding, and remote desktops (RDP/VNC) — all in the same place.
 
-**[⬇ Download the latest release](https://github.com/plutothedev/plutos-terminals/releases/latest)** — macOS `.dmg` · Windows `.msi` · Linux `.AppImage`/`.deb`
+**[⬇ Download the latest release](https://github.com/plutothedev/plutos-terminals/releases/latest)** — macOS `.dmg` · Windows `.msi`
 
 ---
 
@@ -128,17 +128,24 @@ monochrome stroke icons (plus importable custom themes).
 2. Download the file for your OS:
    - **macOS** — `.dmg` (Apple Silicon + Intel universal)
    - **Windows** — `.msi` installer
-   - **Linux** — `.AppImage` (portable) or `.deb`
 3. Install and launch.
+
+> **Linux isn't in this release.** It had never been exercised end to end, so
+> rather than ship a build nobody had ever run, it's held back until it gets a
+> real boot test and a verified credential store. Watch the repo for it.
 
 **First launch on an unsigned build:**
 
-- **macOS** — Gatekeeper blocks unsigned apps. Right-click (or Control-click) the
-  app → **Open**, then **Open** again in the dialog. If macOS still refuses
+- **macOS** — Gatekeeper blocks unsigned apps. On **macOS 15 (Sequoia) and
+  later** the old Control-click → Open shortcut no longer works: open
+  **System Settings → Privacy & Security**, scroll down to the message naming
+  Pluto's Terminal, click **Open Anyway**, then authenticate. On **macOS 14 and
+  earlier**, Control-click the app → **Open** → **Open**. If macOS still refuses
   ("damaged" / "can't be opened"), clear the quarantine flag in Terminal:
   `xattr -dr com.apple.quarantine "/Applications/Pluto's Terminal.app"`.
-- **Windows** — SmartScreen may show "Windows protected your PC". Click
-  **More info → Run anyway** (only after you've verified the checksum below).
+- **Windows** — SmartScreen may show "Windows protected your PC". The **Run
+  anyway** button is hidden behind the **More info** link — click that only
+  after you've verified the checksum below.
 
 > **Verify your download (builds are not yet code-signed).** Because these
 > installers aren't signed yet, your OS may warn on first launch. Don't bypass the
@@ -151,6 +158,12 @@ monochrome stroke icons (plus importable custom themes).
 > If the value matches the matching line in `SHA256SUMS` on the release page, the
 > download is intact. Code signing is planned; until then this checksum check is the
 > integrity guarantee.
+
+**Updates.** From this release on, the app checks for updates on launch and can
+install them in place — update payloads are cryptographically signed and are
+verified against a key built into the app before anything runs, so the download
+host is not trusted with what gets executed. If you're on an older build you'll
+need to install this one by hand first. Details: [`docs/updater.md`](docs/updater.md).
 
 ## Getting AI agents running
 

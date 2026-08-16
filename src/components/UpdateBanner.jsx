@@ -36,6 +36,11 @@ function isNewer(latest, current) {
 
 export default function UpdateBanner({ currentVersion }) {
   const [latest, setLatest] = useState(null);
+  // Set only when the SIGNED updater has a verified update ready to install in
+  // place; null means we can offer a manual download and nothing more.
+  const [pluginUpdate, setPluginUpdate] = useState(null);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState(null);
   const [dismissed, setDismissed] = useState(() => {
     try {
       return localStorage.getItem("plutos-terminals:dismissed-update") || "";
@@ -95,7 +100,53 @@ export default function UpdateBanner({ currentVersion }) {
     return () => { cancelled = true; };
   }, [currentVersion]);
 
+  // Signed-updater probe, independent of the GitHub-API check above.
+  // The API check is a NOTIFIER (it can only send you to a download page); this
+  // one returns an update object that can actually install in place. We run both
+  // because they fail differently: the API path still works before latest.json
+  // exists on a release, and the updater path still works when the API is
+  // rate-limited. Whichever finds something first populates the banner; if the
+  // updater found it, the primary button installs instead of opening a browser.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        const up = await check();
+        if (cancelled || !up?.available) return;
+        setPluginUpdate(up);
+        // Only fill `latest` if the API check has not already; never overwrite it.
+        setLatest((cur) => cur || { tag: `v${up.version}`, url: RELEASES_URL });
+      } catch {
+        // Not a Tauri build (browser dev), plugin missing, endpoint 404 before
+        // the first updater-enabled release, or signature verification failed.
+        // All of these mean "no in-place update offer" — the API notifier above
+        // still covers the user.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   if (!latest || dismissed === latest.tag) return null;
+
+  const onInstall = async () => {
+    if (!pluginUpdate || installing) return;
+    setInstalling(true);
+    setInstallError(null);
+    try {
+      // Payload is minisign-verified against the bundled pubkey before anything
+      // is written or run — a hostile release asset cannot execute code here.
+      await pluginUpdate.downloadAndInstall();
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    } catch (e) {
+      // Verification failure, partial download, or a locked binary. Say so and
+      // leave the manual download button as the way out rather than silently
+      // pretending nothing happened.
+      setInstalling(false);
+      setInstallError(String(e?.message || e || "Update failed"));
+    }
+  };
 
   const onDismiss = () => {
     setDismissed(latest.tag);
@@ -129,9 +180,15 @@ export default function UpdateBanner({ currentVersion }) {
       <div style={{ marginBottom: 10 }}>
         Pluto's Terminal <strong>{latest.tag}</strong> is out (you're on <code style={{ fontSize: 10 }}>v{currentVersion}</code>).
       </div>
+      {installError && (
+        <div style={{ color: "#E05B5B", fontSize: 10, marginBottom: 8, lineHeight: 1.4 }}>
+          Couldn't install automatically: {installError}. Use Download instead.
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8 }}>
         <button
-          onClick={() => openExternal(latest.url)}
+          onClick={pluginUpdate && !installError ? onInstall : () => openExternal(latest.url)}
+          disabled={installing}
           style={{
             background: ACCENT_BLUE,
             color: "#fff",
@@ -141,11 +198,16 @@ export default function UpdateBanner({ currentVersion }) {
             fontSize: 10,
             fontWeight: 600,
             textDecoration: "none",
-            cursor: "pointer",
+            cursor: installing ? "default" : "pointer",
             border: "none",
+            opacity: installing ? 0.7 : 1,
           }}
         >
-          Download
+          {installing
+            ? "Installing…"
+            : pluginUpdate && !installError
+              ? "Install & restart"
+              : "Download"}
         </button>
         <button
           onClick={onDismiss}

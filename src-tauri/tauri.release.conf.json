@@ -1,0 +1,14 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "bundle": {
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "PLACEHOLDER_SEE_docs/updater.md_RUN_TAURI_SIGNER_GENERATE",
+      "endpoints": [
+        "https://github.com/plutothedev/plutos-terminals/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

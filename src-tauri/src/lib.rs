@@ -98,6 +98,13 @@ pub fn run() {
         .manage(rdp::RdpRegistry::default())
         .manage(companion::CompanionState::default())
         .manage(commands::TranscriptHandles::default())
+        // Signed auto-update + the relaunch that follows an install. The update
+        // payload is minisign-verified against the pubkey baked into
+        // tauri.conf.json BEFORE anything is executed, so hosting the release on
+        // GitHub does not make GitHub a trust anchor: without the private key an
+        // attacker who controls the release assets still cannot ship code.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         // Global summon hotkey: on press, toggle the main window (show+focus, or
         // hide if it's already the foreground window).
         .plugin(

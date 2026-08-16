@@ -1,5 +1,6 @@
-# Build Pluto's Terminal installers for macOS, Windows and Linux and publish
-# them as a GitHub Release.
+# Build Pluto's Terminal installers for macOS and Windows and publish them as a
+# GitHub Release. (Linux is cut from the matrix below — see the comment there
+# for why and for the exact conditions to re-enable it.)
 #
 # Hybrid distribution: this workflow lives in the PRIVATE source repo and
 # publishes the compiled installers to a PUBLIC "releases" repo so the
@@ -35,10 +36,28 @@ jobs:
           - platform: macos-latest
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
             args: "--target universal-apple-darwin"
-          - platform: ubuntu-22.04
-            rust-targets: ""
-            # rpm needs rpmbuild on the runner; ship deb + AppImage.
-            args: "--bundles deb,appimage"
+          # ── Linux is CUT from the release matrix (deliberate, reversible) ──
+          # It shipped on every previous release and has never been executed by
+          # CI or by hand: test.yml runs cargo on windows-latest only (the
+          # keyring crate had no Linux backend), so the .deb/.AppImage were
+          # built by a machine and run by nobody. Until tonight it also
+          # SILENTLY DESTROYED saved credentials there (keyring fell back to an
+          # in-memory mock, and the frontend read a successful empty get as
+          # proof the keychain worked, then stripped the plaintext copy), and
+          # it carries a canvas renderer verified only on Windows.
+          #
+          # Re-enable when ALL of these hold:
+          #   1. test.yml has a Linux cargo leg that passes.
+          #   2. Someone has actually booted the AppImage and saved + reloaded
+          #      a credential across a restart (proves sync-secret-service is
+          #      really linked, not just declared).
+          #   3. Terminal glyphs are confirmed to render on the canvas renderer
+          #      there, or TerminalPane's IS_MAC gate is widened to keep Linux
+          #      on the DOM renderer.
+          # - platform: ubuntu-22.04
+          #   rust-targets: ""
+          #   # rpm needs rpmbuild on the runner; ship deb + AppImage.
+          #   args: "--bundles deb,appimage"
           - platform: windows-latest
             rust-targets: ""
             # NSIS template chokes on the apostrophe in the product name; MSI is fine.
@@ -76,18 +95,37 @@ jobs:
 
       - name: Build the app + installers
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          # Signs the updater artifacts. Without these the build still produces
+          # installers, but the .sig files are missing and latest.json cannot be
+          # assembled, so the updater silently never offers anything. See
+          # docs/updater.md for generating the key and setting these secrets.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: ${{ matrix.args }}
+          # tauri.release.conf.json is a RELEASE-ONLY overlay holding
+          # createUpdaterArtifacts + the updater pubkey/endpoints. It is kept out
+          # of the base tauri.conf.json on purpose: the bundler refuses to build
+          # when a pubkey is configured without TAURI_SIGNING_PRIVATE_KEY ("A
+          # public key has been found, but no private key"), which would break
+          # every local `npm run tauri build` for anyone without the signing key.
+          # Confining it here means local builds stay clean and only CI signs.
+          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
 
       - name: Collect installers
         shell: bash
         run: |
           mkdir -p dist-installers
           # Copy every produced installer/bundle, regardless of target dir layout.
+          # *.zip and *.sig are the UPDATER artifacts (createUpdaterArtifacts):
+          # the signed payload the updater downloads, plus its minisign
+          # signature, which latest.json embeds. Without them the updater has
+          # nothing to verify and silently never offers an update.
           find src-tauri/target -type f \( \
             -name "*.dmg" -o -name "*.app.tar.gz" -o \
             -name "*.msi" -o -name "*.exe" -o \
-            -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \
+            -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o \
+            -name "*.zip" -o -name "*.sig" \
           \) -path "*/bundle/*" -exec cp {} dist-installers/ \; || true
           ls -la dist-installers
 
@@ -151,6 +189,65 @@ jobs:
           # a green run now means a user's `sha256sum -c` will also pass.
           sha256sum -c SHA256SUMS
 
+      - name: Build updater manifest (latest.json)
+        shell: bash
+        env:
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+        run: |
+          set -euo pipefail
+          cd all-installers
+          # The updater endpoint in tauri.conf.json points at this file. It maps
+          # each platform to a signed payload URL + its minisign signature.
+          # MUST run AFTER the sanitize step above: the URLs have to be the names
+          # GitHub actually serves, not the pre-upload ones.
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "manual run — skipping latest.json (no real tag to point at)"
+            exit 0
+          fi
+          TARGET_REPO="${RELEASES_REPO:-$GITHUB_REPOSITORY}"
+          VERSION="${TAG#v}"
+
+          shopt -s nullglob
+          sigs=(*.sig)
+          if [ ${#sigs[@]} -eq 0 ]; then
+            # Unsigned build: TAURI_SIGNING_PRIVATE_KEY was not set. Publish the
+            # installers anyway rather than failing the release, but make the
+            # reason loud — a missing latest.json means the updater silently
+            # never offers anything, which is exactly the failure it exists to
+            # prevent.
+            echo "::warning::no .sig files found — TAURI_SIGNING_PRIVATE_KEY is probably unset, so NO latest.json is published and auto-update stays dark. See docs/updater.md."
+            exit 0
+          fi
+
+          platforms='{}'
+          for sig in "${sigs[@]}"; do
+            payload="${sig%.sig}"
+            if [ ! -f "$payload" ]; then
+              echo "::warning::signature $sig has no matching payload $payload — skipping"
+              continue
+            fi
+            case "$payload" in
+              *.app.tar.gz) key="darwin-universal" ;;   # macOS leg builds universal
+              *.msi.zip)    key="windows-x86_64" ;;
+              *)            echo "::notice::ignoring non-updater artifact $payload"; continue ;;
+            esac
+            url="https://github.com/${TARGET_REPO}/releases/download/${TAG}/${payload}"
+            platforms=$(jq -n --argjson p "$platforms" --arg k "$key" \
+              --arg sig "$(cat "$sig")" --arg url "$url" \
+              '$p + {($k): {signature: $sig, url: $url}}')
+          done
+
+          if [ "$(jq -r 'length' <<<"$platforms")" = "0" ]; then
+            echo "::warning::found .sig files but none matched a known updater payload — no latest.json published"
+            exit 0
+          fi
+
+          jq -n --arg v "$VERSION" --arg notes "See the release notes for $TAG." \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson p "$platforms" \
+            '{version: $v, notes: $notes, pub_date: $date, platforms: $p}' > latest.json
+          echo "latest.json:"; cat latest.json
+
       - name: Publish GitHub Release
         env:
           # Cross-repo publish to the public releases repo when configured,
@@ -167,6 +264,6 @@ jobs:
           gh release create "$TAG" \
             --repo "$TARGET_REPO" \
             --title "Pluto's Terminal $TAG" \
-            --notes "Download the installer for your platform below. macOS: .dmg, Windows: .msi, Linux: .AppImage/.deb. Builds are unsigned, so your OS may prompt on first launch; verify your download against the attached SHA256SUMS before running (see the README Install section)." \
+            --notes "Download the installer for your platform below. macOS: .dmg, Windows: .msi. Builds are unsigned, so your OS may prompt on first launch; verify your download against the attached SHA256SUMS before running (see the README Install section)." \
             all-installers/* || \
           gh release upload "$TAG" --repo "$TARGET_REPO" --clobber all-installers/*

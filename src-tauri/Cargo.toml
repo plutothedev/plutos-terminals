@@ -99,6 +99,14 @@ rmcp = { version = "1.7", default-features = false, features = ["client", "trans
 # Remember window size/position/maximized across launches (geometry only —
 # visibility is deliberately not tracked; see lib.rs).
 tauri-plugin-window-state = "2.4.1"
+# Signed auto-update. This is the channel that makes a security fix REACHABLE:
+# without it a patch propagates only as a manual re-download through a
+# SmartScreen/Gatekeeper warning, and never reaches an already-installed copy.
+# Updates are minisign-verified against the pubkey in tauri.conf.json, so the
+# release HOST is not trusted: a compromised CDN or repo still cannot ship code
+# without the private key. `process` provides the relaunch after install.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [dev-dependencies]
 tempfile = "3"
