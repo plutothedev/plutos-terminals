@@ -1923,9 +1923,26 @@ function TerminalPane({
       const r = b.el && b.el.getBoundingClientRect();
       if (r && r.height > 0 && e.clientY >= r.top && e.clientY <= r.bottom) { hit = b; break; }
     }
-    if (!hit) return; // not over a block → leave default behaviour
+    if (hit) {
+      // Over a past command block → its action menu.
+      e.preventDefault();
+      setBlockMenu({ block: hit, x: e.clientX, y: e.clientY });
+      return;
+    }
+    // Anywhere else → PuTTY-style right-click paste into the shell.
     e.preventDefault();
-    setBlockMenu({ block: hit, x: e.clientX, y: e.clientY });
+    pasteFromClipboard();
+  };
+  // Read the clipboard and inject it as a paste. term.paste (not a raw write)
+  // so bracketed-paste mode is honored when the running program enabled it —
+  // multi-line pastes stay one blob and can't auto-execute in a bracketed app.
+  const pasteFromClipboard = async () => {
+    const t = termRef.current;
+    if (!t) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) { t.focus(); t.paste(text); }
+    } catch { /* clipboard unavailable / denied — no-op */ }
   };
   const copyToClipboard = (t) => { try { navigator.clipboard?.writeText(t); } catch { /* ignore */ } };
 
