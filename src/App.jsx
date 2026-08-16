@@ -476,7 +476,7 @@ function AppInner() {
             saveUser((prev) => ({ ...prev, welcomeDone: true }));
           }}
         />
-        <UpdateBanner currentVersion={APP_VERSION} />
+        {isPrimaryWindow() && <UpdateBanner currentVersion={APP_VERSION} />}
       </>
     );
   }
@@ -484,7 +484,12 @@ function AppInner() {
   return (
     <>
       <TerminalsTab st={st} save={save} userSt={userSt} saveUser={saveUser} />
-      <UpdateBanner currentVersion={APP_VERSION} />
+      {/* Primary window only (review): every detached win-* window loads the
+          same bundle, so mounting this everywhere meant N update checks and,
+          worse, a user with several windows open could click "Install &
+          restart" in two of them and launch concurrent installers against the
+          same product code. One window owns the update. */}
+      {isPrimaryWindow() && <UpdateBanner currentVersion={APP_VERSION} />}
     </>
   );
 }

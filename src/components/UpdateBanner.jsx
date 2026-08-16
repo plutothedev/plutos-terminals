@@ -20,7 +20,7 @@ const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 // Compare semver-ish tags ("v0.0.3" or "0.0.3"). Returns true if `latest` is
 // newer than `current`. Treats anything unparseable as "not newer" so a weird
 // tag never triggers a false update banner.
-function isNewer(latest, current) {
+export function isNewer(latest, current) {
   const norm = (v) => String(v || "").replace(/^v/, "").split(/[.-]/);
   const a = norm(latest);
   const b = norm(current);
@@ -136,7 +136,12 @@ export default function UpdateBanner({ currentVersion }) {
     try {
       // Payload is minisign-verified against the bundled pubkey before anything
       // is written or run — a hostile release asset cannot execute code here.
+      // An empty/placeholder pubkey fails this check rather than skipping it.
       await pluginUpdate.downloadAndInstall();
+      // NOTE: on Windows this line is unreachable — the plugin's installer path
+      // calls process::exit(0) inside downloadAndInstall, so the await never
+      // returns and the MSI's own AUTOLAUNCHAPP handles the restart. It matters
+      // on macOS, where install returns normally and nothing else relaunches us.
       const { relaunch } = await import("@tauri-apps/plugin-process");
       await relaunch();
     } catch (e) {

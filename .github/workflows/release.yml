@@ -227,15 +227,25 @@ jobs:
               echo "::warning::signature $sig has no matching payload $payload — skipping"
               continue
             fi
+            # Platform keys must match what the RUNTIME asks for. The updater
+            # builds its lookup key from cfg!(target_arch) at compile time, so a
+            # lipo'd universal macOS binary resolves to darwin-aarch64 or
+            # darwin-x86_64 depending on which slice is executing — NEVER
+            # "darwin-universal". Publishing only that key made check() fail with
+            # TargetsNotFound, which the UI could not distinguish from "no update
+            # available", so macOS would silently never update. Emit BOTH arch
+            # keys pointing at the same universal payload + signature.
             case "$payload" in
-              *.app.tar.gz) key="darwin-universal" ;;   # macOS leg builds universal
-              *.msi.zip)    key="windows-x86_64" ;;
+              *.app.tar.gz) keys="darwin-aarch64 darwin-x86_64" ;;
+              *.msi.zip)    keys="windows-x86_64" ;;
               *)            echo "::notice::ignoring non-updater artifact $payload"; continue ;;
             esac
             url="https://github.com/${TARGET_REPO}/releases/download/${TAG}/${payload}"
-            platforms=$(jq -n --argjson p "$platforms" --arg k "$key" \
-              --arg sig "$(cat "$sig")" --arg url "$url" \
-              '$p + {($k): {signature: $sig, url: $url}}')
+            for key in $keys; do
+              platforms=$(jq -n --argjson p "$platforms" --arg k "$key" \
+                --arg sig "$(cat "$sig")" --arg url "$url" \
+                '$p + {($k): {signature: $sig, url: $url}}')
+            done
           done
 
           if [ "$(jq -r 'length' <<<"$platforms")" = "0" ]; then
