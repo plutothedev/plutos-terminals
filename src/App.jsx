@@ -29,6 +29,7 @@ import { useOsDark } from "./features/terminals/hooks/useOsDark.js";
 import { configure as configureSync, start as startSync, notifyChange } from "./features/terminals/sync/syncEngine.js";
 import { loadMacros, saveMacros, onMacrosChanged } from "./features/terminals/macros.js";
 import { isPrimaryWindow } from "./features/terminals/storageKeys.js";
+import { stampFieldMeta, mergeUserState } from "./features/terminals/userStateMerge.js";
 
 // Per-window state key (default window = bare key; secondary ?w=<id> windows =
 // suffixed for independent panels/skin). Resolver + keys live in storageKeys.js
@@ -266,11 +267,15 @@ function AppInner() {
   // cross-window storage sync) so functional updates never see a stale base.
   const userStRef = useRef(userSt);
   const saveUser = useCallback((next) => {
-    const resolved = typeof next === "function" ? next(userStRef.current) : next;
-    userStRef.current = resolved;
-    setUserSt(resolved);
-    writeUserState(resolved);
-    if (isPrimaryWindow() && resolved?.sync?.enabled) notifyChange();
+    const prev = userStRef.current;
+    const resolved = typeof next === "function" ? next(prev) : next;
+    // Stamp per-field write times (audit M10) so a cross-window storage event
+    // can merge field-by-field instead of clobbering this window's edits.
+    const stamped = stampFieldMeta(prev, resolved, Date.now());
+    userStRef.current = stamped;
+    setUserSt(stamped);
+    writeUserState(stamped);
+    if (isPrimaryWindow() && stamped?.sync?.enabled) notifyChange();
   }, []);
 
   useEffect(() => {
@@ -353,15 +358,19 @@ function AppInner() {
     const onStorage = (e) => {
       if (e.key === USER_STORAGE_KEY && e.newValue) {
         try {
-          // The persisted blob has secrets stripped (they live in the keychain),
-          // so overlay the in-memory keychain cache or this window would lose its
-          // provider keys on any cross-window user-state update.
+          // Field-level LWW merge (audit M10): merge the other window's blob
+          // onto THIS window's current state per-field by _fieldMeta timestamp,
+          // so two windows editing DIFFERENT settings both survive instead of
+          // one clobbering the other. Then overlay the in-memory keychain cache —
+          // the persisted blob has secrets stripped (they live in the keychain),
+          // and mergeUserState carries local's secret fields through untouched.
           const parsed = JSON.parse(e.newValue);
+          const mergedFields = mergeUserState(userStRef.current, parsed);
           const s = getCachedSecretKeys();
           const merged = {
-            ...parsed,
-            providerKeys: { ...(parsed.providerKeys || {}), ...(s.providerKeys || {}) },
-            anthropicKey: s.anthropicKey || parsed.anthropicKey || "",
+            ...mergedFields,
+            providerKeys: { ...(mergedFields.providerKeys || {}), ...(s.providerKeys || {}) },
+            anthropicKey: s.anthropicKey || mergedFields.anthropicKey || "",
           };
           userStRef.current = merged;
           setUserSt(merged);
