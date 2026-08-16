@@ -20,8 +20,11 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
@@ -57,10 +60,26 @@ struct Running {
     shutdown: tokio::sync::oneshot::Sender<()>,
 }
 
+// CREATE_NO_WINDOW — suppresses the conhost.exe console flash that would
+// otherwise appear (and steal focus) every time we shell out to `tailscale`.
+// Local copy of the same helper commands.rs / netools.rs / share.rs each carry;
+// starting and stopping the phone companion runs four of these, so without it a
+// black console window flashes over the app on Windows each time (review).
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn silent_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+    let mut cmd = Command::new(program);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
 /// Best host for the phone to dial: the Tailscale IP if available (the intended
 /// reach), else the primary LAN IP, else localhost. Computed once at start.
 fn best_host() -> String {
-    if let Ok(out) = std::process::Command::new("tailscale")
+    if let Ok(out) = silent_command("tailscale")
         .args(["ip", "-4"])
         .output()
     {
@@ -91,7 +110,7 @@ fn best_host() -> String {
 /// `None` when Tailscale isn't up / MagicDNS is off. Used for the `https://` URL
 /// once `tailscale serve` fronts TLS.
 fn magic_dns_name() -> Option<String> {
-    let out = std::process::Command::new("tailscale")
+    let out = silent_command("tailscale")
         .args(["status", "--json"])
         .output()
         .ok()?;
@@ -113,7 +132,7 @@ fn magic_dns_name() -> Option<String> {
 /// auto-provisions and renews the MagicDNS cert. Idempotent; best-effort (logs on
 /// failure). Undone by `serve_off` when the companion stops.
 fn ensure_serve(port: u16) {
-    match std::process::Command::new("tailscale")
+    match silent_command("tailscale")
         .args(["serve", "--bg", &port.to_string()])
         .output()
     {
@@ -131,7 +150,7 @@ fn ensure_serve(port: u16) {
 /// tailnet kept a live proxy pointing at the (now closed) loopback port until
 /// a manual `tailscale serve reset`. Best-effort; failures are logged.
 fn serve_off(port: u16) {
-    match std::process::Command::new("tailscale")
+    match silent_command("tailscale")
         .args(["serve", "--bg", &port.to_string(), "off"])
         .output()
     {

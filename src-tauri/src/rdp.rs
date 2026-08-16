@@ -180,6 +180,62 @@ pub async fn rdp_connect(
     domain: Option<String>,
 ) -> Result<(String, u16, u16), String> {
     let port = if port == 0 { 3389 } else { port };
+    // Connect + TLS + NLA are fully blocking and now run OFF the tokio runtime
+    // (review). The per-phase deadlines added below turn "parked forever" into
+    // "parked up to ~40s", but this is an async Tauri command, so even a bounded
+    // park holds one of num_cpus workers: several reconnects after a VPN drop
+    // queue every other async command (pty_kill, sftp_*, secret_get) behind
+    // them. Mirrors what ssh_spawn and forward.rs already do.
+    // `state` deliberately does NOT cross the boundary — it is a borrowed
+    // State<'_> (not 'static), and it is only needed afterwards for the fast
+    // registry insert, which stays here on the async side.
+    let app_c = app.clone();
+    let (tls_framed, connection_result) = tauri::async_runtime::spawn_blocking(move || {
+        rdp_connect_blocking(app_c, host, port, username, password, domain)
+    })
+    .await
+    .map_err(|e| format!("rdp connect task failed: {e}"))??;
+
+    let id = new_id("rdp");
+    let (ctrl_tx, ctrl_rx) = mpsc::channel::<RdpCtrl>();
+    let (w, h) = (
+        connection_result.desktop_size.width,
+        connection_result.desktop_size.height,
+    );
+    state
+        .sessions
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(id.clone(), RdpHandle { ctrl: ctrl_tx });
+
+    let id_t = id.clone();
+    let app_t = app.clone();
+    std::thread::spawn(move || {
+        rdp_worker(tls_framed, connection_result, ctrl_rx, app_t, id_t, w, h)
+    });
+
+    Ok((id, w, h))
+}
+
+/// Blocking half of `rdp_connect`: TCP connect, TLS upgrade, TOFU pin check and
+/// the CredSSP/NLA negotiation. Split out so all of it runs on the blocking pool
+/// instead of parking a tokio worker (review). Returns the negotiated stream and
+/// connection result for the caller to register and hand to the worker thread.
+#[allow(clippy::type_complexity)]
+fn rdp_connect_blocking(
+    app: AppHandle,
+    host: String,
+    port: u16,
+    username: String,
+    password: String,
+    domain: Option<String>,
+) -> Result<
+    (
+        Framed<native_tls::TlsStream<TcpStream>>,
+        ironrdp::connector::ConnectionResult,
+    ),
+    String,
+> {
     let (req_w, req_h) = (1280u16, 800u16);
 
     // Bound the TCP connect (a dead host otherwise parks this worker ~21s on Windows);
@@ -280,25 +336,7 @@ pub async fn rdp_connect(
         .set_read_timeout(Some(std::time::Duration::from_millis(500)))
         .map_err(|e| format!("set rdp read timeout: {e}"))?;
 
-    let id = new_id("rdp");
-    let (ctrl_tx, ctrl_rx) = mpsc::channel::<RdpCtrl>();
-    let (w, h) = (
-        connection_result.desktop_size.width,
-        connection_result.desktop_size.height,
-    );
-    state
-        .sessions
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .insert(id.clone(), RdpHandle { ctrl: ctrl_tx });
-
-    let id_t = id.clone();
-    let app_t = app.clone();
-    std::thread::spawn(move || {
-        rdp_worker(tls_framed, connection_result, ctrl_rx, app_t, id_t, w, h)
-    });
-
-    Ok((id, w, h))
+    Ok((tls_framed, connection_result))
 }
 
 fn emit_rect(
@@ -370,7 +408,17 @@ fn drain_rdp_ctrl<S: Read + Write>(
         if let Ok(out) = active.process_fastpath_input(image, &events) {
             for o in out {
                 if let ActiveStageOutput::ResponseFrame(frame) = o {
-                    let _ = framed.write_all(&frame);
+                    // A write error here must TEAR DOWN, not be discarded
+                    // (review). The steady-state session keeps a 30s write
+                    // deadline, and write_all only retries on Interrupted — so a
+                    // TimedOut/WouldBlock from SO_SNDTIMEO returns Err after a
+                    // PARTIAL write. Swallowing it left half a PDU on the wire
+                    // and kept feeding frames into a desynchronized stream,
+                    // which the peer then reads as garbage. The sibling write
+                    // site in rdp_worker already terminates on error; match it.
+                    if framed.write_all(&frame).is_err() {
+                        return true;
+                    }
                 }
             }
         }
