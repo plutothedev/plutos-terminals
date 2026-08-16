@@ -27,6 +27,17 @@ describe("stampFieldMeta", () => {
     expect(prev._fieldMeta).toEqual({});
     expect(next._fieldMeta).toBeUndefined();
   });
+
+  it("a stale-closure save cannot roll an unchanged field's stamp BACKWARD (review M10 #4)", () => {
+    // prev = fresh ref (x last written at 500); next = a stale capture whose
+    // _fieldMeta still says x=100, and which adds y. x is unchanged, so its
+    // stamp must stay 500 (fresh), not regress to 100.
+    const prev = { x: 1, _fieldMeta: { x: 500 } };
+    const next = { x: 1, y: 2, _fieldMeta: { x: 100 } };
+    const out = stampFieldMeta(prev, next, 900);
+    expect(out._fieldMeta.x).toBe(500); // NOT rolled back to 100
+    expect(out._fieldMeta.y).toBe(900); // new field stamped now
+  });
 });
 
 describe("mergeUserState", () => {
@@ -63,13 +74,30 @@ describe("mergeUserState", () => {
     expect(aGot).toBe(bGot);
   });
 
-  it("carries keychain fields from local, never from remote", () => {
+  it("local wins CONFLICTING keychain fields, never taking remote's value", () => {
     const local = { anthropicKey: "local-key", providerKeys: { a: "L" }, _fieldMeta: {} };
     const remote = { anthropicKey: "remote-key", providerKeys: { a: "R" }, _fieldMeta: { anthropicKey: 9999 } };
     const out = mergeUserState(local, remote);
-    expect(out.anthropicKey).toBe("local-key"); // never take remote's secret
-    expect(out.providerKeys).toEqual({ a: "L" });
+    expect(out.anthropicKey).toBe("local-key"); // never take remote's secret on conflict
+    expect(out.providerKeys).toEqual({ a: "L" }); // local wins the shared key
     expect(out._fieldMeta.anthropicKey).toBeUndefined(); // secrets excluded from meta
+  });
+
+  it("UNIONS provider keys — a key added in another window (keychain unavailable) is not dropped (review M10 #1)", () => {
+    // Keychain unavailable → blob keeps plaintext secrets; window B added `anthropic`.
+    const local = { providerKeys: { openai: "L" }, _fieldMeta: {} };
+    const remote = { providerKeys: { openai: "R", anthropic: "new-from-B" }, _fieldMeta: {} };
+    const out = mergeUserState(local, remote);
+    expect(out.providerKeys.openai).toBe("L"); // local wins the conflict
+    expect(out.providerKeys.anthropic).toBe("new-from-B"); // remote fills the gap — NOT lost
+  });
+
+  it("takes a keychain field local never had at all", () => {
+    const local = { _fieldMeta: {} };
+    const remote = { providerKeys: { x: "only-remote" }, anthropicKey: "rk", _fieldMeta: {} };
+    const out = mergeUserState(local, remote);
+    expect(out.providerKeys).toEqual({ x: "only-remote" });
+    expect(out.anthropicKey).toBe("rk");
   });
 
   it("a pre-M10 blob (no _fieldMeta) loses contested fields to a stamped local edit", () => {

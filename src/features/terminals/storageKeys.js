@@ -17,6 +17,13 @@ const STATE_VERSION = "v0";
 export const STATE_KEY_PREFIX = `plutos-terminals:state:${STATE_VERSION}`;
 export const USER_STORAGE_KEY = `plutos-terminals:user:${STATE_VERSION}`;
 
+// userSt fields mirrored to the OS keychain and stripped from the plaintext
+// localStorage blob once a keychain write is confirmed. ONE canonical list
+// (review M10 #3): App.jsx's writeUserState strips these, and userStateMerge
+// must special-case them (never timestamp-merge a secret) — a drift between two
+// copies of this list would silently reintroduce the stale-secret-wins bug.
+export const SECRET_FIELDS = ["providerKeys", "anthropicKey"];
+
 function currentWindowId() {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get("w") || null;

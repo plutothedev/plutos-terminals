@@ -9,12 +9,12 @@
 // Mirrors the LWW-by-timestamp shape already used for cloud sync in
 // sync/merge.js (mergeScalars), specialized to userSt's flat shape.
 //
-// KEYCHAIN_FIELDS are NEVER merged by timestamp: they're mirrored to the OS
-// keychain and stripped from the localStorage blob (see App.jsx SECRET_FIELDS),
-// so the cross-window handler re-overlays them from the in-memory keychain cache
-// AFTER this merge. We carry LOCAL's copy through untouched so the handler's
-// keychain-unavailable fallback still has something to overlay.
-export const KEYCHAIN_FIELDS = ["providerKeys", "anthropicKey"];
+// Keychain fields are NEVER merged by timestamp: they're mirrored to the OS
+// keychain and stripped from the localStorage blob, so the cross-window handler
+// re-overlays them from the in-memory keychain cache AFTER this merge. ONE
+// canonical list, shared with App.jsx's writeUserState (review M10 #3).
+import { SECRET_FIELDS as KEYCHAIN_FIELDS } from "./storageKeys.js";
+export { KEYCHAIN_FIELDS };
 
 // Deterministic, symmetric tie-break for equal timestamps (same rationale as
 // sync/merge.js L6): without it, two windows that wrote the same field at the
@@ -36,7 +36,11 @@ function changed(a, b) {
 export function stampFieldMeta(prev, next, now) {
   const p = prev || {};
   const n = next || {};
-  const meta = { ...(p._fieldMeta || {}), ...(n._fieldMeta || {}) };
+  // p (userStRef.current, always fresh) wins for unchanged fields' timestamps;
+  // n only fills fields p lacks. Spreading p LAST stops a stale-closure save
+  // (next captured off an old render) from rolling a field's stamp BACKWARD and
+  // letting an already-lost edit win the next cross-window merge (review M10 #4).
+  const meta = { ...(n._fieldMeta || {}), ...(p._fieldMeta || {}) };
   const keys = new Set([...Object.keys(p), ...Object.keys(n)]);
   keys.delete("_fieldMeta");
   for (const k of keys) {
@@ -62,7 +66,23 @@ export function mergeUserState(local, remote) {
   keys.delete("_fieldMeta");
   for (const k of keys) {
     if (KEYCHAIN_FIELDS.includes(k)) {
-      if (k in l) out[k] = l[k]; // carry local; caller re-overlays from keychain
+      // Never timestamp-merge a secret. Normally (keychain available) the blob
+      // is stripped so remote carries nothing and this is just "keep local".
+      // But when the keychain is UNAVAILABLE the blob keeps plaintext secrets
+      // (writeUserState only strips when keychainAvailable()), and a key added
+      // in another window arrives via remote — so UNION rather than discard it,
+      // local winning conflicts, remote filling gaps (review M10 #1, restoring
+      // the pre-M10 handler's union). The caller re-overlays the keychain cache
+      // on top of this in the keychain-available path.
+      const lv = l[k];
+      const rv = r[k];
+      const lObj = lv && typeof lv === "object" && !Array.isArray(lv);
+      const rObj = rv && typeof rv === "object" && !Array.isArray(rv);
+      if (lObj || rObj) {
+        out[k] = { ...(rObj ? rv : {}), ...(lObj ? lv : {}) };
+      } else if (lv !== undefined || rv !== undefined) {
+        out[k] = lv || rv; // scalar secret: local preferred, remote fallback
+      }
       continue;
     }
     const lt = lMeta[k] ?? 0;

@@ -5,7 +5,7 @@ import UpdateBanner from "./components/UpdateBanner.jsx";
 import LockScreen from "./features/terminals/LockScreen.jsx";
 import { isUnlockedThisSession } from "./features/terminals/masterPassword.js";
 import { destroyAll } from "./features/terminals/paneRegistry.js";
-import { USER_STORAGE_KEY, getWindowStorageKey, allOpenTabIds } from "./features/terminals/storageKeys.js";
+import { USER_STORAGE_KEY, getWindowStorageKey, allOpenTabIds, SECRET_FIELDS } from "./features/terminals/storageKeys.js";
 import { parseWorkspace } from "./features/terminals/workspaceBoot.js";
 import { invoke } from "./backend.js";
 import {
@@ -56,8 +56,8 @@ function readUserState() {
 // mirrored to the OS keychain (secretVault) and stripped from the plaintext
 // localStorage blob. Stripping only happens once a keychain write has been
 // confirmed (keychainAvailable), so a keychain failure keeps the local copy
-// rather than losing the user's keys.
-const SECRET_FIELDS = ["providerKeys", "anthropicKey"];
+// rather than losing the user's keys. SECRET_FIELDS is the ONE canonical list
+// (imported from storageKeys, shared with userStateMerge — review M10 #3).
 
 function writeUserState(next) {
   if (typeof window === "undefined") return;
@@ -283,6 +283,12 @@ function AppInner() {
     configureSync({
       getStores: () => ({ userSt: userStRef.current, st: stRef.current, macros: loadMacros() }),
       applyStores: ({ userSt, st, macros }) => {
+        // KNOWN follow-up (review M10 #2): saveUser stamps these cloud-pulled
+        // fields with Date.now(), not their true cross-device edit time, so in a
+        // narrow window a stale remote value could out-timestamp a fresher
+        // sibling-window edit. A proper fix threads per-field timestamps from the
+        // cloud merge (sync/merge.js fieldMeta) into userSt's _fieldMeta —
+        // deferred as a cross-cutting sync change, out of M10's scope.
         if (userSt && Object.keys(userSt).length) saveUser((prev) => ({ ...prev, ...userSt }));
         if (st && Object.keys(st).length) save((prev) => ({ ...prev, ...st }));
         if (macros) saveMacros(macros);
