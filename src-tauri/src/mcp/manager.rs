@@ -37,7 +37,7 @@ fn resolve_secrets(cfg: &ServerCfg) -> (BTreeMap<String, String>, Option<String>
     let mut env = cfg.env.clone();
     let mut bearer = None;
     for key in &cfg.secret_keys {
-        if let Ok(Some(val)) = crate::vault::secret_get(secret_account(&cfg.id, key)) {
+        if let Ok(Some(val)) = crate::vault::secret_get_sync(secret_account(&cfg.id, key)) {
             if key == "bearer" { bearer = Some(val); } else { env.insert(key.clone(), val); }
         }
     }

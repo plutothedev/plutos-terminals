@@ -200,6 +200,22 @@ pub async fn rdp_connect(
     };
     let client_addr: SocketAddr = tcp.local_addr().map_err(|e| e.to_string())?;
 
+    // Phase 1 of the socket deadline: bound every pre-session read/write BEFORE
+    // the first byte moves. The TCP connect above is bounded, but connect_begin,
+    // the TLS handshake and connect_finalize (CredSSP/NLA) all read blocking with
+    // no deadline, so a host that completed the TCP handshake and then went
+    // silent parked this tokio worker permanently. rdp_connect is an async Tauri
+    // command, so a few attempts against a tarpit host stalled every async IPC
+    // command in the app while the UI still painted. Mirrors the VNC transport's
+    // pre-handshake bound (vncclient.rs:134-137); 30s rather than VNC's 15s
+    // because CredSSP/NLA takes more round trips than an RFB handshake and can
+    // be slow over a bad link. The deadline applies per read/write call, so a
+    // legitimately slow negotiation still completes; only a silent peer trips it.
+    tcp.set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .map_err(|e| format!("set rdp handshake read timeout: {e}"))?;
+    tcp.set_write_timeout(Some(std::time::Duration::from_secs(30)))
+        .map_err(|e| format!("set rdp handshake write timeout: {e}"))?;
+
     let config = make_config(username, password, domain, req_w, req_h);
     let mut connector = ClientConnector::new(config, client_addr);
 
@@ -244,12 +260,19 @@ pub async fn rdp_connect(
     )
     .map_err(|e| format!("connect_finalize (NLA/TLS): {e}"))?;
 
-    // Bound idle reads so the worker loop can observe a disconnect (the ctrl
-    // sender dropped by rdp_disconnect) instead of parking forever in read_pdu
-    // on an idle remote — which leaked the thread + socket + TLS session until
-    // the server happened to send a PDU. Set only AFTER connect_finalize so the
-    // (potentially slow) NLA/TLS handshake reads aren't cut short. Partial
-    // frames are buffered inside Framed, so a mid-PDU timeout loses nothing.
+    // Phase 2 of the socket deadline: tighten the generous 30s handshake read
+    // bound set above down to a short idle tick now that negotiation is done.
+    // The worker loop needs read_pdu to return periodically so it can observe a
+    // disconnect (the ctrl sender dropped by rdp_disconnect) instead of parking
+    // forever in read_pdu on an idle remote, which leaked the thread + socket +
+    // TLS session until the server happened to send a PDU. The tighten happens
+    // only AFTER connect_finalize so the (potentially slow) NLA/TLS handshake
+    // reads aren't cut short by a 500ms tick; the handshake phase is bounded by
+    // its own longer deadline rather than by no deadline at all. Partial frames
+    // are buffered inside Framed, so a mid-PDU timeout loses nothing. The 30s
+    // write deadline is deliberately left in place for the steady-state session:
+    // it keeps a wedged peer with a full TCP window from parking the worker
+    // thread inside write_all, and is far longer than any real input frame needs.
     tls_framed
         .get_inner_mut()
         .0

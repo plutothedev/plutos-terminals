@@ -117,7 +117,7 @@ fn gist_auth_available_sync() -> GistAuthAvailable {
     };
     // Any keychain error (locked, unavailable, …) reads the same as "no PAT
     // saved" — never propagated as an Err here (see the struct's doc comment).
-    let pat = crate::vault::secret_get(GIST_PAT_ACCOUNT.to_string())
+    let pat = crate::vault::secret_get_sync(GIST_PAT_ACCOUNT.to_string())
         .ok()
         .flatten();
     let (source, detail) = resolve_token_source(gh_ok, &gh_out, pat.as_deref());
@@ -140,7 +140,7 @@ fn resolve_token() -> Option<String> {
             }
         }
     }
-    crate::vault::secret_get(GIST_PAT_ACCOUNT.to_string())
+    crate::vault::secret_get_sync(GIST_PAT_ACCOUNT.to_string())
         .ok()
         .flatten()
         .filter(|p| !p.trim().is_empty())

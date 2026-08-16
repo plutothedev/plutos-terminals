@@ -193,10 +193,24 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // cleanups in the same commit (React child-cleanup-before-parent-effect order).
   // The activity store prunes on the same sweep (P2-T1): stale entries would
   // otherwise pin needs-you dots to dead/reused ids.
+  //
+  // Session recordings prune here too (review finding): closing a recording tab
+  // never called stopRecording, so the recording leaked its events array for the
+  // life of the process and left an unclickable red "rec" in the status bar
+  // until an app restart. They need their OWN live set: recordings are keyed by
+  // TAB id, while allRenderedPaneIds yields PANE ids and skips special tabs
+  // entirely, so a split tab that lost the leaf whose id === tab.id (removeLeaf
+  // collapses to the sibling) or a home/vnc/rdp/notebook tab would have a live
+  // recording killed by the pane set.
   useEffect(() => {
     const live = new Set(allRenderedPaneIds(state.panels));
     reconcile(live);
     pruneActivities(live);
+    const liveTabs = new Set();
+    for (const panel of state.panels) {
+      for (const tab of panel.tabs || []) liveTabs.add(tab.id);
+    }
+    recording.pruneRecordings(liveTabs);
   }, [state.panels]);
 
   // Boot-stagger trickle (P4-T5): hidden restored tabs spawn one TAB per tick

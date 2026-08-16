@@ -1,6 +1,15 @@
 <!-- (C) -->
 # Full audit — plutos-terminals @ 8c40c62 (2026-08-14)
 
+> **STATUS: RESOLVED (2026-08-16).** Every CRITICAL, HIGH and LOW finding below,
+> plus all but one MEDIUM, has been fixed, adversarially re-reviewed and merged.
+> The exception (M2, boot-mount stagger) was investigated and downgraded: the
+> expensive work it targets is already deferred by other means. FR6 (dependency
+> scanning) now runs as a BLOCKING CI gate. This file is kept as the historical
+> record of that pass, NOT as a list of live weaknesses. Findings below are
+> written in the present tense because that is how they read on 2026-08-14 —
+> treat every "fix before next release" line as already done.
+
 Six-dimension parallel audit (frontend correctness, Rust backend/IPC, security, performance, resilience, forward-risk), each an independent adversarial reviewer over the whole repo. Six load-bearing CRITICAL/HIGH findings were then re-verified by reading the cited code directly — all six confirmed real, zero false positives, which raises confidence in the unverified remainder.
 
 Overall: this is a heavily self-audited, mature codebase. The core session/PTY/scrollback/notebook machinery survived every reviewer. The debt clusters in the surfaces prior review had not reached, and in two fast-growing files (TerminalPane.jsx +42% in 10 weeks, commands.rs 3x). Nothing here is exploitable-RCE or a live crash-on-normal-path. The real exposure is silent data loss, one availability wedge, and render cost under multi-agent load.

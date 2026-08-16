@@ -78,15 +78,21 @@ const DEFAULT_DISCORD_URL = DISCORD_URL;
 
 export default function App() {
   return (
-    <ToastProvider>
-      <ConfirmProvider>
-        <PromptProvider>
-          <ErrorBoundary storageKey={STORAGE_KEY}>
+    // ErrorBoundary is OUTERMOST on purpose. Nested under the providers it could
+    // not catch a throw in a PROVIDER's OWN render (e.g. ToastProvider rendering
+    // a non-string toast message), and that throw escaped to the root: blank
+    // window, no Reload button, PTYs orphaned. The boundary is a class component
+    // that consumes no context (no useToast/useConfirm/usePrompt), so it can sit
+    // above them safely; AppInner still sees all three providers.
+    <ErrorBoundary storageKey={STORAGE_KEY}>
+      <ToastProvider>
+        <ConfirmProvider>
+          <PromptProvider>
             <AppInner />
-          </ErrorBoundary>
-        </PromptProvider>
-      </ConfirmProvider>
-    </ToastProvider>
+          </PromptProvider>
+        </ConfirmProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }
 

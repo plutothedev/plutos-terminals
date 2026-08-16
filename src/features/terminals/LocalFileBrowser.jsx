@@ -99,14 +99,20 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
   const [entries, setEntries] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  // The backend caps very large listings and reports it as a third tuple
+  // element. Surfacing it matters: the cap breaks out of the read loop BEFORE
+  // the sort, so a truncated listing renders looking neatly alphabetical and
+  // complete while entries are missing. Left unread, that is a silent lie.
+  const [truncated, setTruncated] = useState(false);
 
   const list = useCallback(async (path) => {
     setLoading(true);
     setError(null);
     try {
-      const [resolved, items] = await invoke("list_directory", { path: path ?? null });
+      const [resolved, items, wasTruncated] = await invoke("list_directory", { path: path ?? null });
       setCwd(resolved);
       setEntries(Array.isArray(items) ? items : []);
+      setTruncated(wasTruncated === true);
     } catch (e) {
       setError(humanizeError(e).message);
     } finally {
@@ -168,6 +174,11 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
       )}
 
       <div className="phn-snippets-list">
+        {!error && !loading && truncated && (
+          <div className="phn-snippets-empty" style={{ color: "#FBBF24" }}>
+            Showing the first {entries.length.toLocaleString()} entries — this folder has more.
+          </div>
+        )}
         {error ? (
           <div className="phn-snippets-empty" style={{ color: "#f87171" }}>{error}</div>
         ) : loading ? (

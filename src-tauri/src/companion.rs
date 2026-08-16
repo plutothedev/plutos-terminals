@@ -517,7 +517,9 @@ fn dispatch(
             },
         ),
         "default_shell" => Ok(serde_json::Value::String(crate::pty::default_shell())),
-        // Read-only local file browser. Returns [resolvedPath, [entries…]].
+        // Read-only local file browser. Returns [resolvedPath, [entries…], truncated]
+        // (the trailing bool is true when the listing hit the entry cap; the phone
+        // page ignores the extra element).
         // CONFINED to the user's home tree: unlike the desktop-local Tauri command,
         // a leaked token must not enumerate the entire filesystem (.ssh recon,
         // Downloads/*.pem, kubeconfig, etc.). Reject anything that resolves outside
@@ -539,7 +541,7 @@ fn dispatch(
             if !canon.starts_with(&home_canon) {
                 return Err("path outside the allowed home directory".into());
             }
-            crate::commands::list_directory(Some(canon.to_string_lossy().into_owned()))
+            crate::commands::list_directory_sync(Some(canon.to_string_lossy().into_owned()))
                 .and_then(|t| serde_json::to_value(t).map_err(|e| e.to_string()))
         }
         // Ask the desktop to open a new session. The phone can't spawn a PTY

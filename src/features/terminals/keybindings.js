@@ -59,8 +59,10 @@ const KEY_PRETTY = {
 };
 
 // Normalize a raw KeyboardEvent.key (or a stored key token) to canonical form.
+// Stored tokens come out of user state, which is arbitrary JSON (see canon), so
+// anything non-string degrades to "" rather than falling through to `.length`.
 function normKey(raw) {
-  if (raw == null || raw === "") return "";
+  if (typeof raw !== "string" || raw === "") return "";
   if (raw === " " || raw === "Spacebar") return "Space";
   if (raw.length === 1) return raw.toUpperCase(); // letters, digits, punctuation
   return raw; // named keys: ArrowUp, Enter, Tab, F1, …
@@ -68,8 +70,19 @@ function normKey(raw) {
 
 // Re-order modifiers + normalize the key so two spellings of the same combo
 // compare equal. Tolerates a trailing "+" meaning the literal "+" key.
+//
+// Combos reach here from userSt.keybindings, which is user-editable AND
+// cloud-synced (sync/merge.js:36 takes remote scalars verbatim, no type check),
+// so a combo is arbitrary JSON: a number, object or array from a corrupt blob, a
+// bad merge, or a hand-edited localStorage. `.split` on one of those threw, and
+// this runs inside TerminalsTab's render-time resolveBindings useMemo: a throw
+// there hits the top-level error boundary, whose destroyAll() kills EVERY live
+// SSH/serial/local session in the window. Truthy non-strings degrade to "";
+// falsy values still pass through verbatim so callers' `if (!combo)` guards and
+// identity comparisons behave exactly as before.
 export function canon(combo) {
   if (!combo) return combo;
+  if (typeof combo !== "string") return "";
   const parts = combo.split("+");
   let key = parts.pop();
   if (key === "" && combo.endsWith("+")) key = "+";
@@ -80,7 +93,7 @@ export function canon(combo) {
 
 // Build a canonical combo from a live KeyboardEvent, or null for a lone modifier.
 export function comboFromEvent(e) {
-  if (LONE_MODS.includes(e.key)) return null;
+  if (!e || LONE_MODS.includes(e.key)) return null;
   const mods = [];
   if (e.ctrlKey || e.metaKey) mods.push("Ctrl"); // Cmd folds into Ctrl
   if (e.altKey) mods.push("Alt");
@@ -93,7 +106,7 @@ export function comboFromEvent(e) {
 // A combo is dispatchable only if it carries a non-Shift modifier — otherwise it
 // would clobber plain typing in the terminal.
 export function isBindable(combo) {
-  if (!combo) return false;
+  if (typeof combo !== "string" || !combo) return false; // see canon: combo is arbitrary JSON
   const c = canon(combo);
   const parts = c.split("+");
   const key = parts.pop();
@@ -104,13 +117,22 @@ export function isBindable(combo) {
 // Resolve defaults + user overrides into lookup maps.
 //   byCombo:  canonical combo  -> actionId   (only enabled bindings)
 //   byAction: actionId         -> combo | null
+//
+// Total over arbitrary JSON (see canon for why a throw here is session-fatal): a
+// userKb that is not a plain object, and any override that is neither a string
+// nor null, degrade to the built-in defaults instead of propagating a bad shape.
 export function resolveBindings(userKb) {
   const byCombo = new Map();
   const byAction = new Map();
+  const kb = userKb && typeof userKb === "object" && !Array.isArray(userKb) ? userKb : null;
   for (const a of KEY_ACTIONS) {
     let combo = a.default;
-    if (userKb && Object.prototype.hasOwnProperty.call(userKb, a.id)) {
-      combo = userKb[a.id]; // string or null (disabled)
+    if (kb && Object.prototype.hasOwnProperty.call(kb, a.id)) {
+      const override = kb[a.id];
+      // string = remap, null = explicitly disabled. Anything else is corrupt and
+      // keeps the default, undefined included: JSON persistence drops undefined
+      // values, so an own-property undefined is the same as a missing key.
+      if (typeof override === "string" || override === null) combo = override;
     }
     byAction.set(a.id, combo);
     if (combo) byCombo.set(canon(combo), a.id);
@@ -151,7 +173,7 @@ export function modCombo(key, { mac = IS_MAC } = {}) {
 // Human display of a combo, e.g. "Ctrl+Shift+T" → "Ctrl+Shift+T" on
 // Windows/Linux, "⌘⇧T" on macOS. `mac` is injectable for tests.
 export function formatCombo(combo, { mac = IS_MAC } = {}) {
-  if (!combo) return "";
+  if (typeof combo !== "string" || !combo) return ""; // see canon: combo is arbitrary JSON
   const c = canon(combo);
   const parts = c.split("+");
   let key = parts.pop();
@@ -189,7 +211,8 @@ function prettyCode(code) {
 // lone modifier. Ctrl and Meta are kept distinct (Rust maps Meta → SUPER) so a
 // mac user could bind Cmd.
 export function comboFromCode(e) {
-  if (/^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/.test(e.code) || e.code === "") return null;
+  if (!e || typeof e.code !== "string" || e.code === "") return null;
+  if (/^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/.test(e.code)) return null;
   const mods = [];
   if (e.ctrlKey) mods.push("Ctrl");
   if (e.altKey) mods.push("Alt");
@@ -200,15 +223,17 @@ export function comboFromCode(e) {
 
 // A summon combo needs a non-Shift modifier + a real key.
 export function isSummonBindable(combo) {
-  if (!combo) return false;
+  if (typeof combo !== "string" || !combo) return false; // see canon: combo is arbitrary JSON
   const parts = combo.split("+");
   const key = parts.pop();
   if (!key) return false;
   return parts.includes("Ctrl") || parts.includes("Alt") || parts.includes("Meta");
 }
 
+// Same hazard as canon, second entry point: userSt.keybindings.summon renders
+// through here (KeybindingsSection), and it is user-editable + cloud-synced too.
 export function formatCodeCombo(combo) {
-  if (!combo) return "";
+  if (typeof combo !== "string" || !combo) return "";
   const parts = combo.split("+");
   const key = parts.pop();
   return [...parts, prettyCode(key)].join("+");

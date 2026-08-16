@@ -24,6 +24,29 @@ const COLORS = {
 
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
+// Coerce a toast message to renderable text. toast.error() is called from dozens
+// of catch blocks and not every call site hands us a string: a rejected invoke()
+// can surface a plain object, and a thrown value can be an Error whose .message
+// isn't a string. Rendering one of those as a React child throws "Objects are not
+// valid as a React child" from INSIDE ToastProvider, so the throw takes the whole
+// window blank with no Reload button and orphaned PTYs. Same coercion
+// ConfirmModal.jsx:48 does for request.message, extended to prefer an Error's
+// .message (and a JSON dump for plain objects) over a useless "[object Object]".
+function toastText(v) {
+  if (typeof v === "string") return v;
+  if (v == null) return "";
+  if (v instanceof Error) return v.message || v.name || "Error";
+  if (typeof v === "object") {
+    if (typeof v.message === "string") return v.message;
+    try {
+      const j = JSON.stringify(v);
+      if (j && j !== "{}") return j;
+    } catch { /* circular or non-serializable: fall through to String() */ }
+  }
+  // String() itself throws on a null-prototype object or a throwing toString.
+  try { return String(v); } catch { return "Unknown error"; }
+}
+
 let nextId = 1;
 
 export function ToastProvider({ children }) {
@@ -85,7 +108,10 @@ export function ToastProvider({ children }) {
             title={t.variant === "error" ? "Click to copy" : undefined}
             onClick={() => {
               if (t.variant === "error") {
-                navigator.clipboard?.writeText(t.detail || t.message)?.catch(() => {});
+                // Coerced too: writeText() converts its argument to a string, and
+                // that conversion THROWS synchronously on an exotic object, which
+                // ?.catch can't see.
+                navigator.clipboard?.writeText(toastText(t.detail || t.message))?.catch(() => {});
               }
               dismiss(t.id);
             }}
@@ -109,7 +135,7 @@ export function ToastProvider({ children }) {
             <span style={{ color: COLORS[t.variant].fg, fontWeight: 600, marginRight: 8 }}>
               {t.variant === "success" ? "✓" : t.variant === "error" ? "✗" : "ℹ"}
             </span>
-            {t.message}
+            {toastText(t.message)}
           </div>
         ))}
       </div>
@@ -129,7 +155,7 @@ export function useToast() {
     // Fail-soft: outside ToastProvider, fall back to console + window.alert
     return {
       success: (m) => { console.log("[toast:success]", m); },
-      error:   (m) => { console.error("[toast:error]", m); window.alert(m?.message || m); },
+      error:   (m) => { console.error("[toast:error]", m); window.alert(toastText(m)); },
       info:    (m) => { console.log("[toast:info]", m); },
       dismiss: () => {},
     };

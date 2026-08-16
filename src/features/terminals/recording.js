@@ -5,6 +5,7 @@
 //      isRecording(tabId)   → boolean
 //      pushOutput(tabId, data) → record an "o" (output) event
 //      activeTabIds()       → list of currently-recording tab ids
+//      pruneRecordings(liveTabIds) → drop recordings whose tab is gone
 //      onChange(callback)   → subscribe to recording-state changes (returns unsubscribe)
 //
 // Recording streams incrementally to an inflight .cast on disk (audit C5) as
@@ -18,7 +19,7 @@
 
 import { invoke } from "@backend";
 
-const recordings = new Map(); // tabId → { startTs, width, height, label, events: [], capped, pending: [], flushTimer }
+const recordings = new Map(); // tabId → { startTs, width, height, label, events: [], bytes, capped, pending: [], flushTimer }
 const listeners = new Set();
 
 // Disk-safe stem for a tab id (matches the Rust transcript_name_valid gate:
@@ -48,11 +49,25 @@ async function flushCheckpoint(tabId) {
   } catch { /* best-effort crash net — the in-memory buffer is still authoritative */ }
 }
 
-// v0.1.22: cap recordings at 100k events (~10-20 MB depending on chunk
-// size). A long-running session at 100KB/s of output otherwise grows to
-// hundreds of MB in RAM. When the cap is hit, pushOutput stops appending
-// and sets `capped = true` so the UI can warn the user to save and stop.
+// v0.1.22: cap recordings at 100k events. A long-running session at 100KB/s of
+// output otherwise grows to hundreds of MB in RAM. When a cap is hit, pushOutput
+// stops appending and sets `capped = true` so the UI can warn the user to save
+// and stop.
+//
+// The event cap alone is NOT a memory bound (review finding): the backend
+// coalesces PTY output and can legally deliver a single ~64KB chunk (see
+// TerminalPane's boot-conceal escape hatch, which sizes itself around exactly
+// that), so 100k events is worst-case gigabytes, not the "10-20 MB" the old
+// comment here claimed. MAX_BYTES runs alongside the event cap and makes that
+// 20 MB ceiling real; whichever trips first caps the recording. The total is
+// tracked incrementally on rec.bytes, since summing the events on every push
+// would be O(n^2) on the PTY hot path.
+//
+// Measured in string length, not UTF-8 bytes, matching the scrollback cap's
+// idiom in TerminalPane (chunk.length): this is a RAM budget, and a JS string
+// costs at least one byte per code unit.
 const MAX_EVENTS = 100_000;
+const MAX_BYTES = 20 * 1024 * 1024;
 
 function notify() {
   for (const l of listeners) {
@@ -69,6 +84,7 @@ export function startRecording(tabId, opts = {}) {
     height: opts.height || 24,
     label: opts.label || tabId,
     events: [],
+    bytes: 0,
     pending: [],
     flushTimer: null,
   };
@@ -126,10 +142,11 @@ export function pushOutput(tabId, data) {
   const t = (performance.now() - rec.startTs) / 1000;
   const ev = [t, "o", data];
   rec.events.push(ev);
+  rec.bytes += data?.length || 0; // incremental; see the MAX_BYTES note
   // Buffer the same JSONL line for the disk crash-net; flushed on a 2s timer.
   rec.pending.push(JSON.stringify(ev) + "\n");
   scheduleFlush(tabId);
-  if (rec.events.length >= MAX_EVENTS) {
+  if (rec.events.length >= MAX_EVENTS || rec.bytes >= MAX_BYTES) {
     rec.capped = true;
     flushCheckpoint(tabId); // persist the tail immediately at the cap
     notify(); // surfaces in UI so user knows to save and stop
@@ -150,6 +167,41 @@ export const RECORDING_MAX_EVENTS = MAX_EVENTS;
 
 export function activeTabIds() {
   return Array.from(recordings.keys());
+}
+
+// Drop recordings whose tab is gone. Nothing in the tab-close path calls
+// stopRecording, so before this a closed-while-recording tab leaked its whole
+// events array for the life of the process AND pinned a red "rec" indicator in
+// the status bar whose click dead-ends (jumpToRecordingTab bails on the missing
+// tab). Only an app restart cleared it. Called from TerminalsTab's reconcile
+// sweep, the same commit-time sweep that prunes the pane registry and the
+// activity store, so every close path (tab/panel close, detach, workspace load,
+// reset, worktree discard) is covered by one mechanism.
+//
+// `liveTabIds` must be TAB ids, not pane ids: recordings are keyed by tab id,
+// a split tab can outlive the leaf whose id === tab.id, and special tabs
+// (home/vnc/rdp/notebook) render no panes at all, so pruning against the pane
+// set would kill a live tab's recording.
+//
+// The inflight .cast on disk is deliberately LEFT behind, with the pending tail
+// flushed into it first: an interrupted recording is offered for save on next
+// launch (audit C5), exactly like a cancelled Save. Discarding it here would
+// silently destroy the capture the user asked for.
+export function pruneRecordings(liveTabIds) {
+  const live = liveTabIds instanceof Set ? liveTabIds : new Set(liveTabIds || []);
+  let dropped = false;
+  for (const [tabId, rec] of recordings) {
+    if (live.has(tabId)) continue;
+    if (rec.flushTimer) { clearTimeout(rec.flushTimer); rec.flushTimer = null; }
+    if (rec.pending.length) {
+      const chunk = rec.pending.join("");
+      rec.pending = [];
+      invoke("recording_checkpoint", { name: recName(tabId), chunk, reset: false }).catch(() => {});
+    }
+    recordings.delete(tabId); // deleting the current entry mid-iteration is safe on a Map
+    dropped = true;
+  }
+  if (dropped) notify();
 }
 
 export function onChange(cb) {

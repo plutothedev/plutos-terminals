@@ -66,7 +66,10 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libudev-dev
+          # libdbus-1-dev: keyring's Linux backend (sync-secret-service) reaches the
+          # Secret Service over D-Bus. It may arrive transitively via gtk, but relying
+          # on that makes credential storage a silent build-order accident.
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libudev-dev libdbus-1-dev
 
       - name: Install npm deps
         run: npm ci
@@ -115,11 +118,38 @@ jobs:
         shell: bash
         run: |
           cd all-installers
-          # Hash every installer (filenames contain spaces + apostrophes, so NUL-delimit).
-          # SHA256SUMS is excluded from its own input; the redirect creates it empty first.
-          find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
-            | while IFS= read -r -d '' f; do sha256sum "$f"; done > SHA256SUMS
+          # GitHub rewrites release-asset names, mapping every char outside
+          # [A-Za-z0-9._-] to "." — so "Pluto's Terminal_0.6.0_x64_en-US.msi" is
+          # served as "Pluto.s.Terminal_0.6.0_x64_en-US.msi". Hashing the ORIGINAL
+          # names produced a SHA256SUMS that named files no downloader could ever
+          # have on disk: `sha256sum -c` failed 5/5 with "No such file or
+          # directory", while the README makes that check the ONLY integrity proof
+          # before telling Windows users to click through SmartScreen.
+          # Fix: sanitize the names OURSELVES first, so what we hash is exactly
+          # what GitHub serves and there is no mangling left to predict.
+          for f in *; do
+            [ -f "$f" ] || continue
+            [ "$f" = SHA256SUMS ] && continue
+            clean=$(printf '%s' "$f" | tr -c 'A-Za-z0-9._-' '.')
+            if [ "$f" != "$clean" ]; then
+              if [ -e "$clean" ]; then
+                echo "::error::sanitized name collision: '$f' -> '$clean'"
+                exit 1
+              fi
+              mv -- "$f" "$clean"
+              echo "renamed: $f -> $clean"
+            fi
+          done
+          # Hash into a path OUTSIDE this directory: writing the sums file here
+          # while globbing it would race the glob against the redirect.
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' \
+            | sort -z \
+            | xargs -0 -r sha256sum > ../SHA256SUMS
+          mv ../SHA256SUMS SHA256SUMS
           echo "SHA256SUMS:"; cat SHA256SUMS
+          # Prove it verifies against the exact bytes we are about to upload —
+          # a green run now means a user's `sha256sum -c` will also pass.
+          sha256sum -c SHA256SUMS
 
       - name: Publish GitHub Release
         env:

@@ -4,9 +4,12 @@
 // blank white screen with no recovery but relaunch. This catches it and offers a
 // way out. Critically, one option clears ONLY the per-window layout storage key, so
 // a poisoned persisted blob can't loop blank -> reload -> blank; snippets, themes,
-// and keys (separate keys) are kept.
+// and keys (separate keys) are kept. A second, destructive option additionally
+// clears the SHARED user blob (see resetAll below) because that key is the one
+// cloud sync can deliver already-poisoned from another device.
 import { Component } from "react";
 import { destroyAll } from "../features/terminals/paneRegistry.js";
+import { USER_STORAGE_KEY, SECRET_FIELDS } from "../features/terminals/storageKeys.js";
 
 // Pane/surface-scoped boundary (audit H3): the top-level ErrorBoundary below
 // calls destroyAll() on catch — correct for an unattributable app-wide crash,
@@ -52,7 +55,11 @@ export class PaneBoundary extends Component {
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { error: null };
+    // wipeArmed: the settings wipe is irreversible and lives one stray click away
+    // on a crash screen, so it takes two clicks. No ConfirmProvider here (the
+    // boundary sits ABOVE the providers and must consume no context), and a
+    // window.confirm() would depend on the webview's native dialog.
+    this.state = { error: null, wipeArmed: false };
   }
 
   static getDerivedStateFromError(error) {
@@ -70,6 +77,44 @@ export class ErrorBoundary extends Component {
     const reload = () => { try { window.location.reload(); } catch { /* noop */ } };
     const resetLayout = () => {
       try { if (this.props.storageKey) localStorage.removeItem(this.props.storageKey); } catch { /* noop */ }
+      reload();
+    };
+    // Second escape (audit H-recovery): resetLayout only reaches the PER-WINDOW
+    // layout key. Poison in the shared user blob (keybindings, customThemes,
+    // savedPrompts, workspaces) survives it, and that key is CLOUD-SYNCED, so it
+    // can arrive already-poisoned from another device and loop blank -> reload ->
+    // blank forever, with no devtools in a packaged build. Destructive of
+    // settings; API keys live in the OS keychain and are NOT touched.
+    const resetAll = () => {
+      if (!this.state.wipeArmed) {
+        try { this.setState({ wipeArmed: true }); } catch { /* noop */ }
+        return;
+      }
+      try { if (this.props.storageKey) localStorage.removeItem(this.props.storageKey); } catch { /* noop */ }
+      // CARRY THE SECRETS ACROSS THE WIPE (review: regression lens).
+      // Secrets normally live in the OS keychain and are stripped from this
+      // blob — but when the keychain is UNAVAILABLE (Linux with no Secret
+      // Service, a locked/denied keyring) writeUserState deliberately keeps
+      // them here in plaintext so the user does not lose them. A blind
+      // removeItem would therefore erase every provider key for exactly the
+      // population that fail-safe protects, while the copy below promises the
+      // opposite. So: pull any secret fields out first, wipe, then write just
+      // those back. When the keychain IS working there are none to carry and
+      // this degrades to the plain delete.
+      try {
+        let carried = null;
+        try {
+          const raw = localStorage.getItem(USER_STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : null;
+          if (parsed && typeof parsed === "object") {
+            for (const f of SECRET_FIELDS) {
+              if (parsed[f] !== undefined) (carried ||= {})[f] = parsed[f];
+            }
+          }
+        } catch { /* unparseable blob — nothing recoverable to carry */ }
+        localStorage.removeItem(USER_STORAGE_KEY);
+        if (carried) localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(carried));
+      } catch { /* noop */ }
       reload();
     };
     const btn = {
@@ -92,6 +137,21 @@ export class ErrorBoundary extends Component {
             <button style={btn} onClick={reload}>Reload</button>
             <button style={{ ...btn, marginRight: 0, borderColor: "#E0A04F", color: "#E0A04F" }} onClick={resetLayout}>
               Reset layout &amp; reload
+            </button>
+          </div>
+          <div style={{ marginTop: 22, borderTop: "1px solid #22262b", paddingTop: 14 }}>
+            <p style={{ color: "#8a939e", fontSize: 12, lineHeight: 1.5, margin: "0 0 10px" }}>
+              Still blank after both of those? The bad data may be in your shared settings,
+              which cloud sync can also carry in from another device. This last resort clears
+              them: <strong style={{ color: "#cfd6dd" }}>settings, keybindings, custom themes,
+              saved prompts and workspaces are erased</strong> and cannot be recovered.
+              Your API keys and SSH credentials live in the OS keychain and are NOT cleared.
+            </p>
+            <button
+              style={{ ...btn, marginRight: 0, borderColor: "#E05B5B", color: "#E05B5B" }}
+              onClick={resetAll}
+            >
+              {this.state.wipeArmed ? "Click again to erase settings" : "Clear all settings & reload"}
             </button>
           </div>
         </div>

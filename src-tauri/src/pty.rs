@@ -82,9 +82,16 @@ const EMIT_FAIL_MARKER_AFTER: u32 = 50;
 const BACKLOG_MARKER: &str =
     "\r\n\x1b[1;31m[Pluto's Terminal] output delivery backlogged — retrying.\x1b[0m\r\n";
 
-/// Recover a poisoned lock instead of dying: the guarded data (id sets/maps)
-/// is structurally valid regardless of where a panicking thread stopped, and
-/// a dead flusher would silently stall EVERY local session's age-flushes.
+/// Recover a poisoned lock instead of dying: the guarded data (id sets/maps,
+/// the session registry, a writer handle) is structurally valid regardless of
+/// where a panicking thread stopped, and a dead flusher would silently stall
+/// EVERY local session's age-flushes.
+///
+/// This is the ONE lock idiom for this file (L3 follow-up). The earlier
+/// `.lock().map_err(|_| "registry mutex poisoned")?` on the hot commands meant
+/// a single panic under any sessions guard bricked every terminal in the app —
+/// no typing, spawning, resizing or killing — while the window still looked
+/// alive, recoverable only by restart. Do not reintroduce the map_err shape.
 fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -925,10 +932,7 @@ fn pty_spawn_sync(
         writer: Arc::new(Mutex::new(writer)),
         ready: ready_tx,
     };
-    app.state::<SessionRegistry>()
-        .sessions
-        .lock()
-        .map_err(|_| "registry mutex poisoned".to_string())?
+    lock_recover(&app.state::<SessionRegistry>().sessions)
         .insert(id.clone(), Session::Local(session));
     // Tag ownership at birth (audit H8) — sessions lock above is already
     // released, so this second lock never nests (lock-order safe).
@@ -1011,12 +1015,10 @@ fn pty_spawn_sync(
         // Remove under the lock, REAP AFTER the guard is gone (P1-T4) — the
         // old `drop(sessions.remove(..))` waited on the child while holding
         // the registry mutex, stalling every other pane's keystrokes.
-        let removed = app_for_thread
-            .state::<SessionRegistry>()
-            .sessions
-            .lock()
-            .ok()
-            .and_then(|mut sessions| sessions.remove(&id_for_thread));
+        // lock_recover, not `.lock().ok()` (L3 follow-up): swallowing poison
+        // here silently leaked the Session + its zombie child until app exit.
+        let removed = lock_recover(&app_for_thread.state::<SessionRegistry>().sessions)
+            .remove(&id_for_thread);
         if let Some(Session::Local(s)) = removed {
             s.reap(); // reader thread, no locks held — free to block
         }
@@ -1056,10 +1058,7 @@ pub fn pty_write_sync(
     // backpressured write to one pane can't stall keystrokes/resizes/kills/
     // spawns on every other session sharing the registry lock.
     let target = {
-        let mut sessions = state
-            .sessions
-            .lock()
-            .map_err(|_| "registry mutex poisoned".to_string())?;
+        let mut sessions = lock_recover(&state.sessions);
         match sessions.get_mut(&id).ok_or("session not found")? {
             Session::Ssh(h) => {
                 h.writes
@@ -1075,13 +1074,16 @@ pub fn pty_write_sync(
 
     // Blocking I/O outside the registry lock, holding only this session's own
     // writer mutex (uncontended — the renderer drives one xterm per tab).
+    // Poison is recovered like the registry locks: the guarded value is a
+    // writer HANDLE (structurally valid wherever a panicking thread stopped),
+    // and the alternative is a pane that can never be typed into again.
     match target {
         WriteTarget::Local(w) => {
-            let mut w = w.lock().map_err(|_| "writer mutex poisoned".to_string())?;
+            let mut w = lock_recover(&w);
             w.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
         }
         WriteTarget::Serial(w) => {
-            let mut w = w.lock().map_err(|_| "writer mutex poisoned".to_string())?;
+            let mut w = lock_recover(&w);
             w.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
             let _ = w.flush();
         }
@@ -1107,10 +1109,7 @@ pub fn pty_resize_sync(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let sessions = state
-        .sessions
-        .lock()
-        .map_err(|_| "registry mutex poisoned".to_string())?;
+    let sessions = lock_recover(&state.sessions);
     match sessions.get(&id).ok_or("session not found")? {
         Session::Local(s) => {
             s.master
@@ -1140,10 +1139,7 @@ pub async fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(
     // child inside the registry mutex, freezing every pane's keystrokes for
     // the duration of a process exit).
     let removed = {
-        let mut sessions = state
-            .sessions
-            .lock()
-            .map_err(|_| "registry mutex poisoned".to_string())?;
+        let mut sessions = lock_recover(&state.sessions);
         sessions.remove(&id)
     };
     lock_recover(&state.owner).remove(&id); // drop the H8 ownership tag (no-op if untagged)
@@ -1168,10 +1164,7 @@ pub async fn pty_kill(state: State<'_, SessionRegistry>, id: String) -> Result<(
 /// the subscription. Safe to call for any session id — an unknown id is a no-op.
 #[tauri::command]
 pub fn pty_ready(state: State<'_, SessionRegistry>, id: String) -> Result<(), String> {
-    let sessions = state
-        .sessions
-        .lock()
-        .map_err(|_| "registry mutex poisoned".to_string())?;
+    let sessions = lock_recover(&state.sessions);
     // Each reader thread recv's exactly once; a redundant/late send (e.g. after
     // the timeout fallback already let it proceed) is buffered+unread, so
     // ignoring the result is safe for every variant.
@@ -1413,12 +1406,27 @@ pub async fn ssh_spawn(
     host_key_alias: Option<String>,
     host_key_port: Option<u16>,
 ) -> Result<String, String> {
-    // For jump-host connections (host = 127.0.0.1:<tunnel port>), verify/pin the
-    // host key under the real target identity instead of the throwaway port.
-    let verify_as = host_key_alias
-        .as_deref()
-        .map(|h| (h, host_key_port.unwrap_or(port)));
-    let sess = connect_session(&host, port, &user, &auth, verify_as)?;
+    // Full TCP+SSH handshake off the runtime, same treatment sftp_connect
+    // already gets (P3-T5). connect_session is bounded (10s per resolved
+    // address + a 30s libssh2 timeout) but that is still up to ~40s of a
+    // PARKED tokio worker per call, and N simultaneous connects to dead hosts
+    // starve every other async IPC command in the app.
+    //
+    // The State<'_, SessionRegistry> guard can't cross the 'static boundary,
+    // so nothing registry-side goes in here — the insert below still runs on
+    // the runtime after the await, exactly as before.
+    let sess = tauri::async_runtime::spawn_blocking(move || {
+        // For jump-host connections (host = 127.0.0.1:<tunnel port>), verify/pin
+        // the host key under the real target identity instead of the throwaway
+        // port. Built inside the closure because verify_as BORROWS
+        // host_key_alias, and a borrow can't be moved into a 'static task.
+        let verify_as = host_key_alias
+            .as_deref()
+            .map(|h| (h, host_key_port.unwrap_or(port)));
+        connect_session(&host, port, &user, &auth, verify_as)
+    })
+    .await
+    .map_err(|e| format!("ssh connect task failed: {e}"))??;
 
     // Interactive shell on a PTY channel.
     let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
@@ -1439,18 +1447,14 @@ pub async fn ssh_spawn(
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<SshCtrl>();
     let (ready_tx, ready_rx) = mpsc::channel::<()>();
 
-    state
-        .sessions
-        .lock()
-        .map_err(|_| "registry mutex poisoned".to_string())?
-        .insert(
-            id.clone(),
-            Session::Ssh(SshHandle {
-                writes: write_tx,
-                ctrl: ctrl_tx,
-                ready: ready_tx,
-            }),
-        );
+    lock_recover(&state.sessions).insert(
+        id.clone(),
+        Session::Ssh(SshHandle {
+            writes: write_tx,
+            ctrl: ctrl_tx,
+            ready: ready_tx,
+        }),
+    );
     lock_recover(&state.owner).insert(id.clone(), window.label().to_string()); // tag at birth (audit H8)
 
     let mut scrollback_writer = tab_id
@@ -1674,18 +1678,14 @@ pub async fn serial_spawn(
     let alive = Arc::new(AtomicBool::new(true));
     let id = new_id("pty");
     let (ready_tx, ready_rx) = mpsc::channel::<()>();
-    state
-        .sessions
-        .lock()
-        .map_err(|_| "registry mutex poisoned".to_string())?
-        .insert(
-            id.clone(),
-            Session::Serial(SerialHandle {
-                writer: Arc::new(Mutex::new(port)),
-                alive: alive.clone(),
-                ready: ready_tx,
-            }),
-        );
+    lock_recover(&state.sessions).insert(
+        id.clone(),
+        Session::Serial(SerialHandle {
+            writer: Arc::new(Mutex::new(port)),
+            alive: alive.clone(),
+            ready: ready_tx,
+        }),
+    );
     lock_recover(&state.owner).insert(id.clone(), window.label().to_string()); // tag at birth (audit H8)
 
     let mut scrollback_writer = tab_id

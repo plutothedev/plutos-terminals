@@ -11,7 +11,9 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -24,6 +26,19 @@ use crate::session::new_id;
 const BUF: usize = 32 * 1024;
 const MAX_QUEUE: usize = 1 << 20; // 1 MB per-direction backpressure cap
 const EAGAIN: i32 = -37; // LIBSSH2_ERROR_EAGAIN
+
+// Ceiling on a forward's live set. Each Proxy owns a socket, an SSH channel and
+// up to 2 x MAX_QUEUE of buffered bytes, and both accept loops pushed onto it
+// without limit (review HIGH). The listener is 127.0.0.1-only, so this bounds a
+// misbehaving LOCAL client rather than a remote attacker. 512 sits above the
+// ~256-socket pool a browser can drive through one SOCKS proxy, so a legitimate
+// heavy client never hits it.
+const MAX_CONNS: usize = 512;
+// Separate, much smaller ceiling for SOCKS handshakes still in flight: each one
+// costs an OS THREAD, not just a socket, and a client dribbling its greeting
+// holds that thread past the 10s per-read timeout. Real handshakes finish in
+// well under a millisecond, so 64 concurrent is generous.
+const MAX_PENDING: usize = 64;
 
 /// One proxied connection: a local TCP socket bridged to a direct-tcpip channel,
 /// with a buffer for each direction so a slow side applies backpressure instead
@@ -166,7 +181,10 @@ fn worker(
         }
 
         // Accept any pending local connections; bridge each to a remote channel.
-        loop {
+        // Bounded by MAX_CONNS: at cap we stop accepting, so new clients wait in
+        // the kernel backlog until a proxy retires instead of growing the set
+        // (and its buffers) without limit.
+        while proxies.len() < MAX_CONNS {
             match listener.accept() {
                 Ok((tcp, _addr)) => {
                     let _ = tcp.set_nonblocking(true);
@@ -266,6 +284,23 @@ fn socks5_negotiate(tcp: &mut TcpStream) -> Result<(String, u16), String> {
     Ok((host, u16::from_be_bytes(p)))
 }
 
+/// One in-flight SOCKS5 handshake's slot against MAX_PENDING: takes the slot on
+/// construction and releases it on drop, so a negotiation thread gives it back
+/// on every exit path (a panic included) rather than leaking it for the life of
+/// the forward.
+struct Slot(Arc<AtomicUsize>);
+impl Slot {
+    fn new(pending: &Arc<AtomicUsize>) -> Self {
+        pending.fetch_add(1, Ordering::Relaxed);
+        Slot(pending.clone())
+    }
+}
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 fn socks_worker(sess: ssh2::Session, listener: TcpListener, stop_rx: mpsc::Receiver<()>) {
     sess.set_blocking(false);
     let _ = listener.set_nonblocking(true);
@@ -278,19 +313,31 @@ fn socks_worker(sess: ssh2::Session, listener: TcpListener, stop_rx: mpsc::Recei
     // back the negotiated (socket, target) and the worker — sole owner of the
     // !Sync session — opens the channel and writes the final CONNECT reply.
     let (hs_tx, hs_rx) = mpsc::channel::<(TcpStream, String, u16)>();
+    // Handshake threads in flight, bounded by MAX_PENDING.
+    let pending = Arc::new(AtomicUsize::new(0));
 
     loop {
         match stop_rx.try_recv() {
             Ok(()) | Err(mpsc::TryRecvError::Disconnected) => break,
             Err(mpsc::TryRecvError::Empty) => {}
         }
-        // Accept new clients; negotiate each off-thread.
-        loop {
+        // Accept new clients; negotiate each off-thread. Bounded on both axes:
+        // the live proxy set (MAX_CONNS) and the handshake threads an accept
+        // spawns (MAX_PENDING). At either cap we stop accepting, so new clients
+        // wait in the kernel backlog until capacity frees rather than growing
+        // either set without limit.
+        while proxies.len() < MAX_CONNS && pending.load(Ordering::Relaxed) < MAX_PENDING {
             match listener.accept() {
                 Ok((mut tcp, _addr)) => {
                     let _ = tcp.set_nonblocking(false);
                     let tx = hs_tx.clone();
+                    let slot = Slot::new(&pending);
                     thread::spawn(move || {
+                        // Load-bearing rebind: a move closure only captures what
+                        // its body names, so without this the slot would drop
+                        // (and free itself) the instant this iteration ended
+                        // instead of when the handshake finishes.
+                        let _slot = slot;
                         if let Ok((h, p)) = socks5_negotiate(&mut tcp) {
                             let _ = tx.send((tcp, h, p));
                         } // else: malformed/timed-out — drop the socket
@@ -302,6 +349,14 @@ fn socks_worker(sess: ssh2::Session, listener: TcpListener, stop_rx: mpsc::Recei
         }
         // Bridge any freshly-negotiated connections (session work stays here).
         while let Ok((mut tcp, h, p)) = hs_rx.try_recv() {
+            // Hard-cap the live set here too: handshakes that completed after
+            // the accept guard last ran would otherwise push past MAX_CONNS.
+            // SOCKS5 has a refusal reply, so the client sees a real error rather
+            // than a silent close.
+            if proxies.len() >= MAX_CONNS {
+                let _ = tcp.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+                continue;
+            }
             match open_direct(&sess, &h, p) {
                 Ok(ch) => {
                     let _ = tcp.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]); // success
@@ -357,7 +412,16 @@ pub async fn port_forward_start(
     // Bind first so a port clash fails fast (before authenticating).
     let listener = TcpListener::bind(("127.0.0.1", local_port))
         .map_err(|e| format!("can't bind 127.0.0.1:{local_port}: {e}"))?;
-    let sess = connect_session(&host, port, &user, &auth, None)?;
+    // Full TCP+SSH handshake off the runtime (review HIGH). connect_session can
+    // park its thread for ~40s (10s per resolved address plus the 30s session
+    // timeout), and inline here that thread was a TOKIO WORKER, so a couple of
+    // concurrent attempts against dead hosts stalled every async IPC command in
+    // the app. Same fix sftp_connect already carries (P3-T5).
+    let sess = tauri::async_runtime::spawn_blocking(move || {
+        connect_session(&host, port, &user, &auth, None)
+    })
+    .await
+    .map_err(|e| format!("connect task failed: {e}"))??;
 
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || worker(sess, listener, remote_host, remote_port, stop_rx));
@@ -385,7 +449,12 @@ pub async fn socks_forward_start(
 ) -> Result<String, String> {
     let listener = TcpListener::bind(("127.0.0.1", local_port))
         .map_err(|e| format!("can't bind 127.0.0.1:{local_port}: {e}"))?;
-    let sess = connect_session(&host, port, &user, &auth, None)?;
+    // Handshake off the runtime for the same reason as port_forward_start above.
+    let sess = tauri::async_runtime::spawn_blocking(move || {
+        connect_session(&host, port, &user, &auth, None)
+    })
+    .await
+    .map_err(|e| format!("connect task failed: {e}"))??;
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || socks_worker(sess, listener, stop_rx));
     let id = new_id("fwd");
@@ -425,13 +494,19 @@ pub async fn jump_forward_start(
     let listener =
         TcpListener::bind(("127.0.0.1", 0)).map_err(|e| format!("can't bind a local port: {e}"))?;
     let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let sess = connect_session(
-        &bastion_host,
-        bastion_port,
-        &bastion_user,
-        &bastion_auth,
-        None,
-    )?;
+    // Handshake off the runtime for the same reason as port_forward_start above.
+    // A bastion is the likeliest of the three to be slow or unreachable.
+    let sess = tauri::async_runtime::spawn_blocking(move || {
+        connect_session(
+            &bastion_host,
+            bastion_port,
+            &bastion_user,
+            &bastion_auth,
+            None,
+        )
+    })
+    .await
+    .map_err(|e| format!("connect task failed: {e}"))??;
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     thread::spawn(move || worker(sess, listener, target_host, target_port, stop_rx));
     let id = new_id("fwd");

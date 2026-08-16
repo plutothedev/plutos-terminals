@@ -29,9 +29,22 @@ rfd = "0.15"
 # Homebrew arch-mismatch (Intel openssl@3 vs arm64 binary) and, more importantly,
 # makes release binaries self-contained — users don't need Homebrew's OpenSSL.
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
-# OS-native credential store (macOS Keychain / Windows Credential Manager) for
-# the SSH credential vault — secrets never touch localStorage or disk plaintext.
-keyring = { version = "3", features = ["apple-native", "windows-native"] }
+# OS-native credential store (macOS Keychain / Windows Credential Manager /
+# Linux Secret Service) for the SSH credential vault — secrets never touch
+# localStorage or disk plaintext.
+# sync-secret-service is REQUIRED, not optional: with only the apple/windows
+# features, keyring 3.x resolves `default` to its in-memory MOCK store on Linux
+# ("fallback to mock if neither keyutils nor secret service is available",
+# keyring-3.6.3/src/lib.rs), whose set/get both succeed while storing nothing.
+# We ship .deb/.AppImage, so that silently ate every .deb/.AppImage user's
+# provider keys, SSH passwords, gist PAT and cloud-sync passphrase on relaunch.
+# sync (not async) per the crate's own guidance: our access is synchronous
+# anyway, and async-secret-service would drag in zbus plus a runtime feature.
+# crypto-rust encrypts secrets in transit across the session D-Bus in pure Rust,
+# with no system OpenSSL (same reasoning as reqwest's rustls-tls below).
+# Linux builds need libdbus present (build + run); it ships on any desktop that
+# has a Secret Service implementation (GNOME Keyring / KWallet).
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 # Serial-port console sessions (USB/UART devices) — cross-platform.
 serialport = "4"
 # System stats (CPU / memory / disk) for the MobaXterm-style status bar.

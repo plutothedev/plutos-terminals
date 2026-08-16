@@ -215,7 +215,7 @@ fn worktree_add_sync(repo: String, branch: String) -> Result<String, String> {
         }
     }
 
-    let out = std::process::Command::new("git")
+    let out = silent_command("git")
         .arg("-C")
         .arg(&repo_path)
         .args(["worktree", "add", "-b", &safe])
@@ -259,7 +259,7 @@ fn worktree_remove_sync(repo: String, path: String) -> Result<(), String> {
     if !path_c.starts_with(&repo_c) {
         return Err("refusing to remove a worktree outside the repository".into());
     }
-    let out = std::process::Command::new("git")
+    let out = silent_command("git")
         .arg("-C")
         .arg(&repo)
         .args(["worktree", "remove", "--force", &path])
@@ -286,7 +286,7 @@ pub async fn git_diff(path: String) -> Result<String, String> {
 
 fn git_diff_sync(path: String) -> Result<String, String> {
     let run = |args: &[&str]| {
-        std::process::Command::new("git")
+        silent_command("git")
             .arg("-C")
             .arg(&path)
             .args(args)
@@ -334,18 +334,56 @@ pub async fn gh_pr_create(path: String) -> Result<String, String> {
 }
 
 fn gh_pr_create_sync(path: String) -> Result<String, String> {
-    let push = std::process::Command::new("git")
+    // NON-INTERACTIVE OR BUST. Unauthenticated pushes used to hang forever: on
+    // Windows the Git Credential Manager answers a missing credential with a GUI
+    // dialog, and `.output()` waits on it with no timeout, so the blocking-pool
+    // thread is held for good and the JS promise never settles (spinner forever).
+    // A null stdin does NOT prevent it: the prompt is a window, not a tty read.
+    // So disable every prompt channel: `credential.interactive=false` is what
+    // tells GCM to never show UI; GIT_TERMINAL_PROMPT=0 kills git's own tty
+    // prompts; an EMPTY core.askpass with GIT_ASKPASS/SSH_ASKPASS removed leaves
+    // git no askpass program to launch (git-gui--askpass opens a window too);
+    // SSH_ASKPASS_REQUIRE=never keeps ssh:// remotes and encrypted keys on the
+    // same footing. Net effect: a fast, actionable auth failure, never a hang.
+    let push = silent_command("git")
         .current_dir(&path)
+        .args(["-c", "credential.interactive=false", "-c", "core.askpass="])
         .args(["push", "-u", "origin", "HEAD"])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never")
+        .env("SSH_ASKPASS_REQUIRE", "never")
+        .env_remove("GIT_ASKPASS")
+        .env_remove("SSH_ASKPASS")
+        .stdin(std::process::Stdio::null())
         .output()
         .map_err(|e| format!("git not found: {e}"))?;
     if !push.status.success() {
-        return Err(format!(
-            "git push failed: {}",
-            String::from_utf8_lossy(&push.stderr).trim()
-        ));
+        let stderr = String::from_utf8_lossy(&push.stderr).trim().to_string();
+        // Prompts are disabled above, so an auth failure here means there are no
+        // usable stored credentials. Say what to do about it, because a bare
+        // "could not read Username ... prompts disabled" reads like an app bug.
+        let lower = stderr.to_lowercase();
+        let auth_failure = [
+            "could not read username",
+            "could not read password",
+            "terminal prompts disabled",
+            "authentication failed",
+            "invalid username or password",
+            "permission denied",
+            "access denied",
+            "403",
+            "askpass",
+        ]
+        .iter()
+        .any(|m| lower.contains(m));
+        if auth_failure {
+            return Err(format!(
+                "git push failed: not authenticated for this remote. Run `gh auth login` (or set up a git credential helper, or load your SSH key into the agent), then try again.\n\n{stderr}"
+            ));
+        }
+        return Err(format!("git push failed: {stderr}"));
     }
-    let out = std::process::Command::new("gh")
+    let out = silent_command("gh")
         .current_dir(&path)
         .args(["pr", "create", "--fill"])
         .output()
@@ -669,6 +707,19 @@ pub async fn check_command_version(name: String) -> Option<String> {
     {
         return None;
     }
+    // Off the runtime (audit M9): this is an `async fn`, so the blocking
+    // `.output()` below ran ON a tokio worker, and std has no timeout on
+    // `.output()`, so a probe that ignores `--version` and never exits parked
+    // that worker for the life of the app. spawn_blocking moves it to the
+    // blocking pool, matching every other subprocess command in this file. It
+    // does not kill a hung child (std can't); it keeps the runtime clear of one.
+    tauri::async_runtime::spawn_blocking(move || check_command_version_sync(&name))
+        .await
+        .ok()
+        .flatten()
+}
+
+fn check_command_version_sync(name: &str) -> Option<String> {
     // Windows: npm-installed CLIs are `.cmd` shims (claude.cmd, npm.cmd), and
     // CreateProcess — thus a bare Command::new — resolves ONLY `.exe`, never
     // PATHEXT. Probing directly reported "not found" for npm/npx/claude on a
@@ -678,13 +729,13 @@ pub async fn check_command_version(name: String) -> Option<String> {
     #[cfg(target_os = "windows")]
     let output = silent_command("cmd")
         .arg("/c")
-        .arg(&name)
+        .arg(name)
         .arg("--version")
         .output()
         .ok()?;
 
     #[cfg(not(target_os = "windows"))]
-    let output = silent_command(&name).arg("--version").output().ok()?;
+    let output = silent_command(name).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -2240,10 +2291,47 @@ pub(crate) fn local_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
+/// Cap on entries returned by one listing. A directory with hundreds of
+/// thousands of children (a Maildir, a scanner dump, an unpacked cache) would
+/// otherwise build an unbounded Vec and push the whole thing through the IPC
+/// bridge in one message. Truncation is REPORTED back (third tuple element)
+/// rather than silently pretending the directory is smaller than it is.
+///
+/// Raised from 5_000 (review): the cap breaks out of the read loop BEFORE the
+/// sort, so a truncated listing is an arbitrary filesystem-order slice that then
+/// renders looking neatly alphabetical and complete. 5_000 reached ordinary
+/// directories (C:\Windows\System32 is ~5k by itself, as are large Downloads /
+/// node_modules / Maildir trees), which silently broke Tab-completion in
+/// PromptEditor for files that demonstrably exist. 50k preserves the real intent
+/// (never materialize a 500k-entry directory) while putting the cap well outside
+/// the range of directories people actually browse.
+pub const LIST_DIRECTORY_MAX: usize = 50_000;
+
 /// List a local directory (single level). `path` null/empty → home. Returns the
-/// resolved absolute path + entries (dirs first, then case-insensitive by name).
+/// resolved absolute path, the entries (dirs first, then case-insensitive by
+/// name), and whether the listing hit `LIST_DIRECTORY_MAX` and was truncated.
+///
+/// Async wrapper (same finding as ssh_key_generate's audit H6): a non-async
+/// `#[tauri::command]` runs INLINE on the webview's UI event-loop thread, so the
+/// read_dir plus per-entry `metadata()` stat storm froze the entire window: all
+/// tabs, panes, keystrokes. It is acute here because PromptEditor's completion
+/// source invokes this PER KEYSTROKE while a path is being typed: a UNC path
+/// aimed at a dead SMB share froze the window for the SMB timeout on every
+/// character. spawn_blocking keeps the UI thread and the tokio workers clear.
 #[tauri::command]
-pub fn list_directory(path: Option<String>) -> Result<(String, Vec<LocalEntry>), String> {
+pub async fn list_directory(
+    path: Option<String>,
+) -> Result<(String, Vec<LocalEntry>, bool), String> {
+    tauri::async_runtime::spawn_blocking(move || list_directory_sync(path))
+        .await
+        .map_err(|e| format!("list_directory task failed: {e}"))?
+}
+
+/// Sync core for direct in-process callers (the phone companion dispatches on
+/// its own blocking pool and calls this without the IPC wrapper).
+pub fn list_directory_sync(
+    path: Option<String>,
+) -> Result<(String, Vec<LocalEntry>, bool), String> {
     let dir = match path {
         Some(p) if !p.trim().is_empty() => PathBuf::from(p),
         _ => local_home(),
@@ -2251,7 +2339,14 @@ pub fn list_directory(path: Option<String>) -> Result<(String, Vec<LocalEntry>),
     let resolved = fs::canonicalize(&dir).unwrap_or(dir);
     let read = fs::read_dir(&resolved).map_err(|e| format!("{}: {e}", resolved.display()))?;
     let mut entries = Vec::new();
+    let mut truncated = false;
     for ent in read.flatten() {
+        // Stop reading (don't just trim afterwards) so a 500k-entry directory
+        // never materializes in memory at all.
+        if entries.len() >= LIST_DIRECTORY_MAX {
+            truncated = true;
+            break;
+        }
         let meta = match ent.metadata() {
             Ok(m) => m,
             Err(_) => continue,
@@ -2279,7 +2374,7 @@ pub fn list_directory(path: Option<String>) -> Result<(String, Vec<LocalEntry>),
             .cmp(&a.is_dir)
             .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
-    Ok((resolved.to_string_lossy().into_owned(), entries))
+    Ok((resolved.to_string_lossy().into_owned(), entries, truncated))
 }
 
 // ── Notebooks (Stream C) ───────────────────────────────────────────
