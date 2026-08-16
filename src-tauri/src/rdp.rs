@@ -406,21 +406,39 @@ fn drain_rdp_ctrl<S: Read + Write>(
     if !ops.is_empty() {
         let events = input_db.apply(ops);
         if let Ok(out) = active.process_fastpath_input(image, &events) {
-            for o in out {
-                if let ActiveStageOutput::ResponseFrame(frame) = o {
-                    // A write error here must TEAR DOWN, not be discarded
-                    // (review). The steady-state session keeps a 30s write
-                    // deadline, and write_all only retries on Interrupted — so a
-                    // TimedOut/WouldBlock from SO_SNDTIMEO returns Err after a
-                    // PARTIAL write. Swallowing it left half a PDU on the wire
-                    // and kept feeding frames into a desynchronized stream,
-                    // which the peer then reads as garbage. The sibling write
-                    // site in rdp_worker already terminates on error; match it.
-                    if framed.write_all(&frame).is_err() {
-                        return true;
-                    }
-                }
+            let frames = out.into_iter().filter_map(|o| match o {
+                ActiveStageOutput::ResponseFrame(frame) => Some(frame),
+                _ => None,
+            });
+            if write_response_frames(framed, frames) {
+                return true;
             }
+        }
+    }
+    false
+}
+
+/// Write fastpath response frames, reporting true if the peer write FAILED so
+/// the caller tears the session down.
+///
+/// A write error here must never be discarded (review). The steady-state session
+/// keeps a 30s write deadline, and `write_all` only retries on `Interrupted` — so
+/// a `TimedOut`/`WouldBlock` from SO_SNDTIMEO returns `Err` after a PARTIAL
+/// write. Swallowing that left half a PDU on the wire and kept feeding frames
+/// into a desynchronized stream, which the peer then reads as garbage. The
+/// sibling write site in `rdp_worker` already terminates on error; this matches.
+///
+/// Split out of `drain_rdp_ctrl` so the property is unit-testable: that function
+/// needs an `ActiveStage`, which requires a real post-handshake `ConnectionResult`
+/// and so cannot be constructed in a test. Takes an iterator (not a slice) to
+/// keep this allocation-free on the input hot path.
+fn write_response_frames<S: Read + Write, I: IntoIterator<Item = Vec<u8>>>(
+    framed: &mut Framed<S>,
+    frames: I,
+) -> bool {
+    for frame in frames {
+        if framed.write_all(&frame).is_err() {
+            return true;
         }
     }
     false
@@ -580,4 +598,72 @@ pub fn rdp_disconnect(state: State<'_, RdpRegistry>, id: String) -> Result<(), S
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(&id);
     Ok(())
+}
+
+#[cfg(test)]
+mod write_frame_teardown_tests {
+    // Locks in the regression this closes: a failed peer write must report
+    // teardown, never be silently swallowed. drain_rdp_ctrl itself is not
+    // constructible in a test (ActiveStage needs a real post-handshake
+    // ConnectionResult), so the extracted write helper carries the property.
+    use super::write_response_frames;
+    use ironrdp_blocking::Framed;
+    use std::io::{self, Read, Write};
+
+    /// Accepts `ok_writes` successful writes, then fails the way SO_SNDTIMEO
+    /// does: an error AFTER some bytes have already gone out.
+    struct FlakyPeer {
+        ok_writes: usize,
+        written: usize,
+    }
+    impl Read for FlakyPeer {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Ok(0)
+        }
+    }
+    impl Write for FlakyPeer {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.written >= self.ok_writes {
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "send timed out"));
+            }
+            self.written += 1;
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn framed(ok_writes: usize) -> Framed<FlakyPeer> {
+        Framed::new(FlakyPeer { ok_writes, written: 0 })
+    }
+
+    #[test]
+    fn a_healthy_peer_reports_no_teardown() {
+        let mut f = framed(usize::MAX);
+        assert!(!write_response_frames(&mut f, vec![vec![1u8, 2, 3], vec![4, 5]]));
+    }
+
+    #[test]
+    fn a_write_failure_reports_teardown() {
+        let mut f = framed(0); // fails on the very first frame
+        assert!(write_response_frames(&mut f, vec![vec![1u8, 2, 3]]));
+    }
+
+    #[test]
+    fn a_mid_batch_failure_stops_writing_into_a_desynced_stream() {
+        // One frame lands, the next times out mid-stream. The old code swallowed
+        // this and kept pushing frames onto a half-written PDU.
+        let mut f = framed(1);
+        assert!(write_response_frames(
+            &mut f,
+            vec![vec![1u8; 8], vec![2u8; 8], vec![3u8; 8]]
+        ));
+    }
+
+    #[test]
+    fn no_frames_is_not_a_teardown() {
+        let mut f = framed(0);
+        assert!(!write_response_frames(&mut f, Vec::<Vec<u8>>::new()));
+    }
 }
