@@ -128,6 +128,15 @@ fn parse_ports(spec: &str) -> Vec<u16> {
 /// parallel batches so a 256-port scan stays quick.
 #[tauri::command]
 pub async fn net_port_scan(host: String, ports: String) -> Result<Vec<u16>, String> {
+    // Off the runtime (audit M9): the per-batch `handle.join()` blocks until each
+    // 64-wide batch of connect attempts finishes — inline that parked a tokio
+    // worker for the whole scan.
+    tauri::async_runtime::spawn_blocking(move || net_port_scan_sync(host, ports))
+        .await
+        .map_err(|e| format!("port scan task failed: {e}"))?
+}
+
+fn net_port_scan_sync(host: String, ports: String) -> Result<Vec<u16>, String> {
     let host = host.trim().to_string();
     if !valid_host(&host) {
         return Err("invalid host".into());

@@ -97,6 +97,17 @@ fn resolve_token_source(gh_ok: bool, gh_out: &str, pat: Option<&str>) -> (Source
 /// token value through.
 #[tauri::command]
 pub async fn gist_auth_available() -> GistAuthAvailable {
+    // Off the runtime (audit M9): `gh auth token` + a keychain read both block.
+    // Join failure → the "unavailable" reading (same as no token found).
+    tauri::async_runtime::spawn_blocking(gist_auth_available_sync)
+        .await
+        .unwrap_or_else(|_| GistAuthAvailable {
+            source: Source::None.as_str().to_string(),
+            detail: String::new(),
+        })
+}
+
+fn gist_auth_available_sync() -> GistAuthAvailable {
     let (gh_ok, gh_out) = match silent_command("gh").args(["auth", "token"]).output() {
         Ok(out) => (
             out.status.success(),
@@ -311,7 +322,13 @@ pub async fn gist_create(
     content: String,
     public: bool,
 ) -> Result<GistCreated, String> {
-    let token = resolve_token().ok_or_else(|| "no GitHub token".to_string())?;
+    // resolve_token() blocks on `gh auth token` + a keychain read; run it off the
+    // tokio worker before the async HTTP that follows (audit M9).
+    let token = tauri::async_runtime::spawn_blocking(resolve_token)
+        .await
+        .ok()
+        .flatten()
+        .ok_or_else(|| "no GitHub token".to_string())?;
     let body = build_gist_body(&filename, &content, public);
 
     // Shared client (P3-T1; UA now client-level there). No retry on CREATE —
@@ -350,7 +367,13 @@ pub async fn gist_delete(id: String) -> Result<(), String> {
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err("invalid gist id".to_string());
     }
-    let token = resolve_token().ok_or_else(|| "no GitHub token".to_string())?;
+    // resolve_token() blocks on `gh auth token` + a keychain read; run it off the
+    // tokio worker before the async HTTP that follows (audit M9).
+    let token = tauri::async_runtime::spawn_blocking(resolve_token)
+        .await
+        .ok()
+        .flatten()
+        .ok_or_else(|| "no GitHub token".to_string())?;
 
     // Shared client; DELETE is idempotent so transient retries are safe.
     let resp = crate::llm::send_with_retry(

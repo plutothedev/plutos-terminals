@@ -181,6 +181,14 @@ fn sanitize_branch(b: &str) -> String {
 
 #[tauri::command]
 pub async fn worktree_add(repo: String, branch: String) -> Result<String, String> {
+    // Off the tokio runtime (audit M9): fs reads + a blocking `git worktree add`
+    // shell-out would otherwise park a worker for the whole operation.
+    tauri::async_runtime::spawn_blocking(move || worktree_add_sync(repo, branch))
+        .await
+        .map_err(|e| format!("worktree_add task failed: {e}"))?
+}
+
+fn worktree_add_sync(repo: String, branch: String) -> Result<String, String> {
     let repo_path = PathBuf::from(&repo);
     if !repo_path.join(".git").exists() {
         return Err("Not a git repository (no .git found).".into());
@@ -222,6 +230,12 @@ pub async fn worktree_add(repo: String, branch: String) -> Result<String, String
 
 #[tauri::command]
 pub async fn worktree_remove(repo: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || worktree_remove_sync(repo, path)) // audit M9
+        .await
+        .map_err(|e| format!("worktree_remove task failed: {e}"))?
+}
+
+fn worktree_remove_sync(repo: String, path: String) -> Result<(), String> {
     // Only remove a worktree that actually lives under the repo. This command is
     // directly invokable from the webview with a raw path and runs a --force
     // remove; confining it to the repo tree keeps a hostile/buggy caller from
@@ -265,6 +279,12 @@ pub async fn worktree_remove(repo: String, path: String) -> Result<(), String> {
 // pushes the branch and opens a PR with gh (requires gh auth + a remote).
 #[tauri::command]
 pub async fn git_diff(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || git_diff_sync(path)) // audit M9
+        .await
+        .map_err(|e| format!("git_diff task failed: {e}"))?
+}
+
+fn git_diff_sync(path: String) -> Result<String, String> {
     let run = |args: &[&str]| {
         std::process::Command::new("git")
             .arg("-C")
@@ -306,6 +326,14 @@ pub async fn git_diff(path: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn gh_pr_create(path: String) -> Result<String, String> {
+    // Two sequential blocking net calls (git push + gh pr create) — off the
+    // runtime so they don't hold a tokio worker for the round-trips (audit M9).
+    tauri::async_runtime::spawn_blocking(move || gh_pr_create_sync(path))
+        .await
+        .map_err(|e| format!("gh_pr_create task failed: {e}"))?
+}
+
+fn gh_pr_create_sync(path: String) -> Result<String, String> {
     let push = std::process::Command::new("git")
         .current_dir(&path)
         .args(["push", "-u", "origin", "HEAD"])
@@ -524,6 +552,12 @@ mod mcp_install_guard_tests {
 
 #[tauri::command]
 pub async fn mcp_install(argv: Vec<String>) -> Result<McpInstallResult, String> {
+    tauri::async_runtime::spawn_blocking(move || mcp_install_sync(argv)) // audit M9
+        .await
+        .map_err(|e| format!("mcp_install task failed: {e}"))?
+}
+
+fn mcp_install_sync(argv: Vec<String>) -> Result<McpInstallResult, String> {
     if argv.first().map(String::as_str) != Some("claude") {
         return Err("Only `claude` invocations are allowed.".to_string());
     }
@@ -1932,6 +1966,14 @@ mod transcript_read_tests {
 
 #[tauri::command]
 pub async fn recent_files(cwd: String) -> Vec<String> {
+    // Off the runtime (audit M9): git status/log/ls-files shell-outs would park a
+    // tokio worker. Join failure → empty list (same as the no-files case).
+    tauri::async_runtime::spawn_blocking(move || recent_files_sync(cwd))
+        .await
+        .unwrap_or_default()
+}
+
+fn recent_files_sync(cwd: String) -> Vec<String> {
     let path = std::path::Path::new(&cwd);
     if !path.exists() || !path.is_dir() {
         return vec![];
