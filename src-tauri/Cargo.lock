@@ -4985,7 +4985,7 @@ dependencies = [
  "native-tls",
  "p256 0.13.2",
  "portable-pty",
- "rand 0.8.5",
+ "rand 0.10.2",
  "reqwest 0.12.28",
  "rfd",
  "rmcp",
