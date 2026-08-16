@@ -14,7 +14,7 @@ import { invoke } from "@backend";
 
 export const APP_VERSION = version;
 export const GITHUB_URL = "https://github.com/plutothedev/plutos-terminals";
-export const DISCORD_URL = "https://discord.gg/3cZQVgKF";
+export const DISCORD_URL = "https://discord.gg/yy9QCnUsde";
 
 export function openExternal(url) {
   if (!url) return Promise.resolve();

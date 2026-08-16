@@ -39,7 +39,7 @@ export function buildWelcomeBanner({ paneCols }) {
     { hang: 2, segs: [T("Run "), C("36", "Claude Code"), T(", Codex and other AI agents side by side, each in its own git worktree, on any model you pick. Split panes, drag tabs and pin sessions to shape your workspace. "), C("33", "Ctrl+K"), T(" opens the command palette.")] },
     { segs: [] },
     { hang: 2, segs: [T("For more information: "), C("4;35", "https://github.com/plutothedev/plutos-terminals")] },
-    { hang: 2, segs: [T("Community: "), C("4;36", "https://discord.gg/3cZQVgKF")] },
+    { hang: 2, segs: [T("Community: "), C("4;36", "https://discord.gg/yy9QCnUsde")] },
   ];
   // FULL BOX banner (2026-08-14, pluto: "it should be in the colorful ascii
   // box like mobaxterm has"). History: the box was removed once because a

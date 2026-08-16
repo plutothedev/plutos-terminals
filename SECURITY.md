@@ -13,7 +13,7 @@ Please report vulnerabilities privately, not in public issues:
 
 - **GitHub:** use [private vulnerability reporting](https://github.com/plutothedev/plutos-terminals/security/advisories/new)
   ("Report a vulnerability" under the repo's Security tab), or
-- **Discord:** DM `plutothedev` on the [Pluto Discord](https://discord.gg/3cZQVgKF).
+- **Discord:** DM `plutothedev` on the [Pluto Discord](https://discord.gg/yy9QCnUsde).
 
 Include steps to reproduce and the app version (bottom-left of the status bar).
 You'll get an acknowledgment as soon as the report is read, and credit in the

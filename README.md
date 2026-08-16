@@ -5,7 +5,7 @@
 [![Latest release](https://img.shields.io/github/v/release/plutothedev/plutos-terminals?style=flat-square&color=FF0080)](https://github.com/plutothedev/plutos-terminals/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/plutothedev/plutos-terminals/total?style=flat-square&color=4DAAFC)](https://github.com/plutothedev/plutos-terminals/releases)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-555?style=flat-square)](LICENSE)
-[![Discord](https://img.shields.io/badge/discord-plutothedev-FF0080?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/3cZQVgKF)
+[![Discord](https://img.shields.io/badge/discord-plutothedev-FF0080?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/yy9QCnUsde)
 
 A free desktop workstation for developers who live in the terminal and run AI
 agents. One dense window holds a saved-session tree, a multi-tab terminal grid,
@@ -175,7 +175,7 @@ Pluto's Terminal is a terminal — it runs the tools you already have:
 
 ## Community
 
-Join the Pluto Discord: **[discord.gg/3cZQVgKF](https://discord.gg/3cZQVgKF)** —
+Join the Pluto Discord: **[discord.gg/yy9QCnUsde](https://discord.gg/yy9QCnUsde)** —
 request features, report bugs, and get help.
 
 ## License

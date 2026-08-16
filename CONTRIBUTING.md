@@ -2,7 +2,7 @@
 
 Thanks for considering a contribution. The project is run by
 [@plutothedev](https://github.com/plutothedev) and the
-[Pluto community](https://discord.gg/3cZQVgKF). Bug reports, feature
+[Pluto community](https://discord.gg/yy9QCnUsde). Bug reports, feature
 suggestions, and code PRs are all welcome.
 
 ## Ways to contribute
