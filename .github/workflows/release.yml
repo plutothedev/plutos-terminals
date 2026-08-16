@@ -235,9 +235,17 @@ jobs:
             # TargetsNotFound, which the UI could not distinguish from "no update
             # available", so macOS would silently never update. Emit BOTH arch
             # keys pointing at the same universal payload + signature.
+            # Windows: Tauri v2 signs the .msi DIRECTLY (Pluto...msi + .msi.sig).
+            # v1 shipped a zipped payload (.msi.zip), and matching only that shape
+            # meant the windows key was silently omitted from latest.json on the
+            # first real release — Windows would never have been offered an
+            # update. Match both so either bundler shape works; .msi.zip is listed
+            # first because *.msi would otherwise swallow it.
             case "$payload" in
               *.app.tar.gz) keys="darwin-aarch64 darwin-x86_64" ;;
               *.msi.zip)    keys="windows-x86_64" ;;
+              *.msi)        keys="windows-x86_64" ;;
+              *.nsis.zip)   keys="windows-x86_64" ;;
               *)            echo "::notice::ignoring non-updater artifact $payload"; continue ;;
             esac
             url="https://github.com/${TARGET_REPO}/releases/download/${TAG}/${payload}"
@@ -257,6 +265,22 @@ jobs:
             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson p "$platforms" \
             '{version: $v, notes: $notes, pub_date: $date, platforms: $p}' > latest.json
           echo "latest.json:"; cat latest.json
+
+          # FAIL LOUDLY on a missing platform. A key that is simply absent is
+          # invisible: the build goes green, the release looks complete, and that
+          # platform silently never gets an update. Exactly that happened on the
+          # first real release — the bundler emits .msi.sig (not the v1 .msi.zip
+          # this step originally matched), so windows-x86_64 was omitted and only
+          # the macOS keys shipped. Assert every platform this matrix builds.
+          missing=""
+          for want in darwin-aarch64 darwin-x86_64 windows-x86_64; do
+            jq -e --arg k "$want" '.platforms | has($k)' latest.json >/dev/null || missing="$missing $want"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::latest.json is missing platform key(s):$missing — those users would silently never be offered an update. Artifacts present: $(ls | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "all expected platform keys present"
 
       - name: Publish GitHub Release
         env:
