@@ -513,6 +513,42 @@ fn first_shell_metachar_arg(args: &[String]) -> Option<&str> {
 }
 
 #[cfg(test)]
+mod check_command_version_guard_tests {
+    // The Windows branch routes `name` through `cmd /c`, so the allowlist is a
+    // security boundary, not a tidiness check: anything it lets through is
+    // reparsed by cmd. Mirrors the predicate in check_command_version.
+    fn accepted(name: &str) -> bool {
+        !(name.is_empty()
+            || name.len() > 32
+            || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+    }
+
+    #[test]
+    fn real_tool_names_are_accepted() {
+        for n in ["node", "npm", "npx", "claude", "git", "gh", "python3", "my-tool_2"] {
+            assert!(accepted(n), "{n} should be probeable");
+        }
+    }
+
+    #[test]
+    fn shell_metacharacters_are_rejected() {
+        // Each of these would chain/redirect a second command under `cmd /c`.
+        for n in [
+            "npm&calc", "npm|calc", "npm>out", "npm<in", "npm^x", "npm%PATH%",
+            "npm calc", "npm\"x", "npm\ncalc", "npm\rcalc", "npm;calc", "npm(x)",
+            "../evil", "C:\\evil", "a.exe", "",
+        ] {
+            assert!(!accepted(n), "{n:?} must be rejected — cmd /c would reparse it");
+        }
+    }
+
+    #[test]
+    fn absurdly_long_names_are_rejected() {
+        assert!(!accepted(&"a".repeat(33)));
+    }
+}
+
+#[cfg(test)]
 mod mcp_install_guard_tests {
     use super::first_shell_metachar_arg;
 
@@ -621,10 +657,33 @@ fn mcp_install_sync(argv: Vec<String>) -> Result<McpInstallResult, String> {
 
 #[tauri::command]
 pub async fn check_command_version(name: String) -> Option<String> {
-    if name.is_empty() || name.contains(['/', '\\', '.', ' ']) {
-        // Reject obviously-malformed inputs — only bare command names allowed.
+    // STRICT allowlist, not a denylist. The Windows branch below routes through
+    // `cmd /c`, where a metacharacter in `name` would be reparsed as command
+    // chaining (`npm&calc`) — the same RCE class the mcp_install guard exists
+    // for. The old check only rejected / \ . and space, which let & | < > ^ %
+    // through. Every caller passes a fixed literal (node / npm / claude), so a
+    // bare [A-Za-z0-9_-] name loses nothing and removes the surface entirely.
+    if name.is_empty()
+        || name.len() > 32
+        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return None;
     }
+    // Windows: npm-installed CLIs are `.cmd` shims (claude.cmd, npm.cmd), and
+    // CreateProcess — thus a bare Command::new — resolves ONLY `.exe`, never
+    // PATHEXT. Probing directly reported "not found" for npm/npx/claude on a
+    // machine where they work in a shell, so a fresh user's Setup Checker was a
+    // dead end no action could clear. Route through `cmd /c` so PATHEXT applies
+    // (same reason mcp_install does), safe because of the allowlist above.
+    #[cfg(target_os = "windows")]
+    let output = silent_command("cmd")
+        .arg("/c")
+        .arg(&name)
+        .arg("--version")
+        .output()
+        .ok()?;
+
+    #[cfg(not(target_os = "windows"))]
     let output = silent_command(&name).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
