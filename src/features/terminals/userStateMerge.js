@@ -81,7 +81,11 @@ export function mergeUserState(local, remote) {
       if (lObj || rObj) {
         out[k] = { ...(rObj ? rv : {}), ...(lObj ? lv : {}) };
       } else if (lv !== undefined || rv !== undefined) {
-        out[k] = lv || rv; // scalar secret: local preferred, remote fallback
+        // Presence, not truthiness (review M10 re-verify): an intentionally
+        // CLEARED local secret ("") must win over a stale remote value, not read
+        // as "absent" and let the old secret resurrect. Matches the object
+        // branch's presence-based union above.
+        out[k] = lv !== undefined ? lv : rv;
       }
       continue;
     }

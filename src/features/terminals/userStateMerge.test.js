@@ -92,6 +92,14 @@ describe("mergeUserState", () => {
     expect(out.providerKeys.anthropic).toBe("new-from-B"); // remote fills the gap — NOT lost
   });
 
+  it("an intentionally-cleared scalar secret wins over a stale remote value (not resurrected)", () => {
+    // User cleared/revoked anthropicKey locally ("") — a stale remote copy must
+    // NOT bring it back (presence, not truthiness).
+    const local = { anthropicKey: "", _fieldMeta: {} };
+    const remote = { anthropicKey: "STALE-REMOTE", _fieldMeta: {} };
+    expect(mergeUserState(local, remote).anthropicKey).toBe("");
+  });
+
   it("takes a keychain field local never had at all", () => {
     const local = { _fieldMeta: {} };
     const remote = { providerKeys: { x: "only-remote" }, anthropicKey: "rk", _fieldMeta: {} };
