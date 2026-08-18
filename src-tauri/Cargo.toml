@@ -73,7 +73,7 @@ sspi = "0.18"
 # socket; tokio is the runtime (already pulled transitively); rand mints the
 # device/pairing tokens. See companion.rs + docs/phone-companion-design.md.
 axum = { version = "0.8", features = ["ws"] }
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.7", features = ["fs"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time"] }
 rand = "0.8"
 # Split the WebSocket into independent read/write halves (concurrent RPC replies +
