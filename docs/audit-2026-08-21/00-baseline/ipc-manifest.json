@@ -1,0 +1,896 @@
+{
+ "defined": {
+  "read_store": [
+   "src-tauri/src/commands.rs",
+   65
+  ],
+  "write_store": [
+   "src-tauri/src/commands.rs",
+   88
+  ],
+  "pick_directory": [
+   "src-tauri/src/commands.rs",
+   107
+  ],
+  "write_welcome_file": [
+   "src-tauri/src/commands.rs",
+   120
+  ],
+  "open_path": [
+   "src-tauri/src/commands.rs",
+   134
+  ],
+  "worktree_add": [
+   "src-tauri/src/commands.rs",
+   182
+  ],
+  "worktree_remove": [
+   "src-tauri/src/commands.rs",
+   231
+  ],
+  "git_diff": [
+   "src-tauri/src/commands.rs",
+   280
+  ],
+  "gh_pr_create": [
+   "src-tauri/src/commands.rs",
+   327
+  ],
+  "notify": [
+   "src-tauri/src/commands.rs",
+   402
+  ],
+  "quit_app": [
+   "src-tauri/src/commands.rs",
+   430
+  ],
+  "spawn_new_window": [
+   "src-tauri/src/commands.rs",
+   446
+  ],
+  "save_text_to_file": [
+   "src-tauri/src/commands.rs",
+   485
+  ],
+  "mcp_install": [
+   "src-tauri/src/commands.rs",
+   627
+  ],
+  "check_command_version": [
+   "src-tauri/src/commands.rs",
+   696
+  ],
+  "git_branch_status_many": [
+   "src-tauri/src/commands.rs",
+   769
+  ],
+  "git_branch_status": [
+   "src-tauri/src/commands.rs",
+   802
+  ],
+  "read_npm_scripts": [
+   "src-tauri/src/commands.rs",
+   844
+  ],
+  "collect_rule_files": [
+   "src-tauri/src/commands.rs",
+   953
+  ],
+  "scrollback_load": [
+   "src-tauri/src/commands.rs",
+   1105
+  ],
+  "scrollback_delete": [
+   "src-tauri/src/commands.rs",
+   1113
+  ],
+  "scrollback_sweep": [
+   "src-tauri/src/commands.rs",
+   1196
+  ],
+  "transcript_append": [
+   "src-tauri/src/commands.rs",
+   1398
+  ],
+  "recording_checkpoint": [
+   "src-tauri/src/commands.rs",
+   1483
+  ],
+  "recording_discard": [
+   "src-tauri/src/commands.rs",
+   1509
+  ],
+  "recording_list_inflight": [
+   "src-tauri/src/commands.rs",
+   1518
+  ],
+  "recording_read_inflight": [
+   "src-tauri/src/commands.rs",
+   1534
+  ],
+  "transcript_list": [
+   "src-tauri/src/commands.rs",
+   1711
+  ],
+  "transcript_read": [
+   "src-tauri/src/commands.rs",
+   1716
+  ],
+  "transcript_read_all": [
+   "src-tauri/src/commands.rs",
+   1721
+  ],
+  "transcript_sweep": [
+   "src-tauri/src/commands.rs",
+   1767
+  ],
+  "recent_files": [
+   "src-tauri/src/commands.rs",
+   2077
+  ],
+  "list_directory": [
+   "src-tauri/src/commands.rs",
+   2321
+  ],
+  "notebook_list": [
+   "src-tauri/src/commands.rs",
+   2501
+  ],
+  "notebook_read": [
+   "src-tauri/src/commands.rs",
+   2506
+  ],
+  "notebook_write": [
+   "src-tauri/src/commands.rs",
+   2511
+  ],
+  "companion_start": [
+   "src-tauri/src/companion.rs",
+   761
+  ],
+  "companion_stop": [
+   "src-tauri/src/companion.rs",
+   771
+  ],
+  "companion_status": [
+   "src-tauri/src/companion.rs",
+   776
+  ],
+  "companion_set_sessions": [
+   "src-tauri/src/companion.rs",
+   789
+  ],
+  "companion_set_snippets": [
+   "src-tauri/src/companion.rs",
+   802
+  ],
+  "companion_set_models": [
+   "src-tauri/src/companion.rs",
+   815
+  ],
+  "companion_notify_finish": [
+   "src-tauri/src/companion.rs",
+   830
+  ],
+  "port_forward_start": [
+   "src-tauri/src/forward.rs",
+   401
+  ],
+  "socks_forward_start": [
+   "src-tauri/src/forward.rs",
+   441
+  ],
+  "jump_forward_start": [
+   "src-tauri/src/forward.rs",
+   484
+  ],
+  "port_forward_stop": [
+   "src-tauri/src/forward.rs",
+   523
+  ],
+  "set_summon_shortcut": [
+   "src-tauri/src/lib.rs",
+   78
+  ],
+  "llm_stream_cancel": [
+   "src-tauri/src/llm.rs",
+   140
+  ],
+  "llm_complete": [
+   "src-tauri/src/llm.rs",
+   336
+  ],
+  "llm_stream": [
+   "src-tauri/src/llm.rs",
+   427
+  ],
+  "llm_tool_turn": [
+   "src-tauri/src/llm_tools.rs",
+   250
+  ],
+  "net_ping": [
+   "src-tauri/src/netools.rs",
+   51
+  ],
+  "net_traceroute": [
+   "src-tauri/src/netools.rs",
+   72
+  ],
+  "net_port_scan": [
+   "src-tauri/src/netools.rs",
+   129
+  ],
+  "net_latency_many": [
+   "src-tauri/src/netools.rs",
+   208
+  ],
+  "net_dns": [
+   "src-tauri/src/netools.rs",
+   248
+  ],
+  "pty_spawn": [
+   "src-tauri/src/pty.rs",
+   838
+  ],
+  "pty_write": [
+   "src-tauri/src/pty.rs",
+   1039
+  ],
+  "pty_resize": [
+   "src-tauri/src/pty.rs",
+   1094
+  ],
+  "pty_kill": [
+   "src-tauri/src/pty.rs",
+   1135
+  ],
+  "pty_ready": [
+   "src-tauri/src/pty.rs",
+   1165
+  ],
+  "default_shell": [
+   "src-tauri/src/pty.rs",
+   1189
+  ],
+  "ssh_spawn": [
+   "src-tauri/src/pty.rs",
+   1394
+  ],
+  "serial_list": [
+   "src-tauri/src/pty.rs",
+   1650
+  ],
+  "serial_spawn": [
+   "src-tauri/src/pty.rs",
+   1661
+  ],
+  "rdp_connect": [
+   "src-tauri/src/rdp.rs",
+   172
+  ],
+  "rdp_pointer": [
+   "src-tauri/src/rdp.rs",
+   532
+  ],
+  "rdp_key": [
+   "src-tauri/src/rdp.rs",
+   569
+  ],
+  "rdp_disconnect": [
+   "src-tauri/src/rdp.rs",
+   593
+  ],
+  "sftp_connect": [
+   "src-tauri/src/sftp.rs",
+   374
+  ],
+  "sftp_home": [
+   "src-tauri/src/sftp.rs",
+   401
+  ],
+  "sftp_list": [
+   "src-tauri/src/sftp.rs",
+   410
+  ],
+  "sftp_download": [
+   "src-tauri/src/sftp.rs",
+   421
+  ],
+  "sftp_upload": [
+   "src-tauri/src/sftp.rs",
+   456
+  ],
+  "sftp_mkdir": [
+   "src-tauri/src/sftp.rs",
+   483
+  ],
+  "sftp_remove": [
+   "src-tauri/src/sftp.rs",
+   488
+  ],
+  "sftp_rename": [
+   "src-tauri/src/sftp.rs",
+   502
+  ],
+  "sftp_read_file": [
+   "src-tauri/src/sftp.rs",
+   513
+  ],
+  "sftp_write_file": [
+   "src-tauri/src/sftp.rs",
+   527
+  ],
+  "sftp_disconnect": [
+   "src-tauri/src/sftp.rs",
+   544
+  ],
+  "gist_auth_available": [
+   "src-tauri/src/share.rs",
+   98
+  ],
+  "gist_create": [
+   "src-tauri/src/share.rs",
+   319
+  ],
+  "gist_delete": [
+   "src-tauri/src/share.rs",
+   357
+  ],
+  "parse_ssh_config": [
+   "src-tauri/src/sshconfig.rs",
+   120
+  ],
+  "ssh_keys_list": [
+   "src-tauri/src/sshconfig.rs",
+   212
+  ],
+  "ssh_key_generate": [
+   "src-tauri/src/sshconfig.rs",
+   291
+  ],
+  "sync_clone_or_open": [
+   "src-tauri/src/sync_git.rs",
+   253
+  ],
+  "sync_pull": [
+   "src-tauri/src/sync_git.rs",
+   268
+  ],
+  "sync_push": [
+   "src-tauri/src/sync_git.rs",
+   282
+  ],
+  "system_stats": [
+   "src-tauri/src/sysstats.rs",
+   64
+  ],
+  "secret_set": [
+   "src-tauri/src/vault.rs",
+   49
+  ],
+  "secret_get": [
+   "src-tauri/src/vault.rs",
+   57
+  ],
+  "secret_delete": [
+   "src-tauri/src/vault.rs",
+   65
+  ],
+  "vnc_connect": [
+   "src-tauri/src/vncclient.rs",
+   105
+  ],
+  "vnc_pointer": [
+   "src-tauri/src/vncclient.rs",
+   298
+  ],
+  "vnc_key": [
+   "src-tauri/src/vncclient.rs",
+   316
+  ],
+  "vnc_disconnect": [
+   "src-tauri/src/vncclient.rs",
+   333
+  ],
+  "mcp_servers_list": [
+   "src-tauri/src/mcp/manager.rs",
+   68
+  ],
+  "mcp_server_add": [
+   "src-tauri/src/mcp/manager.rs",
+   73
+  ],
+  "mcp_server_remove": [
+   "src-tauri/src/mcp/manager.rs",
+   94
+  ],
+  "mcp_list_tools": [
+   "src-tauri/src/mcp/manager.rs",
+   119
+  ],
+  "mcp_call_tool": [
+   "src-tauri/src/mcp/manager.rs",
+   140
+  ],
+  "mcp_reconnect": [
+   "src-tauri/src/mcp/manager.rs",
+   148
+  ]
+ },
+ "registered": [
+  "check_command_version",
+  "collect_rule_files",
+  "companion_notify_finish",
+  "companion_set_models",
+  "companion_set_sessions",
+  "companion_set_snippets",
+  "companion_start",
+  "companion_status",
+  "companion_stop",
+  "default_shell",
+  "gh_pr_create",
+  "gist_auth_available",
+  "gist_create",
+  "gist_delete",
+  "git_branch_status",
+  "git_branch_status_many",
+  "git_diff",
+  "jump_forward_start",
+  "list_directory",
+  "llm_complete",
+  "llm_stream",
+  "llm_stream_cancel",
+  "llm_tool_turn",
+  "mcp_call_tool",
+  "mcp_install",
+  "mcp_list_tools",
+  "mcp_reconnect",
+  "mcp_server_add",
+  "mcp_server_remove",
+  "mcp_servers_list",
+  "net_dns",
+  "net_latency_many",
+  "net_ping",
+  "net_port_scan",
+  "net_traceroute",
+  "notebook_list",
+  "notebook_read",
+  "notebook_write",
+  "notify",
+  "open_path",
+  "parse_ssh_config",
+  "pick_directory",
+  "port_forward_start",
+  "port_forward_stop",
+  "pty_kill",
+  "pty_ready",
+  "pty_resize",
+  "pty_spawn",
+  "pty_write",
+  "quit_app",
+  "rdp_connect",
+  "rdp_disconnect",
+  "rdp_key",
+  "rdp_pointer",
+  "read_npm_scripts",
+  "read_store",
+  "recent_files",
+  "recording_checkpoint",
+  "recording_discard",
+  "recording_list_inflight",
+  "recording_read_inflight",
+  "save_text_to_file",
+  "scrollback_delete",
+  "scrollback_load",
+  "scrollback_sweep",
+  "secret_delete",
+  "secret_get",
+  "secret_set",
+  "serial_list",
+  "serial_spawn",
+  "set_summon_shortcut",
+  "sftp_connect",
+  "sftp_disconnect",
+  "sftp_download",
+  "sftp_home",
+  "sftp_list",
+  "sftp_mkdir",
+  "sftp_read_file",
+  "sftp_remove",
+  "sftp_rename",
+  "sftp_upload",
+  "sftp_write_file",
+  "socks_forward_start",
+  "spawn_new_window",
+  "ssh_key_generate",
+  "ssh_keys_list",
+  "ssh_spawn",
+  "sync_clone_or_open",
+  "sync_pull",
+  "sync_push",
+  "system_stats",
+  "transcript_append",
+  "transcript_list",
+  "transcript_read",
+  "transcript_read_all",
+  "transcript_sweep",
+  "vnc_connect",
+  "vnc_disconnect",
+  "vnc_key",
+  "vnc_pointer",
+  "worktree_add",
+  "worktree_remove",
+  "write_store",
+  "write_welcome_file"
+ ],
+ "called": {
+  "write_store": [
+   "src/App.jsx:186"
+  ],
+  "read_store": [
+   "src/App.jsx:250"
+  ],
+  "scrollback_sweep": [
+   "src/App.jsx:413"
+  ],
+  "transcript_sweep": [
+   "src/App.jsx:415"
+  ],
+  "open_path": [
+   "src/appMeta.js:21",
+   "src/features/terminals/LocalFileBrowser.jsx:146",
+   "src/features/terminals/TerminalPane.jsx:972"
+  ],
+  "mcp_servers_list": [
+   "src/components/McpInstaller.jsx:93"
+  ],
+  "pick_directory": [
+   "src/components/McpInstaller.jsx:119",
+   "src/components/McpInstaller.jsx:153",
+   "src/features/terminals/ProjectDialog.jsx:121"
+  ],
+  "mcp_install": [
+   "src/components/McpInstaller.jsx:125"
+  ],
+  "secret_set": [
+   "src/components/McpInstaller.jsx:177",
+   "src/features/terminals/secretVault.js:62",
+   "src/features/terminals/secretVault.js:116",
+   "src/features/terminals/secretVault.js:132",
+   "src/features/terminals/SharingSection.jsx:47",
+   "src/features/terminals/hooks/useSshConnect.js:32",
+   "src/features/terminals/sync/syncSecrets.js:12",
+   "src/features/terminals/sync/syncSecrets.js:18"
+  ],
+  "mcp_server_add": [
+   "src/components/McpInstaller.jsx:195",
+   "src/components/McpInstaller.jsx:207"
+  ],
+  "mcp_server_remove": [
+   "src/components/McpInstaller.jsx:216"
+  ],
+  "check_command_version": [
+   "src/components/SetupChecker.jsx:44",
+   "src/features/terminals/TerminalPane.jsx:1638",
+   "src/features/terminals/TerminalsTab.jsx:404",
+   "src/features/terminals/hooks/independentEffects.js:125"
+  ],
+  "collect_rule_files": [
+   "src/features/terminals/agentContext.js:162"
+  ],
+  "git_branch_status": [
+   "src/features/terminals/agentContext.js:163"
+  ],
+  "read_npm_scripts": [
+   "src/features/terminals/agentContext.js:164",
+   "src/features/terminals/ProjectSidebar.jsx:382"
+  ],
+  "list_directory": [
+   "src/features/terminals/agentContext.js:165",
+   "src/features/terminals/LocalFileBrowser.jsx:112",
+   "src/features/terminals/PromptEditor.jsx:69"
+  ],
+  "mcp_list_tools": [
+   "src/features/terminals/AgentMode.jsx:117"
+  ],
+  "mcp_call_tool": [
+   "src/features/terminals/AgentMode.jsx:142"
+  ],
+  "llm_complete": [
+   "src/features/terminals/AskBar.jsx:58",
+   "src/features/terminals/llmStream.js:47"
+  ],
+  "git_diff": [
+   "src/features/terminals/DiffView.jsx:35"
+  ],
+  "gh_pr_create": [
+   "src/features/terminals/DiffView.jsx:46"
+  ],
+  "set_summon_shortcut": [
+   "src/features/terminals/KeybindingsSection.jsx:47",
+   "src/features/terminals/TerminalsTab.jsx:370"
+  ],
+  "llm_stream": [
+   "src/features/terminals/llmStream.js:31"
+  ],
+  "llm_stream_cancel": [
+   "src/features/terminals/llmStream.js:58"
+  ],
+  "llm_tool_turn": [
+   "src/features/terminals/llmTools.js:19"
+  ],
+  "net_ping": [
+   "src/features/terminals/NetToolsModal.jsx:39"
+  ],
+  "net_traceroute": [
+   "src/features/terminals/NetToolsModal.jsx:41"
+  ],
+  "net_dns": [
+   "src/features/terminals/NetToolsModal.jsx:43"
+  ],
+  "net_port_scan": [
+   "src/features/terminals/NetToolsModal.jsx:46"
+  ],
+  "notebook_write": [
+   "src/features/terminals/notebookIo.js:82"
+  ],
+  "notebook_read": [
+   "src/features/terminals/notebookIo.js:99"
+  ],
+  "net_latency_many": [
+   "src/features/terminals/ProjectSidebar.jsx:180"
+  ],
+  "git_branch_status_many": [
+   "src/features/terminals/ProjectSidebar.jsx:232"
+  ],
+  "recent_files": [
+   "src/features/terminals/ProjectSidebar.jsx:305"
+  ],
+  "rdp_connect": [
+   "src/features/terminals/RdpView.jsx:50"
+  ],
+  "rdp_disconnect": [
+   "src/features/terminals/RdpView.jsx:53",
+   "src/features/terminals/RdpView.jsx:83"
+  ],
+  "rdp_pointer": [
+   "src/features/terminals/RdpView.jsx:102"
+  ],
+  "rdp_key": [
+   "src/features/terminals/RdpView.jsx:108"
+  ],
+  "recording_checkpoint": [
+   "src/features/terminals/recording.js:48",
+   "src/features/terminals/recording.js:94",
+   "src/features/terminals/recording.js:110",
+   "src/features/terminals/recording.js:199"
+  ],
+  "recording_discard": [
+   "src/features/terminals/recording.js:120",
+   "src/features/terminals/recording.js:131"
+  ],
+  "recording_list_inflight": [
+   "src/features/terminals/recording.js:125"
+  ],
+  "recording_read_inflight": [
+   "src/features/terminals/recording.js:128"
+  ],
+  "companion_status": [
+   "src/features/terminals/RemoteControlModal.jsx:49"
+  ],
+  "companion_start": [
+   "src/features/terminals/RemoteControlModal.jsx:63"
+  ],
+  "companion_stop": [
+   "src/features/terminals/RemoteControlModal.jsx:69"
+  ],
+  "sftp_read_file": [
+   "src/features/terminals/RemoteEditor.jsx:62"
+  ],
+  "sftp_write_file": [
+   "src/features/terminals/RemoteEditor.jsx:92"
+  ],
+  "secret_get": [
+   "src/features/terminals/secretVault.js:63",
+   "src/features/terminals/secretVault.js:97",
+   "src/features/terminals/hooks/useSessionDispatch.js:107",
+   "src/features/terminals/hooks/useSftpDock.js:38",
+   "src/features/terminals/hooks/useSshConnect.js:62",
+   "src/features/terminals/hooks/useTunnels.js:42",
+   "src/features/terminals/hooks/useTunnels.js:76",
+   "src/features/terminals/sync/syncSecrets.js:15",
+   "src/features/terminals/sync/syncSecrets.js:21"
+  ],
+  "secret_delete": [
+   "src/features/terminals/secretVault.js:70",
+   "src/features/terminals/SharingSection.jsx:62",
+   "src/features/terminals/TerminalsTab.jsx:1005"
+  ],
+  "serial_list": [
+   "src/features/terminals/SerialModal.jsx:36"
+  ],
+  "sftp_list": [
+   "src/features/terminals/SftpBrowser.jsx:96"
+  ],
+  "sftp_home": [
+   "src/features/terminals/SftpBrowser.jsx:124",
+   "src/features/terminals/SftpBrowser.jsx:145"
+  ],
+  "sftp_download": [
+   "src/features/terminals/SftpBrowser.jsx:154"
+  ],
+  "sftp_upload": [
+   "src/features/terminals/SftpBrowser.jsx:164"
+  ],
+  "sftp_mkdir": [
+   "src/features/terminals/SftpBrowser.jsx:179"
+  ],
+  "sftp_remove": [
+   "src/features/terminals/SftpBrowser.jsx:193"
+  ],
+  "sftp_rename": [
+   "src/features/terminals/SftpBrowser.jsx:207"
+  ],
+  "gist_auth_available": [
+   "src/features/terminals/ShareModal.jsx:63",
+   "src/features/terminals/SharingSection.jsx:33"
+  ],
+  "gist_create": [
+   "src/features/terminals/ShareModal.jsx:75"
+  ],
+  "gist_delete": [
+   "src/features/terminals/SharesModal.jsx:36"
+  ],
+  "ssh_keys_list": [
+   "src/features/terminals/SshKeysModal.jsx:28"
+  ],
+  "ssh_key_generate": [
+   "src/features/terminals/SshKeysModal.jsx:45"
+  ],
+  "notify": [
+   "src/features/terminals/TerminalPane.jsx:396"
+  ],
+  "companion_notify_finish": [
+   "src/features/terminals/TerminalPane.jsx:481"
+  ],
+  "transcript_append": [
+   "src/features/terminals/TerminalPane.jsx:526"
+  ],
+  "pty_write": [
+   "src/features/terminals/TerminalPane.jsx:593",
+   "src/features/terminals/TerminalPane.jsx:1416",
+   "src/features/terminals/TerminalPane.jsx:1576",
+   "src/features/terminals/TerminalPane.jsx:1658",
+   "src/features/terminals/TerminalPane.jsx:1715",
+   "src/features/terminals/TerminalPane.jsx:1737",
+   "src/features/terminals/TerminalPane.jsx:1738",
+   "src/features/terminals/TerminalPane.jsx:1739",
+   "src/features/terminals/TerminalPane.jsx:1757",
+   "src/features/terminals/TerminalPane.jsx:1775",
+   "src/features/terminals/TerminalPane.jsx:1776",
+   "src/features/terminals/TerminalPane.jsx:1777",
+   "src/features/terminals/TerminalPane.jsx:1805"
+  ],
+  "scrollback_load": [
+   "src/features/terminals/TerminalPane.jsx:1215"
+  ],
+  "serial_spawn": [
+   "src/features/terminals/TerminalPane.jsx:1310"
+  ],
+  "jump_forward_start": [
+   "src/features/terminals/TerminalPane.jsx:1330"
+  ],
+  "port_forward_stop": [
+   "src/features/terminals/TerminalPane.jsx:1342",
+   "src/features/terminals/TerminalPane.jsx:1380",
+   "src/features/terminals/TerminalPane.jsx:1823",
+   "src/features/terminals/hooks/useTunnels.js:96"
+  ],
+  "ssh_spawn": [
+   "src/features/terminals/TerminalPane.jsx:1350"
+  ],
+  "pty_spawn": [
+   "src/features/terminals/TerminalPane.jsx:1364"
+  ],
+  "pty_kill": [
+   "src/features/terminals/TerminalPane.jsx:1383",
+   "src/features/terminals/TerminalPane.jsx:1396"
+  ],
+  "pty_ready": [
+   "src/features/terminals/TerminalPane.jsx:1559"
+  ],
+  "pty_resize": [
+   "src/features/terminals/TerminalPane.jsx:1583"
+  ],
+  "write_welcome_file": [
+   "src/features/terminals/TerminalPane.jsx:1708",
+   "src/features/terminals/TerminalPane.jsx:1753",
+   "src/features/terminals/TerminalPane.jsx:1770"
+  ],
+  "transcript_read_all": [
+   "src/features/terminals/TerminalPanel.jsx:240"
+  ],
+  "worktree_remove": [
+   "src/features/terminals/TerminalsTab.jsx:503"
+  ],
+  "companion_set_sessions": [
+   "src/features/terminals/TerminalsTab.jsx:638"
+  ],
+  "companion_set_snippets": [
+   "src/features/terminals/TerminalsTab.jsx:648"
+  ],
+  "companion_set_models": [
+   "src/features/terminals/TerminalsTab.jsx:667"
+  ],
+  "quit_app": [
+   "src/features/terminals/TerminalsTab.jsx:748"
+  ],
+  "save_text_to_file": [
+   "src/features/terminals/TerminalsTab.jsx:838",
+   "src/features/terminals/TerminalsTab.jsx:881"
+  ],
+  "vnc_connect": [
+   "src/features/terminals/VncView.jsx:54"
+  ],
+  "vnc_disconnect": [
+   "src/features/terminals/VncView.jsx:55",
+   "src/features/terminals/VncView.jsx:98"
+  ],
+  "vnc_pointer": [
+   "src/features/terminals/VncView.jsx:118",
+   "src/features/terminals/VncView.jsx:127",
+   "src/features/terminals/VncView.jsx:128"
+  ],
+  "vnc_key": [
+   "src/features/terminals/VncView.jsx:135"
+  ],
+  "notebook_list": [
+   "src/features/terminals/chrome/MenuBar.jsx:54"
+  ],
+  "spawn_new_window": [
+   "src/features/terminals/chrome/MenuBar.jsx:83",
+   "src/features/terminals/chrome/usePaletteCommands.jsx:106",
+   "src/features/terminals/hooks/useWorkspaceTree.js:311"
+  ],
+  "system_stats": [
+   "src/features/terminals/hooks/independentEffects.js:30"
+  ],
+  "default_shell": [
+   "src/features/terminals/hooks/independentEffects.js:68"
+  ],
+  "parse_ssh_config": [
+   "src/features/terminals/hooks/useProjects.js:78"
+  ],
+  "worktree_add": [
+   "src/features/terminals/hooks/useSessionDispatch.js:185"
+  ],
+  "sftp_disconnect": [
+   "src/features/terminals/hooks/useSftpDock.js:30",
+   "src/features/terminals/hooks/useSftpDock.js:57",
+   "src/features/terminals/hooks/useSftpDock.js:66"
+  ],
+  "sftp_connect": [
+   "src/features/terminals/hooks/useSftpDock.js:49"
+  ],
+  "port_forward_start": [
+   "src/features/terminals/hooks/useTunnels.js:48"
+  ],
+  "socks_forward_start": [
+   "src/features/terminals/hooks/useTunnels.js:82"
+  ],
+  "sync_pull": [
+   "src/features/terminals/sync/syncEngine.js:68"
+  ],
+  "sync_push": [
+   "src/features/terminals/sync/syncEngine.js:80"
+  ],
+  "sync_clone_or_open": [
+   "src/features/terminals/sync/syncEngine.js:98"
+  ]
+ },
+ "dynamic": {
+  "cmd": [
+   "src/backend.js:23"
+  ]
+ }
+}

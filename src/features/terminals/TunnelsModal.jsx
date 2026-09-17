@@ -3,7 +3,7 @@
 // (127.0.0.1:localPort → remoteHost:remotePort through the active SSH session)
 // and see / stop active forwards. Presentational — TerminalsTab owns the list
 // and resolves the connection + password.
-import { useState } from "react";
+import { useId, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 
 const inputStyle = {
@@ -25,6 +25,8 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
   const [remoteHost, setRemoteHost] = useState("localhost");
   const [remotePort, setRemotePort] = useState("");
   const [socksPort, setSocksPort] = useState("");
+  // A11Y-10, see RdpConnectModal.jsx for the reasoning.
+  const uid = useId();
 
   if (!open) return null;
 
@@ -62,17 +64,18 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
 
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
           <div style={{ width: 92 }}>
-            <label style={labelStyle}>Local port</label>
-            <input style={inputStyle} value={localPort} onChange={(e) => setLocalPort(e.target.value.replace(/[^\d]/g, ""))} placeholder="8080" inputMode="numeric" />
+            <label style={labelStyle} htmlFor={`${uid}-local-port`}>Local port</label>
+            <input id={`${uid}-local-port`} style={inputStyle} value={localPort} onChange={(e) => setLocalPort(e.target.value.replace(/[^\d]/g, ""))} placeholder="8080" inputMode="numeric" />
           </div>
           <div style={{ fontSize: 16, color: "var(--phn-text-dim, #888)", paddingBottom: 7 }}>→</div>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Remote host</label>
-            <input style={inputStyle} value={remoteHost} onChange={(e) => setRemoteHost(e.target.value)} placeholder="localhost" spellCheck={false} />
+            <label style={labelStyle} htmlFor={`${uid}-remote-host`}>Remote host</label>
+            <input id={`${uid}-remote-host`} style={inputStyle} value={remoteHost} onChange={(e) => setRemoteHost(e.target.value)} placeholder="localhost" spellCheck={false} />
           </div>
           <div style={{ width: 92 }}>
-            <label style={labelStyle}>Remote port</label>
+            <label style={labelStyle} htmlFor={`${uid}-remote-port`}>Remote port</label>
             <input
+              id={`${uid}-remote-port`}
               style={inputStyle}
               value={remotePort}
               onChange={(e) => setRemotePort(e.target.value.replace(/[^\d]/g, ""))}
@@ -106,8 +109,9 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
 
         <div style={{ borderTop: "1px solid var(--phn-surface-border, #2b2b2b)", paddingTop: 12, display: "flex", gap: 10, alignItems: "flex-end" }}>
           <div style={{ width: 92 }}>
-            <label style={labelStyle}>SOCKS port</label>
+            <label style={labelStyle} htmlFor={`${uid}-socks-port`}>SOCKS port</label>
             <input
+              id={`${uid}-socks-port`}
               style={inputStyle}
               value={socksPort}
               onChange={(e) => setSocksPort(e.target.value.replace(/[^\d]/g, ""))}
@@ -135,14 +139,18 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
         </div>
 
         <div>
-          <label style={labelStyle}>Active forwards</label>
+          {/* Not a <label>: this captions the forwards LIST, and a <label> with
+              no form control is an orphan to assistive tech. Same pixels (the
+              shared labelStyle already sets display:block), honest semantics. */}
+          <div style={labelStyle} id={`${uid}-forwards-label`}>Active forwards</div>
           {forwards.length === 0 ? (
             <div style={{ fontSize: 12, color: "var(--phn-text-dim, #777)", padding: "8px 0" }}>None yet.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }} role="list" aria-labelledby={`${uid}-forwards-label`}>
               {forwards.map((f) => (
                 <div
                   key={f.id}
+                  role="listitem"
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -159,6 +167,9 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
                   <button
                     onClick={() => onStop?.(f.id)}
                     title="Stop this forward"
+                    // Every row's button reads "Stop", so a screen reader user
+                    // hears N identical buttons with no way to tell them apart.
+                    aria-label={`Stop forward on local port ${f.localPort}`}
                     style={{
                       background: "transparent",
                       border: "1px solid var(--phn-surface-border, #2b2b2b)",

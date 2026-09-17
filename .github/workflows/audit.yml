@@ -8,6 +8,11 @@
 # wall of perennial noise. Warnings (unmaintained/unsound/yanked — the gtk-rs
 # GTK3 Linux stack, etc.) are not errors in cargo-audit and stay informational.
 #
+# Actions are pinned to commit SHAs (same SHAs as release.yml and static.yml):
+# a mutable @v4 tag or the @stable BRANCH on rust-toolchain can be force-moved
+# upstream, which would run someone else's code against a full checkout of this
+# private source with no diff here to show it.
+#
 # When a fix lands upstream: drop the matching --ignore line and let the bump
 # flow through Cargo.lock (that's how crossbeam-epoch RUSTSEC-2026-0204 and
 # quinn-proto RUSTSEC-2026-0185 already left the list — a plain `cargo update`).
@@ -30,8 +35,8 @@ jobs:
     name: npm audit (frontend)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: "npm"
@@ -45,10 +50,10 @@ jobs:
     name: cargo audit (backend)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - name: Cache cargo-audit binary
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/cargo-audit
           key: cargo-audit-bin-v1

@@ -3,8 +3,22 @@
 // future state-shape refactor breaks it, the sweep would regress to deleting a
 // live tab's scrollback (the CRITICAL this exists to prevent), so these assert
 // the prefix match, the exclusions, and fail-safe resilience to bad blobs.
+//
+// FIXTURE SHAPE IS LOAD-BEARING: the persisted per-window blob nests the
+// workspace under `terminalsState` (TerminalsTab.jsx writes `{ ...prev,
+// terminalsState: next }`, boot reads `st?.terminalsState`). These fixtures
+// originally used a bare top-level `{ panels: … }`, which no real blob ever has,
+// so the suite went green while production returned [] on every window (audit
+// RDI-2). Build fixtures the way the app writes them, never the way the function
+// under test happens to read them.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { allOpenTabIds, STATE_KEY_PREFIX, USER_STORAGE_KEY } from "./storageKeys.js";
+
+// The real persisted shape: window-level keys (skin, uiLayout, …) alongside the
+// nested workspace tree.
+function blob(panels) {
+  return JSON.stringify({ uiLayout: "moba", terminalsState: { panels, activePanelId: "p1", gridMode: "auto" } });
+}
 
 beforeEach(() => {
   const store = new Map();
@@ -22,15 +36,49 @@ afterEach(() => { delete global.window; delete global.localStorage; });
 
 describe("allOpenTabIds", () => {
   it("gathers tab ids across the primary + secondary windows", () => {
-    localStorage.setItem(STATE_KEY_PREFIX, JSON.stringify({ panels: [{ tabs: [{ id: "t1" }, { id: "t2" }] }] }));
-    localStorage.setItem(`${STATE_KEY_PREFIX}:w2`, JSON.stringify({ panels: [{ tabs: [{ id: "t3" }] }] }));
+    localStorage.setItem(STATE_KEY_PREFIX, blob([{ tabs: [{ id: "t1" }, { id: "t2" }] }]));
+    localStorage.setItem(`${STATE_KEY_PREFIX}:w2`, blob([{ tabs: [{ id: "t3" }] }]));
     expect(allOpenTabIds().sort()).toEqual(["t1", "t2", "t3"]);
   });
 
+  it("counts every leaf of a split tab, not just the tab id", () => {
+    // A scrollback file is owned by a LEAF, not by a tab: TerminalPanel renders
+    // each leaf with `tabId={node.id}`, TerminalPane spawns that leaf's PTY
+    // under it, and pty.rs opens `<leaf>.txt`. Leaves arrive two ways and both
+    // must be kept: `pane_*` ids minted by splitPane, and a whole tab id grafted
+    // in by drag-to-split (moveTabIntoSplit drops the dragged tab from `p.tabs`
+    // while its PTY keeps running). Harvesting `t.id` alone swept both.
+    localStorage.setItem(STATE_KEY_PREFIX, blob([{ tabs: [{
+      id: "t1",
+      layout: {
+        id: "split_1", dir: "row", ratio: 0.5,
+        a: { id: "t1" },
+        b: { id: "split_2", dir: "col", ratio: 0.5, a: { id: "pane_9" }, b: { id: "t2" } },
+      },
+    }] }]));
+    expect(allOpenTabIds().sort()).toEqual(["pane_9", "t1", "t2"]);
+  });
+
+  it("keeps a legacy top-level {panels} blob out of the way but fail-safe", () => {
+    // Nothing in the app writes a top-level `panels`; only detachTab did, before
+    // RDI-1 was fixed, and those tabs were destroyed rather than opened (the new
+    // window read `st.terminalsState`, found nothing and booted defaultState).
+    // The fallback therefore protects orphaned files, not live tabs. It is kept
+    // because the keep-set is a safety exclusion: over-keeping costs a stale
+    // file, under-keeping unlinks a live tab's history. A blob that has BOTH
+    // must read the nested tree, which is the only live one.
+    localStorage.setItem(`${STATE_KEY_PREFIX}:legacy`, JSON.stringify({ panels: [{ tabs: [{ id: "orphan" }] }] }));
+    localStorage.setItem(`${STATE_KEY_PREFIX}:w2`, JSON.stringify({
+      panels: [{ tabs: [{ id: "stale" }] }],
+      terminalsState: { panels: [{ tabs: [{ id: "live" }] }] },
+    }));
+    expect(allOpenTabIds().sort()).toEqual(["live", "orphan"]);
+  });
+
   it("excludes the user blob and other plutos-terminals keys", () => {
-    localStorage.setItem(STATE_KEY_PREFIX, JSON.stringify({ panels: [{ tabs: [{ id: "t1" }] }] }));
+    localStorage.setItem(STATE_KEY_PREFIX, blob([{ tabs: [{ id: "t1" }] }]));
     // A panels-shaped user blob must NOT contribute ids (it isn't window state).
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ panels: [{ tabs: [{ id: "NOPE" }] }] }));
+    localStorage.setItem(USER_STORAGE_KEY, blob([{ tabs: [{ id: "NOPE" }] }]));
     localStorage.setItem("plutos-terminals:cmdhistory:v0", JSON.stringify(["ls"]));
     localStorage.setItem("plutos-terminals:macros:v0", JSON.stringify([]));
     expect(allOpenTabIds()).toEqual(["t1"]);
@@ -38,14 +86,15 @@ describe("allOpenTabIds", () => {
 
   it("a malformed blob in one window doesn't stop the others", () => {
     localStorage.setItem(STATE_KEY_PREFIX, "{bad json");
-    localStorage.setItem(`${STATE_KEY_PREFIX}:w2`, JSON.stringify({ panels: [{ tabs: [{ id: "ok" }] }] }));
+    localStorage.setItem(`${STATE_KEY_PREFIX}:w2`, blob([{ tabs: [{ id: "ok" }] }]));
     expect(allOpenTabIds()).toEqual(["ok"]);
   });
 
   it("missing / empty panels or tabs yields no ids and never throws", () => {
     localStorage.setItem(STATE_KEY_PREFIX, JSON.stringify({}));
-    localStorage.setItem(`${STATE_KEY_PREFIX}:w2`, JSON.stringify({ panels: [] }));
-    localStorage.setItem(`${STATE_KEY_PREFIX}:w3`, JSON.stringify({ panels: [{}] }));
+    localStorage.setItem(`${STATE_KEY_PREFIX}:w2`, blob([]));
+    localStorage.setItem(`${STATE_KEY_PREFIX}:w3`, blob([{}]));
+    localStorage.setItem(`${STATE_KEY_PREFIX}:w4`, JSON.stringify({ terminalsState: null }));
     expect(allOpenTabIds()).toEqual([]);
   });
 });

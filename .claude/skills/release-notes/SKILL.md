@@ -13,7 +13,7 @@ Draft release notes for the next version. Pluto's Terminal ships as a **free, pr
 ## Steps
 
 1. **Find the range.** Last tag: `git describe --tags --abbrev=0`. Commits since: `git log <lasttag>..HEAD --oneline`.
-2. **Read the current version** in `package.json` (`version`) and confirm `src-tauri/tauri.conf.json` matches. If they differ, flag it — the build embeds `tauri.conf.json`.
+2. **Read the current version** in `package.json` (`version`) and confirm `src-tauri/tauri.conf.json` AND `src-tauri/Cargo.toml` match. If they differ, flag it: the build embeds `tauri.conf.json`, and `release.yml` refuses a tag that disagrees with any of the three.
 3. **Group commits by their conventional prefix** (the repo uses `feat:`, `fix:`, `revert:`, etc.):
    - `feat:` → **New** (lead with these — they're what the community cares about)
    - `fix:` → **Fixed**
@@ -36,7 +36,7 @@ Draft release notes for the next version. Pluto's Terminal ships as a **free, pr
 - <one line, only if worth mentioning>
 
 ---
-Free download • MIT licensed • built for the Pluto community
+Free download • proprietary license, free to use • built for the Pluto community
 ```
 
 Keep it tight. If there are no user-facing changes since the last tag, say so instead of padding. Do not bump the version in any file or create a git tag — only draft the notes.

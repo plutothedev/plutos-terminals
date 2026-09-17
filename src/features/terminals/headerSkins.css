@@ -50,16 +50,38 @@
   --phn-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Sensible fallbacks for the extended semantic colors so non-refined skins
-     still render the new primitives correctly (each skin can override). */
+     still render the new primitives correctly (each skin can override).
+     These three are ALIASES, not literals, which is why they are allowed to
+     live here alone: each substitutes the SKIN's own value, so a light skin
+     gets a light answer for free. A literal cannot do that. See the rule
+     immediately below. */
   --phn-elevated-bg: var(--phn-surface-bg, #181818);
   --phn-text-faint: var(--phn-text-dim, #555);
   --phn-accent-hover: var(--phn-link, #4DAAFC);
+
+  /* ── THE :root LITERAL-COLOUR RULE ───────────────────────────────────────
+     A colour declared ONLY here, as a literal, is ONE colour for all fourteen
+     skins. Every literal in this file predates the two LIGHT skins (moba-light
+     and daylight), so it is a dark-background value, and a light skin silently
+     inherits it and inverts.
+     That is not hypothetical. --phn-hover-bg used to sit here as
+     rgba(255,255,255,0.05) with only moba / moba-light / oled overriding it,
+     so `daylight` inherited a WHITE wash over its own near-white surfaces:
+     anything filled with it went to roughly 1.1:1. A rename-input fix that
+     leaned on the token inherited the same inversion.
+     RULE: a skin-dependent colour is declared in ALL FOURTEEN
+     [data-phn-skin="…"] blocks, at the exact value that skin renders TODAY,
+     plus deriveChrome() in customThemes.js for imported themes. --phn-hover-bg,
+     --phn-text-bright, --phn-chip-bg and --phn-focus-outline all live there for
+     that reason and are deliberately absent here.
+     The five below stay because they are on-fill / status colours that carry
+     the same meaning on any background. headerSkins.tokens.test.js holds an
+     explicit allowlist naming exactly these five, so a sixth fails CI. */
   --phn-accent-fg: #06121f;
   --phn-success: #3FB950;
   --phn-warning: #D29922;
   --phn-danger: #F06D70;
   --phn-focus-ring: rgba(77,163,255,0.45);
-  --phn-hover-bg: rgba(255,255,255,0.05);
 }
 
 /* ── App-wide skinnable surfaces (read CSS vars set per skin below). ── */
@@ -85,7 +107,17 @@
   transition: opacity 100ms ease;
 }
 .phn-statusbar-link:hover { opacity: 0.7; }
-/* F-key quick-action bar (workstation look) */
+/* F-key quick-action bar (workstation look).
+   Surface stays --phn-page-bg. It was briefly moved to --phn-surface-bg to buy
+   the light skin some contrast; that repainted the bar in 7 of the 12 dark
+   skins (only amber, brutal, crt, moba and oled set page-bg == surface-bg, so
+   only those were no-ops) and it also collapsed .phn-fn:hover, which fills with
+   surface-bg, into the bar colour in ALL fourteen, so the hover fill stopped
+   existing.
+   The contrast problem it was chasing was never a surface problem: it was that
+   moba-light's --phn-text-dim / --phn-text-faint had been validated on #ececec
+   and then used on #d9d9d9. That is fixed where it belongs, in the light skin's
+   own token values (see [data-phn-skin="moba-light"] below). */
 .phn-fnbar {
   display: flex;
   flex-shrink: 0;
@@ -109,6 +141,11 @@
   transition: background 120ms ease, color 120ms ease;
 }
 .phn-fn:last-child { border-right: none; }
+/* Hover = surface-bg lifted off the page-bg bar, plus dim -> active text. In
+   the 5 skins whose page-bg already equals surface-bg (amber, brutal, crt,
+   moba, oled) the lift is a no-op and only the colour change reads; that is
+   long-standing behaviour, not a regression. Do not repaint .phn-fnbar with
+   this same token or the fill dies in all fourteen. */
 .phn-fn:hover { background: var(--phn-surface-bg, #24272D); color: var(--phn-text-active, #F2F4F7); }
 .phn-fn b { color: var(--phn-text-faint, #586068); font-weight: 700; font-size: 9.5px; }
 .phn-fn:hover b { color: var(--phn-link, #4D8FE0); }
@@ -777,6 +814,39 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
 /* ────────── Per-skin CSS variables — drive .phn-page / .phn-statusbar /
    .phn-sidebar / .phn-sidebar-header without per-skin specific rules. ─── */
 
+/* THE LIGHT-SAFETY SET. Five tokens appear in EVERY block below, with no
+   :root declaration at all, because each one is a background-dependent colour
+   and a single :root literal would hand the two light skins a dark value (see
+   THE :root LITERAL-COLOUR RULE at the top of this file):
+     --phn-hover-bg       the wash under a hovered row / ghost button. White
+                          alpha on dark, BLACK alpha on light. This is the one
+                          that inverted `daylight` to ~1.1:1 while it was
+                          inherited from :root.
+     --phn-text-bright    emphasis text (assistant textarea, gauge values, rail
+                          hovers). Was used 8 times and declared nowhere, so it
+                          froze on its #F2F4F7 site fallback: 1.05:1 on
+                          daylight's #eeeef0 (audit A11Y-01).
+     --phn-chip-bg        fill of a small raised control ON a panel
+                          (.phn-msg-actions button). Not --phn-elevated-bg:
+                          that is the modal/popover fill and OLED pins it to
+                          #0a0a0c, which would sink the chips into the dock.
+     --phn-panel-fg        text ON that chip, paired with --phn-chip-bg the way
+                          --phn-accent-fg pairs with the accent fill. It is NOT
+                          --phn-text-fg, and the difference is measurable: the
+                          chip fill is a neutral #2C3037 in all 12 dark skins,
+                          so a tinted body colour lands on a surface it was
+                          never toned against (amber 3.57:1, pro 4.08:1, both
+                          under AA). #D3D7DD is what the chip already rendered,
+                          at 9.17:1 in every one of the 12.
+     --phn-focus-outline  the opaque 1px keyboard focus outline in styles.css.
+                          NOT --phn-focus-ring, which is a translucent rgba for
+                          box-shadow rings and would dilute a 1px outline.
+   Every DARK skin below carries the exact value it already rendered from the
+   site fallback, so introducing the tokens changed nothing for any of the 12.
+   Only moba-light and daylight differ, which is the entire point.
+   Imported Warp themes get the same five from deriveChrome() in
+   customThemes.js; that map is the fifteenth block. */
+
 [data-phn-skin="default"] {
   --phn-page-bg: #0a0a0a;
   --phn-surface-bg: #181818;
@@ -786,6 +856,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: #E6E6E6;
   --phn-text-dim: #555555;
   --phn-link: #4DAAFC;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(77,170,252,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="neon"] {
@@ -797,6 +892,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: #00fff7;
   --phn-text-dim: rgba(0,255,247,0.4);
   --phn-link: #FF0080;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(255,0,128,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="magenta"] {
@@ -808,6 +928,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: #E6E6E6;
   --phn-text-dim: #555555;
   --phn-link: #FF0080;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(255,0,128,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="crt"] {
@@ -819,6 +964,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: #33ff66;
   --phn-text-dim: rgba(51,255,102,0.4);
   --phn-link: #66ff99;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(102,255,153,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="linear"] {
@@ -830,6 +1000,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: #fafafa;
   --phn-text-dim: #71717a;
   --phn-link: #a1a1aa;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(161,161,170,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="brutal"] {
@@ -841,6 +1036,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: #ffffff;
   --phn-text-dim: #888888;
   --phn-link: #ffffff;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(255,255,255,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="glass"] {
@@ -852,6 +1072,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: rgba(255,255,255,0.95);
   --phn-text-dim: rgba(255,255,255,0.5);
   --phn-link: rgba(255,255,255,0.85);
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(255,255,255,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="sunset"] {
@@ -863,6 +1108,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: #ff6ec7;
   --phn-text-dim: rgba(255,255,255,0.5);
   --phn-link: #ffd0e8;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(255,208,232,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="amber"] {
@@ -874,6 +1144,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: #ffb000;
   --phn-text-dim: rgba(255,176,0,0.4);
   --phn-link: #ffd966;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(255,217,102,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="daylight"] {
@@ -883,8 +1178,50 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-surface-border: #d1d1d6;
   --phn-text-fg: #6e6e73;
   --phn-text-active: #1d1d1f;
+  /* Unlike moba-light this skin needs no text-tier retune: its page-bg is pure
+     #ffffff, the LIGHTEST surface it owns, so dim lands at 5.07:1 there. Its
+     tightest pairing is --phn-surface-alt-bg (#eeeef0) at 4.38, which is a
+     separate and pre-existing question; see the residual note in the stream
+     report rather than tuning it blind here.
+     --phn-text-faint is deliberately absent: it aliases to --phn-text-dim at
+     :root, which is skin-neutral and therefore safe. */
   --phn-text-dim: #6e6e73;
   --phn-link: #0066cc;
+  /* Light-safety set, see the section header. LIGHT skin: every one of
+     these inverts the dark default. --phn-hover-bg is the CRITICAL one: this
+     skin used to inherit the :root white alpha and wash white over #f5f5f7. */
+  --phn-accent-subtle: rgba(0,102,204,0.13); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(0,0,0,0.06);
+  --phn-text-bright: #1d1d1f;
+  --phn-chip-bg: #ffffff;
+  --phn-panel-fg: #6e6e73;
+  --phn-focus-outline: #0066cc;
+  /* The tab strip. Undeclared here until now, so all six fell through to the
+     DARK literals in TerminalPanel.jsx and terminals.css (#24272D strip,
+     #1b1c1f active tab, #eceef0 label): a near-black tab chip sitting on a
+     white UI, and the direct cause of the tab-rename CRITICAL, because the
+     rename input inherits that chip as its backdrop. The eleven dark skins
+     keep the fallbacks, which are right for them. */
+  --phn-tabstrip-bg: #e5e5e8;
+  --phn-tab-bg: #f0f0f2;
+  --phn-tab-bg-hover: #f7f7f9;
+  --phn-tab-bg-active: #ffffff;
+  /* NOT --phn-text-dim (#6e6e73): an inactive tab body is #f0f0f2, darker than
+     this skin's #ffffff page, and that tier lands at 4.46:1 there. Same mistake
+     as the moba-light F-key bar, one surface over. #5f5f64 is 5.34:1 on the tab
+     body and 5.83:1 on the hover body. */
+  --phn-tab-fg: #5f5f64;
+  --phn-tab-fg-active: #1d1d1f;
+  /* COMPONENT-LITERAL SET, LIGHT. See the moba-light block. */
+  --phn-wash-rgb: 0,0,0;
+  --phn-ink: #1d1d1f;
+  --phn-ink-soft: #2c2c30;
+  --phn-ink-dim: #5f5f64;
+  --phn-well-bg: #ffffff;
+  --phn-raised-bg: #ffffff;
+  --phn-notice-accent: #0a4f96;
+  --phn-notice-warn-fg: #7a4a00;
+  --phn-notice-error-fg: #a3221c;
 }
 
 [data-phn-skin="pro"] {
@@ -896,6 +1233,31 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-text-active: #f7f8f8;
   --phn-text-dim: #62666d;
   --phn-link: #828fff;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-accent-subtle: rgba(130,143,255,0.16); /* --phn-link at low alpha: the wash behind accent text; was falling through to a fixed indigo fallback */
+  --phn-hover-bg: rgba(255,255,255,0.05);
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 [data-phn-skin="moba"] {
@@ -929,6 +1291,29 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-tab-bg-active: #2c2e33;
   --phn-tab-fg: #9a9da3;
   --phn-tab-fg-active: #eceef0;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 /* OLED — true black on every surface. No luminance ladder: the page, chrome,
@@ -963,6 +1348,29 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-tab-bg-active: #292b30;
   --phn-tab-fg: #9a9da3;
   --phn-tab-fg-active: #eceef0;
+  /* Light-safety set, see the section header. Exactly what this skin
+     already rendered from the site fallbacks, so this is a no-op here. */
+  --phn-text-bright: #F2F4F7;
+  --phn-chip-bg: #2C3037;
+  --phn-panel-fg: #D3D7DD;
+  --phn-focus-outline: #7c9cf5;
+  /* COMPONENT-LITERAL SET. Nine names for colours that were hardcoded inside
+     .jsx files before the light skins existed. Same rule as the light-safety
+     set above: the twelve DARK blocks carry the exact hex the component
+     already rendered, so declaring them is a no-op for all twelve, and only
+     moba-light and daylight differ. --phn-wash-rgb is an RGB TRIPLE, not a
+     colour: sites spell it rgba(var(--phn-wash-rgb), 0.08) so one token flips
+     every alpha wash in the app from white-on-dark to black-on-light while
+     each site keeps its own alpha. */
+  --phn-wash-rgb: 255,255,255;
+  --phn-ink: #ffffff;
+  --phn-ink-soft: #E6E6E6;
+  --phn-ink-dim: #9D9D9D;
+  --phn-well-bg: #0e1114;
+  --phn-raised-bg: #23272d;
+  --phn-notice-accent: #7c9cf5;
+  --phn-notice-warn-fg: #E0A04F;
+  --phn-notice-error-fg: #E05B5B;
 }
 
 /* Light CHROME — the toggle's other state. Everything but the terminal turns
@@ -974,11 +1382,24 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-surface-border: #bdbdbd;
   --phn-text-fg: #2a2a2a;
   --phn-text-active: #000000;
-  /* Contrast on the #ececec surface: dim #666 ≈ 4.9:1 (body-secondary safe;
-     the old #6e6e6e sat at 4.3), faint #808080 ≈ 3.3:1 (fine for hints —
-     without an explicit value faint inherited dim, killing the hierarchy). */
-  --phn-text-dim: #666666;
-  --phn-text-faint: #808080;
+  /* Both tiers are validated against the DARKEST surface they are painted on,
+     which is --phn-page-bg (#d9d9d9), not --phn-surface-bg (#ececec). Getting
+     that backwards is what produced audit runtime-ui-pass §3: the old values
+     were tuned on #ececec (dim #666666 = 4.86, faint #808080 = 3.34) and then
+     used on the F-key bar, which paints on page-bg, where the same two drop to
+     4.07 and 2.80. Validating on the lighter surface and then painting on the
+     darker one can only ever lose contrast; validating on the darker one can
+     only gain it.
+     Now, on #d9d9d9: dim #474747 = 6.58, faint #5c5c5c = 4.74. Both clear AA
+     for body text, and both gain on every lighter surface this skin owns
+     (#ececec: 7.86 / 5.66; #ffffff: 9.29 / 6.69). The hierarchy the old comment
+     was protecting survives: active #000000 -> fg #2a2a2a -> dim #474747 ->
+     faint #5c5c5c is still four distinct steps, they are just all above the
+     line now instead of the last one sitting under it as a "hint tier".
+     Darkening is safe across the board precisely because every surface in this
+     skin is light; the terminal well keeps its own xterm palette. */
+  --phn-text-dim: #474747;
+  --phn-text-faint: #5c5c5c;
   --phn-link: #1170cc;           /* Windows-blue accent */
   --phn-accent-subtle: rgba(17,112,204,0.13);
   --phn-hover-bg: rgba(0,0,0,0.07);
@@ -989,6 +1410,24 @@ textarea.phn-ui-input { height: auto; padding: var(--phn-sp-2, 8px) var(--phn-sp
   --phn-tab-bg-active: #ffffff;
   --phn-tab-fg: #555555;
   --phn-tab-fg-active: #000000;
+  /* Light-safety set, see the section header. LIGHT skin: every one of
+     these inverts the dark default. --phn-hover-bg is declared above with the
+     rest of this skin's original tokens. */
+  --phn-text-bright: #000000;
+  --phn-chip-bg: #ffffff;
+  --phn-panel-fg: #2a2a2a;
+  --phn-focus-outline: #1170cc;
+  /* COMPONENT-LITERAL SET, LIGHT. Every value below inverts the dark one and
+     is validated against the DARKEST surface it lands on in this skin. */
+  --phn-wash-rgb: 0,0,0;
+  --phn-ink: #000000;
+  --phn-ink-soft: #2a2a2a;
+  --phn-ink-dim: #5c5c5c;
+  --phn-well-bg: #ffffff;
+  --phn-raised-bg: #ffffff;
+  --phn-notice-accent: #0a4f96;
+  --phn-notice-warn-fg: #7a4a00;
+  --phn-notice-error-fg: #a3221c;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

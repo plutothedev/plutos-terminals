@@ -19,9 +19,9 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
@@ -1216,9 +1216,11 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// Base64 (standard alphabet, no padding) — for the OpenSSH-style
-/// "SHA256:…" host-key fingerprint. Tiny inline impl avoids a base64 dep.
-fn base64_no_pad(data: &[u8]) -> String {
+/// Base64, standard alphabet. `pad` controls the trailing `=`: the OpenSSH-style
+/// "SHA256:…" host-key fingerprint is unpadded, a known_hosts key blob is padded
+/// (that is what libssh2's own writer emits and its reader expects). Tiny inline
+/// impl avoids a base64 dep.
+fn base64(data: &[u8], pad: bool) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
@@ -1230,25 +1232,405 @@ fn base64_no_pad(data: &[u8]) -> String {
         out.push(A[((n >> 12) & 63) as usize] as char);
         if chunk.len() > 1 {
             out.push(A[((n >> 6) & 63) as usize] as char);
+        } else if pad {
+            out.push('=');
         }
         if chunk.len() > 2 {
             out.push(A[(n & 63) as usize] as char);
+        } else if pad {
+            out.push('=');
         }
     }
     out
 }
 
-fn host_key_format(t: ssh2::HostKeyType) -> Result<ssh2::KnownHostKeyFormat, String> {
-    use ssh2::{HostKeyType, KnownHostKeyFormat};
+/// The OpenSSH key-algorithm name for this key type, as it appears on a
+/// known_hosts line. Must match libssh2's own writer (knownhost.c
+/// `knownhost_writeline`), because libssh2's reader is what parses our line
+/// back on the next connect.
+fn host_key_name(t: ssh2::HostKeyType) -> Result<&'static str, String> {
+    use ssh2::HostKeyType;
     Ok(match t {
-        HostKeyType::Rsa => KnownHostKeyFormat::SshRsa,
-        HostKeyType::Dss => KnownHostKeyFormat::SshDss,
-        HostKeyType::Ecdsa256 => KnownHostKeyFormat::Ecdsa256,
-        HostKeyType::Ecdsa384 => KnownHostKeyFormat::Ecdsa384,
-        HostKeyType::Ecdsa521 => KnownHostKeyFormat::Ecdsa521,
-        HostKeyType::Ed25519 => KnownHostKeyFormat::Ed25519,
+        HostKeyType::Rsa => "ssh-rsa",
+        HostKeyType::Dss => "ssh-dss",
+        HostKeyType::Ecdsa256 => "ecdsa-sha2-nistp256",
+        HostKeyType::Ecdsa384 => "ecdsa-sha2-nistp384",
+        HostKeyType::Ecdsa521 => "ecdsa-sha2-nistp521",
+        HostKeyType::Ed25519 => "ssh-ed25519",
         HostKeyType::Unknown => return Err("server uses an unknown host-key type".into()),
     })
+}
+
+/// Build the single OpenSSH `known_hosts` line that pins this host key.
+///
+/// The host field follows OpenSSH: `[host]:port` for a non-default port, the
+/// bare `host` for 22. That is also the order libssh2's `check_port` probes
+/// (knownhost.c:374 tries `[host]:port` first, then the bare name), so a line
+/// written this way is found on the first probe, and the same host reached on
+/// two different ports can no longer collide on one pin. Pins already on disk
+/// under the bare name still match, via check_port's second probe.
+fn known_hosts_line(
+    host: &str,
+    port: u16,
+    key_type: ssh2::HostKeyType,
+    key: &[u8],
+) -> Result<String, String> {
+    // Whitespace in the host field would parse back as an entirely different
+    // entry. Refuse rather than write a pin that means something else.
+    if host.is_empty() || host.contains(char::is_whitespace) {
+        return Err(format!("refusing to pin a host key under the name {host:?}"));
+    }
+    let name = if port == 22 {
+        host.to_string()
+    } else {
+        format!("[{host}]:{port}")
+    };
+    Ok(format!(
+        "{name} {} {} added by Pluto's Terminal",
+        host_key_name(key_type)?,
+        base64(key, true)
+    ))
+}
+
+/// Append one line to `known_hosts`, creating the file (and `~/.ssh`) if needed.
+///
+/// Append, never rewrite. `KnownHosts::write_file` serialises libssh2's entire
+/// in-memory collection over the file, and that collection is routinely a subset
+/// of what is on disk: libssh2's reader BREAKS out of its parse loop on the first
+/// line it cannot handle (knownhost.c:975) and never stores comments or blank
+/// lines at all. Rewriting from it silently deletes the user's other pins out of
+/// a file that `ssh`, `git` and `scp` share, taking their MITM protection with
+/// them (audit R1/SEC-1). An append can only ever add our own line.
+fn append_known_host_line(path: &Path, line: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+    }
+    let mut f = OpenOptions::new()
+        .read(true)
+        .append(true)
+        .create(true)
+        .open(path)
+        .map_err(|e| format!("open {}: {e}", path.display()))?;
+    // Plenty of real known_hosts files end without a trailing newline; a bare
+    // append would fuse our entry onto the tail of theirs and destroy both. The
+    // handle is append-mode, so writes still land at EOF after this seek. We
+    // seek only to LOOK at the last byte.
+    let needs_newline = match f.metadata().map(|m| m.len()) {
+        Ok(0) | Err(_) => false,
+        Ok(_) => {
+            let mut last = [0u8; 1];
+            f.seek(SeekFrom::End(-1))
+                .and_then(|_| f.read_exact(&mut last))
+                .is_ok()
+                && last[0] != b'\n'
+        }
+    };
+    let mut out = String::new();
+    if needs_newline {
+        out.push('\n');
+    }
+    out.push_str(line.trim_matches(|c| c == '\r' || c == '\n'));
+    out.push('\n');
+    f.write_all(out.as_bytes())
+        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    f.flush()
+        .map_err(|e| format!("flush {}: {e}", path.display()))
+}
+
+/// Why libssh2 could not hand us the whole of `known_hosts`.
+///
+/// Both variants make a NotFound answer from libssh2 untrustworthy, but they are
+/// not equivalent. `Unopened` is recoverable: the file is usually healthy and
+/// only libssh2's narrow-CRT open failed, so the lookup is redone here. There is
+/// no such recovery for `Unparsed`, where the file really does hold a line
+/// nothing can read. They are not equivalent to the user either: they point at
+/// two different fixes, and the wrong one costs pins. Told to "remove the
+/// malformed line" of a file that has none, the obvious next move is to empty
+/// the file, which loses exactly what the append-never-rewrite rule above exists
+/// to protect (audit R1/SEC-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KnownHostsGap {
+    /// libssh2 never opened the file. Its reader goes through the NARROW CRT
+    /// `fopen` (knownhost.c:973, `FOPEN_READTEXT`), so on Windows a path the
+    /// active ANSI code page cannot represent fails here while Rust's wide API
+    /// reads the same file perfectly; an unreadable-permissions file lands here
+    /// too. NOTHING is loaded, so EVERY host reads as first-seen, not merely the
+    /// ones below some line. Recoverable, unlike `Unparsed`: the file itself is
+    /// usually fine, so `scan_known_hosts` reads it here instead.
+    Unopened,
+    /// libssh2 opened it and broke out of the parse loop on a line it could not
+    /// handle (knownhost.c:975-980), so every entry below that line is missing.
+    Unparsed,
+}
+
+/// Classify a `KnownHosts::read_file` failure. libssh2 surfaces both failure
+/// modes as a bare `Err` and the code is the only thing that separates them:
+/// `LIBSSH2_ERROR_FILE` (-16) is its `fopen` failing, while the parse loop
+/// reports `LIBSSH2_ERROR_KNOWN_HOSTS` (-46).
+fn classify_known_hosts_error(code: ssh2::ErrorCode) -> KnownHostsGap {
+    match code {
+        ssh2::ErrorCode::Session(-16) => KnownHostsGap::Unopened,
+        // Anything else keeps the long-standing reading. Guessing "unopened" on
+        // a code we do not recognise would blame the wrong thing in the one
+        // direction that talks the user into editing a healthy file.
+        _ => KnownHostsGap::Unparsed,
+    }
+}
+
+/// What our own read of `known_hosts` can say about a host.
+///
+/// Only consulted when libssh2 could not open the file, so its own answer is
+/// worthless. The rules deliberately mirror libssh2's `check_port` rather than
+/// OpenSSH's: the same two probe forms (knownhost.c:372-386), the same
+/// case-sensitive comparison, and the algorithm field ignored exactly as
+/// libssh2 ignores it (the ssh2 crate passes no KEY_MASK bits, so knownhost.c:
+/// 451-461 matches on the base64 key blob alone). Agreeing with the library is
+/// the point: a host must not read as known down one path and new down the
+/// other. Where this differs it only ever refuses what libssh2 would have
+/// allowed, never the reverse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalPinScan {
+    /// An entry names this host and holds exactly this key.
+    Match,
+    /// An entry names this host and holds a different key: a changed host key.
+    Mismatch,
+    /// Nothing in the file names this host, so it is genuinely first-seen.
+    NotFound,
+    /// The file holds something this reader cannot evaluate, so "nothing names
+    /// this host" cannot be trusted and accept-new is not safe. Carries what it
+    /// tripped over, because the user's fix differs per cause.
+    Undecidable(&'static str),
+}
+
+/// Whether one `known_hosts` host field (`a,b,!c`) covers any of the names.
+enum PatternMatch {
+    Yes,
+    No,
+    /// `|1|salt|hash`: an HMAC-SHA1 of the host name under a per-entry salt.
+    /// Nothing in this build can compute it, so the entry cannot be ruled in
+    /// OR out.
+    Hashed,
+}
+
+/// `*` (any run) and `?` (exactly one character), the two wildcards OpenSSH
+/// allows in a `known_hosts` host pattern.
+///
+/// Iterative with a single backtrack point rather than recursive, so a pattern
+/// full of stars cannot go exponential on a long host name.
+fn glob_match(pat: &str, name: &str) -> bool {
+    let p: Vec<char> = pat.chars().collect();
+    let n: Vec<char> = name.chars().collect();
+    let (mut pi, mut ni) = (0usize, 0usize);
+    let (mut star, mut resume) = (usize::MAX, 0usize);
+    while ni < n.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == n[ni]) {
+            pi += 1;
+            ni += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = pi;
+            resume = ni;
+            pi += 1;
+        } else if star != usize::MAX {
+            // Give the last `*` one more character and retry from there.
+            pi = star + 1;
+            resume += 1;
+            ni = resume;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+/// Match a comma-separated host field against the names `check_port` probes.
+fn host_patterns_match(field: &str, names: &[&str]) -> PatternMatch {
+    let mut hit = false;
+    for pat in field.split(',') {
+        if pat.starts_with('|') {
+            return PatternMatch::Hashed;
+        }
+        let (negated, pat) = match pat.strip_prefix('!') {
+            Some(rest) => (true, rest),
+            None => (false, pat),
+        };
+        if names.iter().any(|n| glob_match(pat, n)) {
+            if negated {
+                // OpenSSH's negation excludes the WHOLE entry, not just this
+                // pattern, so there is nothing left to match here.
+                return PatternMatch::No;
+            }
+            hit = true;
+        }
+    }
+    if hit {
+        PatternMatch::Yes
+    } else {
+        PatternMatch::No
+    }
+}
+
+/// Look `host` up in `known_hosts` ourselves, through Rust's wide file API.
+///
+/// This exists because libssh2's reader goes through the NARROW CRT `fopen`
+/// (knownhost.c:973). On Windows that cannot open a path the active ANSI code
+/// page cannot represent, which is every profile directory belonging to a
+/// Cyrillic, CJK or accented username. The file is perfectly healthy and every
+/// other read in this module opens it fine; only libssh2's cannot. Doing the
+/// lookup here closes that loop, and it is the same loop `append_known_host_line`
+/// already writes through.
+///
+/// Anything this reader cannot evaluate answers `Undecidable` rather than
+/// `NotFound`, because the two are not interchangeable: `NotFound` authorises
+/// accept-new, and getting that wrong on an already-pinned host is exactly the
+/// blind trust an MITM needs.
+fn scan_known_hosts(
+    path: &Path,
+    host: &str,
+    port: u16,
+    key: &[u8],
+) -> Result<LocalPinScan, String> {
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    // libssh2 stores the key as base64 and compares with strcmp, so comparing
+    // the encoded forms is the same comparison, and it needs no decoder.
+    let wanted = base64(key, true);
+    // The two names check_port probes, in its order: the port-scoped form
+    // first, then the bare host, for EVERY port (knownhost.c:372-386). A bare
+    // pin therefore answers on any port, which is what the pins already on disk
+    // from before the bracket form was written rely on.
+    let ported = format!("[{host}]:{port}");
+    let names = [ported.as_str(), host];
+
+    let mut matched_key = false;
+    let mut mismatched = false;
+    let mut undecidable: Option<&'static str> = None;
+
+    for line in bytes.split(|b| *b == b'\n') {
+        let Ok(line) = std::str::from_utf8(line) else {
+            undecidable = undecidable.or(Some("a line that is not valid UTF-8"));
+            continue;
+        };
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('@') {
+            // @cert-authority delegates trust to a CA key, and @revoked forbids
+            // a key outright. Both change the answer for hosts this scan would
+            // otherwise call first-seen, and neither is evaluable here.
+            undecidable = undecidable.or(Some("a @cert-authority or @revoked marker"));
+            continue;
+        }
+        let mut fields = line.split_whitespace();
+        let (Some(patterns), Some(_algorithm), Some(blob)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            undecidable = undecidable.or(Some("a line it could not parse"));
+            continue;
+        };
+        match host_patterns_match(patterns, &names) {
+            PatternMatch::Hashed => {
+                undecidable = undecidable.or(Some("a hashed host name"));
+            }
+            PatternMatch::No => {}
+            PatternMatch::Yes if blob == wanted => matched_key = true,
+            PatternMatch::Yes => mismatched = true,
+        }
+    }
+
+    // Precedence, and the order matters. A key we positively recognise wins
+    // only when the whole file was readable, since an entry this reader skipped
+    // could be a @revoked line for that very key. A host known under a
+    // DIFFERENT key is reported ahead of an unreadable line because both refuse
+    // and "the key changed" is the sharper warning of the two.
+    Ok(match (matched_key, mismatched, undecidable) {
+        (true, _, None) => LocalPinScan::Match,
+        (_, true, _) => LocalPinScan::Mismatch,
+        (_, _, Some(what)) => LocalPinScan::Undecidable(what),
+        _ => LocalPinScan::NotFound,
+    })
+}
+
+/// Pin a first-seen host key (OpenSSH "accept-new").
+///
+/// `gap` is `None` when libssh2 read the WHOLE file (or there is no file yet).
+/// Split out of `verify_host_key` so the pinning decision is reachable without a
+/// live SSH session, which is the only way it can be tested.
+fn pin_new_host_key(
+    kh_path: &Path,
+    gap: Option<KnownHostsGap>,
+    host: &str,
+    port: u16,
+    key_type: ssh2::HostKeyType,
+    key: &[u8],
+) -> Result<(), String> {
+    // An incomplete read makes check_port answer NotFound for hosts that ARE
+    // already pinned, so accept-new here would blind-trust one of them and an
+    // active MITM on it would read as a first sighting. Match/Mismatch stay
+    // trustworthy, so only this branch refuses.
+    match gap {
+        None => {}
+        Some(KnownHostsGap::Unparsed) => {
+            return Err(format!(
+                "cannot safely verify {host}:{port}: {} could not be fully parsed, so an \
+                 already-known host can read as first-seen. Refusing to trust a new key. \
+                 Fix or remove the malformed line and reconnect.",
+                kh_path.display()
+            ));
+        }
+        Some(KnownHostsGap::Unopened) => {
+            // libssh2 loaded NOTHING, so the NotFound that got us here says
+            // nothing about this host. Refusing outright was the first answer
+            // and it was wrong: libssh2 opens the file through the narrow CRT,
+            // so a Windows profile path the active ANSI code page cannot
+            // represent lands here on a completely healthy file, and refusing
+            // left every user with a non-ASCII username unable to SSH to ANY
+            // new host. Fail-closed cannot mean the feature is dead for a whole
+            // class of users. Our own reads and writes go through the wide API,
+            // which opens the same file fine, so do the lookup here and decide
+            // on evidence again.
+            match scan_known_hosts(kh_path, host, port, key) {
+                // Already pinned under this exact key. Nothing to add: a second
+                // identical line is noise the user then has to reconcile.
+                Ok(LocalPinScan::Match) => return Ok(()),
+                Ok(LocalPinScan::Mismatch) => {
+                    return Err(format!(
+                        "HOST KEY MISMATCH for {host}:{port}: {} already pins a different \
+                         key for it. Refusing to connect (possible man-in-the-middle). If \
+                         this change was intentional, remove the host's line from that file \
+                         and reconnect.",
+                        kh_path.display()
+                    ));
+                }
+                // Genuinely first-seen, on the evidence of the whole file.
+                Ok(LocalPinScan::NotFound) => {}
+                Ok(LocalPinScan::Undecidable(what)) => {
+                    return Err(format!(
+                        "cannot safely verify {host}:{port}: {} could not be opened by the \
+                         SSH library, and reading it here found {what}, so an already-known \
+                         host can still read as first-seen. Refusing to trust a new key. Do \
+                         not empty the file, that would lose the keys it has already pinned.",
+                        kh_path.display()
+                    ));
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "cannot safely verify {host}:{port}: {} could not be opened by the \
+                         SSH library and cannot be read here either ({e}), so NOTHING is \
+                         loaded and every host reads as first-seen. Refusing to trust a new \
+                         key. Do not empty the file, that would lose the keys it has already \
+                         pinned.",
+                        kh_path.display()
+                    ));
+                }
+            }
+        }
+    }
+    let line = known_hosts_line(host, port, key_type, key)?;
+    append_known_host_line(kh_path, &line)
+        .map_err(|e| format!("failed to record the host key for {host}:{port}: {e}"))
 }
 
 /// Verify the server's host key against the user's `~/.ssh/known_hosts`, with
@@ -1257,20 +1639,29 @@ fn host_key_format(t: ssh2::HostKeyType) -> Result<ssh2::KnownHostKeyFormat, Str
 /// Returns the SHA-256 fingerprint for display/logging.
 fn verify_host_key(sess: &ssh2::Session, host: &str, port: u16) -> Result<String, String> {
     let (key, key_type) = sess.host_key().ok_or("server presented no host key")?;
-    // Copy out of the borrow so we can mutate KnownHosts below.
+    // Copy out of the session borrow: the key has to outlive the KnownHosts
+    // read and the pin below, both of which drive libssh2 again.
     let key = key.to_vec();
 
     let fingerprint = sess
         .host_key_hash(ssh2::HashType::Sha256)
-        .map(|h| format!("SHA256:{}", base64_no_pad(h)))
+        .map(|h| format!("SHA256:{}", base64(h, false)))
         .unwrap_or_else(|| "unknown".into());
 
     let mut known = sess.known_hosts().map_err(|e| e.to_string())?;
     let kh_path = home_dir()
         .map(|h| h.join(".ssh").join("known_hosts"))
         .ok_or("cannot locate home directory for known_hosts")?;
-    // Missing file just means "no hosts known yet" — not an error.
-    let _ = known.read_file(&kh_path, ssh2::KnownHostFileKind::OpenSSH);
+    // A missing file just means "no hosts known yet", not an error. Any OTHER
+    // failure leaves the collection short of what is on disk, so a NotFound
+    // below cannot be trusted to mean the host is genuinely new: libssh2 either
+    // never opened the file, or broke out of its parse loop and dropped every
+    // entry past that line. Match and Mismatch stay trustworthy either way.
+    let gap = match known.read_file(&kh_path, ssh2::KnownHostFileKind::OpenSSH) {
+        Ok(_) => None,
+        Err(_) if !kh_path.exists() => None,
+        Err(e) => Some(classify_known_hosts_error(e.code())),
+    };
 
     match known.check_port(host, port, &key) {
         ssh2::CheckResult::Match => Ok(fingerprint),
@@ -1281,17 +1672,542 @@ fn verify_host_key(sess: &ssh2::Session, host: &str, port: u16) -> Result<String
         )),
         ssh2::CheckResult::NotFound => {
             // First sight: pin the key (accept-new) so a later change is caught.
-            let fmt = host_key_format(key_type)?;
-            known
-                .add(host, &key, "added by Pluto's Terminal", fmt)
-                .map_err(|e| format!("failed to record host key: {e}"))?;
-            if let Some(parent) = kh_path.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            let _ = known.write_file(&kh_path, ssh2::KnownHostFileKind::OpenSSH);
+            pin_new_host_key(&kh_path, gap, host, port, key_type, &key)?;
             Ok(fingerprint)
         }
         ssh2::CheckResult::Failure => Err("host-key check failed".into()),
+    }
+}
+
+#[cfg(test)]
+mod known_hosts_tests {
+    // Audit R1/SEC-1: pinning a first-seen host key used to read the user's
+    // ~/.ssh/known_hosts into libssh2 and write the WHOLE collection back, which
+    // deletes everything libssh2's parser could not load. `verify_host_key`
+    // itself needs a live SSH session, so the pinning half is split into
+    // `pin_new_host_key` and exercised here against a real file.
+    use super::*;
+
+    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+    /// A private `<tmp>/<unique>/.ssh/known_hosts` path. The dir does NOT exist
+    /// yet, so every test also proves the create-parents path.
+    fn kh_path(tag: &str) -> PathBuf {
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let mut p = std::env::temp_dir();
+        p.push(format!("plutokh-{}-{n}-{tag}", std::process::id()));
+        let _ = fs::remove_dir_all(&p);
+        p.join(".ssh").join("known_hosts")
+    }
+
+    /// The same private path with non-ASCII characters in it: the shape of
+    /// Windows profile path this whole branch is about. libssh2's reader goes
+    /// through the NARROW CRT `fopen` (knownhost.c:973), so on a box whose
+    /// active ANSI code page cannot represent these characters it cannot open
+    /// the file at all, while every read here goes through Rust's wide API and
+    /// works. Written as escapes so the source file stays ASCII.
+    fn kh_path_non_ascii(tag: &str) -> PathBuf {
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let mut p = std::env::temp_dir();
+        p.push(format!(
+            "plutokh-Bj\u{f6}rn-\u{41c}\u{438}\u{448}\u{430}-\u{6f22}\u{5b57}-{}-{n}-{tag}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&p);
+        p.join(".ssh").join("known_hosts")
+    }
+
+    // 32 bytes: an ed25519 blob is not a multiple of 3, so this also pins the
+    // base64 padding the line format needs.
+    fn key() -> Vec<u8> {
+        (0u8..32).collect()
+    }
+
+    /// A DIFFERENT key for the same host: what an active MITM looks like.
+    fn other_key() -> Vec<u8> {
+        (32u8..64).collect()
+    }
+
+    /// Load `path` into a real libssh2 known-hosts collection, with no server
+    /// anywhere.
+    ///
+    /// `ssh2::Session::new()` allocates no socket (ssh2-0.9.6 session.rs:160
+    /// leaves `tcp: None`) and `known_hosts()` is a bare `libssh2_knownhost_init`
+    /// on it, so libssh2's own parser and `check_port` are both reachable
+    /// entirely offline. Every other test here asserts on the STRING we produce,
+    /// which only proves our formatter agrees with itself. `known_hosts_line` is
+    /// hand-rolled specifically to be read back by this parser, so the contract
+    /// that actually matters is whether libssh2 accepts what we wrote, and this
+    /// is the only thing that answers it. `read_file` erroring IS the assertion:
+    /// its reader breaks out of the parse loop on a line it cannot handle
+    /// (knownhost.c:975).
+    fn libssh2_reads(path: &Path) -> ssh2::KnownHosts {
+        let sess = ssh2::Session::new().expect("libssh2 session (no socket needed)");
+        let mut known = sess.known_hosts().expect("knownhost collection");
+        known
+            .read_file(path, ssh2::KnownHostFileKind::OpenSSH)
+            .unwrap_or_else(|e| panic!("libssh2 refused the known_hosts we wrote: {e}"));
+        known
+    }
+
+    #[test]
+    fn pinning_preserves_every_existing_byte_of_known_hosts() {
+        // The R1 failure: the file holds a comment, a blank line, a good entry,
+        // a line libssh2's parser aborts on, and a good entry BELOW it. A
+        // rewrite-from-the-parse keeps at most the first entry. An append keeps
+        // the whole file, so the original must survive as a byte-exact prefix.
+        let path = kh_path("preserve");
+        let original = concat!(
+            "# my hosts, hand-maintained\n",
+            "\n",
+            "gitlab.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB\n",
+            "broken.example.com this-line-libssh2-cannot-parse\n",
+            "prod-db.internal ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB me@work\n",
+        );
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, original).unwrap();
+
+        pin_new_host_key(&path, None, "new-host.example.com", 22, ssh2::HostKeyType::Ed25519, &key())
+            .unwrap();
+
+        let after = fs::read_to_string(&path).unwrap();
+        assert!(
+            after.starts_with(original),
+            "pinning must not rewrite the file; it now reads:\n{after}"
+        );
+        assert_eq!(after.lines().count(), original.lines().count() + 1);
+        assert!(after.lines().last().unwrap().starts_with("new-host.example.com ssh-ed25519 "));
+    }
+
+    #[test]
+    fn pinning_does_not_glue_onto_a_last_line_with_no_newline() {
+        // Plenty of real known_hosts files end without a trailing newline. A bare
+        // append would fuse our entry onto the tail of theirs and destroy BOTH.
+        let path = kh_path("noeol");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "last.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB").unwrap();
+
+        pin_new_host_key(&path, None, "new.example.com", 22, ssh2::HostKeyType::Ed25519, &key())
+            .unwrap();
+
+        let after = fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = after.lines().collect();
+        assert_eq!(lines.len(), 2, "the two entries must stay separate lines: {after:?}");
+        assert_eq!(lines[0], "last.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB");
+        assert!(lines[1].starts_with("new.example.com ssh-ed25519 "));
+    }
+
+    #[test]
+    fn refuses_to_pin_when_the_file_was_not_fully_parsed() {
+        // A partial parse makes check_port answer NotFound for every host at or
+        // below the bad line, so accept-new would blind-trust a host that IS
+        // already pinned, and an active MITM on it would read as a first sighting.
+        let path = kh_path("partial");
+        let original = "good.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB\n";
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, original).unwrap();
+
+        let err = pin_new_host_key(
+            &path,
+            Some(KnownHostsGap::Unparsed),
+            "new.example.com",
+            22,
+            ssh2::HostKeyType::Ed25519,
+            &key(),
+        )
+        .unwrap_err();
+
+        assert!(err.contains("malformed line"), "unhelpful error: {err}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            original,
+            "a refused pin must not touch the file"
+        );
+    }
+
+    #[test]
+    fn a_known_hosts_libssh2_could_not_open_is_not_reported_as_a_malformed_line() {
+        // libssh2 reports "could not open the file" and "aborted mid-parse" as
+        // the same bare Err, and both used to read as a parse failure. The two
+        // are not interchangeable to the user: sending someone whose file merely
+        // could not be OPENED off to "fix or remove the malformed line" points
+        // at contents that are perfectly fine, and the obvious next move is to
+        // empty the file, losing every pin R1 exists to protect.
+        //
+        // An unopened file no longer refuses on its own, because our own read
+        // usually settles it. This is the case where it cannot: a hashed host
+        // name needs an HMAC-SHA1 over the name under a per-entry salt, which
+        // nothing in this build can compute, so the entry can be neither ruled
+        // in nor out and accept-new stays unsafe. The refusal survives; the
+        // wrong explanation must still not come with it.
+        let path = kh_path("unopenable");
+        let original = concat!(
+            "|1|F1E1jrLZDBHQOJ6xUCPP1p3jGxg=|nMbLnbFHCEE4vsxJn7pSt2E5+2g= ",
+            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB\n"
+        );
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, original).unwrap();
+
+        let err = pin_new_host_key(
+            &path,
+            Some(KnownHostsGap::Unopened),
+            "new.example.com",
+            22,
+            ssh2::HostKeyType::Ed25519,
+            &key(),
+        )
+        .unwrap_err();
+
+        assert!(
+            !err.contains("malformed line") && !err.contains("fully parsed"),
+            "blames a malformed line in a file that has none: {err}"
+        );
+        assert!(err.contains("could not be opened"), "unhelpful error: {err}");
+        assert!(err.contains("hashed host name"), "must name the real cause: {err}");
+        // Still fail closed: the hashed entry could be this very host.
+        assert!(err.contains("Refusing to trust a new key"), "must still refuse: {err}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            original,
+            "a refused pin must not touch the file"
+        );
+    }
+
+    #[test]
+    fn a_failed_open_and_a_failed_parse_are_told_apart_by_their_libssh2_code() {
+        // knownhost.c:986 answers LIBSSH2_ERROR_FILE (-16) when its fopen fails,
+        // and :977 answers LIBSSH2_ERROR_KNOWN_HOSTS (-46) when a line will not
+        // parse. Both arrive as a bare Err, so the code is the whole signal.
+        use ssh2::ErrorCode::Session;
+        assert_eq!(classify_known_hosts_error(Session(-16)), KnownHostsGap::Unopened);
+        assert_eq!(classify_known_hosts_error(Session(-46)), KnownHostsGap::Unparsed);
+        // An unrecognised code keeps the old reading rather than claiming a file
+        // could not be opened when we do not actually know that.
+        assert_eq!(classify_known_hosts_error(Session(-1)), KnownHostsGap::Unparsed);
+    }
+
+    #[test]
+    fn pinning_creates_the_ssh_dir_and_file_on_a_fresh_machine() {
+        let path = kh_path("fresh");
+        assert!(!path.exists());
+
+        pin_new_host_key(&path, None, "first.example.com", 22, ssh2::HostKeyType::Rsa, &key())
+            .unwrap();
+
+        let after = fs::read_to_string(&path).unwrap();
+        assert!(after.starts_with("first.example.com ssh-rsa "));
+        assert!(after.ends_with('\n'));
+    }
+
+    #[test]
+    fn non_default_ports_pin_under_the_bracket_form() {
+        // OpenSSH's own convention, and the first thing libssh2's check_port
+        // looks up. Port 22 stays bare or the bracket form would never match.
+        let bare = known_hosts_line("h.example.com", 22, ssh2::HostKeyType::Ed25519, &key()).unwrap();
+        assert!(bare.starts_with("h.example.com ssh-ed25519 "), "{bare}");
+        let ported =
+            known_hosts_line("h.example.com", 2222, ssh2::HostKeyType::Ed25519, &key()).unwrap();
+        assert!(ported.starts_with("[h.example.com]:2222 ssh-ed25519 "), "{ported}");
+    }
+
+    #[test]
+    fn key_type_names_match_what_libssh2_writes_and_reads() {
+        // These strings are the contract with libssh2's own parser; a typo would
+        // pin a line that silently never matches again (knownhost.c:782-793).
+        use ssh2::HostKeyType::*;
+        for (t, want) in [
+            (Rsa, "ssh-rsa"),
+            (Dss, "ssh-dss"),
+            (Ecdsa256, "ecdsa-sha2-nistp256"),
+            (Ecdsa384, "ecdsa-sha2-nistp384"),
+            (Ecdsa521, "ecdsa-sha2-nistp521"),
+            (Ed25519, "ssh-ed25519"),
+        ] {
+            let line = known_hosts_line("h", 22, t, &key()).unwrap();
+            assert_eq!(line.split(' ').nth(1).unwrap(), want, "in line: {line}");
+        }
+        assert!(known_hosts_line("h", 22, Unknown, &key()).is_err());
+    }
+
+    #[test]
+    fn a_host_name_with_whitespace_is_refused_rather_than_written() {
+        // "evil.example.com other.example.com" would parse back as a pin for a
+        // host we never talked to.
+        for bad in ["evil.example.com other.example.com", "with\ttab", ""] {
+            assert!(
+                known_hosts_line(bad, 22, ssh2::HostKeyType::Ed25519, &key()).is_err(),
+                "{bad:?} should not produce a line"
+            );
+        }
+    }
+
+    #[test]
+    fn libssh2_matches_the_pin_we_wrote_for_it() {
+        // The round trip the string assertions cannot make: write the line with
+        // our own formatter, hand the file to libssh2, and let ITS check_port
+        // answer. A padding slip, a key-name typo or a host field libssh2 reads
+        // differently all land as NotFound here, which in production is a pin
+        // that silently never matches again, so every reconnect re-pins and a
+        // changed key never raises the MISMATCH it exists to raise.
+        let path = kh_path("roundtrip");
+        pin_new_host_key(&path, None, "h.example.com", 22, ssh2::HostKeyType::Ed25519, &key())
+            .unwrap();
+
+        let known = libssh2_reads(&path);
+
+        assert!(
+            matches!(known.check_port("h.example.com", 22, &key()), ssh2::CheckResult::Match),
+            "libssh2 does not recognise its own pin: {:?}",
+            known.check_port("h.example.com", 22, &key())
+        );
+        // And the whole point of pinning: a different key on that host is the
+        // MITM answer, not another first sighting.
+        assert!(
+            matches!(
+                known.check_port("h.example.com", 22, &other_key()),
+                ssh2::CheckResult::Mismatch
+            ),
+            "a changed key must read as Mismatch: {:?}",
+            known.check_port("h.example.com", 22, &other_key())
+        );
+    }
+
+    #[test]
+    fn libssh2_scopes_a_non_default_port_pin_to_that_port() {
+        // `[host]:port` is what check_port probes first (knownhost.c:374). The
+        // string test above proves we WRITE that form; this proves libssh2 reads
+        // it back as the port-scoped entry it is meant to be, so a dev box on
+        // 2222 and a bastion on 22 can no longer share one pin.
+        let path = kh_path("ported");
+        pin_new_host_key(&path, None, "h.example.com", 2222, ssh2::HostKeyType::Ed25519, &key())
+            .unwrap();
+
+        let known = libssh2_reads(&path);
+
+        assert!(
+            matches!(known.check_port("h.example.com", 2222, &key()), ssh2::CheckResult::Match),
+            "the bracket form must match on its own port: {:?}",
+            known.check_port("h.example.com", 2222, &key())
+        );
+        assert!(
+            matches!(known.check_port("h.example.com", 22, &key()), ssh2::CheckResult::NotFound),
+            "port 22 must not inherit the 2222 pin: {:?}",
+            known.check_port("h.example.com", 22, &key())
+        );
+    }
+
+    #[test]
+    fn a_pin_appended_after_a_missing_final_newline_still_parses() {
+        // `pinning_does_not_glue_onto_a_last_line_with_no_newline` checks this by
+        // splitting the file ourselves, which cannot see what libssh2 makes of
+        // the result. A fused line would leave OUR entry unfindable and take the
+        // pre-existing one with it, and both failures are silent.
+        let path = kh_path("noeol-roundtrip");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "last.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB").unwrap();
+
+        pin_new_host_key(&path, None, "new.example.com", 22, ssh2::HostKeyType::Ed25519, &key())
+            .unwrap();
+
+        let known = libssh2_reads(&path);
+
+        assert!(
+            matches!(known.check_port("new.example.com", 22, &key()), ssh2::CheckResult::Match),
+            "the appended pin must survive the newline repair: {:?}",
+            known.check_port("new.example.com", 22, &key())
+        );
+    }
+
+    #[test]
+    fn known_hosts_keys_are_padded_but_fingerprints_are_not() {
+        // libssh2 emits padded base64 for the key blob and its reader expects it;
+        // the SHA256: fingerprint OpenSSH shows the user is unpadded.
+        let line = known_hosts_line("h", 22, ssh2::HostKeyType::Ed25519, &key()).unwrap();
+        let blob = line.split(' ').nth(2).unwrap();
+        assert_eq!(blob.len() % 4, 0, "key blob must be padded: {blob}");
+        assert!(blob.ends_with('='), "32 bytes needs one pad char: {blob}");
+        assert!(!base64(&key(), false).contains('='));
+        assert_eq!(base64(b"", true), "");
+        assert_eq!(base64(b"a", true), "YQ==");
+        assert_eq!(base64(b"ab", true), "YWI=");
+        assert_eq!(base64(b"abc", true), "YWJj");
+    }
+
+    #[test]
+    fn a_non_ascii_profile_path_can_still_pin_a_new_host() {
+        // The regression: refusing outright whenever libssh2 could not OPEN the
+        // file killed accept-new for every user whose profile path the narrow
+        // CRT cannot represent, which is to say every Cyrillic, CJK or accented
+        // Windows username. Fail-closed cannot mean the feature is dead for a
+        // whole class of users, so the lookup is done here instead.
+        let path = kh_path_non_ascii("newhost");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = "other.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB\n";
+        fs::write(&path, original).unwrap();
+
+        pin_new_host_key(
+            &path,
+            Some(KnownHostsGap::Unopened),
+            "new.example.com",
+            22,
+            ssh2::HostKeyType::Ed25519,
+            &key(),
+        )
+        .unwrap();
+
+        let after = fs::read_to_string(&path).unwrap();
+        assert!(after.starts_with(original), "the existing pin must survive: {after}");
+        assert!(
+            after.lines().last().unwrap().starts_with("new.example.com ssh-ed25519 "),
+            "the new host must be pinned: {after}"
+        );
+    }
+
+    #[test]
+    fn an_already_pinned_host_is_recognised_when_libssh2_could_not_open_the_file() {
+        // The security half of the same fix, and the reason the branch refused
+        // in the first place: with libssh2 holding NOTHING its NotFound means
+        // nothing, so accept-new would blind-trust a host that is already
+        // pinned and an active MITM on it would read as a first sighting. Our
+        // own read sees the pin, so the host stays known and is not re-pinned.
+        let path = kh_path_non_ascii("known");
+        pin_new_host_key(&path, None, "h.example.com", 22, ssh2::HostKeyType::Ed25519, &key())
+            .unwrap();
+        let before = fs::read_to_string(&path).unwrap();
+
+        pin_new_host_key(
+            &path,
+            Some(KnownHostsGap::Unopened),
+            "h.example.com",
+            22,
+            ssh2::HostKeyType::Ed25519,
+            &key(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            before,
+            "a host we already trust must not collect a second pin"
+        );
+    }
+
+    #[test]
+    fn a_changed_key_is_refused_when_libssh2_could_not_open_the_file() {
+        // The MITM answer has to survive the new route. check_port cannot give
+        // it here, because libssh2 loaded nothing, so our own read is the only
+        // thing standing between the user and a silently re-pinned host.
+        let path = kh_path_non_ascii("mitm");
+        pin_new_host_key(&path, None, "h.example.com", 22, ssh2::HostKeyType::Ed25519, &key())
+            .unwrap();
+        let before = fs::read_to_string(&path).unwrap();
+
+        let err = pin_new_host_key(
+            &path,
+            Some(KnownHostsGap::Unopened),
+            "h.example.com",
+            22,
+            ssh2::HostKeyType::Ed25519,
+            &other_key(),
+        )
+        .unwrap_err();
+
+        assert!(err.contains("MISMATCH"), "unhelpful error: {err}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            before,
+            "a refused pin must not touch the file"
+        );
+    }
+
+    #[test]
+    fn our_own_lookup_probes_the_same_two_host_forms_libssh2_does() {
+        // knownhost.c:372-386: check_port builds `[host]:port` and probes it
+        // first, then the bare name, for EVERY port. Reading the file ourselves
+        // has to agree with that, or a host pinned under one form reads as
+        // first-seen under the other and collects a second contradictory pin.
+        let path = kh_path_non_ascii("ports");
+        pin_new_host_key(&path, None, "h.example.com", 2222, ssh2::HostKeyType::Ed25519, &key())
+            .unwrap();
+        let before = fs::read_to_string(&path).unwrap();
+        assert!(before.starts_with("[h.example.com]:2222 "), "{before}");
+
+        // Same host on the same port: the bracket form is found, nothing is added.
+        pin_new_host_key(
+            &path,
+            Some(KnownHostsGap::Unopened),
+            "h.example.com",
+            2222,
+            ssh2::HostKeyType::Ed25519,
+            &key(),
+        )
+        .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
+
+        // Port 22 is a different identity and must still pin separately.
+        pin_new_host_key(
+            &path,
+            Some(KnownHostsGap::Unopened),
+            "h.example.com",
+            22,
+            ssh2::HostKeyType::Ed25519,
+            &key(),
+        )
+        .unwrap();
+        let after = fs::read_to_string(&path).unwrap();
+        assert!(
+            after.lines().last().unwrap().starts_with("h.example.com ssh-ed25519 "),
+            "the bracket pin must not answer for port 22: {after}"
+        );
+    }
+
+    #[test]
+    fn a_wildcard_pin_is_not_mistaken_for_an_unknown_host() {
+        // OpenSSH host patterns glob, and libssh2 honours that. Ignoring it
+        // would let a host covered by a `*.example.com` pin read as first-seen,
+        // which is precisely the blind trust this branch exists to refuse.
+        let path = kh_path_non_ascii("wildcard");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = format!("*.example.com ssh-ed25519 {}\n", base64(&other_key(), true));
+        fs::write(&path, &original).unwrap();
+
+        let err = pin_new_host_key(
+            &path,
+            Some(KnownHostsGap::Unopened),
+            "h.example.com",
+            22,
+            ssh2::HostKeyType::Ed25519,
+            &key(),
+        )
+        .unwrap_err();
+
+        assert!(err.contains("MISMATCH"), "unhelpful error: {err}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+        // The other half of the glob, so neither direction can go vacuous: a
+        // pattern that does NOT cover this host must leave it first-seen. A
+        // matcher stubbed to always agree fails here; one stubbed to never
+        // agree fails above.
+        let elsewhere = kh_path_non_ascii("wildcard-miss");
+        fs::create_dir_all(elsewhere.parent().unwrap()).unwrap();
+        fs::write(&elsewhere, format!("*.other.com ssh-ed25519 {}\n", base64(&other_key(), true)))
+            .unwrap();
+
+        pin_new_host_key(
+            &elsewhere,
+            Some(KnownHostsGap::Unopened),
+            "h.example.com",
+            22,
+            ssh2::HostKeyType::Ed25519,
+            &key(),
+        )
+        .unwrap();
+
+        let after = fs::read_to_string(&elsewhere).unwrap();
+        assert!(
+            after.lines().last().unwrap().starts_with("h.example.com ssh-ed25519 "),
+            "a pattern for another domain must not claim this host: {after}"
+        );
     }
 }
 

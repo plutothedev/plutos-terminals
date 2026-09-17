@@ -180,6 +180,14 @@ function connect(token) {
       if (!term) initTerm(); setTimeout(() => { try { fit.fit(); sendResize(); } catch {} }, 50); onReady(); }
     else if (m.type === "rpc-result") { const p = pending[m.id]; if (p) { delete pending[m.id]; ("err" in m) ? p.reject(m.err) : p.resolve(m.ok); } }
     else if (m.type === "event") { const cb = subs[m.channel]; if (cb) cb(m.payload); }
+    // Backpressure marker from the desktop (companion.rs `dropped_marker`). The
+    // outbound queue is bounded, so a phone that fell behind genuinely LOST
+    // terminal output. Say so in the buffer: an unmarked gap is indistinguishable
+    // from a command that simply printed less, which for a terminal is the
+    // failure that matters. The wire shape (`type`/`frames`) is pinned against
+    // this branch by `the_companion_page_handles_the_dropped_marker` in
+    // companion.rs, so emitter and consumer cannot drift apart again.
+    else if (m.type === "dropped") { if (term) term.write(`\r\n[-- ${m.frames} frames dropped --]\r\n`); }
   };
   ws.onclose = () => {
     subs = {};

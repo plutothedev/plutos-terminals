@@ -1,7 +1,7 @@
 // (C)
 // VNC connection prompt (host / port / password). The password is handed to the
 // VNC tab transiently via ptyBridge (never persisted), like SSH passwords.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 
 const field = {
@@ -22,6 +22,8 @@ export default function VncConnectModal({ open, onConnect, onClose, initial = nu
   const [port, setPort] = useState("5900");
   const [password, setPassword] = useState("");
   const hostRef = useRef(null);
+  // A11Y-10, see RdpConnectModal.jsx for the reasoning.
+  const uid = useId();
 
   useEffect(() => {
     if (open) {
@@ -52,17 +54,18 @@ export default function VncConnectModal({ open, onConnect, onClose, initial = nu
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
-            <label style={label}>Host</label>
-            <input ref={hostRef} style={field} value={host} onChange={(e) => setHost(e.target.value)} placeholder="localhost" spellCheck={false} readOnly={lockConnection} />
+            <label style={label} htmlFor={`${uid}-host`}>Host</label>
+            <input id={`${uid}-host`} ref={hostRef} style={field} value={host} onChange={(e) => setHost(e.target.value)} placeholder="localhost" spellCheck={false} readOnly={lockConnection} />
           </div>
           <div style={{ width: 96 }}>
-            <label style={label}>Port</label>
-            <input style={field} value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" readOnly={lockConnection} />
+            <label style={label} htmlFor={`${uid}-port`}>Port</label>
+            <input id={`${uid}-port`} style={field} value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" readOnly={lockConnection} />
           </div>
         </div>
         <div>
-          <label style={label}>Password (if required)</label>
+          <label style={label} htmlFor={`${uid}-password`}>Password (if required)</label>
           <input
+            id={`${uid}-password`}
             style={field}
             type="password"
             value={password}

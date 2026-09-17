@@ -2,7 +2,12 @@
 // Keystroke macros manager. Record what you type into a terminal, save it under
 // a name, then replay it into the active terminal with one click — handy for
 // repeated login dances, boilerplate commands, multi-step flows. Replaying sends
-// the exact captured bytes (Enter included) to the active tab via ptyBridge.
+// the exact captured bytes (Enter included) to the active PANE via ptyBridge.
+//
+// The arm/replay target is a PANE id, not a tab id (audit FE-1): macros.js
+// scopes the capture with `recordInput(tabId, data)` called from TerminalPane,
+// where `tabId` is that pane's leaf id. Arming with a tab id captured zero
+// keystrokes on any split tab, so "Stop & save" reported "Nothing recorded."
 import { useEffect, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
@@ -16,7 +21,7 @@ import { STrash } from "./toolbarIcons.jsx";
 const ACCENT = "var(--phn-link, #7c9cf5)";
 const DIM = "var(--phn-text-dim, #888)";
 
-export default function MacrosModal({ open, onClose, onReplay, canReplay, activeTabId }) {
+export default function MacrosModal({ open, onClose, onReplay, canReplay, activePaneId }) {
   const toast = useToast();
   const [macros, setMacros] = useState([]);
   const [recording, setRecording] = useState(isMacroRecording());
@@ -28,8 +33,8 @@ export default function MacrosModal({ open, onClose, onReplay, canReplay, active
   const persist = (list) => { setMacros(list); saveMacros(list); };
 
   const startRec = () => {
-    if (!activeTabId) { toast.error("Open/focus a terminal to record into first."); return; }
-    startMacroRecording(activeTabId);
+    if (!activePaneId) { toast.error("Open/focus a terminal to record into first."); return; }
+    startMacroRecording(activePaneId);
     toast.info("Recording the active terminal — avoid typing passwords (they'd be saved). Click Stop & save when done.");
   };
 

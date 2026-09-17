@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@backend";
 import TerminalPane, { todayDate, transcriptName } from "./TerminalPane";
 import { PaneBoundary } from "../../components/ErrorBoundary.jsx";
@@ -8,11 +8,13 @@ import MobaHomeScreen from "./MobaHomeScreen";
 import NotebookView from "./NotebookView";
 import ShareModal from "./ShareModal.jsx";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
+import { resolveActivePaneId } from "./activePane.js";
 import { SSplitRow, SSplitCol } from "./toolbarIcons.jsx";
 import { dropZone, zoneToSplit, zonePreviewRect } from "./splitDropZones.js";
 import { isSpecialTab } from "./paneIds.js";
 import { mergeActivity } from "./hooks/useTabTelemetry.js";
 import { getPaneActivity, usePanelActivityStamp } from "./activityStore.js";
+import { armTabStripFocus, releaseTabStripFocus } from "./tabStripFocus.js";
 import "./terminals.css";
 
 // Colors come from the active app skin via CSS vars on <html>. Module-level
@@ -24,9 +26,47 @@ const STRIP_BG = "var(--phn-surface-bg, rgba(17,17,17,0.95))";
 const BORDER_DIM = "var(--phn-surface-border, rgba(255,255,255,0.08))";
 const TAB_FG = "var(--phn-text-fg, #9D9D9D)";
 const TAB_FG_ACTIVE = "var(--phn-text-active, #E6E6E6)";
+// Alpha washes composite from a per-skin RGB TRIPLE instead of a hardcoded white
+// one: 255,255,255 in all twelve dark skins, 0,0,0 in moba-light and daylight
+// (headerSkins.css, COMPONENT-LITERAL SET). Each site keeps its own alpha, so
+// every call below resolves to the exact rgba(255,255,255,α) literal it replaced
+// on all twelve dark skins, and inverts on the two light ones. The previous
+// attempt used --phn-hover-bg, which carries one fixed 0.05/0.06 alpha, so it
+// restyled these sites on all fourteen skins to fix two.
+const wash = (a) => `rgba(var(--phn-wash-rgb, 255,255,255), ${a})`;
+// Maximum-contrast ink: #ffffff on every dark skin, which is exactly what these
+// sites hardcoded, and near-black on the two light ones. NOT --phn-text-active,
+// which is the skin's own emphasis colour (#00fff7 on neon, #ffb000 on amber,
+// #eceef0 on moba) and would retint ten dark skins to fix two light ones.
+const INK = "var(--phn-ink, #ffffff)";
 const ACCENT = "var(--phn-link, #7c9cf5)";
 const ACCENT_FALLBACK = "#7c9cf5"; // for drag ghost (DOM-built outside React)
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
+
+// A11Y-11, the tab-colour swatch ring. Exported so the contract is testable
+// without asking a DOM to substitute custom properties, which neither happy-dom
+// nor jsdom does (same reasoning as headerSkins.tokens.test.js).
+//
+// The requirement is that SELECTED and UNSELECTED stay apart in all fourteen
+// skins, and no single pair of colour tokens can promise that: the pass before
+// this one used --phn-text-active against --phn-surface-border, which are both
+// #ffffff under `brutal`, collapsing the two states into one ring there and
+// most of the way to one under `amber` and `crt`. So the pair carries a
+// NON-COLOUR cue as well (2px opaque against 1px at 25%) and the colours ride
+// --phn-ink / --phn-wash-rgb, which are #ffffff / 255,255,255 on all twelve
+// dark skins (byte-identical to the literals this replaced) and near-black /
+// 0,0,0 on moba-light and daylight.
+//
+// The clear-colour swatch keeps a literal mid grey: it is the one value that
+// survives inversion, at 4.6:1 on the light menu and 3.3:1 on the dark one.
+export function swatchRing(color, appliedColor) {
+  if (!color) return "1px solid #777";
+  return color === appliedColor ? `2px solid ${INK}` : `1px solid ${wash(0.25)}`;
+}
+// The ✕ inside the clear-colour swatch. Deliberately NOT --phn-text-dim: that
+// swap was never asked for and took the DEFAULT skin's glyph from 6.23:1 to
+// 2.38:1 on its own #181818 menu, under the 3:1 floor an icon has to clear.
+export const SWATCH_CLEAR_GLYPH = "#999";
 
 // transcriptName (the "<project-or-tab>-<last6ofTabId>" stem) is imported from
 // TerminalPane, the write side, so the read side can't silently drift from it.
@@ -130,6 +170,55 @@ function computeLayout(node, dragRatios, rect = { left: 0, top: 0, width: 100, h
   };
 }
 
+// ── Tab-strip focus helpers ─────────────────────────────────────────────────
+// Module scope rather than component scope: the tab context menu's Escape
+// listener below is a window listener that subscribes once per OPEN, and a
+// helper rebuilt on every render would force it to re-subscribe on every render
+// of the panel underneath the open menu. Both are pure DOM, so there is nothing
+// from a render for them to capture.
+//
+// The strip for a node that is NOT inside it. The tab context menu is a
+// fixed-position SIBLING of the strip, so `closest(".moba-tabstrip")` from
+// inside it finds nothing; going up to the panel root first also guarantees
+// a second panel's strip can never be the answer.
+const stripFor = (el) => el?.closest("[data-panel-id]")?.querySelector(".moba-tabstrip") || null;
+const focusTabIn = (strip, id) => {
+  if (!strip || !id) return;
+  // Every caller is a KEYSTROKE deliberately placing focus on a tab, so this
+  // is also where the pane's reveal-focus steal is waved off. Without it the
+  // switch this focus call belongs to reveals the target pane, and 30ms later
+  // TerminalPane's reveal effect focuses its xterm and the next arrow key is
+  // typing into a live shell (see tabStripFocus.js for the measurement).
+  armTabStripFocus();
+  // Match on dataset rather than an attribute selector: tab ids are
+  // generated strings and CSS.escape is not worth the dependency here.
+  for (const el of strip.querySelectorAll(".moba-tab")) {
+    if (el.dataset.tabId === id) { el.focus(); return; }
+  }
+};
+
+// ── Tab context menu: the keyboard model (audit A11Y-12) ────────────────────
+// The menu is a real ARIA menu — role="menu" over menuitem / menuitemradio
+// children, arrows between items, Escape or Tab to leave. It previously
+// announced plain buttons and could only be walked with Tab, which was also the
+// one key that carried focus OUT of it while it stayed open.
+const MENU_ITEM_SEL = '[role="menuitem"],[role="menuitemradio"]';
+// Enabled items, in DOM order. `disabled` buttons are dropped because a
+// disabled button cannot take focus, so stepping onto one would drop focus to
+// <body> — the exact failure this change exists to remove.
+function menuItemsIn(node) {
+  return Array.from(node.querySelectorAll(MENU_ITEM_SEL)).filter((el) => !el.disabled);
+}
+// The vertical ring. The eight colour swatches are one HORIZONTAL row, so they
+// contribute a single stop to Up/Down (the applied colour, else the first) and
+// are walked with Left/Right instead. A flat ring would spend eight Down
+// presses crossing a strip that reads as one control.
+function menuRowsIn(items) {
+  const swatches = items.filter((el) => el.getAttribute("role") === "menuitemradio");
+  const entry = swatches.find((el) => el.getAttribute("aria-checked") === "true") || swatches[0];
+  return items.filter((el) => el.getAttribute("role") !== "menuitemradio" || el === entry);
+}
+
 function TerminalPanel({
   panel,
   isActive,
@@ -229,12 +318,23 @@ function TerminalPanel({
   // transcript, mirroring TerminalPane's block-share flow. null = closed.
   const [shareTarget, setShareTarget] = useState(null);
 
-  // "Share transcript": read the whole session transcript for this tab's root
-  // session (all dated files concatenated, oldest first) and open the share
+  // "Share transcript": read the whole session transcript for the tab's ACTIVE
+  // PANE (all dated files concatenated, oldest first) and open the share
   // preview. An empty / whitespace-only or unreadable transcript means nothing
   // was recorded, so just notify and open no modal (fail-closed: nothing leaves).
+  //
+  // Pane-addressed, not tab-addressed (audit FE-1). TerminalPane writes its
+  // transcript under its own LEAF id (`transcriptName(liveProjectName(),
+  // tabIdRef.current)`), and the project-name half only reaches the ROOT leaf
+  // (`projectName={isRoot ? … : null}` below), so the stem has to be rebuilt
+  // from the resolved pane under the same isRoot rule. Keyed on tab.id this
+  // could only ever share pane 1 of a split, and once the ORIGINAL pane was
+  // closed (removeLeaf collapses to the sibling, leaving no leaf whose id
+  // equals tab.id) it either claimed "Nothing recorded yet." for a tab with a
+  // live shell, or served the DEAD pane's on-disk history as the live one's.
   const shareTranscript = async (tab) => {
-    const name = transcriptName(tabProjectNames?.[tab.id] || null, tab.id);
+    const paneId = resolveActivePaneId(tab);
+    const name = transcriptName(paneId === tab.id ? (tabProjectNames?.[tab.id] || null) : null, paneId);
     let rawText = "";
     try {
       rawText = await invoke("transcript_read_all", { name });
@@ -263,6 +363,11 @@ function TerminalPanel({
   // tab is moved via onMoveTab — the live terminal survives the move (the
   // pane registry re-parents the same xterm+PTY into the target panel).
   const handleTabMouseDown = (tab, e) => {
+    // The mouse always wins. A click on a tab has always ended with the caret
+    // in that tab's shell, and it still does even when it lands inside the
+    // half-second window a preceding arrow key opened. Before the button check
+    // on purpose: a right-click hands over too.
+    releaseTabStripFocus();
     if (e.button !== 0) return;
     if (renamingId === tab.id) return;
     const startX = e.clientX, startY = e.clientY;
@@ -438,6 +543,208 @@ function TerminalPanel({
     setRenamingId(null);
   };
   const cancelRename = () => setRenamingId(null);
+  // Both keyboard exits from the inline rename input (Enter commits, Escape
+  // cancels) unmount the input, and a browser does NOT move focus when the
+  // focused node is removed: it drops to <body>, so F2, type, Enter left the
+  // keyboard user outside every control in the app. Put focus back on the tab
+  // they renamed.
+  //
+  // Deferred a task, not called inline, and that ordering is load-bearing:
+  // focusing the tab while the input is still mounted blurs the input, whose
+  // onBlur is commitRename, whose `renamingId` guard reads the CURRENT render's
+  // value (React has not re-rendered yet), so an inline focus call would make
+  // Escape commit the edit it was cancelling. A macrotask runs after React has
+  // flushed this discrete event and dropped the input.
+  const refocusTabAfterRename = (strip, id) => {
+    setTimeout(() => focusTabIn(strip, id), 0);
+  };
+
+  // ── Tab-strip keyboard navigation (A11Y-05, DOM half) ───────────────────
+  //
+  // The strip is a real ARIA tablist with a ROVING tabIndex: exactly one tab
+  // is in the document tab order at a time (the selected one), so twenty tabs
+  // cost the Tab key one stop, not twenty, and Left/Right move between them.
+  //
+  // INVARIANT 1 (PTYs survive React) is why this is derived state and not
+  // React state. `roving` is computed from `panel.activeTabId`, the same value
+  // that already drives the `.active` class, so MOVING FOCUS RE-RENDERS
+  // NOTHING: no useState, no useEffect, no ref, nothing React observes. The
+  // only re-render in this path is the tab switch itself, which is the exact
+  // render a mouse click already produced before this change. Focus is applied
+  // to a DOM node that is already mounted and keyed by `tab.id`, so React
+  // reconciles it in place; no key, element type, or tree position in the pane
+  // area moves. See TerminalPanel.a11y.test.jsx, which mounts the real
+  // component and asserts a pane is not remounted across arrow-key tab
+  // switches.
+  //
+  // The strip element is resolved from the event rather than held in a ref:
+  // every caller here is a keydown on a node inside the strip, so `closest`
+  // already knows the answer, and a ref would put a `.current` read in
+  // reachability range of the render tree for no gain.
+  const stripOf = (e) => e.currentTarget.closest(".moba-tabstrip");
+  // `stripFor` and `focusTabIn` are module scope (top of this file) so the
+  // context menu's window-level Escape effect can use them without a dep.
+  // Close from the keyboard, keeping focus inside the strip: the neighbour is
+  // resolved and focused BEFORE React drops the closed tab, and that neighbour
+  // node survives the re-render (same key), so focus never falls to <body>.
+  const closeTabFromKeyboard = (tab, strip) => {
+    const i = panel.tabs.findIndex((t) => t.id === tab.id);
+    const neighbour = panel.tabs[i + 1] || panel.tabs[i - 1];
+    h.closeTab(tab.id);
+    if (neighbour) focusTabIn(strip, neighbour.id);
+  };
+  const handleTabKeyDown = (tab, e) => {
+    // While renaming, every keystroke belongs to the input nested inside this
+    // tab and bubbles through here. Arrow keys must edit text, not move tabs.
+    if (renamingId === tab.id) return;
+    const tabs = panel.tabs;
+    const i = tabs.findIndex((t) => t.id === tab.id);
+    if (i < 0) return;
+    let target = null;
+    switch (e.key) {
+      case "ArrowRight": target = tabs[(i + 1) % tabs.length]; break;
+      case "ArrowLeft": target = tabs[(i - 1 + tabs.length) % tabs.length]; break;
+      case "Home": target = tabs[0]; break;
+      case "End": target = tabs[tabs.length - 1]; break;
+      case "Enter":
+      case " ":
+        // A focused <div role="tab"> gets no synthetic click from Enter the
+        // way a <button> would, so activation is explicit. Space would scroll
+        // the strip's overflow container without the preventDefault.
+        e.preventDefault(); e.stopPropagation();
+        // Activation moves no focus, so it never reaches focusTabIn, but it
+        // DOES reveal a pane, so arm it here or Enter hands the strip's focus to
+        // the terminal 30ms later, which is the ARIA opposite of activation.
+        armTabStripFocus();
+        h.switchTab(tab.id);
+        return;
+      case "Delete":
+        if (tabs.length <= 1) return; // last tab in a panel is not closeable
+        e.preventDefault(); e.stopPropagation();
+        closeTabFromKeyboard(tab, stripOf(e));
+        return;
+      case "F2":
+        e.preventDefault(); e.stopPropagation();
+        startRename(tab);
+        return;
+      default:
+        return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    if (target && target.id !== tab.id) h.switchTab(target.id);
+    focusTabIn(stripOf(e), target.id);
+  };
+  // Context-menu keyboard exit (audit A11Y-12). Making the tabs focusable opened
+  // a route into this menu that did not exist before: Chromium dispatches
+  // `contextmenu` at the FOCUSED element for the Menu key and Shift+F10, so the
+  // keyboard can now open it. Every dismissal it had was mouse-only (the
+  // backdrop's onMouseDown / onContextMenu), and the backdrop blocks pointer
+  // events, not keys, so with focus still parked on the tab behind it the arrow
+  // keys kept switching tabs under an open menu pinned to the id it opened on.
+  //
+  // The first pass moved focus into the menu and listened for Escape ON THE
+  // MENU ELEMENT, which meant the exit died the instant focus left it — and Tab
+  // did that in one keypress, since nothing trapped it. Escape is now a WINDOW
+  // listener, so it closes the menu from wherever focus has ended up.
+  const tabCtxMenuRef = useRef(null);
+
+  // A stable callback ref so React runs it exactly on mount (and once with null
+  // on unmount). An inline arrow would be a new function every render and React
+  // would re-run it every time the panel re-rendered underneath the open menu,
+  // yanking focus back to the first item mid-interaction.
+  const mountTabCtxMenu = useCallback((el) => {
+    tabCtxMenuRef.current = el;
+    el?.querySelector(MENU_ITEM_SEL)?.focus();
+  }, []);
+
+  // Close the menu and hand focus back to the tab it was pinned to. The tab id
+  // is read off the menu node's own marker attribute rather than captured from
+  // a render, which is what keeps this callback stable enough for the effect
+  // below to subscribe once per OPEN instead of once per render. Focus first,
+  // close second: a browser moves focus NOWHERE when the focused node is
+  // removed, so once the state commits it would already have fallen to <body>.
+  const dismissTabCtxMenu = useCallback(() => {
+    const node = tabCtxMenuRef.current;
+    const id = node?.dataset?.tabCtxMenu;
+    if (id) focusTabIn(stripFor(node), id);
+    setTabCtxMenu(null);
+  }, []);
+
+  // Escape, from anywhere. Scoped to the TOPMOST menu the same way Modal.jsx
+  // scopes its own Escape to the topmost dialog: read the live DOM at event
+  // time, which survives effect re-runs where a counter or a depth prop does
+  // not. (The menu sits at z-index 9999, above the 9990 modal overlay, so when
+  // both are somehow open the menu is genuinely the layer on top.)
+  useEffect(() => {
+    if (!tabCtxMenu) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      const menus = document.querySelectorAll("[data-tab-ctx-menu]");
+      if (menus.length === 0 || menus[menus.length - 1] !== tabCtxMenuRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dismissTabCtxMenu();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tabCtxMenu, dismissTabCtxMenu]);
+
+  // Arrow keys move between items, so Tab no longer has to. Down/Up walk the
+  // vertical ring (see menuRowsIn), Left/Right walk the colour row, Home/End
+  // jump to the ends, and Tab dismisses: a menu is not part of the document tab
+  // sequence, and dismissing on Tab is what makes the trap unreachable rather
+  // than merely escapable.
+  const onTabCtxMenuKey = (e) => {
+    const node = tabCtxMenuRef.current;
+    if (!node) return;
+    if (e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
+      dismissTabCtxMenu();
+      return;
+    }
+    const horizontal = e.key === "ArrowRight" || e.key === "ArrowLeft";
+    const vertical = e.key === "ArrowDown" || e.key === "ArrowUp";
+    const homeEnd = e.key === "Home" || e.key === "End";
+    if (!horizontal && !vertical && !homeEnd) return;
+    const active = document.activeElement;
+    const onSwatch = active?.getAttribute?.("role") === "menuitemradio";
+    // Left/Right belong to the colour row only. Anywhere else in the menu they
+    // are somebody else's keys and must not be swallowed.
+    if (horizontal && !onSwatch) return;
+    const items = menuItemsIn(node);
+    if (items.length === 0) return;
+    const ring = horizontal
+      ? items.filter((el) => el.getAttribute("role") === "menuitemradio")
+      : menuRowsIn(items);
+    if (ring.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    let i = ring.indexOf(active);
+    // Vertical, from a swatch that is not the row's entry stop: treat the row
+    // as the current position so Down lands on the item after it, not item one.
+    if (i < 0) i = ring.findIndex((el) => el.getAttribute("role") === "menuitemradio");
+    if (i < 0) i = 0;
+    let next;
+    if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = ring.length - 1;
+    else if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (i + 1) % ring.length;
+    else next = (i - 1 + ring.length) % ring.length;
+    ring[next].focus();
+  };
+
+  // Enter/Space activation for the non-tab controls in the strip (close ✕,
+  // new-tab +, close-panel ✕). They stay <span>/<div> rather than becoming
+  // <button>: their styling lives in terminals.css, which this change does not
+  // own, and a UA button box (buttonface fill, outset border, centred system
+  // font) would repaint them on all fourteen skins.
+  const activateOnKey = (fn) => (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    e.stopPropagation();
+    fn(e);
+  };
 
   // Flat panel framing (mockup 12): a thin neutral border, no glow, no
   // rainbow. The focused panel only gets a blue edge when the grid is split
@@ -489,9 +796,20 @@ function TerminalPanel({
           overflow: "hidden",
         }}
       >
-        <div className="moba-tabstrip" data-tour={isActive ? "tab-strip" : undefined} style={{ display: "flex", flex: 1, minWidth: 0, overflowX: "auto", overflowY: "hidden", alignItems: "stretch" }}>
+        {/* role="tablist" (A11Y-05). The new-tab + is a non-tab child of the
+            list, which is the one ARIA compromise here: it lives INSIDE the
+            horizontally-scrolling strip so it sits immediately after the last
+            tab, and hoisting it out to the flex:1 parent would park it against
+            the far right edge of the panel. It is exposed as a named button
+            rather than dropped from the a11y tree. */}
+        <div className="moba-tabstrip" role="tablist" aria-label="Terminal tabs" aria-orientation="horizontal" data-tour={isActive ? "tab-strip" : undefined} style={{ display: "flex", flex: 1, minWidth: 0, overflowX: "auto", overflowY: "hidden", alignItems: "stretch" }}>
           {panel.tabs.map((tab, ti) => {
             const active = tab.id === panel.activeTabId;
+            // Roving tabIndex. `active` can be false for EVERY tab if
+            // activeTabId is stale, which would leave the strip with no tab
+            // stop at all, so the roving flag falls back the same way
+            // `activeTab` does (first tab) rather than reusing `active`.
+            const roving = tab.id === (activeTab?.id ?? panel.tabs[0]?.id);
             const tabState = aggregateTabActivity(tab);
             const isRenamingThis = renamingId === tab.id;
             const paneCount = leafIds(getLayout(tab)).length;
@@ -503,16 +821,31 @@ function TerminalPanel({
             return (
               <div
                 key={tab.id}
+                id={`phn-tab-${tab.id}`}
                 data-tab-id={tab.id}
                 className={active ? "moba-tab active" : "moba-tab"}
+                role="tab"
+                aria-selected={active}
+                aria-controls={`phn-tabpanel-${tab.id}`}
+                // Explicit name. Without it the name is computed from the tab's
+                // contents, which would swallow the close button's own label
+                // and announce "Terminal 1 ✕ Close Terminal 1".
+                aria-label={paneCount > 1 ? `${tab.label}, ${paneCount} panes` : tab.label}
+                tabIndex={roving ? 0 : -1}
                 onMouseDown={(e) => { handleTabMouseDown(tab, e); }}
                 onClick={(e) => { e.stopPropagation(); if (!isRenamingThis) h.switchTab(tab.id); }}
                 onDoubleClick={(e) => { e.stopPropagation(); startRename(tab); }}
+                onKeyDown={(e) => handleTabKeyDown(tab, e)}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setTabCtxMenu({ x: e.clientX, y: e.clientY, tabId: tab.id }); }}
                 onMouseEnter={() => setHoverTabId(tab.id)}
                 onMouseLeave={() => setHoverTabId((cur) => (cur === tab.id ? null : cur))}
-                style={{ cursor: isRenamingThis ? "text" : "pointer" }}
-                title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click to rename)`}
+                // outlineOffset draws the UA focus ring INSIDE the tab. The
+                // strip's parent is overflow:hidden at height 30 and the tab is
+                // 27px flush to its bottom edge, so a default (offset 0) ring
+                // would be clipped along the bottom. No paint changes unless
+                // the tab is focused, so all fourteen skins are untouched.
+                style={{ cursor: isRenamingThis ? "text" : "pointer", outlineOffset: -2 }}
+                title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click or F2 to rename · Del to close)`}
               >
                 {/* Drag-reorder drop bar (audit M6): a positive-z child, not a
                     box-shadow on the tab — the trapezoid ::before/::after fills
@@ -520,6 +853,10 @@ function TerminalPanel({
                 <span className="moba-tab-dropbar" aria-hidden="true" />
                 <span
                   className={tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
+                  // Decorative: the tab carries its own aria-label, and this
+                  // dot's title is a mouse tooltip, which aria-hidden leaves
+                  // working. Contains nothing focusable.
+                  aria-hidden="true"
                   title={tab.home ? "Session launch screen" : tab.worktree ? `Agent worktree (${tab.worktree.branch})` : tab.rdp ? "RDP desktop" : tab.vnc ? "VNC desktop" : tab.notebook ? "Notebook" : tab.connection ? "SSH session" : tab.serial ? "Serial console" : "Local shell"}
                   style={{
                     display: "inline-block",
@@ -544,18 +881,39 @@ function TerminalPanel({
                     onBlur={commitRename}
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") { e.preventDefault(); commitRename(); }
-                      else if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+                      if (e.key !== "Enter" && e.key !== "Escape") return;
+                      e.preventDefault();
+                      // Resolved BEFORE the state change: the input is about to
+                      // be unmounted, and a detached node's closest() is null.
+                      const strip = e.currentTarget.closest(".moba-tabstrip");
+                      if (e.key === "Enter") commitRename();
+                      else cancelRename();
+                      refocusTabAfterRename(strip, tab.id);
                     }}
+                    aria-label="Rename tab"
                     spellCheck={false}
                     style={{
-                      background: "rgba(255,255,255,0.08)",
+                      // A11Y-03, the white-on-white input. This field paints on
+                      // the ACTIVE TAB BODY (--phn-tab-bg-active), not on the
+                      // panel, and that is what made it the worst site in the
+                      // app: on moba-light the tab body is #ffffff, so an 8%
+                      // white wash composited straight back to #ffffff and #fff
+                      // text vanished. wash() keeps the identical 0.08 alpha and
+                      // only flips which colour it is made of.
+                      background: wash(0.08),
                       border: `1px solid ${ACCENT}`,
-                      color: "#fff",
+                      color: INK,
                       fontFamily: "inherit",
                       fontSize: 12,
                       padding: "0 4px",
                       width: Math.max(60, renameValue.length * 7 + 12),
+                      // outline:none is kept deliberately: the 1px --phn-link
+                      // border above IS this field's focus treatment. The element
+                      // only exists while renaming and is focused on mount, so the
+                      // border is never absent while focus is here, and it clears
+                      // the 3:1 non-text floor in every skin (4.65:1 on daylight,
+                      // 4.17:1 on moba-light, 4.00:1 on moba). Dropping
+                      // outline:none would add a UA ring the dark skins never had.
                       outline: "none",
                       borderRadius: 2,
                     }}
@@ -564,14 +922,24 @@ function TerminalPanel({
                   <span className="moba-tab-label">{tab.label}</span>
                 )}
                 {paneCount > 1 && !isRenamingThis && (
-                  <span title={`${paneCount} panes`} style={{ color: "var(--phn-text-faint, #586068)", fontSize: 9, flexShrink: 0 }}>
+                  // Already folded into the tab's aria-label above, so hidden
+                  // here rather than announced twice.
+                  <span aria-hidden="true" title={`${paneCount} panes`} style={{ color: "var(--phn-text-faint, #586068)", fontSize: 9, flexShrink: 0 }}>
                     ⊞{paneCount}
                   </span>
                 )}
                 {panel.tabs.length > 1 && !isRenamingThis && (
                   <span
                     className="moba-tab-x"
+                    role="button"
+                    aria-label={`Close ${tab.label}`}
+                    // Rides the same roving index as its tab, so the strip
+                    // costs the Tab key two stops in total (selected tab, its
+                    // close button) no matter how many tabs are open. Del on
+                    // the focused tab does the same thing without leaving it.
+                    tabIndex={roving ? 0 : -1}
                     onClick={(e) => { e.stopPropagation(); h.closeTab(tab.id); }}
+                    onKeyDown={activateOnKey((ev) => closeTabFromKeyboard(tab, stripOf(ev)))}
                     onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-danger, #e08784)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.color = ""; }}
                   >
@@ -582,7 +950,11 @@ function TerminalPanel({
             );
           })}
           <div
+            role="button"
+            tabIndex={0}
+            aria-label="New tab in this panel"
             onClick={(e) => { e.stopPropagation(); h.addTab(); }}
+            onKeyDown={activateOnKey(() => h.addTab())}
             style={{
               display: "flex",
               alignItems: "center",
@@ -593,6 +965,7 @@ function TerminalPanel({
               fontSize: 15,
               lineHeight: 1,
               userSelect: "none",
+              outlineOffset: -2, // see the tab's own note: the strip clips at 30px
             }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-text-bright, #F2F4F7)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--phn-text-faint, #586068)"; }}
@@ -603,13 +976,18 @@ function TerminalPanel({
         </div>
         {canClosePanel && (
           <div
+            role="button"
+            tabIndex={0}
+            aria-label="Close this panel"
             onClick={(e) => { e.stopPropagation(); h.closePanel(); }}
+            onKeyDown={activateOnKey(() => h.closePanel())}
             style={{
               padding: "4px 8px",
               cursor: "pointer",
               color: "#555",
               fontSize: 11,
               userSelect: "none",
+              outlineOffset: -2,
             }}
             title="Close this panel"
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-danger, #e08784)"; }}
@@ -636,6 +1014,13 @@ function TerminalPanel({
           return (
             <div
               key={tab.id}
+              // Attributes only. The element type, the key and the position in
+              // the tree are unchanged, so this cannot remount a pane
+              // (invariant 1). display:none already removes the inactive ones
+              // from the a11y tree, so no `hidden` attribute is needed.
+              id={`phn-tabpanel-${tab.id}`}
+              role="tabpanel"
+              aria-labelledby={`phn-tab-${tab.id}`}
               style={{ position: "absolute", inset: 0, display: tabVisible ? "block" : "none" }}
             >
               {tab.home ? (
@@ -789,12 +1174,30 @@ function TerminalPanel({
       {tabCtxMenu && (() => {
         const tab = panel.tabs.find(t => t.id === tabCtxMenu.tabId);
         if (!tab) return null;
-        const close = () => setTabCtxMenu(null);
+        // Dismiss, never a bare setTabCtxMenu(null): a native <button
+        // role="menuitem"> turns Enter into click, and closing the menu while
+        // focus is still inside it drops focus to <body>. dismissTabCtxMenu
+        // hands focus back to the tab FIRST, so an action that moves focus
+        // nowhere ("Close others", a share modal that opens after the button
+        // is gone) still ends on a tab. The backdrop and the colour swatches go
+        // through the same door for the same reason.
+        //
+        // focusTabIn also ARMS the reveal-focus guard (tabStripFocus.js), which
+        // is right for a keystroke and wrong for the mouse: a user who
+        // right-clicks and clicks "Duplicate" expects the caret in the new
+        // shell, the way a click on a tab has always ended. A mouse click
+        // carries detail > 0; Enter on a <button> synthesises a click with
+        // detail 0. So the mouse releases the guard again, right after the
+        // dismissal armed it.
         const multi = panel.tabs.length > 1;
         const item = (label, onClick, opts = {}) => (
           <button
+            role="menuitem"
+            // Nothing inside an open menu sits in the document tab sequence:
+            // arrows move between items and Tab dismisses (onTabCtxMenuKey).
+            tabIndex={-1}
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); close(); if (!opts.disabled) onClick(); }}
+            onClick={(e) => { e.stopPropagation(); dismissTabCtxMenu(); if (e.detail > 0) releaseTabStripFocus(); if (!opts.disabled) onClick(); }}
             disabled={opts.disabled}
             style={{
               display: "block", width: "100%", textAlign: "left",
@@ -812,9 +1215,22 @@ function TerminalPanel({
         );
         return (
           <>
-            <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onMouseDown={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />
+            <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onMouseDown={() => { dismissTabCtxMenu(); releaseTabStripFocus(); }} onContextMenu={(e) => { e.preventDefault(); dismissTabCtxMenu(); releaseTabStripFocus(); }} />
             <div
+              ref={mountTabCtxMenu}
+              // The marker attribute does double duty: the window-level Escape
+              // effect scopes itself to the LAST one in document order, and
+              // dismissTabCtxMenu reads the tab to hand focus back to off it.
+              data-tab-ctx-menu={tabCtxMenu.tabId}
+              // role="menu" is now honest: arrow-key navigation between
+              // menuitem / menuitemradio children is implemented below, which
+              // is the promise the role makes and the reason it was previously
+              // declined here.
+              role="menu"
+              aria-label={`${tab.label || "Tab"} actions`}
+              tabIndex={-1}
               onMouseDown={(e) => e.stopPropagation()}
+              onKeyDown={onTabCtxMenuKey}
               style={{
                 position: "fixed",
                 left: Math.min(tabCtxMenu.x, window.innerWidth - 190),
@@ -832,17 +1248,41 @@ function TerminalPanel({
                   {[null, "#ef4444", "#f59e0b", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#a855f7"].map((c) => (
                     <span
                       key={c || "none"}
+                      // The row was click-only: it is eight of the menu's
+                      // stops and a keyboard user could not reach any of them.
+                      // menuitemradio, not menuitem, because exactly one of the
+                      // eight is applied at a time — and aria-checked is also
+                      // what menuRowsIn uses to pick the row's entry stop.
+                      role="menuitemradio"
+                      aria-checked={c === (tab.color || null)}
+                      aria-label={c ? `Color this tab ${c}` : "Clear tab color"}
+                      tabIndex={-1}
                       onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => { e.stopPropagation(); close(); onSetTabColor(tab.id, c); }}
+                      onClick={(e) => { e.stopPropagation(); dismissTabCtxMenu(); onSetTabColor(tab.id, c); }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        // A <span> gets no synthetic click from Enter the way a
+                        // <button> would, so activation is explicit; Space
+                        // would scroll without the preventDefault. Dismiss
+                        // rather than close: recolouring moves focus nowhere,
+                        // so without the hand-back this new keyboard route
+                        // would end on <body>.
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dismissTabCtxMenu();
+                        onSetTabColor(tab.id, c);
+                      }}
                       title={c ? "Color this tab" : "Clear color"}
                       style={{
                         width: 14, height: 14, borderRadius: "50%", cursor: "pointer", flexShrink: 0,
                         background: c || "transparent",
-                        border: c
-                          ? (tab.color === c ? "2px solid #fff" : "1px solid rgba(255,255,255,0.25)")
-                          : "1px solid #777",
+                        // Ring pair + clear-glyph ink: see swatchRing() and
+                        // SWATCH_CLEAR_GLYPH at the top of this file, where the
+                        // fourteen-skin reasoning lives next to the values it
+                        // constrains (and where the test can reach it).
+                        border: swatchRing(c, tab.color),
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 9, color: "#999", lineHeight: 1,
+                        fontSize: 9, color: SWATCH_CLEAR_GLYPH, lineHeight: 1,
                       }}
                     >
                       {c ? "" : "✕"}
@@ -856,7 +1296,10 @@ function TerminalPanel({
               {!tab.home && !tab.vnc && !tab.rdp && !tab.notebook && item("Share transcript…", () => shareTranscript(tab))}
               <div style={{ height: 1, background: BORDER_DIM, margin: "4px 0" }} />
               {item("Close others", () => h.closeOthers(tab.id), { disabled: !multi })}
-              {item("Close", () => h.closeTab(tab.id), { disabled: !multi, danger: true })}
+              {/* The keyboard close: dismiss has just put focus on the tab that is
+                  about to be removed, so move it to a neighbour the way the
+                  tab's own Delete key does. */}
+              {item("Close", () => closeTabFromKeyboard(tab, stripFor(tabCtxMenuRef.current)), { disabled: !multi, danger: true })}
             </div>
           </>
         );

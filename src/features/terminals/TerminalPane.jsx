@@ -3,6 +3,9 @@ import { invoke } from "@backend";
 import { listen } from "@backend";
 import { setPaneActivity } from "./activityStore.js";
 import { stripAnsi, detectPendingPrompt } from "./promptDetect.js";
+import { buildScanWindow, evictScanChunks, reconcileCost, resolveFamily } from "./costScan.js";
+import { computePromptRect, samePromptRect } from "./promptRect.js";
+import { shouldPaneTakeFocus } from "./tabStripFocus.js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -62,7 +65,7 @@ import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import { actionForEvent } from "./keybindings.js";
 import { buildWelcomeBanner } from "./welcomeBanner.js";
-import { buildPosixShellInit, buildPowerShellInit } from "./shellIntegration.js";
+import { buildPosixShellInit, buildPowerShellInit, parsePlutoCmdReport } from "./shellIntegration.js";
 import { resolveEnvFromUserState } from "./spawnEnv.js";
 // PromptEditor rides behind the default-off promptEditor flag yet its static
 // import chained the whole CodeMirror stack (~130kB gz) into EVERYONE's boot
@@ -148,6 +151,11 @@ const DONE_TIMEOUT_MS = 5000;
 // via scrollback_load (P1-T6) — enough to fill xterm's buffer, not megabytes
 // parsed at boot.
 const SCROLLBACK_MAX_BYTES = 100_000;
+// Eviction hysteresis (PERF-5): let the buffer run this far past budget before
+// cutting it back, so the append path pays one batched splice per ~25KB of
+// output instead of one whole-array shift per arriving chunk. The scan window
+// reads the TAIL, so extra retained bytes at the head are never read.
+const SCROLLBACK_EVICT_SLACK_BYTES = 25_000;
 
 // Session transcripts: ANSI-stripped output appended to a daily markdown
 // file every 5s (or sooner if 8KB has accumulated). Lets the user grep
@@ -226,16 +234,12 @@ const FAMILY_BLENDED_RATE_PER_M = {
 };
 const DEFAULT_FAMILY = "opus"; // Worst-case fallback when banner not yet parsed.
 
-// Detect which Claude family is in play by scanning the welcome banner /
-// status line. Claude Code prints e.g. "Opus 4.7 (1M context) with high
-// effort · Claude Max" near session start, and "claude-opus-4-7" in /cost
-// output. Both surface forms (friendly + API) covered.
-const FAMILY_DETECT_RE = /\bclaude-(opus|sonnet|haiku)\b|\b(opus|sonnet|haiku)\s*[0-9]/i;
-function detectFamily(text) {
-  const m = text.match(FAMILY_DETECT_RE);
-  if (!m) return DEFAULT_FAMILY;
-  return (m[1] || m[2] || DEFAULT_FAMILY).toLowerCase();
-}
+// Family detection (which Claude model is in play) lives in costScan.js:
+// resolveFamily() is sticky-but-re-evaluating, and detectFamily() returns null
+// rather than a default so the caller can tell "no banner in this window" from
+// "the banner says opus". Do NOT re-inline a detector here -- an inlined copy
+// that defaults on no-match is exactly the bug that pinned every session to
+// opus rates (audit PERF-2).
 
 function tokensFromMatch(m) {
   if (!m) return 0;
@@ -494,10 +498,15 @@ function TerminalPane({
     if (!chunk || !e) return;
     e.counters.scrollbackChunks.push(chunk);
     e.counters.scrollbackBytes += chunk.length;
-    while (e.counters.scrollbackBytes > SCROLLBACK_MAX_BYTES && e.counters.scrollbackChunks.length > 1) {
-      const dropped = e.counters.scrollbackChunks.shift();
-      e.counters.scrollbackBytes -= dropped.length;
-    }
+    // Eviction is batched + single-splice in costScan.js. This used to
+    // shift() one chunk per arriving chunk, which is the same O(k^2) class
+    // buildScanWindow was fixed for, on a hotter path (PERF-5).
+    e.counters.scrollbackBytes = evictScanChunks(
+      e.counters.scrollbackChunks,
+      e.counters.scrollbackBytes,
+      SCROLLBACK_MAX_BYTES,
+      SCROLLBACK_EVICT_SLACK_BYTES
+    );
   };
 
   const appendTranscript = (chunk) => {
@@ -607,25 +616,17 @@ function TerminalPane({
     // Scan the LAST ~10KB of scrollback rather than the 2KB recent buffer —
     // the welcome banner with "38.1k tokens" and /cost summaries scroll out
     // of the recent buffer fast on a busy session.
-    let bytes = 0;
-    const parts = [];
-    for (let i = e.counters.scrollbackChunks.length - 1; i >= 0; i--) {
-      const chunk = e.counters.scrollbackChunks[i];
-      parts.unshift(chunk);
-      bytes += chunk.length;
-      if (bytes >= COST_SCAN_BYTES) break;
-    }
-    const text = stripAnsi(parts.join(""));
+    // Assembly is O(k) in costScan.js; the unshift() this used to do was
+    // O(k^2) and k reaches ~1,000 on a token-by-token agent stream (PERF-5).
+    const text = stripAnsi(buildScanWindow(e.counters.scrollbackChunks, COST_SCAN_BYTES));
 
-    let next = { ...e.counters.lastCost };
-    let changed = false;
+    const prev = e.counters.lastCost || { tokens: 0, cost: 0 };
 
-    // Cost: only update if higher (cumulative session figure).
+    // The authoritative figure: whatever `/cost` last printed in this window.
+    // Handed to reconcileCost as an observation, NOT written straight into the
+    // record: it owns the "authoritative beats estimate" rule (PERF-2).
     const cm = text.match(COST_RE);
-    if (cm) {
-      const v = parseFloat(cm[1]);
-      if (!Number.isNaN(v) && v > next.cost) { next.cost = v; changed = true; }
-    }
+    const authoritative = cm ? parseFloat(cm[1]) : 0;
 
     // Tokens: take the max value found across all patterns + model lines.
     let bestTokens = 0;
@@ -635,36 +636,33 @@ function TerminalPane({
     }
     const modelSum = sumModelLines(text);
     if (modelSum > bestTokens) bestTokens = modelSum;
-    if (bestTokens > next.tokens) {
-      next.tokens = bestTokens;
-      changed = true;
-    }
+
+    // Re-resolve the model family BEFORE the estimate below consumes it, so a
+    // window that both names the model and reports tokens is costed at the
+    // right rate on its very first scan. resolveFamily keeps the previous
+    // value when this window names no model (the banner scrolls out fast) and
+    // replaces it when it does (a mid-session /model switch is real). See
+    // costScan.js. The old code here latched on the first non-empty result,
+    // and its detector defaulted to "opus" on no match, so the family was
+    // pinned by the shell's own prompt on the first PTY chunk (PERF-2).
+    e.counters.family = resolveFamily(e.counters.family, text);
 
     // Derive a live cost estimate from total tokens × per-family blended
     // rate. Claude Code's inline status banner shows tokens climbing in real
     // time but never the dollar figure, so without this estimate the cost
     // stays at $0 until pluto runs /cost — which most sessions never trigger.
-    // Authoritative COST_RE matches above already take priority via the
-    // monotonic "only update if higher" rule. Estimate uses the cumulative
-    // `next.tokens` (which never decreases) rather than `bestTokens` (the
-    // snapshot in the current 10KB window, which can drop as banners scroll
-    // out).
-    if (!e.counters.family) {
-      const detected = detectFamily(text);
-      if (detected) e.counters.family = detected;
-    }
-    if (next.tokens > 0) {
-      const family = e.counters.family || DEFAULT_FAMILY;
-      const rate = FAMILY_BLENDED_RATE_PER_M[family] || FAMILY_BLENDED_RATE_PER_M[DEFAULT_FAMILY];
-      const estimated = (next.tokens * rate) / 1_000_000;
-      if (estimated > next.cost) {
-        next.cost = estimated;
-        changed = true;
-      }
-    }
+    // The rate table stays here (pricing data); reconcileCost owns the rules
+    // that keep the estimate and the authoritative figure from fighting.
+    const family = e.counters.family || DEFAULT_FAMILY;
+    const ratePerM = FAMILY_BLENDED_RATE_PER_M[family] || FAMILY_BLENDED_RATE_PER_M[DEFAULT_FAMILY];
 
-    if (changed) {
-      e.counters.lastCost = next;
+    const next = reconcileCost(prev, { authoritative, tokens: bestTokens, ratePerM });
+
+    // Always store: costEst can move while the DISPLAYED cost holds steady
+    // (an authoritative figure is pinning it), and dropping that write would
+    // strand the estimate at whatever it read when /cost first landed.
+    e.counters.lastCost = next;
+    if (next.cost !== prev.cost || next.tokens !== prev.tokens) {
       try { (e.ui?.onCost ?? onCostRef.current)?.(next); } catch {}
     }
   };
@@ -1099,14 +1097,15 @@ function TerminalPane({
       // without it — a command string printed by a remote SSH host, a cat'd
       // file, an MOTD, a compromised process — is swallowed but NEVER promoted
       // into the trusted, persistent, one-click-re-runnable command history.
-      const payload = data.slice("PlutoCmd=".length);
-      const sep = payload.indexOf(":");
-      const reportNonce = sep >= 0 ? payload.slice(0, sep) : "";
-      if (!entry.oscNonce || reportNonce !== entry.oscNonce) return true;
+      // The gate lives in shellIntegration.js next to the hooks that emit the
+      // nonce, so it is unit-tested against them and round-tripped through their
+      // own emitted format (audit TQ-2). Do NOT re-inline it here: an inlined
+      // copy is invisible to those tests, which is how the enforcement half of
+      // H1 went uncovered while three tests named for H1 stayed green.
+      const report = parsePlutoCmdReport(data, entry.oscNonce);
+      if (!report) return true; // rejected or malformed: swallowed, never recorded
       try {
-        const bin = atob(payload.slice(sep + 1));
-        const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
-        const cmd = new TextDecoder().decode(bytes);
+        const cmd = report.cmd;
         recordCommand(cmd);
         // A command was submitted → leave prompt state (hide the editor) until
         // the next prompt re-arms it.
@@ -1114,7 +1113,7 @@ function TerminalPane({
         entry.ui.setAtPrompt(false);
         // Tag the open block with the command it's running (for block copy/re-run).
         if (entry.blocks.current) entry.blocks.current.command = cmd;
-      } catch { /* malformed payload — ignore */ }
+      } catch { /* best-effort: a history write must never break the stream */ }
       return true;
     });
     // Sticky command header (Blocks slice 3): while scrolled up into a block's
@@ -1243,17 +1242,16 @@ function TerminalPane({
     registerDestroyHook(tabId, () => unregisterTranscriptFlusher(tabId));
 
     // Boot stagger (P4-T5): the spawn body below no longer auto-fires on
-    // first mount. It's parked on the entry as a once-latched startSpawn —
-    // the latch is the spawnState transition itself ("unspawned" → "starting"
-    // happens synchronously, so the first caller wins and every later
-    // reveal/trickle call no-ops). Visible/active panes fire immediately
-    // (identical behavior to before for everything the user can see); hidden
-    // restored panes wait for first reveal ([visible] effect) or the
-    // TerminalsTab trickle. Scrollback replay rides inside — a hidden pane's
-    // replay defers with its spawn.
-    entry.startSpawn = () => {
-      if (entry.spawnState !== "unspawned") return;
-      entry.spawnState = "starting";
+    // first mount. It is REGISTERED here and fired by entry.startSpawn(),
+    // whose once-latch (the synchronous "unspawned" to "starting" flip) lives
+    // in paneRegistry.js next to the state it guards. Do NOT re-add a guard
+    // here: a second copy of the latch is exactly what let both of its tests
+    // pass while the real one went unexercised (audit TQ-3). Visible/active
+    // panes fire immediately (identical behavior to before for everything the
+    // user can see); hidden restored panes wait for first reveal ([visible]
+    // effect) or the TerminalsTab trickle. Scrollback replay rides inside, so
+    // a hidden pane's replay defers with its spawn.
+    entry.spawnBody = () => {
       (async () => {
       const restored = await replayScrollback();
       try {
@@ -1871,8 +1869,14 @@ function TerminalPane({
       if (el && el.clientWidth && el.clientHeight) {
         try { fitRef.current?.fit(); } catch {}
       }
-      // Only the active pane of a (possibly split) tab steals focus on show.
-      if (activeRef.current) {
+      // Only the active pane of a (possibly split) tab steals focus on show,
+      // and only when the tab strip is not being driven from the keyboard.
+      // This steal is what makes a MOUSE click on a tab land the caret in the
+      // shell; an arrow-key switch produces the identical reveal, so without
+      // the guard it also emptied the tab strip of focus 30ms after every
+      // keyboard switch and the NEXT arrow key went into the live PTY. See
+      // tabStripFocus.js, which holds the measurement and the reasoning.
+      if (activeRef.current && shouldPaneTakeFocus()) {
         try { termRef.current?.focus(); } catch {}
       }
     }, 30);
@@ -1958,16 +1962,20 @@ function TerminalPane({
     const wrap = wrapEl.getBoundingClientRect();
     const sr = screen.getBoundingClientRect();
     if (!sr.width) return;
-    const cellW = sr.width / term.cols;
-    const cellH = sr.height / term.rows;
-    const cx = term.buffer.active.cursorX;
-    const cy = term.buffer.active.cursorY;
-    setPeRect({
-      top: (sr.top - wrap.top) + cy * cellH,
-      left: (sr.left - wrap.left) + cx * cellW,
-      width: Math.max(60, sr.width - cx * cellW - 4),
-      height: Math.max(12, cellH),
+    const rect = computePromptRect({
+      wrapTop: wrap.top, wrapLeft: wrap.left,
+      screenTop: sr.top, screenLeft: sr.left,
+      screenWidth: sr.width, screenHeight: sr.height,
+      cols: term.cols, rows: term.rows,
+      cursorX: term.buffer.active.cursorX,
+      cursorY: term.buffer.active.cursorY,
     });
+    // Functional updater + identity preservation (PERF-4): this used to hand
+    // setPeRect a freshly built object every time, which is never Object.is
+    // equal to the previous state, so a scroll that did not move the editor by
+    // a pixel still re-rendered the whole pane. Returning `prev` unchanged lets
+    // React bail out of the render.
+    setPeRect((prev) => (samePromptRect(prev, rect) ? prev : rect));
     setAtPrompt(true);
   };
   captureRef.current = capturePrompt;
@@ -1992,14 +2000,39 @@ function TerminalPane({
   }, [showEditor]);
 
   // Reposition the editor as the viewport scrolls/resizes while shown.
+  //
+  // rAF-coalesced (PERF-4), the same pattern updateSticky uses on the sibling
+  // onScroll path: xterm fires onScroll once PER SCROLLED LINE, and
+  // capturePrompt does TWO getBoundingClientRect() calls, i.e. two forced
+  // synchronous layouts, plus a setState. One wheel flick over a few hundred
+  // lines ran that a few hundred times inside a single frame. Final-state-wins
+  // is lossless for an absolutely-positioned overlay: only the last placement
+  // of the frame is ever painted.
+  //
+  // The rAF id is effect-LOCAL rather than a useRef on purpose. It costs no
+  // top-level hook (this file's hook order is load-bearing, CLAUDE.md
+  // invariant 7), and it scopes teardown exactly right: hiding the editor or
+  // unmounting cancels a pending reposition through the cleanup below, so a
+  // queued frame can never call into a torn-down capture.
   useEffect(() => {
     if (!showEditor) return;
     const term = termRef.current;
     if (!term) return;
-    const reposition = () => captureRef.current?.();
+    let raf = 0;
+    const reposition = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        captureRef.current?.();
+      });
+    };
     const d1 = term.onScroll?.(reposition);
     const d2 = term.onResize?.(reposition);
-    return () => { d1?.dispose?.(); d2?.dispose?.(); };
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      d1?.dispose?.();
+      d2?.dispose?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showEditor]);
 

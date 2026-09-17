@@ -1,11 +1,19 @@
 // (C)
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { invoke } from "@backend";
 import { SLocal, SSsh, SWindows, SMouse } from "./toolbarIcons.jsx";
 
 const BG = "var(--phn-surface-bg, #181818)";
 const PAGE = "var(--phn-page-bg, #0a0a0a)";
 const FG = "var(--phn-text-fg, #CCCCCC)";
+// Heading emphasis. The hardcoded near-white this replaces read as 1.06:1 on the
+// light skins, where the card behind it is #ececec, and the ADD/EDIT label is the
+// only thing telling the two modes apart.
+// --phn-ink-soft, NOT --phn-text-active: text-active is the skin's own emphasis
+// colour, so it is #eceef0 on moba and OLED and would have shifted the heading
+// off #E6E6E6 on every dark skin to fix two light ones. ink-soft is pinned to
+// #E6E6E6 in all twelve dark blocks, so this line renders identically there.
+const FG_ACTIVE = "var(--phn-ink-soft, #E6E6E6)";
 const FG_DIM = "var(--phn-text-dim, #9D9D9D)";
 const BORDER = "var(--phn-surface-border, #2B2B2B)";
 const ACCENT = "var(--phn-link, #7c9cf5)";
@@ -75,6 +83,15 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
   // RDP-only extra field (RDP reuses host/port/user; domain is optional). VNC
   // reuses host/port only.
   const [domain, setDomain] = useState("");
+
+  // A11Y-10, the last 11 of the finding's 25 sites. Every caption below was a
+  // <label> carrying no htmlFor and wrapping no control, so the platform gave
+  // these fields no accessible name: a screen-reader user stepping through Add
+  // session heard a run of anonymous edit boxes, and clicking the word "HOST"
+  // did not focus Host. useId rather than literal ids so a second dialog in a
+  // second window cannot collide. Declared above the `if (!open)` early return
+  // so the hook order is unconditional (invariant 7).
+  const uid = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -287,7 +304,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
           padding: 16,
         }}
       >
-        <div style={{ fontSize: 13, color: "#E6E6E6", marginBottom: 14, letterSpacing: 0.5 }}>
+        <div style={{ fontSize: 13, color: FG_ACTIVE, marginBottom: 14, letterSpacing: 0.5 }}>
           {initial ? "EDIT SESSION" : "ADD SESSION"}
         </div>
 
@@ -320,9 +337,10 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
 
         {type === "local" ? (
           <div style={{ marginBottom: 12 }}>
-            <label style={labelStyle}>Path</label>
+            <label style={labelStyle} htmlFor={`${uid}-path`}>Path</label>
             <div style={{ display: "flex", gap: 6 }}>
               <input
+                id={`${uid}-path`}
                 value={path}
                 onChange={(e) => handlePathChange(e.target.value)}
                 placeholder="C:\path\to\project"
@@ -352,8 +370,9 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
           <>
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <div style={{ flex: 2, minWidth: 0 }}>
-                <label style={labelStyle}>Host</label>
+                <label style={labelStyle} htmlFor={`${uid}-host`}>Host</label>
                 <input
+                  id={`${uid}-host`}
                   value={host}
                   onChange={(e) => handleHostChange(e.target.value)}
                   placeholder="example.com or 10.0.0.4"
@@ -362,8 +381,9 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
                 />
               </div>
               <div style={{ width: 80, flexShrink: 0 }}>
-                <label style={labelStyle}>Port</label>
+                <label style={labelStyle} htmlFor={`${uid}-port`}>Port</label>
                 <input
+                  id={`${uid}-port`}
                   value={port}
                   onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ""))}
                   placeholder={type === "rdp" ? "3389" : type === "vnc" ? "5900" : "22"}
@@ -374,8 +394,9 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
             </div>
             {(type === "ssh" || type === "rdp") && (
             <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Username{type === "rdp" ? " (optional)" : ""}</label>
+              <label style={labelStyle} htmlFor={`${uid}-username`}>Username{type === "rdp" ? " (optional)" : ""}</label>
               <input
+                id={`${uid}-username`}
                 value={user}
                 onChange={(e) => handleUserChange(e.target.value)}
                 placeholder={type === "rdp" ? "Administrator" : "root"}
@@ -386,8 +407,9 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
             )}
             {type === "rdp" && (
             <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Domain (optional)</label>
+              <label style={labelStyle} htmlFor={`${uid}-domain`}>Domain (optional)</label>
               <input
+                id={`${uid}-domain`}
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
                 placeholder="WORKGROUP"
@@ -398,8 +420,17 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
             )}
             {type === "ssh" && (<>
             <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Authentication</label>
-              <div style={{ display: "flex", gap: 6 }}>
+              {/* Deliberately not a <label>: this caption names a group of
+                  three <button>s, and a label can only name one control, so as
+                  a <label> it named nothing and announced as loose text.
+                  role="group" is load-bearing, not decoration: a bare <div>
+                  maps to role=generic, which PROHIBITS name-from-author, so the
+                  platform would discard the aria-labelledby and the row would
+                  go back to being an unnamed cluster of buttons. labelStyle
+                  already sets display:block, so the div renders pixel-identical
+                  to the label it replaces. */}
+              <div style={labelStyle} id={`${uid}-auth-label`}>Authentication</div>
+              <div style={{ display: "flex", gap: 6 }} role="group" aria-labelledby={`${uid}-auth-label`}>
                 {[
                   ["password", "Password"],
                   ["key", "Private key"],
@@ -427,8 +458,9 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
             </div>
             {authMethod === "key" && (
               <div style={{ marginBottom: 12 }}>
-                <label style={labelStyle}>Private key path</label>
+                <label style={labelStyle} htmlFor={`${uid}-key-path`}>Private key path</label>
                 <input
+                  id={`${uid}-key-path`}
                   value={keyPath}
                   onChange={(e) => setKeyPath(e.target.value)}
                   placeholder="~/.ssh/id_ed25519"
@@ -442,8 +474,9 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
         )}
 
         <div style={{ marginBottom: 12 }}>
-          <label style={labelStyle}>Name</label>
+          <label style={labelStyle} htmlFor={`${uid}-name`}>Name</label>
           <input
+            id={`${uid}-name`}
             value={name}
             onChange={(e) => {
               setName(e.target.value);
@@ -456,8 +489,9 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={labelStyle}>Folder (optional)</label>
+          <label style={labelStyle} htmlFor={`${uid}-folder`}>Folder (optional)</label>
           <input
+            id={`${uid}-folder`}
             value={folder}
             onChange={(e) => setFolder(e.target.value)}
             placeholder="e.g. Production · Local · Clients"
@@ -476,8 +510,9 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={labelStyle}>Tags (optional)</label>
+          <label style={labelStyle} htmlFor={`${uid}-tags`}>Tags (optional)</label>
           <input
+            id={`${uid}-tags`}
             value={tagsText}
             onChange={(e) => setTagsText(e.target.value)}
             placeholder="e.g. prod, db, eu-west  (comma or space separated)"
@@ -491,12 +526,13 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
 
         {(type === "local" || type === "ssh") && (
         <div style={{ marginBottom: 16 }}>
-          <label style={labelStyle}>
+          <label style={labelStyle} htmlFor={`${uid}-start-commands`}>
             {type === "ssh"
               ? "Commands to run after connect (optional, one per line)"
               : "Start commands (optional, one per line)"}
           </label>
           <textarea
+            id={`${uid}-start-commands`}
             value={startCommandsText}
             onChange={(e) => setStartCommandsText(e.target.value)}
             placeholder={"claude\n# or\ncodex\n# or any shell command"}

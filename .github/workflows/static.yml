@@ -1,0 +1,129 @@
+# (C) Static analysis — added 2026-08-21 during the full audit.
+#
+# Why this file exists: before today the repo had NO JavaScript linter, no type
+# system, and no license policy. ~30,000 lines of JSX went unchecked by anything
+# except the human eye, and clippy was installed but never gated.
+#
+# Posture is deliberately mixed, and the mix is the point:
+#   - `licenses` is a REAL GATE. It passes clean today across the Windows, Linux
+#     and macOS dependency trees (zero third-party rejections), so it can block
+#     from birth and will catch the first copyleft crate that tries to enter a
+#     proprietary binary.
+#   - everything else is a REPORTER (continue-on-error) because each has a real
+#     backlog as of today: eslint 279 errors, clippy 3 warnings, knip 24, semgrep
+#     31. Gating them now would just paint CI red permanently, which teaches
+#     everyone to ignore CI. Each job carries the exact condition for flipping it
+#     to blocking.
+#
+# All actions are pinned to commit SHAs, matching release.yml, audit.yml and
+# test.yml (all four pinned since the 2026-08-21 audit fixes).
+
+name: static
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  eslint:
+    name: eslint (react-hooks + jsx-a11y)
+    runs-on: ubuntu-latest
+    # FLIP TO BLOCKING WHEN: `npx eslint .` reports 0 errors.
+    # Baseline 2026-08-21: 279 errors / 56 warnings. ~129 of the errors are
+    # accessibility; the rest are correctness (react-hooks/*, require-atomic-updates).
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: eslint
+        run: npx eslint . -f stylish
+
+  knip:
+    name: knip (dead code + unused deps)
+    runs-on: ubuntu-latest
+    # FLIP TO BLOCKING WHEN: the known-good entries (companion-web vendored into
+    # the Rust binary via include_str!, public/boot.js, .claude/hooks,
+    # tests/fixtures/mock_mcp_server.mjs) are declared in a knip.json config and
+    # the remaining count is 0.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx --yes knip --reporter symbols
+
+  clippy:
+    name: cargo clippy
+    runs-on: windows-latest
+    # FLIP TO BLOCKING (add `-- -D warnings`) WHEN: the 3 default-lint warnings
+    # are closed — commands.rs:316 single-char push_str, commands.rs:468 needless
+    # borrow, llm_tools.rs:216 identical if-blocks. It is three fixes away.
+    # windows-latest matches test.yml's primary leg (the ship platform). The old
+    # reason, "keyring has no Linux backend", is stale: Cargo.toml enables
+    # sync-secret-service. Linux is simply not a CI leg yet.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+
+  licenses:
+    name: cargo-deny licenses (BLOCKING)
+    runs-on: ubuntu-latest
+    # This one blocks. Verified 2026-08-21 against the x86_64-pc-windows-msvc,
+    # x86_64-unknown-linux-gnu and x86_64-apple-darwin dependency trees: zero
+    # third-party rejections. cargo-audit checks advisories only and would not
+    # notice a GPL/AGPL crate entering a proprietary, statically-vendored binary.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - name: Cache cargo-deny binary
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: cargo-deny-bin-v1
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked || true
+      - name: cargo deny check licenses
+        working-directory: src-tauri
+        run: cargo deny check licenses
+
+  semgrep:
+    name: semgrep
+    runs-on: ubuntu-latest
+    # FLIP TO BLOCKING WHEN: the 2 secret hits (known-good test fixtures in
+    # agentContext.test.js and secretScan.test.js) are excluded via
+    # .semgrepignore. The mutable-action-tag findings are closed: audit.yml and
+    # test.yml have been SHA-pinned since the 2026-08-21 fixes.
+    # Local OSS engine only: rules are downloaded, source is never uploaded.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: pip install semgrep
+      - name: semgrep scan
+        run: >
+          semgrep scan --metrics=off --error
+          --config=p/javascript --config=p/react --config=p/rust
+          --config=p/secrets --config=p/owasp-top-ten --config=p/command-injection
+          --exclude=node_modules --exclude=dist --exclude=target
+          --exclude=design-mockups

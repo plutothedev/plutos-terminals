@@ -8,6 +8,7 @@ import SftpBrowser from "./SftpBrowser";
 import AgentDashboard from "./AgentDashboard";
 import FKeyBar from "./chrome/FKeyBar.jsx";
 import DockTabStrip from "./chrome/DockTabStrip.jsx";
+import CollapsedRail from "./chrome/CollapsedRail.jsx";
 import StatusBar from "./chrome/StatusBar.jsx";
 import MenuBar from "./chrome/MenuBar.jsx";
 import ModalHost from "./chrome/ModalHost.jsx";
@@ -56,6 +57,8 @@ import { hasUnsavedRemoteEdits } from "./remoteEditDirty.js";
 import { writeToTab, writeBroadcast, getTabText, getPtyId } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
 import { navigatePane } from "./paneNav.js";
+import { resolveActivePaneId, allPaneTargets, findPaneOwner } from "./activePane.js";
+import { nextTabId, tabIdAt } from "./tabNav.js";
 import { reconcile, getEntry } from "./paneRegistry.js";
 import { allRenderedPaneIds, isSpecialTab } from "./paneIds.js";
 import { trickleTick } from "./trickle.js";
@@ -197,20 +200,18 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Session recordings prune here too (review finding): closing a recording tab
   // never called stopRecording, so the recording leaked its events array for the
   // life of the process and left an unclickable red "rec" in the status bar
-  // until an app restart. They need their OWN live set: recordings are keyed by
-  // TAB id, while allRenderedPaneIds yields PANE ids and skips special tabs
-  // entirely, so a split tab that lost the leaf whose id === tab.id (removeLeaf
-  // collapses to the sibling) or a home/vnc/rdp/notebook tab would have a live
-  // recording killed by the pane set.
+  // until an app restart. They still need their OWN live set, but for the
+  // opposite reason to the one recorded here before: recordings are keyed by
+  // PANE id now (audit FE-1: TerminalPane pushes output under its leaf id, so
+  // a tab-id key recorded nothing on a split), and allRenderedPaneIds
+  // deliberately SKIPS special tabs, whose ids can still hold a recording.
+  // allPaneTargets is the same leaf walk without that exclusion, so a
+  // home/vnc/rdp/notebook tab's recording is not killed under a live tab.
   useEffect(() => {
     const live = new Set(allRenderedPaneIds(state.panels));
     reconcile(live);
     pruneActivities(live);
-    const liveTabs = new Set();
-    for (const panel of state.panels) {
-      for (const tab of panel.tabs || []) liveTabs.add(tab.id);
-    }
-    recording.pruneRecordings(liveTabs);
+    recording.pruneRecordings(allPaneTargets(state.panels));
   }, [state.panels]);
 
   // Boot-stagger trickle (P4-T5): hidden restored tabs spawn one TAB per tick
@@ -557,7 +558,21 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Active panel / tab derivation (plain, un-memoized — see useActiveTab). Sits
   // here so every reader below keeps the same declaration order.
-  const { activePanel, activeTabId, activeTab, activeTabRecording } = useActiveTab(state, recordingTabIds);
+  const { activePanel, activeTabId, activeTab } = useActiveTab(state);
+
+  // THE id every "act on the active terminal" action must use. ptyBridge's
+  // writers/readers, the recorder and the macro capture are keyed by PANE id
+  // (TerminalPanel renders `<TerminalPane tabId={node.id}>`), while activeTabId
+  // is a TAB id, and they only coincide on an unsplit tab that still owns its
+  // original pane. Deriving it once here and threading it everywhere is audit
+  // FE-1's fix; see activePane.js for why the fallback is the first leaf and
+  // never tab.id. AgentMode was the one call site that already did this
+  // inline (ModalHost's `activeTab?.activePaneId || activeTabId`) and is now
+  // fed from here like everything else.
+  const activePaneId = resolveActivePaneId(activeTab);
+  // Recordings are pane-keyed too, so the status bar's "is the focused terminal
+  // the one recording?" test has to ask about the pane, not the tab.
+  const activeTabRecording = activePaneId ? recordingTabIds.includes(activePaneId) : false;
 
   // OS titlebar / taskbar / alt-tab mirror the active tab (Tier-2 polish).
   useWindowTitle(activeTab?.label);
@@ -566,7 +581,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // newline — the user reviews it and presses Enter). Bridges via ptyBridge so
   // we don't have to thread the PTY id down through TerminalPanel.
   const insertSnippet = useCallback((command) => {
-    if (!activeTabId) {
+    if (!activePaneId) {
       toast.error("No active terminal to insert into.");
       return;
     }
@@ -581,13 +596,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       toast.info(`Broadcast to ${n} terminal${n === 1 ? "" : "s"}: ${command.length > 32 ? command.slice(0, 32) + "…" : command}`);
       return;
     }
-    const ok = writeToTab(activeTabId, command);
+    const ok = writeToTab(activePaneId, command);
     if (!ok) {
       toast.error("Active terminal isn't ready yet — try again in a moment.");
       return;
     }
     toast.info(`Inserted: ${command.length > 40 ? command.slice(0, 40) + "…" : command}`);
-  }, [activeTabId, broadcast, toast]);
+  }, [activePaneId, broadcast, toast]);
 
   // Active model label — read once here so both StatusBar and MenuBar (chrome/)
   // receive an identical string prop instead of each re-deriving it from userSt.
@@ -752,10 +767,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Write raw data into the active terminal (or all visible, in broadcast mode).
   // Used by the file browser ("cd here", insert path) and snippets.
   const sendToActiveTerminal = useCallback((data) => {
-    if (!activeTabId) { toast.error("No active terminal."); return; }
+    if (!activePaneId) { toast.error("No active terminal."); return; }
     if (broadcast) writeBroadcast(data);
-    else writeToTab(activeTabId, data);
-  }, [activeTabId, broadcast, toast]);
+    else writeToTab(activePaneId, data);
+  }, [activePaneId, broadcast, toast]);
 
   // ── SSH port forwarding (tunnels) ───────────────────────────────────────
   const { tunnelsOpen, setTunnelsOpen, forwards, tunnelBusy, tunnelError, openTunnels, startForward, startSocks, stopForward } = useTunnels({ activeTab, activeTabId, toast });
@@ -806,27 +821,31 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // tabProjectNames (same stable-map identity contract, pinned by the
   // renderContainment harness after the copy-sweep review flagged the gap).
 
+  // Recordings key on the PANE, not the tab: TerminalPane pushes its output
+  // with `pushRecordingOutput(tabId /* = its leaf id */, …)`, so a tab-id key on
+  // a split tab produced a .cast containing only the header line while the UI
+  // still reported "Saved recording to <path>" (audit FE-1).
   const startRecordingActive = useCallback(() => {
-    if (!activeTabId) return;
-    if (recording.isRecording(activeTabId)) {
-      toast.info("This tab is already being recorded.");
+    if (!activePaneId) return;
+    if (recording.isRecording(activePaneId)) {
+      toast.info("This terminal is already being recorded.");
       return;
     }
-    recording.startRecording(activeTabId, {
+    recording.startRecording(activePaneId, {
       width: 80,
       height: 24,
       label: activeTab?.label || "tab",
     });
     toast.success(`Recording "${activeTab?.label || "tab"}" — pick "Stop & save" when done.`);
-  }, [activeTabId, activeTab, toast]);
+  }, [activePaneId, activeTab, toast]);
 
   const stopAndSaveRecording = useCallback(async () => {
-    if (!activeTabId) return;
-    if (!recording.isRecording(activeTabId)) {
-      toast.error("This tab isn't being recorded.");
+    if (!activePaneId) return;
+    if (!recording.isRecording(activePaneId)) {
+      toast.error("This terminal isn't being recorded.");
       return;
     }
-    const cast = recording.stopRecording(activeTabId);
+    const cast = recording.stopRecording(activePaneId);
     if (!cast) {
       toast.error("Recording was empty — nothing to save.");
       return;
@@ -843,7 +862,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       });
       if (path) {
         toast.success(`Saved recording to ${path}`);
-        recording.finalizeRecording(activeTabId); // drop the crash-net copy
+        recording.finalizeRecording(activePaneId); // drop the crash-net copy
       } else {
         // Save canceled: the inflight crash-net copy is KEPT (audit C5) and
         // offered on next launch, instead of being lost.
@@ -853,7 +872,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       toast.error(humanizeError(err, "Save failed"));
       // inflight copy left in place — recoverable on next launch
     }
-  }, [activeTabId, activeTab, toast]);
+  }, [activePaneId, activeTab, toast]);
 
   // Recover recordings orphaned by a crash / force-kill / cancelled Save
   // (audit C5): offer each inflight .cast for save or discard. Gated on
@@ -897,18 +916,47 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Recording-jump: switch to the tab that's actively recording so the user
-  // can trigger stop-and-save from a natural place. Hoisted out of the status
-  // bar's inline JSX handler (byte-preserved) so the chrome extraction can
-  // receive it as a plain callback instead of closing over `state`/`persist`.
-  const jumpToRecordingTab = useCallback((recTabId) => {
-    const target = state.panels.find((p) => p.tabs.some((t) => t.id === recTabId));
-    if (!target) return;
+  // Recording-jump: switch to the terminal that's actively recording so the
+  // user can trigger stop-and-save from a natural place. The status bar hands
+  // back a recording's KEY, which is a pane id (audit FE-1), so the owning tab
+  // has to be found by leaf membership: on a split tab no tab id matches it.
+  // Focusing the tab alone is not enough either: stop-and-save reads
+  // activePaneId, so the tab's active pane is moved to the recording pane too,
+  // otherwise the jump lands you next to the recording rather than on it.
+  const jumpToRecordingTab = useCallback((recPaneId) => {
+    const owner = findPaneOwner(state.panels, recPaneId);
+    if (!owner) return;
+    const { panel: target, tab } = owner;
     setActivePanel(target.id);
     persist({ ...state, activePanelId: target.id, panels: state.panels.map((p) =>
-      p.id === target.id ? { ...p, activeTabId: recTabId } : p
+      p.id === target.id
+        ? {
+            ...p,
+            activeTabId: tab.id,
+            tabs: p.tabs.map((t) => (t.id === tab.id ? { ...t, activePaneId: recPaneId } : t)),
+          }
+        : p
     ) });
   }, [state, persist, setActivePanel]);
+
+  // ── Tab-strip navigation (audit A11Y-05) ───────────────────────────────
+  // One resolution shared by the keybinding dispatcher, the Terminal menu and
+  // the command palette, so "next tab" can't mean three different things.
+  // Scoped to the ACTIVE panel: each panel keeps its own strip, and Ctrl+1..8
+  // is the axis that moves between panels.
+  const switchTabRel = useCallback((delta) => {
+    const panel = state.panels.find((p) => p.id === state.activePanelId);
+    if (!panel) return;
+    const id = nextTabId(panel.tabs, panel.activeTabId, delta);
+    if (id && id !== panel.activeTabId) switchTab(panel.id, id);
+  }, [state.panels, state.activePanelId, switchTab]);
+
+  const switchTabIndex = useCallback((idx) => {
+    const panel = state.panels.find((p) => p.id === state.activePanelId);
+    if (!panel) return;
+    const id = tabIdAt(panel.tabs, idx);
+    if (id && id !== panel.activeTabId) switchTab(panel.id, id);
+  }, [state.panels, state.activePanelId, switchTab]);
 
   // Wire keyboard-shortcut callbacks. Dep-less effect = refreshed after every
   // render so closures see the latest state (no stale captures), without the
@@ -930,6 +978,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       openSettings: () => setSettingsOpen(true),
       reopenTab,
       toggleTheme,
+      switchTabRel,
+      switchTabIndex,
       switchPanel: (idx) => {
         if (state.panels[idx]) setActivePanel(state.panels[idx].id);
       },
@@ -938,7 +988,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         const panel = state.panels.find((p) => p.id === state.activePanelId);
         const tab = panel?.tabs.find((t) => t.id === panel.activeTabId);
         if (!tab || tab.home || tab.notebook) return;
-        splitPane(tab.id, tab.activePaneId || tab.id, dir);
+        splitPane(tab.id, resolveActivePaneId(tab), dir);
       },
       closeActivePane: () => {
         const panel = state.panels.find((p) => p.id === state.activePanelId);
@@ -947,13 +997,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         // Splits only — a single-pane tab is "close tab" (Ctrl+Shift+W)
         // territory; aliasing this to tab-close would invite accidents.
         if (leafIds(getLayout(tab)).length <= 1) return;
-        closePane(tab.id, tab.activePaneId || tab.id);
+        closePane(tab.id, resolveActivePaneId(tab));
       },
       focusPane: (dir) => {
         const panel = state.panels.find((p) => p.id === state.activePanelId);
         const tab = panel?.tabs.find((t) => t.id === panel.activeTabId);
         if (!tab || tab.home || tab.notebook) return;
-        const target = navigatePane(getLayout(tab), tab.activePaneId || tab.id, dir);
+        const target = navigatePane(getLayout(tab), resolveActivePaneId(tab), dir);
         if (!target) return;
         activatePane(tab.id, target);
         // activatePane only marks workspace state; keyboard nav must move real
@@ -1014,7 +1064,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // read from context inside the hook.
   const paletteCommands = usePaletteCommands({
     scOf, addTab, addPanel, canAddPanel, splitPane, equalizePanes, closePane, importSshConfig,
-    activeTabId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
+    switchTab, switchTabRel,
+    activeTabId, activePaneId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
     stopAndSaveRecording, startRecordingActive, persist, state, setActivePanel,
     setDialog, setSshKeysOpen, setMacrosOpen, setMasterPwOpen, setAskOpen,
@@ -1047,6 +1098,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         toggleBroadcast={toggleBroadcast}
         ribbon={ribbon}
         activeTabId={activeTabId}
+        activePaneId={activePaneId}
+        switchTabRel={switchTabRel}
         activeModelName={activeModelName}
         toggleTheme={toggleTheme}
         headerSkinId={headerSkinId}
@@ -1102,9 +1155,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         {/* Permanent session tree — always docked (workstation layout).
             Collapsible to a thin rail (re-expandable), never fully removed. */}
         {treeCollapsed ? (
-          <div className="moba-railcol" onClick={() => collapseTree(false)} title="Show sessions">
-            ›<span className="lbl">Sessions</span>
-          </div>
+          <CollapsedRail glyph="›" label="Sessions" title="Show sessions panel" onExpand={() => collapseTree(false)} />
         ) : (
         <div className="moba-dock" data-tour="sessions-tree">
           <div className="moba-dock-body">
@@ -1140,7 +1191,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 tabCosts={tabCosts}
                 onFocusTab={(panelId, tabId) => switchTab(panelId, tabId)}
                 onReviewDiff={(wt) => setDiffWorktree(wt)}
-                onSummarize={(tabId) => setSummary({ text: getTabText(tabId) })}
+                // AgentDashboard rows are per TAB, but the text reader is
+                // pane-keyed (audit FE-1), so resolve the row's tab to its
+                // focused pane or the summary opens empty on any split tab.
+                onSummarize={(tabId) => {
+                  const owner = state.panels.flatMap((p) => p.tabs || []).find((t) => t.id === tabId);
+                  setSummary({ text: getTabText(resolveActivePaneId(owner)) });
+                }}
               />
             )}
             {ribbon === "snippets" && (
@@ -1211,9 +1268,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         {/* Right dock — SFTP / Assistant / Monitor. Always present (workstation
             layout); collapsible to a rail and drag-resizable. F4 focuses SFTP. */}
         {dockCollapsed ? (
-          <div className="moba-railcol" onClick={() => collapseDock(false)} title="Show side panel">
-            ‹<span className="lbl">Panel</span>
-          </div>
+          <CollapsedRail glyph="‹" label="Panel" title="Show side panel" onExpand={() => collapseDock(false)} />
         ) : (
           <>
             <div className="moba-splitter" title="Drag to resize" onMouseDown={startDockResize} style={{ cursor: "col-resize" }}><span className="moba-grip"><i></i><i></i><i></i></span></div>
@@ -1334,7 +1389,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         sharesOpen={sharesOpen}
         setSharesOpen={setSharesOpen}
         activeTab={activeTab}
-        activeTabId={activeTabId}
+        activePaneId={activePaneId}
         shellName={shellName}
         insertSnippet={insertSnippet}
       />

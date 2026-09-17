@@ -24,6 +24,33 @@ export const KEY_ACTIONS = [
   { id: "newTab",         label: "New tab",                category: "Tabs",       default: "Ctrl+Shift+T", fn: "addTab" },
   { id: "closeTab",       label: "Close tab",              category: "Tabs",       default: "Ctrl+Shift+W", fn: "closeActiveTab" },
   { id: "reopenTab",      label: "Reopen closed tab",      category: "Tabs",       default: "Ctrl+Shift+Z", fn: "reopenTab" },
+  // Tab navigation (audit A11Y-05). Before this the registry had no
+  // next/previous/go-to-tab action at all, so the strip was mouse-only AND
+  // unbindable: Settings → Keybindings can only remap what lives here.
+  //
+  // Ctrl+Tab / Ctrl+Shift+Tab is the near-universal next/previous convention and
+  // is safe against the terminal: the global dispatcher listens on `window` in
+  // the CAPTURE phase and preventDefault+stopPropagation before xterm's textarea
+  // handler ever sees the key, and neither combo means anything to a shell.
+  //
+  // Go-to-tab-N rides Alt+N because Ctrl+1..8 is already panel switching below.
+  // Alt+digit is the GNOME Terminal / Terminator / Tilix convention and, unlike
+  // Ctrl+Alt+digit, is NOT AltGr, so it does not eat the `{` / `@` / `}` that
+  // AltGr+digit types on international layouts. Two known costs, both remappable
+  // in Settings: it shadows readline's M-<digit> argument prefix, and on macOS
+  // Option+digit composes a character (Option+1 = "¡") so KeyboardEvent.key
+  // never reads "1" and these defaults do not fire there. Ctrl+Tab and
+  // Ctrl+Shift+Tab do work on every platform.
+  { id: "nextTab",        label: "Next tab",               category: "Tabs",       default: "Ctrl+Tab",       fn: "switchTabRel", arg: 1 },
+  { id: "prevTab",        label: "Previous tab",           category: "Tabs",       default: "Ctrl+Shift+Tab", fn: "switchTabRel", arg: -1 },
+  ...Array.from({ length: 9 }, (_, i) => ({
+    id: `tab${i + 1}`,
+    label: `Switch to tab ${i + 1}`,
+    category: "Tabs",
+    default: `Alt+${i + 1}`,
+    fn: "switchTabIndex",
+    arg: i,
+  })),
   { id: "toggleTheme",    label: "Toggle dark / light",    category: "Appearance", default: "Ctrl+\\",      fn: "toggleTheme" },
   // Panes (splits within a tab). Defaults dodge the shell: Ctrl+D is EOF, so
   // splits ride Ctrl+Shift; focus nav rides Ctrl+Alt because plain Alt+↑/↓ is

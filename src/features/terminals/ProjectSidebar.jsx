@@ -12,6 +12,17 @@ const FG_DIM = "var(--phn-text-dim, #9D9D9D)";
 const FG_FAINT = "var(--phn-text-dim, #555555)";
 const ACCENT = "var(--phn-link, #7c9cf5)";
 const BORDER = "var(--phn-surface-border, #2B2B2B)";
+// Alpha washes composite from a per-skin RGB TRIPLE instead of a hardcoded white
+// one: 255,255,255 in all twelve dark skins, 0,0,0 in moba-light and daylight
+// (headerSkins.css, COMPONENT-LITERAL SET). Each site keeps its own alpha, so
+// every call below resolves to the exact rgba(255,255,255,α) literal it replaced
+// on all twelve dark skins, and inverts on the two light ones.
+const wash = (a) => `rgba(var(--phn-wash-rgb, 255,255,255), ${a})`;
+// Maximum-contrast ink: #ffffff on every dark skin, which is exactly what these
+// sites hardcoded, and near-black on the two light ones. NOT --phn-text-active,
+// which is the skin's own emphasis colour and is a different value in ten of the
+// twelve dark skins.
+const INK = "var(--phn-ink, #ffffff)";
 const M = "'JetBrains Mono', Menlo, Monaco, monospace";
 
 const COLOR_PALETTE = [
@@ -450,8 +461,13 @@ function ProjectSidebar({
         )}
         {!collapsed && (
           <button
+            type="button"
             onClick={onAddProject}
             title="Add session (local shell or SSH host)"
+            // A11Y-02. For a <button>, accname takes the CONTENT over the
+            // title, so this one announced as "+" and the two below as "«" and
+            // "‹": three glyph-named controls in a five-control header.
+            aria-label="Add session"
             style={{
               background: "transparent",
               border: `1px solid ${BORDER}`,
@@ -470,15 +486,40 @@ function ProjectSidebar({
         )}
         {!docked && (
           <button
+            type="button"
             className="phn-sidebar-collapse-btn"
             onClick={onToggleCollapse}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
           >
             {collapsed ? "»" : "«"}
           </button>
         )}
         {docked && onCollapse && (
-          <button className="moba-tree-collapse" onClick={onCollapse} title="Collapse sessions panel">‹</button>
+          // The matching expand control is the rail TerminalsTab renders in
+          // this sidebar's place (chrome/CollapsedRail.jsx), a keyboard-
+          // reachable role="button" since 2026-09-17, so collapsing from the
+          // keyboard is no longer a one-way door even though
+          // `pt:treeCollapsed` persists across restarts (A11Y-02).
+          //
+          // Deliberately NO aria-expanded, unlike the real toggle above.
+          // Pressing this unmounts the whole sidebar (TerminalsTab renders
+          // the rail in its place), so the attribute is structurally
+          // incapable of ever being read as false, and it carries no
+          // aria-controls either. A disclosure that can only ever report
+          // "expanded" advertises a two-state control that can be reopened
+          // FROM HERE, which it cannot be: the reopen lives on the rail. The
+          // name is the honest maximum.
+          <button
+            type="button"
+            className="moba-tree-collapse"
+            onClick={onCollapse}
+            title="Collapse sessions panel"
+            aria-label="Collapse sessions panel"
+          >
+            ‹
+          </button>
         )}
       </div>
 
@@ -559,7 +600,12 @@ function ProjectSidebar({
                   minHeight: collapsed ? undefined : 23,
                   justifyContent: collapsed ? "center" : "flex-start",
                   cursor: isRenamingThis ? "text" : "pointer",
-                  background: isHover ? "rgba(255,255,255,0.04)" : "transparent",
+                  // A11Y-09, the hover with no hover. The sidebar is
+                  // --phn-surface-alt-bg, which is #ffffff on moba-light and
+                  // #eeeef0 on daylight, so a 4% WHITE wash composited to within
+                  // a point of the row it was supposed to lift off. wash() keeps
+                  // the same 0.04 alpha and only flips the colour it is made of.
+                  background: isHover ? wash(0.04) : "transparent",
                   userSelect: "none",
                   fontSize: 12.5,
                 }}
@@ -594,12 +640,24 @@ function ProjectSidebar({
                     style={{
                       flex: 1,
                       minWidth: 0,
-                      background: "rgba(255,255,255,0.06)",
+                      // A11Y-03, the sibling of the tab-rename input. This one
+                      // paints on --phn-surface-alt-bg, which is #ffffff on
+                      // moba-light, so a 6% white fill composited back to #ffffff
+                      // and #fff text was invisible on it. Same 0.06 alpha, made
+                      // of the skin's own wash colour.
+                      background: wash(0.06),
                       border: `1px solid ${ACCENT}`,
-                      color: "#fff",
+                      color: INK,
                       fontFamily: M,
                       fontSize: 11,
                       padding: "0 4px",
+                      // outline:none is kept deliberately: the 1px --phn-link border
+                      // above IS this field's focus treatment. The element only
+                      // exists while renaming and is focused on mount, so the border
+                      // is never absent while focus is here, and it clears the 3:1
+                      // non-text floor in every skin (4.36:1 on moba-light, 4.21:1
+                      // on daylight, 5.94:1 on moba). Dropping outline:none would
+                      // add a UA ring the dark skins never had.
                       outline: "none",
                       borderRadius: 2,
                     }}
@@ -846,7 +904,13 @@ function ProjectSidebar({
                       borderRadius: 3,
                       background: c.hex,
                       cursor: "pointer",
-                      border: project.color === c.id ? `2px solid #fff` : `1px solid ${BORDER}`,
+                      // A11Y-11. A #fff ring on the light context menu
+                      // (--phn-surface-bg = #ececec) was 1.06:1, so nothing marked
+                      // the applied colour. --phn-ink is #ffffff on every dark
+                      // skin, i.e. byte-identical to the literal it replaces, and
+                      // near-black on the two light ones. The unselected branch
+                      // already used BORDER and is untouched.
+                      border: project.color === c.id ? `2px solid ${INK}` : `1px solid ${BORDER}`,
                       boxSizing: "border-box",
                     }}
                   />

@@ -9,6 +9,12 @@
 // code. The OSC *handlers* (term.parser.registerOscHandler) that consume these
 // marks at runtime are NOT pure (they touch term + refs) and stay in the
 // component.
+//
+// The one exception is parsePlutoCmdReport at the bottom: the PURE half of
+// the OSC-1337 handler, i.e. the audit-H1 provenance gate itself. It lives
+// here rather than in the component so it can be tested directly against the
+// emitters above, which is exactly what the inline version could not be
+// (audit TQ-2). The handler still owns everything impure around it.
 
 // POSIX (zsh/bash) shell-integration setup. Returns the three strings the
 // component writes to the PTY on a fresh local tab.
@@ -92,4 +98,62 @@ export function buildPowerShellInit(cmdNonce = "") {
     `Set-PSReadLineOption -PredictionSource History -PredictionViewStyle InlineView; ` +
     `Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete }`;
   return { psEnc, psPrompt, psHist, psComplete };
+}
+
+// ── Verifier half of the audit-H1 provenance gate ───────────────────────────
+//
+// The two builders above bake `cmdNonce` INTO the PlutoCmd emit. This is the
+// half that decides what an emit is allowed to do, and it lives next to them on
+// purpose: the wire format (`PlutoCmd=<nonce>:<base64>`) is written in three
+// places (the POSIX hook, the PowerShell hook, this parser), so the round-trip
+// tests in shellIntegration.test.js feed each builder's OWN emitted format back
+// through this parser to pin all three together. The previous shape, with the
+// gate inlined in TerminalPane's OSC handler and only the emitters tested, let
+// the two halves drift apart with a fully green suite (audit TQ-2).
+//
+// Returns `{ cmd }` only for a report that provably came from our own injected
+// preexec hook in THIS session; `null` means swallow it. A PlutoCmd string that
+// merely APPEARS in the stream (printed by a hostile SSH host, a cat'd file, an
+// MOTD, a compromised process) must never be promoted into the trusted,
+// persistent, cross-session, one-click-re-runnable command history.
+//
+// Every rejection below is load-bearing, but they are NOT equally load-bearing
+// against a hostile remote. Read this before touching the comparison:
+//   - not a PlutoCmd report at all: the caller passes it through untouched.
+//   - no ":" in the payload: a report carrying no nonce field at all, which is
+//     what a naive attacker (or a pre-H1 emitter) produces.
+//   - nonce not EXACTLY this session's: THIS is the check that rejects a
+//     hostile SSH host, so the comparison must stay whole-string. A prefix /
+//     substring / startsWith match would hand partial credit to anyone who
+//     learns or brute-forces part of the 8-byte nonce. What stops a remote
+//     from producing a matching nonce is NOT that remote panes lack one: every
+//     pane is assigned entry.oscNonce unconditionally, SSH and serial included
+//     (TerminalPane.jsx, the `if (!entry.oscNonce)` block). It is that the
+//     nonce is never TRANSMITTED to a remote. The shell-init write that bakes
+//     it into a preexec hook is gated on `!connection && !serial`, so a remote
+//     shell never learns the value and cannot reproduce it.
+//   - no session nonce at all: a defensive precondition on this pure function,
+//     NOT the SSH defence. It is unreachable from the current call site, where
+//     entry.oscNonce is assigned synchronously BEFORE the OSC-1337 handler that
+//     calls this is registered. Kept so a future caller holding no nonce yet
+//     cannot accidentally trust everything.
+//   - base64 that does not decode: malformed payload, dropped silently.
+const PLUTO_CMD_PREFIX = "PlutoCmd=";
+
+export function parsePlutoCmdReport(data, sessionNonce) {
+  if (typeof data !== "string" || !data.startsWith(PLUTO_CMD_PREFIX)) return null;
+  if (!sessionNonce) return null;
+  const payload = data.slice(PLUTO_CMD_PREFIX.length);
+  const sep = payload.indexOf(":");
+  if (sep < 0) return null;
+  if (payload.slice(0, sep) !== sessionNonce) return null;
+  try {
+    // The hook base64s the command's UTF-8 bytes, so decode bytes then UTF-8.
+    // atob alone would mangle any non-ASCII command.
+    const bin = atob(payload.slice(sep + 1));
+    const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+    return { cmd: new TextDecoder().decode(bytes) };
+  } catch {
+    return null;
+  }
 }

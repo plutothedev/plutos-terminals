@@ -5,8 +5,10 @@ import UpdateBanner from "./components/UpdateBanner.jsx";
 import LockScreen from "./features/terminals/LockScreen.jsx";
 import { isUnlockedThisSession } from "./features/terminals/masterPassword.js";
 import { destroyAll } from "./features/terminals/paneRegistry.js";
-import { USER_STORAGE_KEY, getWindowStorageKey, allOpenTabIds, SECRET_FIELDS } from "./features/terminals/storageKeys.js";
-import { parseWorkspace } from "./features/terminals/workspaceBoot.js";
+import { USER_STORAGE_KEY, getWindowStorageKey, allOpenTabIds, SECRET_FIELDS, takeDiscardedLayout, localWriteHolds } from "./features/terminals/storageKeys.js";
+import { parseWorkspace, needsBackupRead } from "./features/terminals/workspaceBoot.js";
+import { createWorkspaceMirror } from "./features/terminals/workspaceMirror.js";
+import { runBootRecovery } from "./features/terminals/bootRecovery.js";
 import { invoke } from "./backend.js";
 import {
   migrateAndLoad,
@@ -35,6 +37,24 @@ import { stampFieldMeta, mergeUserState } from "./features/terminals/userStateMe
 // suffixed for independent panels/skin). Resolver + keys live in storageKeys.js
 // (single source of truth, shared with TerminalPane/TerminalsTab/SettingsModal).
 const STORAGE_KEY = getWindowStorageKey();
+
+// Did this page load follow the ErrorBoundary's "Reset layout & reload"? That
+// hatch discards the window layout ON PURPOSE because it crashed the app, and
+// store.json still holds the identical blob, so boot must not restore THAT one.
+// This is the one deliberate discard boot cannot recognise from the data alone,
+// and recovery is silent, so without the mark the escape hatch would hand the
+// crash loop straight back with nothing shown.
+//
+// It is a fingerprint of the discarded layout, not a boolean: it rules out one
+// layout instead of the whole backup. The boolean version skipped the backup
+// read altogether, which also skipped the mirror hold, so the boot migrations'
+// first flush wrote their defaults into store.json ~200 ms later and the crash
+// hatch quietly took the durable backup with it. planRecovery does the
+// comparison (workspaceBoot.js).
+// Read at module scope, not in the useState initializer below: StrictMode
+// double-invokes that initializer in dev, and the second call would find the
+// one-shot mark already consumed and recover anyway.
+const DISCARDED_LAYOUT = takeDiscardedLayout();
 
 // Shared user-level state (v0.1.21): welcomeDone, anthropicKey,
 // terminalsOnboarded. These are user preferences, not window preferences —
@@ -97,20 +117,37 @@ export default function App() {
 }
 
 function AppInner() {
-  // Distinguish first-run from CORRUPTION so a garbled localStorage blob can be
-  // recovered from the durable Rust backup instead of silently resetting the
-  // whole layout to empty (audit C2). corrupt-on-boot is handled async below.
-  const bootCorruptRef = useRef(false);
-  // While a corrupt-boot recovery is still reading the durable backup, suspend
-  // the mirror write — otherwise a synchronous migration effect's save({}) can
-  // flush the empty fallback and CLOBBER store.json before recovery reads it,
-  // then "recover" the file it just overwrote (review finding).
-  const mirrorSuspendedRef = useRef(false);
+  // The boot read of the per-window blob, handed to the async recovery effect
+  // below. Non-null ONLY when boot came up with no usable layout (missing,
+  // blank or garbled: see needsBackupRead) in the PRIMARY window, which is
+  // exactly when the durable Rust backup is worth consulting instead of
+  // silently living with an empty workspace (audit C2, widened by R-C2-1).
+  // Secondary (?w=) windows are ephemeral, never write the backup, and must not
+  // restore the primary's layout into themselves.
+  const bootReadRef = useRef(null);
+  // The durable store.json mirror of this window's blob. It lives in a ref so
+  // the []-dep flushNow can reach it without re-minting, and it is created here,
+  // above the boot read, because that read has to suspend it before anything
+  // else can write. While the recovery below is still reading the backup the
+  // mirror is held: otherwise the unconditional boot migrations (OLED skin, moba
+  // layout) each fire a save() on the empty fallback and flushNow mirrors those
+  // defaults over store.json ~200 ms later, destroying the backup before it is
+  // read and then "recovering" the file it just overwrote. workspaceMirror.js
+  // owns the rest (secret stripping, and deferring a held write instead of
+  // dropping it).
+  const mirrorRef = useRef(null);
+  if (mirrorRef.current == null) {
+    mirrorRef.current = createWorkspaceMirror((data) => {
+      invoke("write_store", { data }).catch(() => {});
+    });
+  }
   const [st, setSt] = useState(() => {
-    const { state, corrupt } = parseWorkspace(localStorage.getItem(STORAGE_KEY));
-    bootCorruptRef.current = corrupt;
-    mirrorSuspendedRef.current = corrupt;
-    return state;
+    const boot = parseWorkspace(localStorage.getItem(STORAGE_KEY));
+    if (needsBackupRead(boot) && isPrimaryWindow()) {
+      bootReadRef.current = boot;
+      mirrorRef.current.suspend();
+    }
+    return boot.state;
   });
 
   // Shared user-level state. Synchronous one-time migration on first run
@@ -151,10 +188,28 @@ function AppInner() {
   const pendingRef = useRef(null);
   const timerRef = useRef(0);
   const flushNow = useCallback(() => {
+    // A factory reset (SettingsModal) clears store.json and localStorage and
+    // then reloads. This flush writes both of those, and it can still fire twice
+    // behind the reset: once from the 200 ms debounce during the write_store
+    // round-trip, once from the pagehide/beforeunload handler below as the
+    // reload starts. Either one repopulates the pair, and the window undoes its
+    // own factory reset. Nothing here is worth saving into a profile that is
+    // being wiped (storageKeys.js/holdLocalWrites).
+    //
+    // Clear the debounce id BEFORE that hold check, never after. By the time
+    // flushNow runs its timer has already fired, so the id is dead either way,
+    // and `save` below only arms a new one while timerRef is falsy. Returning
+    // early with a stale id still set therefore wedges the scheduler for the
+    // life of the window: every later save updates state and pendingRef but
+    // never schedules a flush again. Reachable today through the factory-reset
+    // hold, which is released when write_store fails, leaving the app running
+    // and telling the user "nothing was wiped" while it has silently stopped
+    // persisting anything.
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = 0;
     }
+    if (localWriteHolds() > 0) return;
     const next = pendingRef.current;
     if (next == null) return;
     pendingRef.current = null;
@@ -174,18 +229,11 @@ function AppInner() {
     // Durable mirror to the atomic Rust store (audit C2): localStorage is the
     // only home for the layout, so a WebView2 profile corruption would lose it
     // with no backup. Primary window only — secondary windows are ephemeral and
-    // would clobber each other's copy in the single store.json. SECRET_FIELDS
-    // are stripped first: the window blob can carry a legacy plaintext
-    // anthropicKey, and store.json is a NEW, more discoverable at-rest location
-    // — mirror it unfiltered and the durability fix leaks the key (review
-    // CRITICAL). Same allowlist discipline the keychain + cloud-sync paths use.
-    if (json != null && isPrimaryWindow() && !mirrorSuspendedRef.current) {
-      try {
-        const safe = { ...next };
-        for (const f of SECRET_FIELDS) delete safe[f];
-        invoke("write_store", { data: JSON.stringify(safe) }).catch(() => {});
-      } catch { /* mirror is best-effort */ }
-    }
+    // would clobber each other's copy in the single store.json. Secret stripping
+    // and the boot-time hold live in workspaceMirror.js; note that `next` has
+    // already been consumed out of pendingRef above, so a write the mirror
+    // cannot take right now is the mirror's to remember, not ours.
+    if (json != null && isPrimaryWindow()) mirrorRef.current.write(next);
   }, []);
 
   // `save` accepts either a whole next-state object or a functional updater
@@ -236,35 +284,44 @@ function AppInner() {
     };
   }, [flushNow]);
 
-  // Corruption recovery (audit C2): if the localStorage blob was garbled at
-  // boot, try the durable Rust backup before living with an empty layout.
-  // Async (read_store is an IPC round-trip) so it runs here, not in the sync
-  // init. Primary window only — it's the one that writes the backup. (`toast`
-  // is declared above, near flushNow.)
+  // Boot recovery (audit C2, widened by R-C2-1): if boot came up with no usable
+  // layout, try the durable Rust backup before living with an empty one. Async
+  // (read_store is an IPC round-trip) so it runs here, not in the sync init.
+  // The whole sequence lives in bootRecovery.js, where its branches are under
+  // test; this effect only supplies the collaborators. (`toast` is declared
+  // above, near flushNow.)
+  //
+  // Deliberately NO cancelled-flag, unlike the listener effects (invariant 4).
+  // StrictMode double-invokes mount effects, and a one-shot boot read whose own
+  // cleanup cancels its result never applies it under `tauri dev` at all: pass 1
+  // is cancelled by the simulated unmount, pass 2 is short-circuited by the
+  // guard. ranRef keeps this to exactly one read_store per mount instead, and
+  // there is no listener here to leak.
+  const recoveryRanRef = useRef(false);
   useEffect(() => {
-    if (!bootCorruptRef.current || !isPrimaryWindow()) return;
-    bootCorruptRef.current = false;
-    let cancelled = false;
+    const boot = bootReadRef.current;
+    if (!boot || recoveryRanRef.current) return;
+    recoveryRanRef.current = true;
     (async () => {
       try {
-        const raw = await invoke("read_store"); // "null" when no backup file
-        if (cancelled) return;
-        const { state, corrupt } = parseWorkspace(raw);
-        if (!corrupt && Object.keys(state).length > 0) {
-          save(state);
-          toast.success("Recovered your workspace from the local backup.");
-        } else {
-          toast.error("Your saved workspace couldn't be read — starting fresh.");
-        }
-      } catch {
-        if (!cancelled) toast.error("Your saved workspace couldn't be read — starting fresh.");
+        await runBootRecovery({
+          boot,
+          readStore: () => invoke("read_store"), // resolves "null" when there is no backup file
+          mirror: mirrorRef.current,
+          save,
+          getState: () => stRef.current,
+          toast,
+          discarded: DISCARDED_LAYOUT,
+        });
+      } catch (err) {
+        // Nothing in there is expected to throw (it already guards the IPC read
+        // and the mirror), but boot must not end on an unhandled rejection. The
+        // mirror releases in runBootRecovery's own finally either way.
+        console.warn("Pluto's Terminal: boot recovery failed", err);
       } finally {
-        // Recovery done (or the component went away) — let the mirror resume so
-        // the recovered/fresh state persists to store.json going forward.
-        mirrorSuspendedRef.current = false;
+        bootReadRef.current = null;
       }
     })();
-    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

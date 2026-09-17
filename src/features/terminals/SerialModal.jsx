@@ -2,7 +2,7 @@
 // Serial console picker. Lists available serial ports (serial_list) and a baud
 // rate; on connect, the parent opens a tab whose TerminalPane spawns the port
 // via serial_spawn (streamed through the same pty:// seam as shells/SSH).
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { humanizeError } from "./errorText.js";
@@ -29,6 +29,7 @@ export default function SerialModal({ open, onConnect, onClose }) {
   const [baud, setBaud] = useState(115200);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const uid = useId();
 
   const refresh = () => {
     setLoading(true);
@@ -53,9 +54,14 @@ export default function SerialModal({ open, onConnect, onClose }) {
     <Modal open={open} title="Serial console" onClose={onClose} width={460}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+          {/* A11Y-10, sites 12 and 13 of 25. These two captions had no htmlFor
+              and wrapped nothing, so a screen-reader user heard two anonymous
+              combo boxes and a sighted user could not click "PORT" to focus
+              the port picker. The ids come from useId so two SerialModals in
+              two windows cannot collide. */}
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Port</label>
-            <select style={fieldStyle} value={selected} onChange={(e) => setSelected(e.target.value)} disabled={ports.length === 0}>
+            <label style={labelStyle} htmlFor={`${uid}-port`}>Port</label>
+            <select id={`${uid}-port`} style={fieldStyle} value={selected} onChange={(e) => setSelected(e.target.value)} disabled={ports.length === 0}>
               {ports.length === 0 ? (
                 <option value="">{loading ? "Scanning…" : "No serial devices found"}</option>
               ) : (
@@ -64,13 +70,18 @@ export default function SerialModal({ open, onConnect, onClose }) {
             </select>
           </div>
           <div style={{ width: 120 }}>
-            <label style={labelStyle}>Baud</label>
-            <select style={fieldStyle} value={baud} onChange={(e) => setBaud(parseInt(e.target.value, 10))}>
+            <label style={labelStyle} htmlFor={`${uid}-baud`}>Baud</label>
+            <select id={`${uid}-baud`} style={fieldStyle} value={baud} onChange={(e) => setBaud(parseInt(e.target.value, 10))}>
               {BAUDS.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
+          {/* Same glyph-button defect as the Copy and close controls in
+              RemoteControlModal: for a <button> its own content beats title,
+              so this announced as "⟳ button" and the title never reached
+              assistive tech. */}
           <button
             onClick={refresh}
+            aria-label="Rescan ports"
             title="Rescan ports"
             style={{ background: "transparent", border: "1px solid var(--phn-surface-border, #2b2b2b)", color: "var(--phn-text-fg, #b4b8c0)", borderRadius: 6, padding: "7px 12px", fontSize: 13, cursor: "pointer" }}
           >

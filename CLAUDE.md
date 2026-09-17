@@ -22,12 +22,45 @@ phone companion server. Windows is the primary target; macOS/Linux build via CI.
 - **Release process:** bump version in `package.json` + `src-tauri/Cargo.toml` +
   `src-tauri/tauri.conf.json` (must match; `src/appMeta.js` reads package.json) →
   write `releases/vX.Y.Z.md` + `CHANGELOG.md` entry → commit → `git tag vX.Y.Z`
-  → push branch + tag → `.github/workflows/release.yml` builds macOS/Linux/Windows
-  on the tag and uploads to the GitHub release. The Windows MSI + portable exe
-  are also built locally (`npm run tauri build`) and uploaded with
-  `gh release create` when CI is flaky (v0.3.5's Windows leg failed in CI).
+  → push the BRANCH to both remotes and wait for the `test` workflow to go green
+  (a tag push runs no tests: `test.yml` triggers on branches only, and
+  `release.yml` only builds) → push the TAG to origin ONLY: the private mirror's
+  copy of `release.yml` also publishes to the public repo through `RELEASES_REPO`,
+  so a tag on both remotes races two publishes of one release (v0.6.1 shipped from
+  origin) → `.github/workflows/release.yml` builds macOS + Windows
+  on the tag (Linux is cut from the matrix), asserts the tag matches all three
+  version files, asserts every matrix platform produced an installer, assembles
+  the signed `latest.json` and asserts it carries `darwin-aarch64` +
+  `darwin-x86_64` + `windows-x86_64`, then publishes. **A tag push is the only
+  path that publishes.** A manual dispatch from the Actions tab builds the
+  matrix and uploads the installers as workflow artifacts; the publish job is
+  gated on the event and never runs for it.
+  This bullet is the one canonical copy of the procedure: `docs/updater.md`
+  (signing key, trust model, updater mechanics) and the header comment in
+  `release.yml` point here rather than restate it, because three copies is how
+  they drifted apart in the first place.
+  **When a run fails:** a flaky build leg (v0.3.5's Windows leg failed in CI) →
+  re-run that failed job on the same tag. No `.sig` files, i.e.
+  `TAURI_SIGNING_PRIVATE_KEY` unset → the manifest step fails the release on
+  purpose; restore the secret and re-run **all** jobs on the tag. Re-running
+  only the failed publish job re-downloads the same unsigned artifacts from the
+  build that already succeeded, so it fails identically.
+  Do NOT ship the local `npm run tauri build` output by hand instead: local
+  builds never load `src-tauri/tauri.release.conf.json`, so they carry no `.sig`
+  and no `latest.json` can be assembled from them, and a hand-uploaded release
+  also skips both of the workflow's completeness assertions (an installer for
+  every matrix platform, and every platform key present in `latest.json`).
+  Publishing one as the newest release points
+  `/releases/latest/download/latest.json` at a 404 and takes auto-update dark
+  for every installed copy (audit BRS-7).
+  If a build genuinely has to go out before CI can sign it, the only survivable
+  shape is `gh release create --prerelease` (never the newest release). Do not
+  expect it to carry a signed manifest: it cannot. Nothing signed it, and a
+  locally built copy has the empty pubkey, so its own updater is inert. What it
+  buys is that `/releases/latest` keeps resolving to the last signed release, so
+  the installed base keeps updating. It is a stopgap, not a release path: the
+  tagged CI run still has to happen.
   Release titles follow `Pluto's Terminal vX.Y.Z — <headline> (Windows)`.
-  Mark the new release **latest** explicitly (`--latest`).
 
 ## Dev commands
 
@@ -67,13 +100,13 @@ Two persistence layers, both localStorage-backed (see `storageKeys.js`):
   localStorage — a raw read silently sees no keys on a healthy system.
 
 Key files:
-- `App.jsx` (405 L) — window shell, st/userSt providers, lock screen, migrations.
-- `features/terminals/TerminalsTab.jsx` (1,404 L) — all chrome: menu bar,
+- `App.jsx` (592 L) — window shell, st/userSt providers, lock screen, migrations.
+- `features/terminals/TerminalsTab.jsx` (1,373 L) — all chrome: menu bar,
   toolbar, sidebar dock, tab strip, status bar, F-key bar, ~27 modals, command
   palette. Menu/toolbar/palette arrays are `useMemo`'d and sidebar handlers are
   `useCallback`-stable so the 2.5s sysstats poll + per-token cost telemetry
   don't re-render the world. Keep new chrome arrays memoized.
-- `features/terminals/TerminalPane.jsx` (1,483 L) — one xterm instance: spawn
+- `features/terminals/TerminalPane.jsx` (2,185 L) — one xterm instance: spawn
   (local PTY / SSH / serial transports), OSC 133/1337 handling, scrollback
   replay, command blocks, auto-approve, find, recording. Pure string builders
   are extracted: `welcomeBanner.js`, `shellIntegration.js` (POSIX + PowerShell
@@ -101,14 +134,14 @@ owning the connection; an mpsc channel receives writes; dropping the session
 struct tears it down. Sessions live in Tauri-managed registries. Output reaches
 the webview via `pty://…` events after a `pty_ready` handshake.
 
-- `pty.rs` (1,179 L) — local PTY (portable-pty/ConPTY) + SSH shell sessions
+- `pty.rs` (2,162 L) — local PTY (portable-pty/ConPTY) + SSH shell sessions
   (libssh2), reader threads, scrollback persistence v3 (reader-thread-owned,
   atomic truncation), kill+wait reaping, 4 MB outbound buffer cap, UTF-8
   chunk-boundary carry (never split multibyte — applies to every reader loop).
-- `commands.rs` (887 L) — store (atomic tmp+rename), pickers, git status/diff,
+- `commands.rs` (3,149 L) — store (atomic tmp+rename), pickers, git status/diff,
   npm scripts, scrollback/transcript IO, `mcp_install` (allowlist-guarded),
   `check_command_version`, window spawning.
-- `companion.rs` (786 L) — phone companion HTTP/WS server (axum) + web-push;
+- `companion.rs` (920 L) — phone companion HTTP/WS server (axum) + web-push;
   Tailscale serve integration (torn down on stop); blocking IO via
   `spawn_blocking`; subscribe dedup + cap.
 - `rdp.rs` / `vncclient.rs` — remote desktop sessions (IronRDP / vnc-rs); RDP
@@ -122,6 +155,25 @@ the webview via `pty://…` events after a `pty_ready` handshake.
   #1 perceived-quality bug; only `rfd` dialog commands stay main-thread for
   macOS). Secrets never touch argv or plaintext disk. File writes that matter
   are tmp+rename. snake_case Rust / camelCase JS across the IPC boundary.
+
+## Static analysis (added 2026-08-21)
+
+```powershell
+npx eslint .                  # react-hooks + jsx-a11y; 279 errors at baseline
+npx knip                      # dead files / unused exports / unlisted deps
+cargo clippy --all-targets    # 3 warnings from gateable at -D warnings
+cargo deny check licenses     # BLOCKING in CI; clean on win/linux/macos trees
+semgrep scan --metrics=off --config=p/javascript --config=p/rust
+```
+
+`.github/workflows/static.yml` runs all five. Only `licenses` blocks; the rest
+are reporters (`continue-on-error`) because each has a real backlog, and each
+job comments the exact condition for flipping it to blocking. Config lives in
+`eslint.config.js` and `src-tauri/deny.toml`.
+
+Semgrep must be the LOCAL CLI. The Claude Code Semgrep plugin routes scans
+through Semgrep's hosted server, which would send this proprietary source
+off-machine.
 
 ## Cross-cutting invariants
 
@@ -140,6 +192,17 @@ the webview via `pty://…` events after a `pty_ready` handshake.
 
 ## Docs index
 
+- `docs/audit-2026-08-21/FIXES-COMPLETE.md` — the audit's fixes, ALL APPLIED (working
+  tree, uncommitted). Final state, per-batch closeouts, what was reverted and why,
+  and what is still open. Read this before the audit doc itself.
+- `docs/full-audit-2026-08-21.md` — CURRENT audit (66 agents, 13 teams, 73
+  findings, adversarial refutation, plus a deterministic scanner baseline and a
+  live runtime pass). Per-team detail in `docs/audit-2026-08-21/teams/`, raw
+  scanner output + the IPC manifest in `docs/audit-2026-08-21/00-baseline/`, the
+  live UI pass in `docs/audit-2026-08-21/runtime-ui-pass.md`.
+- `docs/full-audit-2026-08-14.md` — prior audit @ `8c40c62`; all 30 findings
+  fixed by 8/16. The 8/21 pass re-verified every one: all present at HEAD, but
+  C2, C3 and C4 each traded one failure mode for another.
 - `docs/full-audit-2026-06-09.md` — last full audit; P1/P2 fixed (commits
   `ee805c1`, `45d63e6`), P3 items #24–#26 partially done, #16 (signed updater),
   #27–#29 open by choice.
@@ -152,8 +215,13 @@ the webview via `pty://…` events after a `pty_ready` handshake.
 
 ## Known open items (deliberate, not forgotten)
 
-- No signed updater channel (needs code-signing certs ~$400/yr; UpdateBanner
-  links to GitHub releases instead).
+- Binaries are still UNSIGNED (code-signing certs ~$400/yr), so SmartScreen and
+  Gatekeeper still warn on first launch. The signed UPDATER channel, which is a
+  different thing, DID ship in v0.6.1: minisign keypair, `createUpdaterArtifacts`
+  + pubkey live in the release-only overlay `src-tauri/tauri.release.conf.json`
+  (kept out of the base config so local builds do not need the private key), and
+  CI assembles `latest.json`. Verified live 2026-08-21: the published manifest
+  carries darwin-aarch64, darwin-x86_64 and windows-x86_64, each signed.
 - CSP still allows `unsafe-eval` (Monaco requirement); the webview is the
   privilege boundary — keep new IPC commands narrow.
 - `main` branch / public README intentionally lag the working branch.

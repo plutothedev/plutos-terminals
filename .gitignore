@@ -30,3 +30,13 @@ Thumbs.db
 
 # tauri build artifacts
 src-tauri/Cargo.lock.bak
+
+# 2026-08-21 audit: the security team report and the parsed workflow dump carry a
+# byte-level trigger for an unfixed VNC crash (SEC-2) and stay private (the
+# vault's security backlog holds them); the eslint baselines are 2.3 MB of
+# absolute local paths. The rest of docs/audit-2026-08-21/ is public.
+docs/audit-2026-08-21/teams/security.md
+docs/audit-2026-08-21/wf-parsed.json
+docs/audit-2026-08-21/00-baseline/eslint.json
+docs/audit-2026-08-21/00-baseline/eslint-after.json
+docs/audit-2026-08-21/00-baseline/knip.err

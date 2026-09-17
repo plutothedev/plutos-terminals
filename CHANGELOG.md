@@ -1,22 +1,126 @@
 # Changelog
 
-## Unreleased
+## v0.7.0: Audit closeout, keyboard-complete chrome, Light-skin correctness (2026-09-17)
+
+The whole 2026-08-21 audit (73 findings across 13 review teams,
+`docs/full-audit-2026-08-21.md`), applied in four reviewed batches and then
+re-reviewed as one tree by four independent adversarial passes before this tag
+(no critical or high finding survived; what they did find is fixed below or
+listed under "Known, deliberately open"). The keyboard features make this a
+minor bump rather than a patch.
+
+### Added
+- **Tab keyboard navigation.** Ctrl+Tab / Ctrl+Shift+Tab cycle tabs and
+  Alt+1..9 jump to a tab by position, all remappable under Settings →
+  Keybindings → Tabs. (Alt+digit does not fire on macOS, where Option composes
+  a character; Ctrl+Tab works everywhere.)
+- **The tab strip is a real tablist.** Arrow keys, Home and End move between
+  tabs, exactly one tab sits in the Tab order (roving tabindex), Delete closes,
+  F2 renames, and Shift+F10 or the Menu key opens the tab's context menu, which
+  is itself a keyboard menu: arrows walk it, Escape or Tab leave it, and focus
+  is handed back to the tab afterwards instead of falling to the page.
+- **Every control in the chrome is reachable by keyboard.** The collapsed
+  sidebar and dock rails are buttons now (collapsing a panel from the keyboard
+  used to be a one-way door, because the rail that reopens it was click-only
+  and the collapsed state persists across restarts); form fields carry their
+  labels; a visible focus ring follows the skin (`--phn-focus-outline`).
+- **Static analysis in CI** (`static.yml`): eslint with react-hooks and
+  jsx-a11y, knip, clippy, cargo-deny and semgrep. Only the licence check
+  blocks; the rest report, each with a written condition for flipping it to
+  blocking. A token gate test now fails the suite when any skin lacks a colour
+  token another part of the app uses.
+
+### Fixed
+- **Detach to new window no longer destroys the session.** The new window was
+  seeded without the wrapper it reads, then the source tab was closed anyway.
+- **Scrollback cleanup can no longer delete an open tab's history.** The same
+  nesting bug made the keep-set empty, so the age-based sweep saw every tab as
+  closed.
+- **SSH host-key pinning no longer rewrites your `~/.ssh/known_hosts`** from a
+  partial parse. It appends only, repairs a missing trailing newline, refuses
+  to pin when the file cannot be fully read, and treats hashed, marker and
+  non-UTF-8 lines as "ask" instead of "unknown host". Windows usernames with
+  non-ASCII characters can connect again (a fail-closed branch fired whenever
+  the SSH library's narrow file open failed on a path the app could open).
+- **SFTP staged uploads keep the destination's permissions** (a 0600 key file
+  came back 0644 after the atomic-rename fix), and the staging file is opened
+  exclusive so a symlink pre-planted at the predictable temp name cannot
+  redirect the upload.
+- **Workspace backup recovers from a missing blob**, not only a corrupt one,
+  and boot recovery, autosave and factory reset no longer race each other: a
+  boot prompt could suspend the durable mirror forever, a write hold could
+  wedge autosave for the whole session, and a recovery that resolved after a
+  factory reset could repopulate the backup the reset had just emptied.
+- **"Later" on an update no longer hides a newer security patch for 24 hours.**
+- **Chrome actions target the pane you are in, not a hidden one.** Ask AI →
+  Run, macros, recording and broadcast addressed the tab instead of its active
+  pane, so they ran in an unfocused split (possibly a different host) and went
+  dead once the split's original pane closed.
+- **Light skins.** `--phn-text-bright` and five more tokens were used but never
+  declared, leaving the Assistant input and Monitor values invisible on Light;
+  every token is now declared in all 14 skins, including the accent wash that
+  11 skins had been painting with a fixed fallback colour. Light-theme contrast
+  failures went from 27 to 4; the 12 dark skins are pixel-identical.
+- The AI cost readout latched every model to the Opus price, so Sonnet and
+  Haiku spend read 5 to 10 times high.
+- Factory reset now says what it does: secrets in the OS keychain (API keys,
+  saved SSH passwords) are not removed by it; delete those from Models or the
+  session tree first.
+- Tests that were not testing: three asserted on copies of the guard they were
+  named for, six symlink-escape tests asserted nothing on Windows, and the IPC
+  contract test compared two nulls. All now exercise production code, with a
+  macOS cargo leg in CI where symlinks can actually be created.
+
+### Release and CI
+- **The release workflow refuses to ship a mismatch.** A tag whose version
+  differs from `package.json`, `Cargo.toml` or `tauri.conf.json` fails before
+  the build (an installer stamped older than its manifest would trap every
+  client in an update loop). It asserts an installer for every matrix
+  platform, fails instead of warning when no signature exists (an unsigned
+  "latest" would 404 every installed copy's updater), and never publishes from
+  a manual run.
+- All GitHub Actions in every workflow are pinned to commit SHAs, with
+  read-only token floors; `cargo-deny` licence check blocking.
+- Dependency advisories cleared: js-yaml 4.3.2, cryptoki 0.10.1,
+  rustls 0.23.45.
+
+### Known, deliberately open
+- 241 eslint errors remain (mostly react-hooks/refs, static-element
+  interactions and set-state-in-effect), reported, not blocking.
+- The `default` skin measures 45 contrast failures, pre-existing; the primary
+  menu bar (File / Sessions / Tools ...) has no ARIA menu semantics yet, unlike
+  the tab context menu.
+- VNC: the client library is unmaintained and does not bound every field it
+  parses, so a malicious VNC server can crash the app. Connect only to servers
+  you trust, preferably through the SSH tunnel.
+- A PEM fragment with both banner lines severed stays undetectable by the
+  share scanner, by design (bare base64 needs the entropy heuristic the
+  scanner declines).
+
+## v0.6.1: Performance overhaul, guided tour, MobaXterm redesign, signed updates (2026-08-16)
+
+The public `v0.6.0` tag was cut against the old v0.2.0 commit and never
+carried real content, so it was never really shipped: v0.6.1 is the first
+public release since v0.5.0, and includes everything under v0.6.0 below plus
+150 more commits (a four-stream performance pass, a six-dimension audit with
+30 findings closed, a MobaXterm-styled redesign, a 25-stop guided tour, and a
+signed auto-updater).
 
 ### Added
 - **Split panes, the modern way.** Four new surfaces for one mental model:
   - **Keyboard**: Ctrl+Shift+D splits right, Ctrl+Shift+S splits down,
-    Ctrl+Shift+X closes the focused pane (splits only — never the tab), and
+    Ctrl+Shift+X closes the focused pane (splits only, never the tab), and
     Ctrl+Alt+Arrows move focus between panes geometrically (on macOS that's
     ⌘⌥-arrows, Warp's default). All remappable under Settings → Keybindings →
     Panes. Focus nav moves real keyboard focus, not just the highlight.
   - **Hover controls on every pane**: a translucent cluster (split right /
     split down, plus zoom / close on split tabs) fades in at the pane's
-    top-right corner — no trip to the toolbar, and the action lands on the
+    top-right corner (no trip to the toolbar), and the action lands on the
     pane under your cursor instead of the "active" one. Splitting a zoomed
     pane un-zooms first so you see what you made.
   - **Drag a tab onto a pane** to split there: edge zones (VS Code-style)
     show an accent preview of the half the tab will take; drop folds the
-    tab's live terminal into that side — the PTY survives via the pane
+    tab's live terminal into that side, and the PTY survives via the pane
     registry. Center drops keep the classic move-to-panel behavior. Remote
     (SSH/serial) tabs keep the classic drop only: pane leaves don't carry
     connection config yet, so a merged remote tab would respawn local after
@@ -28,11 +132,11 @@
   (Deferred item from the 2026-08-03 forward-risk review.)
 - The cloud-sync repo now compacts itself: once a push leaves ~64 accumulated
   loose git objects behind, the local clone is swapped for a fresh clone
-  (shallow where the transport supports it) — previously it grew forever,
+  (shallow where the transport supports it); previously it grew forever,
   since libgit2 never garbage-collects. Compaction runs only immediately after
   a successful push (local == remote, so it is lossless) and can never fail
   the push. (Deferred item from the same review.)
-- sync_git unit tests now pass on macOS/Linux — the test-only `file://` URL
+- sync_git unit tests now pass on macOS/Linux: the test-only `file://` URL
   helper produced an invalid four-slash URI for Unix absolute paths, so the
   suite had only ever run green on Windows.
 - **About dialog** (Help → About Pluto's Terminal): version, license, and
@@ -40,12 +144,20 @@
 - `SECURITY.md`: how to report vulnerabilities, plus a summary of the app's
   security posture and links to the two full-codebase audits.
 - **Readable errors.** Raw backend errors ("[Session(-18)] …", "os error 2")
-  are now translated to plain sentences ("Authentication failed — check your
-  credentials", "File not found") everywhere they surface — toasts, SFTP,
-  tunnels, RDP/VNC status, AI panels, sync — with the full raw error kept for
+  are now translated to plain sentences ("Authentication failed, check your
+  credentials", "File not found") everywhere they surface (toasts, SFTP,
+  tunnels, RDP/VNC status, AI panels, sync), with the full raw error kept for
   diagnostics. Error toasts stay up 8s (was 4s) and clicking one copies the
   raw error to the clipboard for bug reports; toasts are also announced to
   screen readers now.
+- **A 25-stop guided tour**, offered on first run and replayable from Help
+  → Take the tour: an in-house spotlight overlay walks the chrome, session
+  tree, grid, and tools dock, with Tab trapped inside the tour card.
+- **Right-click pastes into the shell**, PuTTY-style, via xterm's
+  bracketed-paste path so a multi-line paste can't auto-execute in a
+  full-screen app.
+- **The OS window title now mirrors the active tab** ("session name -
+  Pluto's Terminal", MobaXterm-style) in the titlebar, taskbar, and Alt+Tab.
 
 ### Changed
 - One product name everywhere: **Pluto's Terminal** (singular) across the
@@ -55,18 +167,90 @@
   launches (visibility is deliberately not tracked, so quitting from the tray
   while hidden can't save an invisible boot state).
 - **No more white flash at boot.** The window and page pre-paint the app
-  background before anything loads — dark by default, light when your saved
+  background before anything loads: dark by default, light when your saved
   skin is light.
 - **Light theme fixes:** the tab strip now follows the Light skin (it was
-  stuck dark on a light page — the strip read a CSS token no skin defined),
-  and Light's secondary/faint text colors were bumped to readable contrast.
+  stuck dark on a light page, since the strip read a CSS token no skin
+  defined), and Light's secondary/faint text colors were bumped to readable
+  contrast.
 - Close buttons use one glyph (✕) everywhere; the update banner's buttons are
   now "Download" / "Later".
+- **Tabs and the boot banner now match the MobaXterm reference**: trapezoid tabs (18° flare, domed shoulders, gloss) replace the
+  old flat pill tabs, and the ASCII boot banner is back at full size after
+  fixing the width-measurement bug that had forced it borderless.
+- **App-wide copy sweep**: 44 control renames, "Workflows" as the one name
+  for saved commands, capitalized button voice, plus a rewritten onboarding.
+- Vivid ANSI restored in the Dark/OLED palettes; custom themes now get any
+  missing ANSI slot auto-filled instead of showing gaps.
 
 ### Removed
 - Legacy prompt-pack files (`prompt-packs/`, the pack-submission issue
   template, and the pack sections of CONTRIBUTING.md); packs were retired at
   v0.1.7.
+
+### Fixed
+- **Six-dimension audit (2026-08-14): 30 findings, all closed** (5 critical,
+  8 high, 11 medium, 6 low; six load-bearing ones re-verified directly
+  against the code). Worst five: OSC 1337 command reports (a remote host
+  could inject a hidden `PlutoCmd=` sequence into persistent cross-session
+  history for a later one-click "re-run") are now nonce-gated per session;
+  SFTP upload/download used to truncate the destination before streaming, now
+  staged to a temp file and renamed into place; workspace/session-tree state
+  lived in one localStorage blob with no backup and reset silently on
+  corruption, now mirrored through the durable Rust store with a recovery
+  offer; a render crash in one pane used to kill every other live session in
+  the window, now contained per pane instead of by the single app-wide
+  boundary; two windows editing the same notebook could race the same temp
+  file, now locked per target path. Also closed: a stalled disk no longer
+  wedges the status bar, recordings checkpoint to disk instead of living
+  only in memory, ssh-keygen/RDP connects moved off the UI thread, Agent
+  Mode's Stop now actually stops a pending approval, and the secret scanner
+  catches bare AWS-style keys, env-dump shapes, and base64/hex secrets.
+- **Launch-hardening pass (2026-08-16)**, a second sweep across cold start,
+  crash paths, and distribution: an uncoerced error toast used to blank the
+  whole window with no way back in, now caught by an outermost boundary; a
+  bad settings value could crash and, because a top-level crash used to kill
+  every session, take every live connection with it; a fresh Windows
+  install's Setup Checker misreported npm, npx, and the Claude Code CLI as
+  missing (the probe couldn't see `.cmd` shims), now routed through `cmd /c`
+  behind a strict allowlist; a keyring with no Linux backend silently wiped
+  stored secrets on next launch; published SHA256SUMS never matched what
+  GitHub actually serves.
+- Replaced the dead Discord invite (was 404ing) across the binary, welcome
+  banner, README, `SECURITY.md`, and `CONTRIBUTING.md`; the new one is
+  verified to never expire.
+
+### Performance
+Four audit-first streams, back to back (2026-08-12/13):
+- **PTY hot path**: coalesced output emits (~8ms/64KB instead of per 4KB
+  read), O(1) scrollback rotation instead of rewriting up to 15MB inline, a
+  256KB async scrollback restore instead of a blocking 10MB read, and
+  spawn/kill/transcript writes moved off the main thread.
+- **Render containment**: `TerminalPane` is memoized with stable callbacks,
+  tab activity moved to a sliced store so switching tabs stops re-rendering
+  the app, and 23 of 24 modals render conditionally instead of always.
+- **Network/LLM**: every AI surface streams (first token, not last, with a
+  real cancel path), Anthropic prompt caching stops agent runs from paying
+  O(n²) tokens, and MCP/SFTP/update-check lookups are cached, not re-fetched.
+- **Bundle/boot**: Monaco dropped from 15.7MB to 6.6MB (basic tokenization
+  instead of full CSS/HTML/TS language services), the font subset dropped
+  from 2.59MB to 428KB, and heavy panes defer loading until actually shown.
+
+### Release
+- **Signed, in-place auto-updates.** Releases now ship a minisign-signed
+  payload; the app verifies it against a public key baked into the build
+  before installing, so controlling the GitHub assets alone can't push code,
+  only the private key can. Updates install in place and relaunch; older
+  versions have no updater and need one manual install to join the chain.
+- **Linux is cut from this release's build matrix** (reversible, conditions
+  noted next to the disabled leg): it shipped every prior release without
+  ever running by CI or by hand, a Linux keyring gap was found silently
+  wiping stored credentials during this pass, and the canvas renderer is
+  Windows-verified only.
+- Fixed the Windows updater manifest: built for Tauri v1's `.msi.zip`
+  naming, it never matched Tauri v2's actual `.msi` output, so `latest.json`
+  silently omitted Windows entirely; the release job now asserts every
+  platform is present before publishing.
 
 ## v0.6.0 — Agent context, notebooks, saved prompts, gist sharing (2026-08-03)
 

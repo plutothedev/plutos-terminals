@@ -24,10 +24,30 @@ html, body, #root {
   overflow: hidden;
 }
 
+/* Themed, not hardcoded. This file predates the light skins and every colour in
+   it was a dark-mode literal with no light override (audit runtime-ui-pass §2).
+   The --phn-* tokens are declared in headerSkins.css and applied to <html> by
+   applyActiveTheme(), so body picks up whichever skin is active. */
 body {
   font-family: 'JetBrains Mono', Menlo, Monaco, monospace;
-  background: #0a0a0a;
-  color: #E6E6E6;
+  /* Was a flat #0a0a0a, so under a light skin the window's base layer stayed
+     black behind a light UI wherever .phn-page had not painted yet: cold boot,
+     resize, skin flip.
+     The fallback is `transparent`, NOT the old literal, and that matters. Until
+     applyActiveTheme() puts data-phn-skin on <html> there is no token to read,
+     so a dark literal here would paint black over the pre-paint frame that
+     public/boot.js has ALREADY set to the correct resolved page background for
+     this window, i.e. it would reintroduce the exact flash this fixes, on
+     every cold boot. Deferring to <html> lets the boot layer do the job it was
+     written for (boot.css paints #0a0a0a first, so there is no white flash if
+     boot.js has no stored colour yet). */
+  background: var(--phn-page-bg, transparent);
+  /* Inherited default for any text node that sets no colour of its own. Was
+     near-white #E6E6E6, i.e. near-invisible on light chrome. Every full-screen
+     container (.phn-page, LockScreen, Welcome) sets its own colour, so on the
+     dark skins nothing visible reads this; it is the safety net that decides
+     what an un-themed node looks like. */
+  color: var(--phn-text-fg, #E6E6E6);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -35,9 +55,24 @@ button {
   font-family: inherit;
 }
 
+/* The keyboard focus ring. Its own token, and deliberately neither of the two
+   you would reach for first:
+   - NOT --phn-focus-ring, which is a translucent rgba() sized for box-shadow
+     rings; its alpha would dilute a 1px outline against whatever sits behind.
+   - NOT --phn-link. That reads as "just use the accent", but --phn-link is a
+     different colour in 12 of the 14 skins (#FF0080 on neon and magenta,
+     #66ff99 on crt, #ffffff on brutal, #ffd966 on amber, #a1a1aa on linear …),
+     so pointing the ring at it would have recoloured the focus indicator in ten
+     dark skins in order to fix two light ones.
+   --phn-focus-outline is declared in all fourteen skin blocks: pinned to the
+   old hardcoded #7c9cf5 in every dark skin, so those are byte-identical, and
+   overridden only light. #1170cc on moba-light lifts the ring off its #d9d9d9
+   page from 1.88:1 to 3.53:1, #0066cc on daylight gives 5.57:1 on #ffffff. 3:1
+   is the WCAG floor for a non-text indicator, which the literal failed in the
+   skin this app's owner uses daily. */
 button:focus,
 button:focus-visible {
-  outline: 1px solid #7c9cf5;
+  outline: 1px solid var(--phn-focus-outline, #7c9cf5);
   outline-offset: 2px;
 }
 

@@ -9,7 +9,8 @@
 // cloud sync can deliver already-poisoned from another device.
 import { Component } from "react";
 import { destroyAll } from "../features/terminals/paneRegistry.js";
-import { USER_STORAGE_KEY, SECRET_FIELDS } from "../features/terminals/storageKeys.js";
+import { USER_STORAGE_KEY, SECRET_FIELDS, markLayoutDiscarded } from "../features/terminals/storageKeys.js";
+import { layoutFingerprint } from "../features/terminals/workspaceBoot.js";
 
 // Pane/surface-scoped boundary (audit H3): the top-level ErrorBoundary below
 // calls destroyAll() on catch — correct for an unattributable app-wide crash,
@@ -66,6 +67,23 @@ export class ErrorBoundary extends Component {
     return { error };
   }
 
+  // Throw away this window's layout, naming it on the way out. Boot recovery
+  // treats an absent key as profile loss and restores from store.json, which
+  // still holds the blob that just crashed, so the mark is what stops the crash
+  // loop coming straight back. It carries a FINGERPRINT rather than a bare flag
+  // so it rules out that one layout: a blanket mark also suppressed the backup
+  // read, and with it the mirror hold, which let the boot migrations replace
+  // store.json with their defaults ~200 ms later. Read before the remove, for
+  // obvious reasons.
+  discardLayout() {
+    try {
+      const key = this.props.storageKey;
+      if (!key) return;
+      markLayoutDiscarded(layoutFingerprint(localStorage.getItem(key)));
+      localStorage.removeItem(key);
+    } catch { /* storage unavailable: the reload is still worth trying */ }
+  }
+
   componentDidCatch(error, info) {
     try { console.error("Pluto's Terminal: uncaught render error", error, info); } catch { /* never throw here */ }
     // A crashed tree cannot supervise live sessions.
@@ -76,7 +94,7 @@ export class ErrorBoundary extends Component {
     if (!this.state.error) return this.props.children;
     const reload = () => { try { window.location.reload(); } catch { /* noop */ } };
     const resetLayout = () => {
-      try { if (this.props.storageKey) localStorage.removeItem(this.props.storageKey); } catch { /* noop */ }
+      this.discardLayout();
       reload();
     };
     // Second escape (audit H-recovery): resetLayout only reaches the PER-WINDOW
@@ -90,7 +108,10 @@ export class ErrorBoundary extends Component {
         try { this.setState({ wipeArmed: true }); } catch { /* noop */ }
         return;
       }
-      try { if (this.props.storageKey) localStorage.removeItem(this.props.storageKey); } catch { /* noop */ }
+      // Same deliberate discard as resetLayout: this clears the per-window
+      // layout key too, so without the mark the reload restores the crashing
+      // blob back out of store.json on the escape hatch of last resort.
+      this.discardLayout();
       // CARRY THE SECRETS ACROSS THE WIPE (review: regression lens).
       // Secrets normally live in the OS keychain and are stripped from this
       // blob — but when the keychain is UNAVAILABLE (Linux with no Secret

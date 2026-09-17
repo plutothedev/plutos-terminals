@@ -6,8 +6,9 @@ import Modal from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
 import { useConfirm } from "./ConfirmModal.jsx";
 import { Button, Field } from "./ui.jsx";
+import { invoke } from "@backend";
 import { getSkinId } from "../features/terminals/headerSkins.js";
-import { wipeAllLocalState } from "../features/terminals/storageKeys.js";
+import { wipeAllLocalState, holdLocalWrites } from "../features/terminals/storageKeys.js";
 import KeybindingsSection from "../features/terminals/KeybindingsSection.jsx";
 import ThemesSection from "../features/terminals/ThemesSection.jsx";
 import SyncSection from "../features/terminals/SyncSection.jsx";
@@ -41,14 +42,53 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
 
   const handleFactoryReset = async () => {
     const ok = await confirm(
-      "Factory reset wipes ALL Pluto's Terminal state from this machine: panel layout, projects, scrollback, API key, theme, and the welcome/onboarding screens (they'll show again), across every window. The app reloads to the welcome screen. Continue?",
+      "Factory reset wipes Pluto's Terminal's local state on this machine: panel layout, projects, scrollback, theme, and the welcome/onboarding screens (they'll show again), across every window. Secrets kept in the OS keychain (API keys, saved SSH passwords) are NOT removed; delete those from Models or the session tree first if you want them gone. The app reloads to the welcome screen. Continue?",
       { title: "Factory reset?", confirmLabel: "Reset everything", destructive: true }
     );
     if (!ok) return;
+    // The DURABLE copy goes first. store.json (workspaceMirror.js) is a second,
+    // independent copy of the window layout, and boot recovery reads
+    // "localStorage empty + store.json populated" as WebView2 profile loss and
+    // restores from it. Leaving it behind meant the very next launch quietly put
+    // the layout back, while this dialog had just promised to wipe "ALL Pluto's
+    // Terminal state from this machine".
+    //
+    // Order matters because this half is the fallible one (an IPC round-trip to
+    // a file write). Doing it first means a failure leaves BOTH copies intact,
+    // i.e. the app exactly as it was, instead of the half-reset shape that
+    // recovery cannot tell apart from profile loss. "{}" rather than a delete:
+    // write_store is already atomic (tmp+rename), and parseWorkspace treats "{}"
+    // and the "null" no-file sentinel identically, so no new IPC command is needed.
+    //
+    // The hold goes up FIRST, before either half. This window's own debounced
+    // flush writes both copies too (App.jsx), and it fires on a 200 ms timer and
+    // again on the pagehide/beforeunload that the reload below triggers, so
+    // without the hold the reset races a writer that puts the layout back into
+    // the store.json it just cleared. Released again if the durable half fails,
+    // because then nothing was wiped and the app has to keep saving.
+    const releaseWrites = holdLocalWrites();
+    try {
+      await invoke("write_store", { data: "{}" });
+    } catch (e) {
+      releaseWrites();
+      toast.error({
+        message: "Factory reset stopped: the on-disk backup couldn't be cleared, so nothing was wiped.",
+        detail: String(e),
+      });
+      return;
+    }
     // Wipe EVERY app-owned key (state/user blobs, per-window states, command
     // history, macros, dock layout, dismissed-update) — see ALL_STORAGE_PREFIXES
     // in storageKeys.js. The old inline loop missed cmdhistory/macros/pt:* keys.
+    //
+    // Known limit, unchanged by this: only THIS window reloads. Other open
+    // windows keep their in-memory state and will re-persist it, exactly as they
+    // did before store.json entered the picture.
     wipeAllLocalState();
+    // wipeAllLocalState takes a hold of its own and never lets go, so this one
+    // has done its job. Released after the wipe, never before it: there must be
+    // no instant between the two where writes are live again.
+    releaseWrites();
     window.location.reload();
   };
 

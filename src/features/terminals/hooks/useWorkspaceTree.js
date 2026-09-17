@@ -158,7 +158,14 @@ export function useWorkspaceTree({ state, persist, toast }) {
     persist({ ...st, panels, activePanelId: panelId });
   }, [persist]);
 
-  const closeTab = useCallback((panelId, tabId) => {
+  // `stash: false` is for callers where the tab is MOVING, not closing, and keeps
+  // its id somewhere else (detachTab). Reopening such a tab (Ctrl+Shift+Z) would
+  // put one id live in two windows: two ScrollbackWriters appending to one
+  // `<id>.txt` and rotating over each other, a scrollback_load that replays the
+  // other window's live session, and on a worktree/notebook tab the same
+  // two-owners-one-file break duplicateTab strips those fields to avoid.
+  // closePanel's last-tab branch below already never stashes.
+  const closeTab = useCallback((panelId, tabId, { stash = true } = {}) => {
     const st = stateRef.current;
     const target = st.panels.find(p => p.id === panelId);
     if (!target) return;
@@ -168,7 +175,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
     }
     const closedIdx = target.tabs.findIndex(t => t.id === tabId);
     const closedTab = target.tabs[closedIdx];
-    if (closedTab && !closedTab.home) {
+    if (stash && closedTab && !closedTab.home) {
       // Stash the tab's transient SSH password (in-memory only, never persisted)
       // alongside the recently-closed record — clearTabPassword below drops it
       // from the bridge, and without the stash Ctrl+Shift+T reopened an SSH tab
@@ -304,7 +311,13 @@ export function useWorkspaceTree({ state, persist, toast }) {
       projects: st.projects,
     };
     const stateKey = getWindowStorageKey(winId);
-    try { localStorage.setItem(stateKey, JSON.stringify(newState)); } catch { /* ignore */ }
+    // The seed must be the WHOLE window blob, and the workspace tree lives one
+    // level down inside it under `terminalsState` (TerminalsTab persists
+    // `{ ...prev, terminalsState: next }` and boots from `st?.terminalsState`).
+    // Writing `newState` bare made the new window boot to defaultState() while
+    // closeTab below had already dropped the tab here, destroying the session
+    // (audit RDI-1). Keep this wrapper in lockstep with TerminalsTab's read.
+    try { localStorage.setItem(stateKey, JSON.stringify({ terminalsState: newState })); } catch { /* ignore */ }
     // Open the window FIRST; only drop the tab here once it succeeds, so a spawn
     // failure never loses the session.
     try {
@@ -314,7 +327,8 @@ export function useWorkspaceTree({ state, persist, toast }) {
       toast.error(humanizeError(e, "Detach failed"));
       return;
     }
-    closeTab(panelId, tabId);
+    // The tab moved, it did not close. See closeTab's `stash` note.
+    closeTab(panelId, tabId, { stash: false });
     toast.success(`Detached "${src.label}" to a new window.`);
   }, [closeTab, toast]);
 

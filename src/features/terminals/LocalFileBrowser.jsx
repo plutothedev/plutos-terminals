@@ -24,6 +24,39 @@ const REVEAL_TITLE = IS_MAC
     ? "Open this folder in File Explorer"
     : "Open this folder in your file manager";
 
+// How many rows this dock will put in the DOM at once (audit PERF-1).
+//
+// Independent of the FETCH cap, which is a different number for a different
+// reason: `list_directory` returns up to LIST_DIRECTORY_MAX entries
+// (commands.rs), raised 5,000 -> 50,000 on 2026-08-16 so that System32-sized
+// and node_modules-sized trees list at all. Nothing on this side changed to
+// absorb that. Each row is ~8 elements including an inline <svg>, so an
+// unwindowed render of a capped listing commits ~400,000 nodes in one
+// synchronous pass, keeps them resident for the life of the dock, and
+// reconciles all of them on every later render of the panel. The Files dock is
+// the default right-dock content, so that is one double-click from a cold
+// start.
+//
+// 500 is well past what fits on any screen; "Show more" below extends it in
+// the same step, so nothing becomes unreachable: the listing is paged, not
+// truncated.
+export const DISPLAY_MAX = 500;
+
+/**
+ * The amber banner text above the list, or null when the listing is complete.
+ *
+ * Both truncations have to be legible at once, and the fetch cap is the
+ * dangerous one: it breaks out of the backend read loop BEFORE the sort, so a
+ * capped listing renders looking neatly alphabetical and complete while entries
+ * are missing. `fetchTruncated` turns the total into a floor ("50,000+") rather
+ * than letting it read as the real size of the folder.
+ */
+export function listingNotice({ shown, fetched, fetchTruncated }) {
+  if (shown >= fetched && !fetchTruncated) return null;
+  const total = `${fetched.toLocaleString()}${fetchTruncated ? "+" : ""}`;
+  return `Showing ${shown.toLocaleString()} of ${total} entries.`;
+}
+
 function fmtSize(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -104,6 +137,10 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
   // the sort, so a truncated listing renders looking neatly alphabetical and
   // complete while entries are missing. Left unread, that is a silent lie.
   const [truncated, setTruncated] = useState(false);
+  // How many of `entries` are currently in the DOM (audit PERF-1). Grows by
+  // DISPLAY_MAX per "Show more" click and resets on every navigation, so
+  // walking into a huge directory never inherits a previous page's cap.
+  const [limit, setLimit] = useState(DISPLAY_MAX);
 
   const list = useCallback(async (path) => {
     setLoading(true);
@@ -113,6 +150,7 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
       setCwd(resolved);
       setEntries(Array.isArray(items) ? items : []);
       setTruncated(wasTruncated === true);
+      setLimit(DISPLAY_MAX);
     } catch (e) {
       setError(humanizeError(e).message);
     } finally {
@@ -130,6 +168,14 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
   const segs = cleanCwd.split(/[/\\]+/).filter(Boolean);
   const crumbPath = (i) =>
     isWin ? segs.slice(0, i + 1).join("\\") : "/" + segs.slice(0, i + 1).join("/");
+
+  const shown = limit >= entries.length ? entries : entries.slice(0, limit);
+  const notice = listingNotice({
+    shown: shown.length,
+    fetched: entries.length,
+    fetchTruncated: truncated,
+  });
+  const moreCount = Math.min(DISPLAY_MAX, entries.length - shown.length);
 
   return (
     <div className="moba-dock-panel">
@@ -174,9 +220,28 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
       )}
 
       <div className="phn-snippets-list">
-        {!error && !loading && truncated && (
+        {!error && !loading && notice && (
           <div className="phn-snippets-empty" style={{ color: "#FBBF24" }}>
-            Showing the first {entries.length.toLocaleString()} entries — this folder has more.
+            {notice}
+            {moreCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setLimit((n) => n + DISPLAY_MAX)}
+                title="Add another page of entries to the list"
+                style={{
+                  marginLeft: 6,
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  font: "inherit",
+                  color: "inherit",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                }}
+              >
+                Show {moreCount.toLocaleString()} more
+              </button>
+            )}
           </div>
         )}
         {error ? (
@@ -186,7 +251,7 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
         ) : entries.length === 0 ? (
           <div className="phn-snippets-empty">Empty folder.</div>
         ) : (
-          entries.map((e) => (
+          shown.map((e) => (
             <div
               key={e.path}
               className="phn-sftp-row"

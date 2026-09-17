@@ -61,7 +61,18 @@ pub fn get_data_dir(app: &AppHandle) -> PathBuf {
 }
 
 // ── Store (state persistence; complements localStorage) ──────────
-
+//
+// store.json is the DURABLE mirror of the frontend's per-window layout blob: a
+// WebView2 profile that is reset, quarantined or rebuilt takes localStorage with
+// it, and this file is the only copy that survives (audit C2). The frontend
+// side is workspaceMirror.js (secret stripping, boot-time hold) and
+// workspaceBoot.js (what to do with what comes back).
+//
+// The contract this file owes that side: "no backup" has TWO on-disk spellings
+// and both must read as empty. An absent file answers with the "null" sentinel
+// below; a factory reset writes a literal "{}" through write_store rather than
+// unlinking, so the clear is atomic like every other write here. parseWorkspace
+// treats both identically, which is why there is no clear_store command.
 #[tauri::command]
 pub fn read_store(app: AppHandle) -> Result<String, String> {
     let path = get_data_dir(&app).join("store.json");
@@ -554,17 +565,48 @@ fn first_shell_metachar_arg(args: &[String]) -> Option<&str> {
 mod check_command_version_guard_tests {
     // The Windows branch routes `name` through `cmd /c`, so the allowlist is a
     // security boundary, not a tidiness check: anything it lets through is
-    // reparsed by cmd. Mirrors the predicate in check_command_version.
-    fn accepted(name: &str) -> bool {
-        !(name.is_empty()
-            || name.len() > 32
-            || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+    // reparsed by cmd. These call the production predicate, NOT a copy of it.
+    // They used to define a local `accepted` that mirrored the inline `if` in
+    // check_command_version, so widening the real guard (adding `.` so
+    // `claude.cmd` could be probed) or dropping it in a refactor left all three
+    // green (audit TQ-1). Same `use super::` shape as mcp_install_guard_tests.
+    use super::{check_command_version, command_name_allowed};
+
+    // A name the allowlist rejects that WOULD produce Some(..) if it ever reached
+    // the subprocess, which is what lets the call-site test below fail. Windows:
+    // `cmd /c echo&echo --version` is reparsed into two commands, prints
+    // "ECHO is on." and exits 0, i.e. the injection the guard exists to stop, in
+    // its most harmless possible form. Elsewhere the branch is a bare Command, so a
+    // path (rejected for the `/`) that echoes and exits 0 is the equivalent.
+    #[cfg(target_os = "windows")]
+    const REJECTED_BUT_RUNNABLE: &str = "echo&echo";
+    #[cfg(not(target_os = "windows"))]
+    const REJECTED_BUT_RUNNABLE: &str = "/bin/echo";
+
+    #[test]
+    fn the_command_applies_the_guard_not_just_the_predicate() {
+        // The three tests below call the predicate directly, which is the point
+        // (they used to assert on a copy), but none of them can see the CALL
+        // SITE. Deleting `if !command_name_allowed(&name)` from
+        // check_command_version leaves all three green and produces only a
+        // dead-code warning, which the CI rust job does not deny. This one drives
+        // the real command, so the guard has to be WIRED IN, not merely present.
+        // Rejection is synchronous (it returns before the spawn_blocking await),
+        // so block_on never needs the child; if the guard is gone it does, and
+        // the Some(..) it comes back with is the failure.
+        let got = tauri::async_runtime::block_on(check_command_version(
+            REJECTED_BUT_RUNNABLE.to_string(),
+        ));
+        assert_eq!(
+            got, None,
+            "{REJECTED_BUT_RUNNABLE:?} reached the subprocess: the allowlist is no longer wired into check_command_version"
+        );
     }
 
     #[test]
     fn real_tool_names_are_accepted() {
         for n in ["node", "npm", "npx", "claude", "git", "gh", "python3", "my-tool_2"] {
-            assert!(accepted(n), "{n} should be probeable");
+            assert!(command_name_allowed(n), "{n} should be probeable");
         }
     }
 
@@ -576,13 +618,13 @@ mod check_command_version_guard_tests {
             "npm calc", "npm\"x", "npm\ncalc", "npm\rcalc", "npm;calc", "npm(x)",
             "../evil", "C:\\evil", "a.exe", "",
         ] {
-            assert!(!accepted(n), "{n:?} must be rejected — cmd /c would reparse it");
+            assert!(!command_name_allowed(n), "{n:?} must be rejected, cmd /c would reparse it");
         }
     }
 
     #[test]
     fn absurdly_long_names_are_rejected() {
-        assert!(!accepted(&"a".repeat(33)));
+        assert!(!command_name_allowed(&"a".repeat(33)));
     }
 }
 
@@ -693,18 +735,27 @@ fn mcp_install_sync(argv: Vec<String>) -> Result<McpInstallResult, String> {
     })
 }
 
+/// STRICT allowlist for a probeable command name, not a denylist. The Windows
+/// branch of `check_command_version_sync` routes `name` through `cmd /c`, where a
+/// metacharacter would be reparsed as command chaining (`npm&calc`), the same RCE
+/// class the mcp_install guard exists for. The old check only rejected / \ . and
+/// space, which let & | < > ^ % through. Every caller passes a fixed literal
+/// (node / npm / claude), so a bare [A-Za-z0-9_-] name loses nothing and removes
+/// the surface entirely.
+///
+/// A named function rather than an inline `if` so the guard tests can call the SAME
+/// code the command runs. They used to assert on a hand-copied mirror of this
+/// predicate (audit TQ-1), which meant widening or deleting the real guard kept the
+/// suite green. Same reason `first_shell_metachar_arg` above is a function.
+fn command_name_allowed(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 32
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 #[tauri::command]
 pub async fn check_command_version(name: String) -> Option<String> {
-    // STRICT allowlist, not a denylist. The Windows branch below routes through
-    // `cmd /c`, where a metacharacter in `name` would be reparsed as command
-    // chaining (`npm&calc`) — the same RCE class the mcp_install guard exists
-    // for. The old check only rejected / \ . and space, which let & | < > ^ %
-    // through. Every caller passes a fixed literal (node / npm / claude), so a
-    // bare [A-Za-z0-9_-] name loses nothing and removes the surface entirely.
-    if name.is_empty()
-        || name.len() > 32
-        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
+    if !command_name_allowed(&name) {
         return None;
     }
     // Off the runtime (audit M9): this is an `async fn`, so the blocking
@@ -1834,6 +1885,44 @@ mod transcript_sweep_tests {
     }
 }
 
+// (C) Shared by every symlink-escape regression test below (transcripts, rule
+// files, notebooks). Windows refuses symlink creation without Developer Mode or
+// elevation, so those tests have to tolerate the primitive being unavailable.
+// They used to do it with a bare `if !made { return; }`, which is how six
+// security regression tests reported green while asserting nothing at all on an
+// unprivileged box (audit BRS-3). Two things changed. Here: a refusal off Windows
+// means the test was disabled by accident rather than by the OS, so it fails
+// loudly instead. At each call site: the privilege-free half of the same guard
+// (a DIRECTORY named *.md, which every one of these paths rejects through the
+// exact same `file_type().is_file()` check) is asserted first, so no platform
+// runs a vacuous test.
+//
+// Read the two halves for what each one can actually prove, because they are not
+// interchangeable. The directory half has to assert the guard's own ERROR STRING,
+// not a bare is_err: reading or renaming over a directory fails at the OS anyway,
+// so is_err alone survives deleting the guard. Where a path returns Option rather
+// than Result there is no string to pin, so `symlinked_rule_file_is_skipped`'s
+// directory half proves only that a directory is not read, NOT that the
+// `is_symlink()` arm exists. And no directory can ever catch the FOLLOW-the-link
+// regression (swapping symlink_metadata for metadata), because a directory is not
+// a regular file under either one. That is the symlink half's job alone, so it is
+// the only real coverage of the escape vector, and it runs only where the OS
+// allows a link: on Windows it never does, which is why test.yml carries a
+// macos-latest cargo leg.
+#[cfg(test)]
+fn try_make_symlink(target: &std::path::Path, link: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_file(target, link).is_ok();
+    #[cfg(not(windows))]
+    let made = std::os::unix::fs::symlink(target, link).is_ok();
+    #[cfg(not(windows))]
+    assert!(
+        made,
+        "symlink creation must succeed off Windows: a silent skip leaves this test asserting nothing"
+    );
+    made
+}
+
 #[cfg(test)]
 mod transcript_read_tests {
     use super::*;
@@ -1950,41 +2039,59 @@ mod transcript_read_tests {
 
     #[test]
     fn symlinked_md_file_is_not_listed() {
-        // Ports rule_file_tests::symlinked_rule_file_is_skipped /
-        // notebook_io_tests::symlinked_md_file_is_not_listed's exact pattern:
-        // symlink creation on Windows needs Developer Mode / privilege; if the
-        // OS refuses, the vector doesn't exist in this environment — pass
-        // trivially rather than failing the whole suite on an unrelated box.
+        // Two halves; see try_make_symlink for why. Half one needs no privilege
+        // and therefore runs everywhere: the list filter is
+        // `symlink_metadata(..).file_type().is_file()`, so a DIRECTORY named
+        // "*.md" is rejected by the same line a symlink is. Half two is the real
+        // escape vector and runs wherever the OS will create a link.
         let tmp = tempfile::tempdir().unwrap();
         let secret = tmp.path().join("secret.txt");
         fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
         let date_dir = tmp.path().join("2024-01-01");
-        fs::create_dir_all(&date_dir).unwrap();
-        #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_file(&secret, date_dir.join("linked.md")).is_ok();
-        #[cfg(not(windows))]
-        let made = std::os::unix::fs::symlink(&secret, date_dir.join("linked.md")).is_ok();
-        if !made { return; }
+        fs::create_dir_all(date_dir.join("dir-entry.md")).unwrap();
+        assert!(
+            transcript_list_sync(tmp.path()).is_empty(),
+            "an entry named *.md that is not a regular file must never be listed"
+        );
+        if !try_make_symlink(&secret, &date_dir.join("linked.md")) { return; }
         let got = transcript_list_sync(tmp.path());
         assert!(got.is_empty(), "symlinked .md file must never be listed");
     }
 
     #[test]
     fn read_direct_on_symlinked_target_is_err() {
-        // Read-path symlink check — NOT just the list-exclusion case: even
-        // called directly against the exact (date, name), a symlinked file
-        // must be rejected rather than followed.
+        // Read-path check, NOT just the list-exclusion case: even called directly
+        // against the exact (date, name), a non-regular entry must be rejected
+        // rather than followed. Privilege-free half first (see try_make_symlink).
         let tmp = tempfile::tempdir().unwrap();
         let secret = tmp.path().join("secret.txt");
         fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
         let date_dir = tmp.path().join("2024-01-01");
-        fs::create_dir_all(&date_dir).unwrap();
-        #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_file(&secret, date_dir.join("linked.md")).is_ok();
-        #[cfg(not(windows))]
-        let made = std::os::unix::fs::symlink(&secret, date_dir.join("linked.md")).is_ok();
-        if !made { return; }
-        assert!(transcript_read_sync(tmp.path(), "2024-01-01", "linked").is_err());
+        fs::create_dir_all(date_dir.join("dir-entry.md")).unwrap();
+        // The guard's own MESSAGE, not a bare is_err: reading a directory fails
+        // at the OS ("Access is denied. (os error 5)") whether or not the guard
+        // is there, so is_err alone survived deleting the very line this test is
+        // named for. Pinning transcript_read_file_lossy's string is what makes
+        // the privilege-free half prove THIS check rather than the filesystem's.
+        assert_eq!(
+            transcript_read_sync(tmp.path(), "2024-01-01", "dir-entry").unwrap_err(),
+            "transcript not found",
+            "read must reject a non-regular entry with the guard's own error"
+        );
+        // read_all stays a bare is_err on this half on purpose: it SKIPS an
+        // unreadable date and reports "no transcript found for this name" either
+        // way, so there is no message that distinguishes the guard here. Its
+        // guard coverage is the symlink half below.
+        assert!(
+            transcript_read_all_sync(tmp.path(), "dir-entry").is_err(),
+            "read_all must reject an entry that is not a regular file"
+        );
+        if !try_make_symlink(&secret, &date_dir.join("linked.md")) { return; }
+        assert_eq!(
+            transcript_read_sync(tmp.path(), "2024-01-01", "linked").unwrap_err(),
+            "transcript not found",
+            "a symlinked transcript must be rejected, never followed"
+        );
         assert!(transcript_read_all_sync(tmp.path(), "linked").is_err());
     }
 
@@ -2641,13 +2748,21 @@ mod rule_file_tests {
         fs::create_dir_all(repo.join(".git")).unwrap();
         let secret = tmp.path().join("secret.txt");
         fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
-        // Symlink creation on Windows needs Developer Mode / privilege; if the OS
-        // refuses, the vector doesn't exist in this environment — pass trivially.
-        #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_file(&secret, repo.join("AGENTS.md")).is_ok();
-        #[cfg(not(windows))]
-        let made = std::os::unix::fs::symlink(&secret, repo.join("AGENTS.md")).is_ok();
-        if !made { return; }
+        // Privilege-free half (see try_make_symlink). It is the WEAKEST of the
+        // six: read_rule_file returns Option, so a directory yields None from the
+        // failed read whether or not the `is_symlink() || !is_file()` line is
+        // there, and there is no error string to pin instead. It asserts a real
+        // behaviour (a directory named CLAUDE.md is never read as a rule file)
+        // but it does not pin that line. Only the symlink half below does, so
+        // this test's guard coverage lives entirely on the macos-latest CI leg.
+        // CLAUDE.md is the other name in RULE_FILE_NAMES, which leaves AGENTS.md
+        // free for the link.
+        fs::create_dir_all(repo.join("CLAUDE.md")).unwrap();
+        assert!(
+            collect_rule_files_sync(repo.to_string_lossy().to_string()).is_empty(),
+            "a directory named CLAUDE.md must never be read as a rule file"
+        );
+        if !try_make_symlink(&secret, &repo.join("AGENTS.md")) { return; }
         let got = collect_rule_files_sync(repo.to_string_lossy().to_string());
         assert!(got.is_empty(), "symlinked rule file must never be read");
     }
@@ -2865,17 +2980,19 @@ mod notebook_io_tests {
 
     #[test]
     fn symlinked_md_file_is_not_listed() {
-        // Ports rule_file_tests::symlinked_rule_file_is_skipped's exact
-        // pattern: file_type() reports the symlink itself (not its target),
-        // so is_file() is false and the entry never reaches the name gate.
+        // file_type() reports the entry itself (not its target), so is_file() is
+        // false and neither a symlink nor a directory reaches the name gate. The
+        // directory half needs no privilege and so runs everywhere; see
+        // try_make_symlink for why both halves exist.
         let tmp = tempfile::tempdir().unwrap();
         let secret = tmp.path().join("secret.txt");
         fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
-        #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_file(&secret, tmp.path().join("linked.md")).is_ok();
-        #[cfg(not(windows))]
-        let made = std::os::unix::fs::symlink(&secret, tmp.path().join("linked.md")).is_ok();
-        if !made { return; }
+        fs::create_dir_all(tmp.path().join("dir-entry.md")).unwrap();
+        assert!(
+            notebook_list_sync(tmp.path()).is_empty(),
+            "an entry named *.md that is not a regular file must never be listed"
+        );
+        if !try_make_symlink(&secret, &tmp.path().join("linked.md")) { return; }
         let got = notebook_list_sync(tmp.path());
         assert!(got.is_empty(), "symlinked .md file must never be listed");
     }
@@ -2899,20 +3016,27 @@ mod notebook_io_tests {
 
     #[test]
     fn read_direct_on_symlinked_target_is_err() {
-        // Release-audit fix: the list-exclusion alone is not enough — a direct
-        // invoke("notebook_read", { name }) bypasses the picker's filter, so
-        // the READ path itself must reject a symlinked file instead of
-        // following it (same contract as transcript_read_file_lossy).
+        // Release-audit fix: the list-exclusion alone is not enough, because a
+        // direct invoke("notebook_read", { name }) bypasses the picker's filter,
+        // so the READ path itself must reject the entry instead of following it
+        // (same contract as transcript_read_file_lossy). Privilege-free half
+        // first; see try_make_symlink.
         let tmp = tempfile::tempdir().unwrap();
         let secret = tmp.path().join("secret.txt");
         fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
-        #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_file(&secret, tmp.path().join("linked.md")).is_ok();
-        #[cfg(not(windows))]
-        let made = std::os::unix::fs::symlink(&secret, tmp.path().join("linked.md")).is_ok();
-        if !made { return; }
-        assert!(
-            notebook_read_sync(tmp.path(), "linked.md").is_err(),
+        fs::create_dir_all(tmp.path().join("dir-entry.md")).unwrap();
+        // The guard's own MESSAGE, not a bare is_err: read_to_string on a
+        // directory fails at the OS regardless, so is_err alone survived deleting
+        // the check this test is named for (same lesson as the transcript twin).
+        assert_eq!(
+            notebook_read_sync(tmp.path(), "dir-entry.md").unwrap_err(),
+            "notebook not found",
+            "read must reject a non-regular entry with the guard's own error"
+        );
+        if !try_make_symlink(&secret, &tmp.path().join("linked.md")) { return; }
+        assert_eq!(
+            notebook_read_sync(tmp.path(), "linked.md").unwrap_err(),
+            "notebook not found",
             "read must reject a symlinked notebook, never follow it"
         );
     }
@@ -2920,19 +3044,26 @@ mod notebook_io_tests {
     #[test]
     fn write_onto_symlinked_target_is_err_and_target_untouched() {
         // Defense-in-depth twin of the read check: writing to a name whose
-        // on-disk entry is a symlink is rejected outright (the rename would
-        // replace the link, not write through it — but a notebook name that
-        // is secretly a link is never a state we accept or mutate).
+        // on-disk entry is not a regular file is rejected outright. The rename
+        // would replace the link rather than write through it, but a notebook
+        // name that is secretly a link is never a state we accept or mutate.
+        // Privilege-free half first; see try_make_symlink.
         let tmp = tempfile::tempdir().unwrap();
         let secret = tmp.path().join("secret.txt");
         fs::write(&secret, "PRIVATE KEY MATERIAL").unwrap();
-        #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_file(&secret, tmp.path().join("linked.md")).is_ok();
-        #[cfg(not(windows))]
-        let made = std::os::unix::fs::symlink(&secret, tmp.path().join("linked.md")).is_ok();
-        if !made { return; }
-        assert!(
-            notebook_write_sync(tmp.path(), "linked.md", "overwrite").is_err(),
+        fs::create_dir_all(tmp.path().join("dir-entry.md")).unwrap();
+        // The guard's own MESSAGE, not a bare is_err: without the check the write
+        // still fails, but at the rename ("Access is denied"), so is_err alone
+        // survived deleting the check this test is named for.
+        assert_eq!(
+            notebook_write_sync(tmp.path(), "dir-entry.md", "overwrite").unwrap_err(),
+            "notebook path is not a regular file",
+            "write must reject a non-regular destination with the guard's own error"
+        );
+        if !try_make_symlink(&secret, &tmp.path().join("linked.md")) { return; }
+        assert_eq!(
+            notebook_write_sync(tmp.path(), "linked.md", "overwrite").unwrap_err(),
+            "notebook path is not a regular file",
             "write must reject a symlinked destination"
         );
         assert_eq!(

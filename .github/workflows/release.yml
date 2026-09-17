@@ -2,9 +2,14 @@
 # GitHub Release. (Linux is cut from the matrix below — see the comment there
 # for why and for the exact conditions to re-enable it.)
 #
-# Hybrid distribution: this workflow lives in the PRIVATE source repo and
-# publishes the compiled installers to a PUBLIC "releases" repo so the
-# community can download without ever seeing the source.
+# Hybrid distribution: this workflow exists on BOTH remotes. On the public repo
+# (origin, plutothedev/plutos-terminals) RELEASES_REPO is unset and it publishes
+# to itself; on the private mirror (plutos-terminals-app) RELEASES_REPO points
+# at the public repo. So push a release tag to ONE remote only, origin: a tag on
+# both remotes starts two runs that race to publish the same release (the
+# second `gh release create` fails and falls back to `upload --clobber`, which
+# silently replaces the first run's signed assets). v0.6.1 was published from
+# origin.
 #
 # Required repo configuration (Settings → Secrets and variables → Actions):
 #   • Variable RELEASES_REPO  = owner/repo of the PUBLIC releases repo
@@ -14,8 +19,23 @@
 #                               on the public releases repo. Only needed when
 #                               RELEASES_REPO differs from this repo.
 #
-# Trigger: push a version tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`)
-# or run it manually from the Actions tab.
+# Triggers, and what each one actually does:
+#   • A version tag PUSH (`git tag v0.2.0 && git push origin v0.2.0`) is the
+#     only thing that publishes a release. Everything below keys off the event,
+#     not the ref.
+#   • A manual dispatch from the Actions tab builds the matrix and leaves the
+#     installers as downloadable workflow artifacts. It never publishes: the
+#     publish job is gated on `github.event_name == 'push'`, because every
+#     in-shell gate disarms itself on a dispatch (the tag/source version check
+#     skips, latest.json skips, and the publish step invents a manual-<date>
+#     tag), so a dispatch that reached publish would ship a signed,
+#     version-unverified release with no updater manifest. Use it to test the
+#     build; tag the commit when you want it released.
+#
+# The release PROCEDURE itself (version bump, tag, what CI asserts, and the
+# recovery when a build leg or the signing secret fails) is canonical in
+# CLAUDE.md under "Release process". It is deliberately not restated here or in
+# docs/updater.md: three copies of it is how those three files drifted apart.
 name: release
 
 on:
@@ -38,9 +58,10 @@ jobs:
             args: "--target universal-apple-darwin"
           # ── Linux is CUT from the release matrix (deliberate, reversible) ──
           # It shipped on every previous release and has never been executed by
-          # CI or by hand: test.yml runs cargo on windows-latest only (the
-          # keyring crate had no Linux backend), so the .deb/.AppImage were
-          # built by a machine and run by nobody. Until tonight it also
+          # CI or by hand: test.yml runs cargo on windows-latest and macos-latest,
+          # never Linux, so the .deb/.AppImage were built by a machine and run by
+          # nobody. (That macOS leg was added for the symlink-escape tests, not
+          # for this; condition 1 below still wants a Linux leg specifically.) Until tonight it also
           # SILENTLY DESTROYED saved credentials there (keyring fell back to an
           # in-memory mock, and the frontend read a successful empty get as
           # proof the keychain worked, then stripped the plaintext copy), and
@@ -65,6 +86,48 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # latest.json's version is taken from the git ref (publish job below)
+      # while the installer is stamped from SOURCE, and nothing used to make the
+      # two agree. Tag a commit whose three version files still read the old
+      # number and every client is offered a version it can never reach: it
+      # downloads, installs the OLDER build, relaunches unchanged, and is
+      # re-offered the identical update forever. Not hypothetical: the v0.6.0
+      # tag names a commit whose three files all say 0.1.32, and it was harmless
+      # only because that commit predates this workflow. Cheap, so it runs
+      # before the build: a mistyped bump costs seconds, not a whole matrix.
+      - name: Assert the tag matches the source version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "manual run, skipping the tag/source version check (no real tag to compare)"
+            exit 0
+          fi
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          # Top-level key only: both JSON files nest other "version" keys deeper
+          # and Cargo.toml repeats `version = ` for every dependency, so anchor
+          # on the exact top-level indentation / on the [package] section.
+          PKG=$(awk -F'"' '/^  "version":/ {print $4; exit}' package.json)
+          CARGO=$(awk '/^\[/ {pkg = ($0 == "[package]")} pkg && /^version[[:space:]]*=/ {gsub(/"/, "", $3); print $3; exit}' src-tauri/Cargo.toml)
+          CONF=$(awk -F'"' '/^  "version":/ {print $4; exit}' src-tauri/tauri.conf.json)
+          echo "tag=${TAG_VERSION} package.json=${PKG} Cargo.toml=${CARGO} tauri.conf.json=${CONF}"
+          # An unreadable value counts as a mismatch: a silently-empty
+          # extraction would otherwise switch this gate off the day one of the
+          # three files is reformatted.
+          bad=""
+          check() {
+            if [ -z "$2" ]; then bad="$bad $1(unreadable)"
+            elif [ "$2" != "$TAG_VERSION" ]; then bad="$bad $1($2)"; fi
+          }
+          check package.json "$PKG"
+          check src-tauri/Cargo.toml "$CARGO"
+          check src-tauri/tauri.conf.json "$CONF"
+          if [ -n "$bad" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} disagrees with the source version in:$bad. The installer is stamped from source and latest.json from the tag, so publishing this would leave every client in a permanent update loop on an older build. Bump all three files to ${TAG_VERSION} (see the release process in CLAUDE.md) and re-tag."
+            exit 1
+          fi
+          echo "tag and all three version files agree on ${TAG_VERSION}"
 
       - name: Install Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -138,9 +201,17 @@ jobs:
 
   publish:
     needs: build
-    # Only auto-publish on a version tag push; manual (workflow_dispatch) runs
-    # just build + upload artifacts so a maintainer can publish deliberately.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Only auto-publish on a version tag PUSH. The EVENT matters as much as the
+    # ref: a workflow_dispatch can be launched from a tag (`gh workflow run
+    # --ref` takes "Branch or tag name", and the Run-workflow dropdown has a
+    # Tags tab), so a ref-only guard let a manual run reach this job. Every
+    # gate below then disarmed itself on workflow_dispatch: the tag/source
+    # version check skipped, latest.json skipped, and the publish step renamed
+    # the tag to manual-<date> and shipped every installer anyway. That is a
+    # complete, signed, version-unverified release with no updater manifest at
+    # all. Manual runs stop at build + upload artifacts, so a maintainer
+    # publishes deliberately.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
     steps:
       - name: Download all installers
@@ -151,6 +222,33 @@ jobs:
 
       - name: List artifacts
         run: ls -laR all-installers
+
+      # The one completeness check that must NOT depend on signing. Every other
+      # guard lives inside the latest.json step below, which exits early when no
+      # .sig files are present, so an unsigned release used to skip the only
+      # assertion that a platform's installer is actually here. Combined with
+      # `if-no-files-found: warn` on the upload above (a leg that produced
+      # nothing still goes green) that shipped a release quietly missing a
+      # platform. Assert the installers first, on their own, unconditionally.
+      # This list is kept in step with the build matrix by hand, same as the
+      # platform-key list further down; deriving both from the matrix is the
+      # real fix and is why re-enabling the Linux leg means editing both.
+      - name: Assert every matrix platform produced an installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd all-installers
+          shopt -s nullglob
+          missing=""
+          macos=(*.dmg)
+          windows=(*.msi)
+          [ ${#macos[@]} -gt 0 ]   || missing="$missing macos-latest(.dmg)"
+          [ ${#windows[@]} -gt 0 ] || missing="$missing windows-latest(.msi)"
+          if [ -n "$missing" ]; then
+            echo "::error::the release is missing an installer for:$missing. That build leg produced nothing and went green anyway. Artifacts present: $(ls | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "an installer is present for every platform in the build matrix"
 
       - name: Generate SHA256 checksums
         shell: bash
@@ -201,6 +299,11 @@ jobs:
           # MUST run AFTER the sanitize step above: the URLs have to be the names
           # GitHub actually serves, not the pre-upload ones.
           TAG="${GITHUB_REF_NAME}"
+          # Belt and braces: the publish job's `if` already excludes
+          # workflow_dispatch, so this cannot fire today. Keep both anyway, and
+          # do NOT drop the job guard in favour of this skip. On its own it is
+          # the shape that published installers with no manifest, because the
+          # publish step below still runs and invents a manual-<date> tag.
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             echo "manual run — skipping latest.json (no real tag to point at)"
             exit 0
@@ -211,13 +314,36 @@ jobs:
           shopt -s nullglob
           sigs=(*.sig)
           if [ ${#sigs[@]} -eq 0 ]; then
-            # Unsigned build: TAURI_SIGNING_PRIVATE_KEY was not set. Publish the
-            # installers anyway rather than failing the release, but make the
-            # reason loud — a missing latest.json means the updater silently
-            # never offers anything, which is exactly the failure it exists to
-            # prevent.
-            echo "::warning::no .sig files found — TAURI_SIGNING_PRIVATE_KEY is probably unset, so NO latest.json is published and auto-update stays dark. See docs/updater.md."
-            exit 0
+            # Unsigned build: TAURI_SIGNING_PRIVATE_KEY was not set. This used to
+            # warn and exit 0, which published the installers with no latest.json
+            # at all, the worst outcome available. The updater endpoint is
+            # /releases/latest/download/latest.json, so the moment this release
+            # becomes "latest" EVERY installed copy gets a 404 and goes
+            # permanently dark, with no signal to the user or to us. Failing the
+            # job instead leaves the previous release standing and still
+            # updating. This is the posture docs/updater.md already argues for
+            # ("Better to fail the release now, loudly").
+            #
+            # The recovery is to restore the signing secret and re-run ALL
+            # jobs on the tag. NOT "Re-run failed jobs", which is what CLAUDE.md
+            # tells you to do for a flaky leg: the build job SUCCEEDED here (it
+            # just emitted no .sig), so that button restarts only this job,
+            # which re-downloads the same unsigned artifacts and dies right
+            # here again. The build leg is what has to run again.
+            # It is deliberately NOT "publish it by hand":
+            # a local `npm run tauri build` never loads
+            # src-tauri/tauri.release.conf.json, so it emits no .sig either, and
+            # a hand-uploaded release skips BOTH assertions this job exists for
+            # (every matrix platform produced an installer, and latest.json
+            # carries every platform key). That is this same failure reproduced
+            # with the guard switched off, which is why the message below does
+            # not offer it as a way out. If a build genuinely has to ship before
+            # signing is fixed, it goes out marked prerelease so that
+            # /releases/latest keeps resolving to the last SIGNED release and
+            # the installed base keeps updating. See the release process in
+            # CLAUDE.md.
+            echo "::error::no .sig files found. TAURI_SIGNING_PRIVATE_KEY is probably unset, so there is nothing to build latest.json from. Refusing to publish: this release would become /releases/latest and every installed copy would 404 on the updater endpoint and never be offered another update. Restore the signing secret and re-run all jobs on the tag (not 'Re-run failed jobs': the build leg succeeded without a .sig, so re-running only this job re-downloads the same unsigned artifacts and fails here again). Do not upload this build by hand instead: that skips both of this job's completeness assertions and still ships no latest.json. If it must go out unsigned, mark it prerelease so /releases/latest stays on the last signed release. See docs/updater.md and the release process in CLAUDE.md."
+            exit 1
           fi
 
           platforms='{}'
@@ -257,8 +383,12 @@ jobs:
           done
 
           if [ "$(jq -r 'length' <<<"$platforms")" = "0" ]; then
-            echo "::warning::found .sig files but none matched a known updater payload — no latest.json published"
-            exit 0
+            # Same reasoning as the empty-sigs case above: no latest.json means
+            # every installed copy 404s on the endpoint, so this cannot be a
+            # warning either. Reaching here means the bundler changed payload
+            # shapes and the case arms above need a new pattern.
+            echo "::error::found .sig files but none matched a known updater payload, so latest.json would be empty. The bundler has probably changed artifact shapes: add the new pattern to the case arms above. Signatures present: ${sigs[*]}"
+            exit 1
           fi
 
           jq -n --arg v "$VERSION" --arg notes "See the release notes for $TAG." \

@@ -90,15 +90,30 @@ In the **source** repo → Settings → Secrets and variables → Actions:
 | `TAURI_SIGNING_PRIVATE_KEY` | the full contents of `~/.tauri/plutos-terminal.key` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | the password you chose, or omit if none |
 
-`release.yml` passes both to the build step. Without them the build still
-produces installers, but no `.sig` files, so no `latest.json` is published and
-the workflow logs a loud warning that auto-update stayed dark.
+`release.yml` passes both to the build step. Without them the release does not
+go out at all. With a real `pubkey` in the overlay the bundler refuses to build
+(the callout above), and if a build ever does reach the publish job with no
+`.sig` files, the `latest.json` step fails the release. It used to warn and
+publish anyway, which is the worst outcome on offer: that release becomes
+`/releases/latest`, and the endpoint below is under `/releases/latest/download/`,
+so every installed copy 404s and goes dark with no signal to the user or to us.
+
+Recovery is to restore the secret and re-run **all** jobs on the tag. Not
+"Re-run failed jobs": a build leg that produced installers without `.sig` files
+counts as succeeded, so re-running only the publish job re-downloads the same
+unsigned artifacts and fails identically.
 
 ## How a release flows
 
+The release procedure itself (version bump, tag, what CI asserts, what to do
+when a leg fails) is canonical in `CLAUDE.md` under "Release process". Only the
+updater-specific half is written down here:
+
 1. Tag push → `release.yml` builds macOS + Windows with
    `createUpdaterArtifacts: true`, producing the normal installers **plus** a
-   signed updater payload (`.app.tar.gz` / `.msi.zip`) and a `.sig` for each.
+   signed updater payload (`.app.tar.gz` on macOS; on Windows the `.msi` itself,
+   Tauri v2 signs the installer directly and there is no `.msi.zip`) and a `.sig`
+   for each.
 2. The publish job sanitizes asset names, writes `SHA256SUMS`, then assembles
    `latest.json` mapping each platform to its payload URL + signature.
 3. `latest.json` is uploaded with the release. The app's configured endpoint is
@@ -119,8 +134,12 @@ You cannot fully test this from a dev build; it needs two real releases.
 Cheapest honest check:
 
 1. Publish release **A** with the updater wired and the secrets set. Confirm
-   `latest.json` is attached and its `platforms` keys are `darwin-universal`
-   and `windows-x86_64`.
+   `latest.json` is attached and its `platforms` keys are `darwin-aarch64`,
+   `darwin-x86_64` and `windows-x86_64`. NOT `darwin-universal`: the updater
+   builds its lookup key from `cfg!(target_arch)`, so a universal binary asks
+   for one of the two arch keys and a manifest carrying only `darwin-universal`
+   fails with `TargetsNotFound`, which the UI cannot tell apart from "no update
+   available". `release.yml` asserts all three keys for this reason.
 2. Install A by hand.
 3. Bump the version, publish release **B**.
 4. Launch A. The banner should offer **Install & restart**, and accepting it

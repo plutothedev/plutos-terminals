@@ -14,7 +14,9 @@ import MobaMenuBar from "../MobaMenuBar.jsx";
 
 function MenuBar({
   addTab, addHomeTab, addNotebookTab, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
-  activeTabId, activeTab, panels, activePanelId,
+  // activePaneId is the id the PTY-facing actions must use (Summarize reads the
+  // pane-keyed text buffer). See ModalHost's prop block / audit FE-1.
+  activeTabId, activePaneId, activeTab, panels, activePanelId, switchTabRel,
   importSshConfig, selectRibbon, openTunnels,
   broadcast, toggleBroadcast, ribbon,
   activeModelName, toggleTheme, headerSkinId, exitApp,
@@ -65,6 +67,10 @@ function MenuBar({
     addNotebookTab(activePanelId, name);
   }, [addNotebookTab, activePanelId]);
 
+  // Tab count of the ACTIVE panel; gates the next/previous-tab items. Each
+  // panel keeps its own strip, so this is per-panel, not per-window.
+  const activePanelTabCount = (panels.find((p) => p.id === activePanelId)?.tabs || []).length;
+
   const menuBarMenus = useMemo(() => [
     {
       label: "Terminal",
@@ -75,11 +81,17 @@ function MenuBar({
         { label: "Open home screen (new tab)", action: () => addHomeTab(activePanelId) },
         { label: "New panel", disabled: !canAddPanel, action: () => addPanel() },
         { divider: true },
-        { label: "Split right", shortcut: "Ctrl+Shift+D", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-        { label: "Split down", shortcut: "Ctrl+Shift+S", action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+        { label: "Split right", shortcut: "Ctrl+Shift+D", action: () => activeTabId && splitPane(activeTabId, activePaneId, "row") },
+        { label: "Split down", shortcut: "Ctrl+Shift+S", action: () => activeTabId && splitPane(activeTabId, activePaneId, "col") },
         { label: "Equalize split sizes", disabled: !activeTab?.layout, action: () => activeTabId && equalizePanes(activeTabId) },
         { divider: true },
         { label: "Close tab", shortcut: "Ctrl+Shift+W", action: () => { const p = panels.find((x) => x.id === activePanelId); if (p && p.tabs.length > 1 && p.activeTabId) closeTab(p.id, p.activeTabId); } },
+        { divider: true },
+        // Tab navigation (audit A11Y-05). Disabled on a one-tab strip rather
+        // than hidden, so the menu also DOCUMENTS the shortcut that exists.
+        { label: "Next tab", shortcut: "Ctrl+Tab", disabled: activePanelTabCount < 2, action: () => switchTabRel?.(1) },
+        { label: "Previous tab", shortcut: "Ctrl+Shift+Tab", disabled: activePanelTabCount < 2, action: () => switchTabRel?.(-1) },
+        { divider: true },
         { label: "New window", action: async () => { try { const id = `${Date.now().toString(36)}`.slice(-6); await invoke("spawn_new_window", { windowId: id }); } catch (e) { toast.error(humanizeError(e, "New window failed")); } } },
       ],
     },
@@ -105,7 +117,7 @@ function MenuBar({
         { label: "Workflows panel", action: () => selectRibbon("snippets") },
         { label: "Keystroke macros…", action: () => setMacrosOpen(true) },
         { label: "Ask AI — plain English to command", shortcut: "Ctrl+I", action: () => setAskOpen(true) },
-        { label: "Summarize this session (AI)", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
+        { label: "Summarize this session (AI)", action: () => { if (!activePaneId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activePaneId) }); } },
         { label: "Command history search…", shortcut: "Ctrl+R", action: () => setHistoryOpen(true) },
         { label: "Models — pick provider + model…", action: () => setModelsOpen(true) },
         { label: broadcast ? "Turn off broadcast typing" : "Turn on broadcast typing", action: () => toggleBroadcast() },
@@ -147,7 +159,8 @@ function MenuBar({
     },
   ], [
     addTab, addHomeTab, newNotebook, openNotebook, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
-    activeTabId, activeTab, panels, activePanelId,
+    activeTabId, activePaneId, activeTab, panels, activePanelId,
+    activePanelTabCount, switchTabRel,
     toast, importSshConfig, selectRibbon, openTunnels,
     broadcast, toggleBroadcast, ribbon, onStartTour,
   ]);

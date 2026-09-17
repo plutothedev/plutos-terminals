@@ -73,8 +73,13 @@ function ModalHost({
   commandPaletteOpen, setCommandPaletteOpen, paletteCommands,
   // "My shares" gist list (Stream D)
   sharesOpen, setSharesOpen,
-  // shared session context
-  activeTab, activeTabId, shellName, insertSnippet,
+  // Shared session context. activePaneId, NOT activeTabId, is what every
+  // PTY-facing action below must use: ptyBridge's writers/readers, the
+  // recorder and the macro capture are all keyed by PANE id (audit FE-1), and
+  // the two ids only coincide on an unsplit tab that still owns its original
+  // pane. `Ask AI → Run` and `History → Run` append "\r", so getting this
+  // wrong EXECUTED a command in an unfocused pane, possibly on another host.
+  activeTab, activePaneId, shellName, insertSnippet,
 }) {
   // P2-T3 (audited 24-modal classification): every modal below EXCEPT
   // AgentMode renders conditionally — the old always-render shape executed
@@ -190,7 +195,7 @@ function ModalHost({
           shellName={shellName}
           cwd={activeTab?.cwd}
           onClose={() => setAskOpen(false)}
-          onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
+          onRun={(cmd) => { if (activePaneId) writeToTab(activePaneId, cmd + "\r"); }}
           onInsert={(cmd) => insertSnippet(cmd)}
         />
       )}
@@ -198,7 +203,7 @@ function ModalHost({
       <AgentMode
         open={agentOpen}
         onClose={() => setAgentOpen(false)}
-        tabId={activeTab?.activePaneId || activeTabId}
+        tabId={activePaneId}
         cwd={activeTab?.cwd || null}
         shellName={shellName}
         userSt={userSt}
@@ -219,7 +224,7 @@ function ModalHost({
           history={getCommandHistory()}
           onClose={() => setHistoryOpen(false)}
           onInsert={(cmd) => insertSnippet(cmd)}
-          onRun={(cmd) => { if (activeTabId) writeToTab(activeTabId, cmd + "\r"); }}
+          onRun={(cmd) => { if (activePaneId) writeToTab(activePaneId, cmd + "\r"); }}
         />
       )}
 
@@ -274,9 +279,9 @@ function ModalHost({
       {(macrosOpen) && (
         <MacrosModal
           open={macrosOpen}
-          canReplay={!!activeTabId}
-          activeTabId={activeTabId}
-          onReplay={(data) => activeTabId && writeToTab(activeTabId, data)}
+          canReplay={!!activePaneId}
+          activePaneId={activePaneId}
+          onReplay={(data) => activePaneId && writeToTab(activePaneId, data)}
           onClose={() => setMacrosOpen(false)}
         />
       )}

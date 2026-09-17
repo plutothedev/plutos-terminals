@@ -1,7 +1,7 @@
 // (C)
 // RDP connection prompt. Password is handed to the RDP tab transiently via
 // ptyBridge (never persisted); username/host/port/domain ride on the tab.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 
 const field = {
@@ -24,6 +24,11 @@ export default function RdpConnectModal({ open, onConnect, onClose, initial = nu
   const [domain, setDomain] = useState("");
   const [password, setPassword] = useState("");
   const hostRef = useRef(null);
+  // A11Y-10. Every caption here was a bare <label> sitting NEXT to its input,
+  // related only by pixels: a screen reader announced five anonymous "edit"
+  // fields in a row, and clicking the word "Host" did not focus Host. useId
+  // rather than literal ids so a second instance can never collide.
+  const uid = useId();
 
   useEffect(() => {
     if (open) {
@@ -62,27 +67,28 @@ export default function RdpConnectModal({ open, onConnect, onClose, initial = nu
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
-            <label style={label}>Host</label>
-            <input ref={hostRef} style={field} value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" spellCheck={false} readOnly={lockConnection} />
+            <label style={label} htmlFor={`${uid}-host`}>Host</label>
+            <input id={`${uid}-host`} ref={hostRef} style={field} value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" spellCheck={false} readOnly={lockConnection} />
           </div>
           <div style={{ width: 96 }}>
-            <label style={label}>Port</label>
-            <input style={field} value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" readOnly={lockConnection} />
+            <label style={label} htmlFor={`${uid}-port`}>Port</label>
+            <input id={`${uid}-port`} style={field} value={port} onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" readOnly={lockConnection} />
           </div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
-            <label style={label}>Username</label>
-            <input style={field} value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Administrator" spellCheck={false} readOnly={lockConnection} />
+            <label style={label} htmlFor={`${uid}-username`}>Username</label>
+            <input id={`${uid}-username`} style={field} value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Administrator" spellCheck={false} readOnly={lockConnection} />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={label}>Domain (optional)</label>
-            <input style={field} value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="" spellCheck={false} readOnly={lockConnection} />
+            <label style={label} htmlFor={`${uid}-domain`}>Domain (optional)</label>
+            <input id={`${uid}-domain`} style={field} value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="" spellCheck={false} readOnly={lockConnection} />
           </div>
         </div>
         <div>
-          <label style={label}>Password</label>
+          <label style={label} htmlFor={`${uid}-password`}>Password</label>
           <input
+            id={`${uid}-password`}
             style={field}
             type="password"
             value={password}

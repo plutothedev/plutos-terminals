@@ -6,14 +6,20 @@
 // useMemo keeps its identity stable across those hot paths so CommandPalette
 // can bail out of re-rendering.
 //
-// Dependency contract (byte-preserved from the pre-extraction memo): the same
-// 24 tracked dependencies, of which 22 arrive as named fields on the single
-// `args` object (the dep array lists args.<field> for each) and 2 — toast and
-// confirm — are context values read via useToast()/useConfirm() HERE and
-// listed as the locals. All useState setters and module imports are stable and
-// intentionally omitted from the dep list, exactly as before. state/persist DO
-// cross into this hook (the reset-workspace action needs them) — the
-// sanctioned exception, matching the useWorkspaceTree/useProjects convention.
+// Dependency contract (byte-preserved from the pre-extraction memo, then
+// widened by three): 27 tracked dependencies, of which 25 arrive as named
+// fields on the single `args` object (the dep array lists args.<field> for
+// each) and 2 (toast and confirm) are context values read via
+// useToast()/useConfirm() HERE and listed as the locals. All useState setters
+// and module imports are stable and intentionally omitted from the dep list,
+// exactly as before. state/persist DO cross into this hook (the
+// reset-workspace action needs them): the sanctioned exception, matching the
+// useWorkspaceTree/useProjects convention.
+//
+// The three added 2026-08-21: `activePaneId` (Summarize reads the pane-keyed
+// text buffer, audit FE-1) and `switchTab` / `switchTabRel` (the tab-switch
+// commands, audit A11Y-05, which found the palette's 30-odd entries could
+// switch PANELS but never TABS).
 import { useMemo } from "react";
 import { invoke } from "@backend";
 import { MAX_PANELS } from "../grid";
@@ -34,7 +40,8 @@ export function usePaletteCommands(args) {
   const {
     // dep-array fields (reactive values + hook useCallbacks)
     scOf, addTab, addPanel, canAddPanel, splitPane, equalizePanes, closePane, importSshConfig,
-    activeTabId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
+    switchTab, switchTabRel,
+    activeTabId, activePaneId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
     stopAndSaveRecording, startRecordingActive, persist, state, setActivePanel,
     // stable React-state setters (dep-exempt, same as pre-extraction)
@@ -51,18 +58,18 @@ export function usePaletteCommands(args) {
     { id: "ssh-keys", icon: <SKey size={14} />, label: "SSH keys", hint: "List / generate SSH keypairs; copy a public key to a server", action: () => setSshKeysOpen(true) },
     { id: "macros", icon: <SRecord size={14} />, label: "Keystroke macros", hint: "Record what you type and replay it into the active terminal", action: () => setMacrosOpen(true) },
     { id: "master-pw", icon: <SLock size={14} />, label: "App lock (master password)", hint: "Lock the app behind a password on launch", action: () => setMasterPwOpen(true) },
-    { id: "split-right", icon: <SSplitRow size={14} />, label: "Split active pane right", hint: "Side-by-side terminals in the current tab", shortcut: scOf("splitRight"), action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "row") },
-    { id: "split-down", icon: <SSplitCol size={14} />, label: "Split active pane down", hint: "Stacked terminals in the current tab", shortcut: scOf("splitDown"), action: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
+    { id: "split-right", icon: <SSplitRow size={14} />, label: "Split active pane right", hint: "Side-by-side terminals in the current tab", shortcut: scOf("splitRight"), action: () => activeTabId && splitPane(activeTabId, activePaneId, "row") },
+    { id: "split-down", icon: <SSplitCol size={14} />, label: "Split active pane down", hint: "Stacked terminals in the current tab", shortcut: scOf("splitDown"), action: () => activeTabId && splitPane(activeTabId, activePaneId, "col") },
     // Split-tab-only commands: hidden on single-pane tabs (close would surprise
     // by closing the tab; equalize would be a no-op).
     ...(activeTab?.layout ? [
       { id: "equalize-splits", icon: <SSplit size={14} />, label: "Equalize split sizes", hint: "Reset every divider in this tab to 50/50", action: () => equalizePanes(activeTabId) },
-      { id: "close-pane", icon: <SSplit size={14} />, label: "Close active pane", hint: "Close the focused pane; its neighbor takes the space", shortcut: scOf("closePane"), action: () => closePane(activeTabId, activeTab?.activePaneId || activeTabId) },
+      { id: "close-pane", icon: <SSplit size={14} />, label: "Close active pane", hint: "Close the focused pane; its neighbor takes the space", shortcut: scOf("closePane"), action: () => closePane(activeTabId, activePaneId) },
     ] : []),
     { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
     { id: "ask", icon: <SAsk size={14} />, label: "Ask AI — plain English to command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
     { id: "agent", icon: <SBot size={14} />, label: "Agent Mode — describe a goal, it runs the commands", hint: "An in-app agent runs commands in the active terminal to accomplish your goal", shortcut: scOf("agentMode"), action: () => setAgentOpen(true) },
-    { id: "summarize", icon: <SDoc size={14} />, label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activeTabId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activeTabId) }); } },
+    { id: "summarize", icon: <SDoc size={14} />, label: "Summarize this session (AI)", hint: "AI summary of the active terminal's recent output", action: () => { if (!activePaneId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activePaneId) }); } },
     { id: "history", icon: <SClock size={14} />, label: "Command history search", hint: `Fuzzy search past commands — Enter inserts, ${modCombo("Enter")} runs`, shortcut: scOf("history"), action: () => setHistoryOpen(true) },
     { id: "workspaces", icon: <SLayout size={14} />, label: "Workspaces — save / restore layouts", hint: "Save the current panels/tabs/splits as a named workspace, or restore one", action: () => setWorkspacesOpen(true) },
     { id: "models", icon: <SModels size={14} />, label: "Models — pick provider + model", hint: "Claude, Hermes, Gemini, GLM, Qwen, MiniMax, Kimi, OpenRouter, NVIDIA, HF… or any endpoint", action: () => setModelsOpen(true) },
@@ -125,6 +132,28 @@ export function usePaletteCommands(args) {
         persist({ ...state, panels: fresh.panels, activePanelId: fresh.activePanelId });
       },
     },
+    // Tab switching (audit A11Y-05). The palette had ~33 commands and none of
+    // them moved between TABS, only between panels, so with the strip being
+    // mouse-only there was no non-mouse route back to tab 1 at all. Scoped to
+    // the active panel's strip and suppressed on a one-tab panel, where every
+    // entry would be a no-op naming the tab you are already on.
+    ...(() => {
+      const panel = state.panels.find((p) => p.id === state.activePanelId);
+      const tabs = panel?.tabs || [];
+      if (tabs.length < 2) return [];
+      return [
+        { id: "next-tab", icon: "›", label: "Next tab", hint: "Move one tab right in this panel; wraps at the end", shortcut: scOf("nextTab"), action: () => switchTabRel(1) },
+        { id: "prev-tab", icon: "‹", label: "Previous tab", hint: "Move one tab left in this panel; wraps at the start", shortcut: scOf("prevTab"), action: () => switchTabRel(-1) },
+        ...tabs.map((t, i) => ({
+          id: `tab-${t.id}`,
+          icon: i + 1 < 10 ? `${i + 1}` : "•",
+          label: `Switch to tab ${i + 1}: ${t.label || "shell"}`,
+          hint: t.id === panel.activeTabId ? "active" : "",
+          shortcut: i < 9 ? scOf(`tab${i + 1}`) : undefined,
+          action: () => switchTab(panel.id, t.id),
+        })),
+      ];
+    })(),
     ...state.panels.map((p, i) => ({
       id: `panel-${p.id}`,
       icon: i + 1 < 10 ? `${i + 1}` : "•",
@@ -135,7 +164,8 @@ export function usePaletteCommands(args) {
     })),
   ], [
     args.scOf, args.addTab, args.addPanel, args.canAddPanel, args.splitPane, args.equalizePanes, args.closePane, args.importSshConfig,
-    args.activeTabId, args.activeTab, args.activeTabRecording, args.broadcast, args.toggleBroadcast,
+    args.switchTab, args.switchTabRel,
+    args.activeTabId, args.activePaneId, args.activeTab, args.activeTabRecording, args.broadcast, args.toggleBroadcast,
     args.ribbon, args.selectRibbon, args.focusFilesDock, args.tunnelsOpen, args.setTunnelsOpen, args.openTunnels,
     args.stopAndSaveRecording, args.startRecordingActive, toast, confirm,
     args.persist, args.state, args.setActivePanel,

@@ -1,12 +1,19 @@
 // Asciinema-format session recording. v0.1.18.
 //
-// API: startRecording(tabId, { width, height, label })
-//      stopRecording(tabId) → returns the .cast file contents (asciinema v2)
-//      isRecording(tabId)   → boolean
-//      pushOutput(tabId, data) → record an "o" (output) event
-//      activeTabIds()       → list of currently-recording tab ids
-//      pruneRecordings(liveTabIds) → drop recordings whose tab is gone
+// API: startRecording(paneId, { width, height, label })
+//      stopRecording(paneId) → returns the .cast file contents (asciinema v2)
+//      isRecording(paneId)   → boolean
+//      pushOutput(paneId, data) → record an "o" (output) event
+//      activeTabIds()       → list of currently-recording pane ids
+//      pruneRecordings(livePaneIds) → drop recordings whose pane is gone
 //      onChange(callback)   → subscribe to recording-state changes (returns unsubscribe)
+//
+// EVERY key in here is a PANE id, not a tab id (audit FE-1). TerminalPane is
+// rendered per split-tree LEAF (`<TerminalPane tabId={node.id}>`) and pushes its
+// output under that leaf id, so a tab-keyed recording captured nothing at all on
+// a split tab while still reporting "Saved recording to <path>". `activeTabIds`
+// keeps its historical NAME only because its call sites do; what it returns is a
+// list of pane ids.
 //
 // Recording streams incrementally to an inflight .cast on disk (audit C5) as
 // well as the in-memory events, so a crash / force-kill / cancelled Save loses
@@ -19,33 +26,33 @@
 
 import { invoke } from "@backend";
 
-const recordings = new Map(); // tabId → { startTs, width, height, label, events: [], bytes, capped, pending: [], flushTimer }
+const recordings = new Map(); // paneId → { startTs, width, height, label, events: [], bytes, capped, pending: [], flushTimer }
 const listeners = new Set();
 
-// Disk-safe stem for a tab id (matches the Rust transcript_name_valid gate:
+// Disk-safe stem for a pane id (matches the Rust transcript_name_valid gate:
 // [A-Za-z0-9_-] only). "rec-" prefix keeps it non-empty and clear of reserved
 // device names.
-function recName(tabId) {
-  return "rec-" + String(tabId).replace(/[^A-Za-z0-9_-]/g, "_");
+function recName(paneId) {
+  return "rec-" + String(paneId).replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
 const FLUSH_MS = 2000;
 
-function scheduleFlush(tabId) {
-  const rec = recordings.get(tabId);
+function scheduleFlush(paneId) {
+  const rec = recordings.get(paneId);
   if (!rec || rec.flushTimer) return;
-  rec.flushTimer = setTimeout(() => flushCheckpoint(tabId), FLUSH_MS);
+  rec.flushTimer = setTimeout(() => flushCheckpoint(paneId), FLUSH_MS);
 }
 
-async function flushCheckpoint(tabId) {
-  const rec = recordings.get(tabId);
+async function flushCheckpoint(paneId) {
+  const rec = recordings.get(paneId);
   if (!rec) return;
   if (rec.flushTimer) { clearTimeout(rec.flushTimer); rec.flushTimer = null; }
   if (!rec.pending.length) return;
   const chunk = rec.pending.join("");
   rec.pending = [];
   try {
-    await invoke("recording_checkpoint", { name: recName(tabId), chunk, reset: false });
+    await invoke("recording_checkpoint", { name: recName(paneId), chunk, reset: false });
   } catch { /* best-effort crash net — the in-memory buffer is still authoritative */ }
 }
 
@@ -75,31 +82,31 @@ function notify() {
   }
 }
 
-export function startRecording(tabId, opts = {}) {
-  if (!tabId) return false;
-  if (recordings.has(tabId)) return false; // already recording
+export function startRecording(paneId, opts = {}) {
+  if (!paneId) return false;
+  if (recordings.has(paneId)) return false; // already recording
   const rec = {
     startTs: performance.now(),
     width: opts.width || 80,
     height: opts.height || 24,
-    label: opts.label || tabId,
+    label: opts.label || paneId,
     events: [],
     bytes: 0,
     pending: [],
     flushTimer: null,
   };
-  recordings.set(tabId, rec);
+  recordings.set(paneId, rec);
   // Seed the inflight file with the header (reset:true truncates any stale
   // orphan under the same name).
-  invoke("recording_checkpoint", { name: recName(tabId), chunk: castHeaderLine(rec) + "\n", reset: true })
+  invoke("recording_checkpoint", { name: recName(paneId), chunk: castHeaderLine(rec) + "\n", reset: true })
     .catch(() => {});
   notify();
   return true;
 }
 
-export function stopRecording(tabId) {
-  if (!tabId) return null;
-  const rec = recordings.get(tabId);
+export function stopRecording(paneId) {
+  if (!paneId) return null;
+  const rec = recordings.get(paneId);
   if (!rec) return null;
   if (rec.flushTimer) { clearTimeout(rec.flushTimer); rec.flushTimer = null; }
   // Flush any tail to disk before we drop the in-memory copy (fire-and-forget;
@@ -107,17 +114,17 @@ export function stopRecording(tabId) {
   if (rec.pending.length) {
     const chunk = rec.pending.join("");
     rec.pending = [];
-    invoke("recording_checkpoint", { name: recName(tabId), chunk, reset: false }).catch(() => {});
+    invoke("recording_checkpoint", { name: recName(paneId), chunk, reset: false }).catch(() => {});
   }
-  recordings.delete(tabId);
+  recordings.delete(paneId);
   notify();
   return formatCast(rec);
 }
 
 // Discard the inflight crash-net file after a Save succeeds. Left in place on a
 // cancelled/failed Save so the session stays recoverable.
-export function finalizeRecording(tabId) {
-  return invoke("recording_discard", { name: recName(tabId) }).catch(() => {});
+export function finalizeRecording(paneId) {
+  return invoke("recording_discard", { name: recName(paneId) }).catch(() => {});
 }
 
 // Launch recovery: inflight files left by a crash/kill (audit C5).
@@ -131,12 +138,12 @@ export function discardInflightRecording(name) {
   return invoke("recording_discard", { name }).catch(() => {});
 }
 
-export function isRecording(tabId) {
-  return recordings.has(tabId);
+export function isRecording(paneId) {
+  return recordings.has(paneId);
 }
 
-export function pushOutput(tabId, data) {
-  const rec = recordings.get(tabId);
+export function pushOutput(paneId, data) {
+  const rec = recordings.get(paneId);
   if (!rec) return;
   if (rec.capped) return;
   const t = (performance.now() - rec.startTs) / 1000;
@@ -145,10 +152,10 @@ export function pushOutput(tabId, data) {
   rec.bytes += data?.length || 0; // incremental; see the MAX_BYTES note
   // Buffer the same JSONL line for the disk crash-net; flushed on a 2s timer.
   rec.pending.push(JSON.stringify(ev) + "\n");
-  scheduleFlush(tabId);
+  scheduleFlush(paneId);
   if (rec.events.length >= MAX_EVENTS || rec.bytes >= MAX_BYTES) {
     rec.capped = true;
-    flushCheckpoint(tabId); // persist the tail immediately at the cap
+    flushCheckpoint(paneId); // persist the tail immediately at the cap
     notify(); // surfaces in UI so user knows to save and stop
   }
 }
@@ -169,36 +176,41 @@ export function activeTabIds() {
   return Array.from(recordings.keys());
 }
 
-// Drop recordings whose tab is gone. Nothing in the tab-close path calls
+// Drop recordings whose pane is gone. Nothing in the tab-close path calls
 // stopRecording, so before this a closed-while-recording tab leaked its whole
 // events array for the life of the process AND pinned a red "rec" indicator in
 // the status bar whose click dead-ends (jumpToRecordingTab bails on the missing
-// tab). Only an app restart cleared it. Called from TerminalsTab's reconcile
+// pane). Only an app restart cleared it. Called from TerminalsTab's reconcile
 // sweep, the same commit-time sweep that prunes the pane registry and the
 // activity store, so every close path (tab/panel close, detach, workspace load,
 // reset, worktree discard) is covered by one mechanism.
 //
-// `liveTabIds` must be TAB ids, not pane ids: recordings are keyed by tab id,
-// a split tab can outlive the leaf whose id === tab.id, and special tabs
-// (home/vnc/rdp/notebook) render no panes at all, so pruning against the pane
-// set would kill a live tab's recording.
+// `livePaneIds` must be PANE ids, matching the key (see the header note): a tab
+// id would miss every recording on a split tab and would go stale entirely once
+// removeLeaf collapses the leaf whose id === tab.id.
+//
+// Pass `allPaneTargets(panels)`, NOT `allRenderedPaneIds(panels)`. The two walk
+// the same leaves, but allRenderedPaneIds deliberately EXCLUDES special tabs
+// (home/vnc/rdp/notebook), which mount no TerminalPane yet can still hold a
+// recording keyed on their own id. Pruning against that set would delete it out
+// from under a live "● rec" indicator.
 //
 // The inflight .cast on disk is deliberately LEFT behind, with the pending tail
 // flushed into it first: an interrupted recording is offered for save on next
 // launch (audit C5), exactly like a cancelled Save. Discarding it here would
 // silently destroy the capture the user asked for.
-export function pruneRecordings(liveTabIds) {
-  const live = liveTabIds instanceof Set ? liveTabIds : new Set(liveTabIds || []);
+export function pruneRecordings(livePaneIds) {
+  const live = livePaneIds instanceof Set ? livePaneIds : new Set(livePaneIds || []);
   let dropped = false;
-  for (const [tabId, rec] of recordings) {
-    if (live.has(tabId)) continue;
+  for (const [paneId, rec] of recordings) {
+    if (live.has(paneId)) continue;
     if (rec.flushTimer) { clearTimeout(rec.flushTimer); rec.flushTimer = null; }
     if (rec.pending.length) {
       const chunk = rec.pending.join("");
       rec.pending = [];
-      invoke("recording_checkpoint", { name: recName(tabId), chunk, reset: false }).catch(() => {});
+      invoke("recording_checkpoint", { name: recName(paneId), chunk, reset: false }).catch(() => {});
     }
-    recordings.delete(tabId); // deleting the current entry mid-iteration is safe on a Map
+    recordings.delete(paneId); // deleting the current entry mid-iteration is safe on a Map
     dropped = true;
   }
   if (dropped) notify();

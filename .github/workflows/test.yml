@@ -4,18 +4,39 @@ name: test
 # push-only (stream audit W5: push + pull_request double-ran every suite on
 # PR branches). Known accepted gap: a PR from a FORK never triggers this
 # (push fires in-repo only) — fine for the current solo/hybrid model; add a
-# pull_request trigger scoped to forks if outside contributions ever start. windows runner (W4): the keyring crate has only apple/windows
-# backend features enabled — a linux build hits its no-backend compile_error;
-# windows also mirrors the primary dev/ship platform.
+# pull_request trigger scoped to forks if outside contributions ever start.
+#
+# Cargo runs on TWO platforms. windows-latest (W4) mirrors the primary dev/ship
+# platform. macos-latest exists for one reason: Windows refuses symlink creation
+# to an unprivileged process, so the six BRS-3 escape tests skip their symlink
+# half there and the guards' real vector was never executed by CI at all.
+# (The old note here claiming Linux cannot build because keyring has no backend
+# is stale: src-tauri/Cargo.toml enables sync-secret-service. Linux is still not
+# a leg here, but that is a cost/never-been-built call, not a compile_error.)
+#
+# Actions are pinned to commit SHAs (the same ones release.yml and static.yml
+# use) because this is the workflow that runs most often, on every push to every
+# branch: a force-moved @v4 tag or @stable branch upstream would run attacker
+# code against a full checkout of this private source, and could make the test
+# gate lie green, with nothing in this repo's diff to show it.
 on:
   push:
     branches: ["**"]
+
+# Explicit read-only floor. This file declared no permissions at all, so its
+# GITHUB_TOKEN inherited whatever the repo/org default is. That default is
+# "read" today, which is the only reason this was not a write-scoped token on
+# every branch push; do not leave the floor resting on a setting kept in a
+# different system.
+permissions:
+  contents: read
+
 jobs:
   js:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
@@ -24,9 +45,37 @@ jobs:
   rust:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: src-tauri
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  # The ONLY leg where the symlink half of the BRS-3 escape tests executes.
+  # `std::os::windows::fs::symlink_file` needs Developer Mode or elevation, which
+  # windows-latest does not have, so `try_make_symlink` (commands.rs) returns
+  # false there and every "must not FOLLOW a link" assertion is skipped: turning
+  # the six symlink_metadata guards into link-following `metadata` calls left the
+  # whole suite green. Off Windows try_make_symlink asserts the link was created,
+  # so this leg cannot go quietly vacuous the same way.
+  # macos-latest and not ubuntu because release.yml already builds this exact
+  # crate on macos-latest every release, so only the #[cfg(test)] modules are new
+  # code here. This does NOT satisfy release.yml's Linux re-enable condition 1,
+  # which asks specifically for a Linux leg.
+  rust-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+          # Distinct cache from the windows leg; a shared key would thrash.
+          key: macos
+      # tests/mcp_mock.rs spawns `node` for the mock MCP server. It is preinstalled
+      # on the runner image, but pinning it keeps the leg from depending on that.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
       - run: cargo test --manifest-path src-tauri/Cargo.toml

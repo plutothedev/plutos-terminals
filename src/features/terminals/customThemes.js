@@ -91,6 +91,23 @@ function warpXterm(w, dark) {
 }
 
 // Derive the chrome --phn-* tokens from background / foreground / accent.
+//
+// This map is the FIFTEENTH skin block: the custom-theme equivalent of one
+// [data-phn-skin="…"] block in headerSkins.css. Anything a skin block declares
+// has to be declared here too, or an imported theme falls through to the base
+// skin's value, and the base skin is a built-in whose colours have nothing to
+// do with the imported background.
+//
+// That inheritance is not theoretical, and it is worse than plain fallback:
+// applyActiveTheme() sets BOTH data-phn-skin (the base skin) and
+// data-phn-theme="custom" on <html>, and the injected [data-phn-theme="custom"]
+// rule only wins for the properties it actually declares. So an imported LIGHT
+// theme whose base skin is a dark one silently keeps that dark skin's
+// --phn-text-bright (#F2F4F7) and --phn-chip-bg (#2C3037) unless they are set
+// below. That is the exact shape of audit A11Y-01.
+//
+// headerSkins.tokens.test.js enforces the pairing: every token in the
+// light-safety set must appear in all fourteen skin blocks AND here.
 function deriveChrome(w, dark) {
   const bg = w.background, fg = w.foreground, accent = w.accent || w.foreground;
   const n = w.terminal_colors?.normal || {};
@@ -101,9 +118,23 @@ function deriveChrome(w, dark) {
     "--phn-surface-bg": mix(bg, lift, 0.06),
     "--phn-surface-alt-bg": mix(bg, lift, 0.10),
     "--phn-elevated-bg": mix(bg, lift, 0.13),
+    // Light-safety set, 1 of 5. Small raised chip ON a panel. Same lift as
+    // elevated, but a separate token because a skin can want them apart (OLED
+    // does). Derived, never inherited: the built-in skins pin it to #2C3037,
+    // which is a black box on an imported light theme.
+    "--phn-chip-bg": mix(bg, lift, 0.13),
+    // Light-safety set, 2 of 5. Text ON that chip. The built-in skins pin it
+    // to #D3D7DD because their chip fill is a fixed neutral grey; here the
+    // chip is derived from the theme's own background, so the theme's own
+    // foreground is the matching pair.
+    "--phn-panel-fg": fg,
     "--phn-surface-border": mix(bg, lift, 0.16),
     "--phn-text-fg": fg,
     "--phn-text-active": mix(fg, emph, 0.2),
+    // Light-safety set, 3 of 5. Emphasis text. Same derivation as
+    // --phn-text-active because that is what it means; it exists as a separate
+    // name only because eight sites already spell it this way.
+    "--phn-text-bright": mix(fg, emph, 0.2),
     "--phn-text-dim": mix(fg, bg, 0.35),
     "--phn-text-faint": mix(fg, bg, 0.55),
     "--phn-link": accent,
@@ -111,7 +142,38 @@ function deriveChrome(w, dark) {
     "--phn-accent-subtle": rgba(accent, 0.15),
     "--phn-accent-fg": readableOn(accent),
     "--phn-focus-ring": rgba(accent, 0.6),
+    // Light-safety set, 4 of 5. Opaque 1px keyboard focus outline (see
+    // styles.css). The accent is the right answer for an imported theme: it is
+    // the one colour the theme author guaranteed reads against their bg.
+    "--phn-focus-outline": accent,
+    // Light-safety set, 5 of 5. `lift` is #000000 for a light theme, so
+    // this is already a black wash there rather than an inverted white one.
     "--phn-hover-bg": rgba(lift, dark ? 0.06 : 0.05),
+    // COMPONENT-LITERAL SET. The fourteen built-in blocks PIN these to the exact
+    // hex the .jsx files hardcoded before the light skins existed, so declaring
+    // them there is a no-op for all twelve dark ones. An imported theme has no
+    // such history, so each is derived from the theme's own background /
+    // foreground / accent and inverts for free when `dark` is false. Omitting
+    // any of them is the A11Y-01 shape again: an imported LIGHT theme would keep
+    // the base DARK skin's pinned value and paint white ink on white surfaces.
+    // --phn-wash-rgb is an RGB TRIPLE, not a colour: sites spell it
+    // rgba(var(--phn-wash-rgb), 0.08), so one token flips every alpha wash in
+    // the app while each site keeps its own alpha.
+    "--phn-wash-rgb": dark ? "255,255,255" : "0,0,0",
+    "--phn-ink": emph,
+    "--phn-ink-soft": mix(fg, emph, 0.2),
+    "--phn-ink-dim": mix(fg, bg, 0.35),
+    // A recessed read-only well sinks AWAY from the lift direction; a small
+    // raised control on a panel moves with it. Same pair, opposite signs.
+    "--phn-well-bg": mix(bg, dark ? "#000000" : "#ffffff", 0.3),
+    "--phn-raised-bg": mix(bg, lift, 0.1),
+    // Notice-surface text. Pushed toward the emphasis end on a light theme
+    // because all three render as small text on a tinted panel, where the raw
+    // accent / yellow / red a theme author chose for a dark background lands
+    // around 2:1.
+    "--phn-notice-accent": mix(accent, emph, dark ? 0 : 0.3),
+    "--phn-notice-warn-fg": mix(n.yellow || "#E0A04F", emph, dark ? 0.12 : 0.55),
+    "--phn-notice-error-fg": mix(n.red || "#E05B5B", emph, dark ? 0.12 : 0.45),
     "--phn-tabstrip-bg": mix(bg, lift, 0.03),
     "--phn-tab-bg": mix(bg, lift, 0.05),
     "--phn-tab-bg-hover": mix(bg, lift, 0.09),

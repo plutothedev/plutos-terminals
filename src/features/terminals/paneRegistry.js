@@ -40,11 +40,13 @@
 // primitives (spawnState, startSpawn, destroyEntry, detachHost);
 // TerminalPane is what actually branches on them.
 //
-// Boot stagger (P4-T5): entries are born "unspawned" with a `startSpawn`
-// slot TerminalPane's first mount fills (once-latched — the first caller
-// wins, every later call no-ops). Visible/active panes fire it immediately;
-// hidden panes wait for first reveal (TerminalPane's [visible] effect) or
-// the TerminalsTab trickle (one hidden TAB per tick), so a 20-tab restore
+// Boot stagger (P4-T5): entries are born "unspawned" with an EMPTY
+// `spawnBody` slot that TerminalPane's first mount fills. Callers never
+// invoke the body; they call `entry.startSpawn()`, the once-latch this
+// module owns (see makeEntry) so the guard cannot drift away from the
+// state it guards. Visible/active panes fire it immediately; hidden panes
+// wait for first reveal (TerminalPane's [visible] effect) or the
+// TerminalsTab trickle (one hidden TAB per tick), so a 20-tab restore
 // no longer means 20 simultaneous ConPTY spawns + replays.
 //
 // Lock screen / crash recovery / destroyAll: this module has no notion of
@@ -76,7 +78,7 @@ function makeHost() {
 }
 
 function makeEntry() {
-  return {
+  const entry = {
     host: makeHost(),
     currentSlot: null,
     term: null,
@@ -84,8 +86,8 @@ function makeEntry() {
     search: null,
     ptyId: null,
     jumpFwdId: null,
-    spawnState: "unspawned", // "unspawned" | "starting" | "live" — startSpawn flips to "starting", spawn success to "live"
-    startSpawn: null, // filled by TerminalPane's first mount (once-latched); trickle/reveal call it
+    spawnState: "unspawned", // "unspawned" | "starting" | "live". startSpawn flips to "starting"; spawn success flips to "live".
+    spawnBody: null, // the spawn work itself, registered once by TerminalPane's first mount. Never call it directly, call startSpawn().
     imageAddonDone: false, // set by attachImageAddon's .then — once per terminal lifetime (P4-T1)
     setupDone: false,
     onDestroy: [],
@@ -100,6 +102,55 @@ function makeEntry() {
     },
     blocks: { list: [], current: null, decorations: [] },
   };
+  // The double-spawn latch. It lives HERE, on the object that owns
+  // spawnState, and not in the callers, because there are two independent
+  // callers that can reach the same pane in the SAME frame: TerminalPane's
+  // first-reveal [visible] effect and the TerminalsTab trickle tick. Only one
+  // of them may run the body.
+  //
+  // Two properties are load-bearing, in this order:
+  //  1. The "unspawned" -> "starting" flip happens SYNCHRONOUSLY, before the
+  //     body is invoked. The body is async (it awaits replayScrollback before
+  //     it touches anything), so if the flip moved inside it, both callers
+  //     would pass the "unspawned" check and one pane would get two PTYs: two
+  //     shell children, two reader threads, both appending to the same
+  //     scrollback file under that pane id, and only one of them tracked for
+  //     pty_kill.
+  //  2. No body registered means NO latch. This preserves what the null slot
+  //     used to give for free: back when `startSpawn` itself was the slot
+  //     TerminalPane filled, the trickle's `e.startSpawn?.()` on a bodyless
+  //     entry was a no-op that consumed nothing. The latch now exists from
+  //     birth, so without this check that same call would flip a bodyless
+  //     entry to "starting" and strand it there: no PTY, and every later
+  //     tick and first-reveal no-ops on it forever. Returning false instead
+  //     leaves it recoverable by whichever caller arrives next.
+  //
+  // Returns whether THIS call won the latch, so callers and tests can tell a
+  // win from a no-op without reading spawnState back out.
+  //
+  // Non-writable and non-configurable on purpose. The whole double-spawn fix
+  // now rests on ONE production line registering a BODY
+  // (`entry.spawnBody = ...` in TerminalPane's mount effect) rather than
+  // replacing this latch. As a plain data property that distinction was a
+  // single token with nothing behind it: the wrong assignment succeeds
+  // silently, the latch is gone, and no test can see it because nothing
+  // imports TerminalPane.jsx. Locked, the same slip throws a TypeError at
+  // mount instead of shipping a pane that can spawn two PTYs. The source-text
+  // pin in paneRegistry.test.js guards the same seam from the other side.
+  Object.defineProperty(entry, "startSpawn", {
+    // Enumerable so the entry keeps the exact shape the plain assignment gave
+    // it; only writability is being taken away.
+    enumerable: true,
+    value: () => {
+      if (entry.spawnState !== "unspawned") return false;
+      const body = entry.spawnBody;
+      if (typeof body !== "function") return false;
+      entry.spawnState = "starting";
+      body();
+      return true;
+    },
+  });
+  return entry;
 }
 
 export function ensureEntry(paneId) {
