@@ -21,7 +21,7 @@
 // first if the build under test touches persistence. Nothing else should be
 // listening on the chosen port. The exe is killed at the end, tree and all.
 import { spawn, execSync } from "node:child_process";
-import { writeFileSync, readdirSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, readdirSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > -1 ? process.argv[i + 1] : d; };
@@ -32,6 +32,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 if (!existsSync(exe)) { console.error("no exe at", exe); process.exit(9); }
+mkdirSync(out, { recursive: true });
 const child = spawn(exe, [], {
   env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` },
   stdio: "ignore",
