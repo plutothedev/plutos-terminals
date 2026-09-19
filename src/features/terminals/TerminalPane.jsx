@@ -57,6 +57,71 @@ function attachCanvasRenderer(entry, t) {
     try { t.loadAddon(new Cls()); } catch { /* stay on the DOM renderer */ }
   });
 }
+
+// Assistive text insertion (Wispr Flow dictation, screen readers, anything
+// that inserts through the accessibility layer). Measured on the installed
+// v0.7.0 build: a UI Automation ValuePattern.SetValue lands on xterm's helper
+// textarea as an `input` event with NO beforeinput and NO keydown, and xterm
+// 5.5 — which reads that textarea only on keydown/keypress and during IME
+// composition — discards it, so a paying customer's dictation never reached
+// the shell while keystrokes and Ctrl+V both did. assistiveInput.js holds the
+// full measurement and the rules; this is only the DOM plumbing.
+//
+// Latched once per TERMINAL lifetime (not per mount): the helper textarea
+// lives inside the registry-owned host that is re-parented across slots when a
+// pane moves, so the listeners survive a move and must not be stacked by the
+// re-attach path. Teardown rides the pane's destroy hooks, like every other
+// create-once registration here.
+function attachAssistiveInput(entry, t, paneId) {
+  if (!t || entry.assistiveInputDone) return;
+  // xterm exposes the helper textarea as term.textarea once open() has run;
+  // fall back to the host's DOM if it is momentarily null.
+  const ta = t.textarea || entry.host?.querySelector?.(".xterm-helper-textarea");
+  if (!ta) return;
+  entry.assistiveInputDone = true;
+
+  const watcher = createAssistiveInputWatcher();
+  const onCompositionStart = () => watcher.onCompositionStart();
+  const onCompositionEnd = () => watcher.onCompositionEnd();
+  const onPaste = () => watcher.onPaste();
+  const onBeforeInput = () => watcher.onBeforeInput();
+  // The composition guard's fast self-heal: a compositionend that never lands
+  // (IME dropped, host re-parented, pane closed mid-composition) would refuse
+  // every later dictation, so losing the textarea ends the composition too.
+  const onBlur = () => watcher.onBlur();
+  const onInput = (ev) => {
+    if (!watcher.shouldForward(ev)) return;
+    const text = ta.value;
+    if (!text) return;
+    // Clear before sending: xterm clears this textarea on its own schedule
+    // (keydown), and leaving the text sitting there is what lets a later
+    // read send it a second time.
+    try { ta.value = ""; } catch { /* ignore */ }
+    // paste(), NOT input() and not a raw write. Same reasoning the clipboard
+    // path documents: bracketed-paste mode is honored, so WHEN THE RUNNING
+    // PROGRAM HAS ENABLED IT (DECSET 2004, which shells and editors do and a
+    // plain `cat` does not) a multi-line dictation arrives as one bracketed
+    // blob the program can decline to execute. With bracketed paste off the
+    // newlines become carriage returns and the lines run, which is not a new
+    // risk: it is exactly what Ctrl+V already does through the same call.
+    try { t.paste(text); } catch { /* terminal disposed mid-flight */ }
+  };
+
+  ta.addEventListener("compositionstart", onCompositionStart);
+  ta.addEventListener("compositionend", onCompositionEnd);
+  ta.addEventListener("paste", onPaste);
+  ta.addEventListener("beforeinput", onBeforeInput);
+  ta.addEventListener("blur", onBlur);
+  ta.addEventListener("input", onInput);
+  registerDestroyHook(paneId, () => {
+    ta.removeEventListener("compositionstart", onCompositionStart);
+    ta.removeEventListener("compositionend", onCompositionEnd);
+    ta.removeEventListener("paste", onPaste);
+    ta.removeEventListener("beforeinput", onBeforeInput);
+    ta.removeEventListener("blur", onBlur);
+    ta.removeEventListener("input", onInput);
+  });
+}
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
 import { envForModel } from "./providers.js";
@@ -67,6 +132,7 @@ import { actionForEvent } from "./keybindings.js";
 import { buildWelcomeBanner } from "./welcomeBanner.js";
 import { buildPosixShellInit, buildPowerShellInit, parsePlutoCmdReport } from "./shellIntegration.js";
 import { resolveEnvFromUserState } from "./spawnEnv.js";
+import { createAssistiveInputWatcher, isModalOpen } from "./assistiveInput.js";
 // PromptEditor rides behind the default-off promptEditor flag yet its static
 // import chained the whole CodeMirror stack (~130kB gz) into EVERYONE's boot
 // bundle (P4-T1). Lazy + null fallback: flag users see the editor a beat late
@@ -824,6 +890,11 @@ function TerminalPane({
             t.open(entry.host);
             attachCanvasRenderer(entry, t); // audit M1; before image addon
             attachImageAddon(entry, t);
+            // The helper textarea only exists after open(), and this is the
+            // one path where a terminal is opened outside the create-once
+            // mount (a pane parked before it was ever visible). Latched on
+            // the entry, so the two call sites cannot double-attach.
+            attachAssistiveInput(entry, t, tabId);
           } catch { /* ignore */ }
         }
         try { entry.fit?.fit(); } catch {}
@@ -1168,6 +1239,9 @@ function TerminalPane({
       term.open(entry.host); // registry-owned host — the xterm DOM moves with it across slots
       attachCanvasRenderer(entry, term); // GPU renderer on Win/Linux (audit M1); before image addon
       attachImageAddon(entry, term);
+      // term.textarea exists only after open(), so the assistive-input
+      // listeners go on here rather than at Terminal construction.
+      attachAssistiveInput(entry, term, tabId);
       safeFit();
     };
     // Open as soon as the container actually intersects the viewport — the same
@@ -1882,6 +1956,57 @@ function TerminalPane({
     }, 30);
     return () => clearTimeout(t);
   }, [visible]);
+
+  // When the WINDOW gains focus, make sure the caret is really in the active
+  // terminal — so assistive software finds a focused TEXT FIELD.
+  //
+  // WHY. Measured at boot on the installed v0.7.0 build: before the user
+  // clicks into the grid the page has DOM focus but the window does not
+  // (document.hasFocus() is false), and UI Automation reports the focused
+  // element as a generic Pane rather than a text field. Dictation tools check
+  // for a focused text field before they insert, so "launch the app and
+  // immediately dictate" found nothing to insert into. One click into the
+  // grid, or a switch away and back, and UIA resolves the helper textarea.
+  //
+  // STEALING FOCUS IS WORSE THAN THE BUG, so the guards are deliberately
+  // narrow and all four have to hold:
+  //   1. this is the ACTIVE pane of a VISIBLE tab (never a background pane,
+  //      never the other half of a split),
+  //   2. the tab strip is not being driven from the keyboard — the same
+  //      shouldPaneTakeFocus() guard the reveal effect above respects, so
+  //      alt-tabbing back to a keyboard tab switch does not eat the arrow keys
+  //      (tabStripFocus.js holds that measurement),
+  //   3. nothing meaningful holds focus: activeElement is null, the body, the
+  //      document element, the app root, or this pane's own non-input chrome.
+  //      Anything else — the AI assistant box, the session tree, a modal, the
+  //      prompt editor, a rename input, any input/textarea/contenteditable —
+  //      keeps it. An OPEN MODAL disqualifies the condition on its own, even
+  //      when activeElement reads idle: a modal's focused child can unmount
+  //      and drop focus to <body>, and pulling focus down to the terminal
+  //      under a live modal is the steal this guard exists to prevent. The
+  //      probe is the same `.phn-modal-overlay` query Modal.jsx uses for its
+  //      own Escape gating (see isModalOpen in assistiveInput.js),
+  //   4. it is a window-focus event, not a render. Nothing here runs on the
+  //      render path.
+  useEffect(() => {
+    const onWindowFocus = () => {
+      if (!activeRef.current || !visibleRef.current) return;
+      if (!shouldPaneTakeFocus()) return;
+      const el = document.activeElement;
+      const idle =
+        !isModalOpen() &&
+        (!el ||
+          el === document.body ||
+          el === document.documentElement ||
+          el === document.getElementById("root") ||
+          el === containerRef.current ||
+          el === wrapperRef.current);
+      if (!idle) return;
+      try { termRef.current?.focus(); } catch { /* not open yet — harmless */ }
+    };
+    window.addEventListener("focus", onWindowFocus);
+    return () => window.removeEventListener("focus", onWindowFocus);
+  }, []);
 
   useEffect(() => {
     if (!termRef.current || !xtermTheme) return;

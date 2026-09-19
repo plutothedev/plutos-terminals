@@ -1,5 +1,77 @@
 # Changelog
 
+## v0.7.1: Dictation support, cloud-sync hardening, secret-masking coverage (2026-09-18)
+
+Everything an external code audit of v0.7.0 found, verified against the source
+before any of it was written, plus a customer-reported dictation failure that
+the audit did not cover. No finding in this release was exploitable without
+either write access to the user's own private sync repository or the user
+approving an Agent Mode command.
+
+### Added
+- **Voice dictation and other assistive input now reach the terminal.** Tools
+  that insert text through the Windows accessibility layer (Wispr Flow and
+  anything else built the same way) were silently dropped: the text arrived in
+  the page as an input event, and the terminal engine, which only reads
+  keystrokes and language-composition events, discarded it. The terminal now
+  forwards those insertions, so dictated text lands in the shell. Clipboard
+  paste and typing were never affected. Composition and paste are deliberately
+  left to the engine, so nothing is inserted twice.
+- **The window's focus lands on the terminal.** A freshly launched window left
+  focus on a container rather than the terminal, so dictation tools that check
+  for a focused text field before inserting found nothing until the user
+  clicked. Focus is now placed on the active pane when the window gains it, and
+  only when nothing else holds it, so the assistant box, the session tree and
+  every dialog keep their focus.
+
+### Fixed
+- **Cloud sync can no longer be made to write outside its own folder.** The
+  sync repository's contents were materialised and then read and written
+  without checking what they were, so a remote that committed a symlink in
+  place of one of the two sync files could make the app truncate and overwrite
+  any file the user can write. Both paths are now refused unless they are plain
+  files. Reachable only by someone with write access to the user's own private
+  sync repository, and not at all on a default Windows install.
+- **Changing the sync repository now takes effect.** The existing local clone
+  won silently, so a new repository URL was ignored forever: the app kept
+  syncing to the old repository and presenting the newly entered access token
+  to it. The clone is replaced when the configured URL changes.
+- **Disabling sync stops sync.** Turning it off left the five-minute background
+  pull and push running until the app restarted, and turning it back on did
+  nothing until a restart either.
+- **Provider keys survive a second window.** Every settings save rewrote the
+  whole keychain entry from the saving window's own copy, so rotating a key in
+  one window and then saving anything unrelated in another brought the old key
+  back on restart. Keys are now written per provider and only when they change.
+- **A failed keychain write is no longer silent.** On Windows the credential
+  store caps one entry at about 1,280 characters and every provider key lived
+  in a single entry, so past roughly a dozen keys every later write failed
+  quietly and the key was gone on restart. Writes now report failure and keep a
+  local copy rather than discarding it.
+- **Startup cleanup can no longer delete scrollback that is being restored.**
+  The sweep built its keep-list from local storage only, while layout recovery
+  read the durable backup separately, so a profile loss plus a lost race could
+  delete history for tabs the recovery was about to restore. The sweep now
+  waits for recovery and refuses to run on an empty keep-list.
+- **Sharing masks more kinds of key.** Bare Google, Groq, xAI, Hugging Face,
+  NVIDIA, Tailscale, Google OAuth and Discord bot credentials went into a gist
+  unmasked unless they appeared in an assignment. Assignment shapes inside JSON
+  are covered now too.
+- **Agent Mode masks what it sends the model.** Captured command output went to
+  the active AI provider unmasked, and every shell carries provider keys in its
+  environment, so an approved command that printed the environment handed one
+  provider's key to another. Output is masked before it is trimmed, so a key
+  cannot survive by being cut in half.
+
+### Known, deliberately open
+- Keys with no distinctive prefix (Mistral, Cohere, Azure, Together) still pass
+  the share scanner unless they appear in an assignment. Catching them needs a
+  high-entropy heuristic that would mask ordinary hashes and base64 in terminal
+  output, which the scanner rejects by design.
+- Connecting VNC to an untrusted server can still crash the app: the client
+  library is unmaintained and does not bound every field it parses.
+- Builds are still unsigned, so first launch shows a warning on both platforms.
+
 ## v0.7.0: Audit closeout, keyboard-complete chrome, Light-skin correctness (2026-09-17)
 
 The whole 2026-08-21 audit (73 findings across 13 review teams,

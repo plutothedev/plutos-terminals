@@ -5,6 +5,8 @@
 // code, from MCP annotations + a shell danger check — NEVER from the model/prompt,
 // because tool results are fed back into the next turn (prompt-injection surface).
 
+import { scanSecrets, maskSecrets } from "./secretScan.js";
+
 // Non-bypassable destructive/RCE shell patterns (moved verbatim from AgentMode).
 const DANGEROUS_PATTERNS = [
   /\brm\s+(?:-[a-z]*\s+)*-[a-z]*[rf]/i,
@@ -85,4 +87,20 @@ export function mcpResultToContent(out) {
     })
     .filter(Boolean);
   return pieces.join("\n");
+}
+
+/** Shape a tool's raw text into what the model may see. Secrets are masked
+ *  FIRST, then the tail is kept: trimming first could cut a key in half so
+ *  that no pattern recognises the remainder. Every shell carries provider
+ *  keys in its environment, so an approved `env` (or a hostile test script)
+ *  would otherwise hand the Anthropic key to whichever provider is active. */
+export function toolResultText(raw, { max = 3000 } = {}) {
+  const text = String(raw ?? "");
+  const masked = maskSecrets(text, scanSecrets(text));
+  // `slice(-0)` is `slice(0)` — the ENTIRE string, the exact inverse of the
+  // zero budget asked for. Neither call site passes 0 today, so this is a trap
+  // for the next caller rather than a live bug; a non-positive budget keeps
+  // nothing. (NaN fails `> 0` too, so a junk max also fails closed.)
+  const kept = max > 0 ? masked.slice(-max) : "";
+  return kept || "(no output captured)";
 }

@@ -47,7 +47,32 @@ export function isPrimaryWindow() {
 // ?w= windows). Used as the KEEP-list for scrollback GC (scrollback_sweep) so a
 // live session's history is never reclaimed. Reads each per-window state blob
 // straight from localStorage; a window whose blob won't parse simply contributes
-// no ids, which is fail-safe (the sweep keeps more, never deletes a wanted file).
+// no ids.
+//
+// THAT SKIP IS NOT FAIL-SAFE, and this comment used to claim it was ("the sweep
+// keeps more, never deletes a wanted file"). Backwards: this is an EXCLUSION
+// list, so every id missing from it is a file left UNPROTECTED, and an empty
+// return protects nothing at all. The only real bound is the sweep's 30-day age
+// floor, which is looser than it sounds — a rotated `.old.txt` keeps its
+// rotation mtime and loading a tab never writes the file, so after a month away
+// every tab is eligible.
+//
+// The caller is responsible for not sweeping on a keep-list this function could
+// not build: diskGc.js awaits boot recovery, flushes the pending layout write,
+// and refuses the sweep outright when the harvest comes back empty OR INCOMPLETE
+// (commands.rs holds the empty refusal as a floor). A boot where the profile was
+// discarded reaches here with nothing in localStorage and an unrestored backup,
+// which is exactly the case that used to delete a recovering user's history.
+//
+// WHY COMPLETENESS IS REPORTED, NOT INFERRED (review F2). "Empty" was standing in
+// for "the store was unreadable", and that proxy only holds with ONE window open.
+// Open a second window, lose or corrupt the PRIMARY's blob while the second's
+// stays intact, and the walk below skips the broken one and returns the second
+// window's ids: NON-EMPTY, so neither the JS refusal nor the Rust one fires, and
+// the sweep reaps the primary's aged panes while recovery is mid-restore. Same
+// defect as the one it replaced, one window over. So the skip is now COUNTED
+// rather than silent, and a caller that is about to delete files asks for
+// `complete` instead of reading it off the length.
 //
 // TWO shape traps live here, both found by the RDI-2 audit and its re-review:
 //
@@ -68,19 +93,34 @@ export function isPrimaryWindow() {
 //
 // The top-level `st.panels` fallback is NOT protecting live tabs. Nothing in the
 // app writes that key except detachTab before RDI-1 was fixed, and those tabs
-// were destroyed rather than opened. It stays because this set is a safety
-// exclusion, so the errors are asymmetric: over-keeping strands one stale file
-// until the blob is rewritten, under-keeping unlinks a live session's history
-// out from under its append handle.
-export function allOpenTabIds() {
+// were destroyed rather than opened. It stays because the errors are asymmetric
+// in ONE direction only: over-keeping strands one stale file until the blob is
+// rewritten, under-keeping unlinks a live session's history out from under its
+// append handle. Read too few ids, delete too many files.
+// Returns `{ ids, complete }`.
+//
+// `complete` is false when ANY candidate blob was skipped — a window key whose
+// JSON would not parse — or when the walk itself could not run (no `window`, or
+// localStorage throwing part-way through). It is NOT about finding zero ids: a
+// store that was read end to end and simply held no open tabs is complete, and
+// the empty-list refusal covers that case on its own.
+//
+// One walk, one copy of the tree logic: allOpenTabIds() delegates here and
+// returns `.ids`, because a second traversal is a second thing to drift (the
+// same reason getLayout/leafIds are imported rather than re-implemented).
+export function harvestKeepList() {
   const ids = [];
-  if (typeof window === "undefined") return ids;
+  // No window means the store was never opened, so nothing can be claimed about
+  // it. Fail toward "incomplete": a caller that deletes files on this answer
+  // should not, and the one caller that does refuses on an empty list anyway.
+  if (typeof window === "undefined") return { ids, complete: false };
+  let complete = true;
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (!k || !k.startsWith(STATE_KEY_PREFIX)) continue;
       let st;
-      try { st = JSON.parse(localStorage.getItem(k) || "{}"); } catch { continue; }
+      try { st = JSON.parse(localStorage.getItem(k) || "{}"); } catch { complete = false; continue; }
       for (const p of st.terminalsState?.panels || st.panels || []) {
         for (const t of p.tabs || []) {
           if (!t || !t.id) continue;
@@ -88,8 +128,14 @@ export function allOpenTabIds() {
         }
       }
     }
-  } catch { /* storage unavailable */ }
-  return ids;
+  } catch {
+    complete = false; // storage unavailable, or died part-way through the walk
+  }
+  return { ids, complete };
+}
+
+export function allOpenTabIds() {
+  return harvestKeepList().ids;
 }
 
 // Every localStorage key the app writes lives under one of these prefixes:

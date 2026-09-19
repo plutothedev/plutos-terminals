@@ -20,7 +20,7 @@ let timer = null, poll = null, busy = false;
 let pendingResync = false;
 let lastSyncedKey = null;
 const listeners = new Set();
-let cfg = { getStores: null, applyStores: null, getRepoUrl: null, setStatus: () => {} };
+let cfg = { getStores: null, applyStores: null, getRepoUrl: null, getEnabled: null, setStatus: () => {} };
 
 export function configure(opts) { cfg = { ...cfg, ...opts }; }
 function status(s) { cfg.setStatus(s); for (const l of listeners) l(s); }
@@ -89,6 +89,21 @@ export async function syncNow() {
   }
   busy = true; // set synchronously before any await
   try {
+    // The OFF switch, enforced here and not only by the caller. "Disable sync"
+    // clears userSt.sync.enabled, but every entry point into this function is a
+    // timer the user cannot see: the 5-min poll, the debounce, and the finally
+    // re-arm below (which can hand itself a new timer AFTER stop() cleared the
+    // old one). Without this gate a disabled app kept pulling, merging and
+    // PUSHING with the user's token until the next restart.
+    //
+    // Only an explicitly-configured getEnabled can block: an unconfigured
+    // engine (a secondary window, an older caller) must behave as before rather
+    // than wedge shut on `undefined`. The gate is inside the try, so `finally`
+    // still clears `busy`, so a disabled engine is paused, never stuck.
+    if (typeof cfg.getEnabled === "function" && !cfg.getEnabled()) {
+      status({ state: "disabled" });
+      return;
+    }
     const repoUrl = cfg.getRepoUrl();
     const pass = await getPassphrase();
     if (!repoUrl || !pass) { status({ state: "disabled" }); return; }
@@ -144,7 +159,16 @@ export function notifyChange() {
 }
 
 export function start() {
+  // Now that App.jsx starts/stops this on the enabled flag rather than once at
+  // mount, a re-start without a matching stop is reachable. Clear first so the
+  // old interval can't be orphaned into a second, unstoppable poller.
+  if (poll) clearInterval(poll);
   syncNow();
   poll = setInterval(() => { syncNow(); }, POLL_MS);
-  return () => { if (poll) clearInterval(poll); if (timer) clearTimeout(timer); };
+  const mine = poll;
+  return () => {
+    clearInterval(mine);
+    if (poll === mine) poll = null; // don't null out a newer poller's handle
+    if (timer) { clearTimeout(timer); timer = null; }
+  };
 }

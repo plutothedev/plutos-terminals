@@ -15,7 +15,7 @@ import { resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { runAndCapture } from "./ptyBridge.js";
 import { toolTurn } from "./llmTools.js";
-import { buildTools, needsApproval, isDangerousCommand, mcpResultToContent } from "./agentTools.js";
+import { buildTools, needsApproval, isDangerousCommand, mcpResultToContent, toolResultText } from "./agentTools.js";
 import { runAgentLoop } from "./agentLoop.js";
 import { collectProjectContext, partitionRuleFiles, buildSafeContextBlock } from "./agentContext.js";
 import { useSavedPrompts } from "./hooks/useSavedPrompts.js";
@@ -137,13 +137,16 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
           // model the step failed rather than feeding it "(no output captured)".
           return { content: "(capture superseded by another run on this pane)", isError: true };
         }
-        return { content: (result?.output || "").slice(-3000) || "(no output captured)", isError: false };
+        return { content: toolResultText(result?.output), isError: false };
       }
       const out = await invoke("mcp_call_tool", { server: m.server, tool: m.tool, args: call.args || {} });
       const isErr = !!(out && out.isError);
       // Feed back only the text parts, not the whole stringified CallToolResult
-      // (token bloat + prompt-injection surface). See mcpResultToContent.
-      return { content: mcpResultToContent(out), isError: isErr };
+      // (token bloat + prompt-injection surface). See mcpResultToContent. MCP
+      // text was never trimmed before (unlike shell's cap above); keep it
+      // generous but still bounded, and mask secrets the same way shell output
+      // is masked — an MCP tool can echo env/config just as easily as a shell can.
+      return { content: toolResultText(mcpResultToContent(out), { max: 12000 }), isError: isErr };
     };
 
     const requestApproval = (call) => new Promise((resolve) => {

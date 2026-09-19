@@ -16,6 +16,18 @@ const FAKE_PEM_EC = [
   "-----END EC PRIVATE KEY-----",
 ].join("\n");
 
+// Fixed-prefix provider/OAuth/bot-token fixtures (audit), built at runtime by
+// concatenation/repeat so no key-shaped literal sits in this source file —
+// GitHub push protection scans pushed file TEXT for these exact shapes.
+const GOOGLE_KEY = "AIza" + "Sy" + "D".repeat(33); // "AIza" + 35 chars
+const GOOGLE_OAUTH = "ya29" + "." + "b".repeat(25);
+const GROQ_KEY = "gsk_" + "a".repeat(52);
+const XAI_KEY = "xai-" + "c".repeat(25);
+const HF_TOKEN = "hf_" + "b".repeat(34);
+const NVIDIA_KEY = "nvapi" + "-" + "d".repeat(25);
+const TAILSCALE_KEY = "tskey" + "-" + "auth" + "-" + "e".repeat(25);
+const DISCORD_TOKEN = "M" + "x".repeat(23) + "." + "y".repeat(6) + "." + "z".repeat(27);
+
 describe("scanSecrets", () => {
   const cases = [
     ["aws-access-key", "key=AKIAIOSFODNN7EXAMPLE ok"],
@@ -33,6 +45,20 @@ describe("scanSecrets", () => {
     ["env-secret", "  AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLE"],
     ["env-secret", "export API_TOKEN=abcdef123456"],
     ["url-credential", "DATABASE_URL=postgres://admin:s3cr3tpass@db.host:5432/app"],
+    // Fixed-prefix provider/OAuth/bot-token formats (audit): bare keys with
+    // no env-var name around them, exactly what a terminal prints for these
+    // built-in providers.
+    ["google-api-key", `key: ${GOOGLE_KEY} end`],
+    ["google-oauth", `token=${GOOGLE_OAUTH} end`],
+    ["groq-key", `GROQ_API_KEY=${GROQ_KEY}`],
+    ["xai-key", `XAI_API_KEY=${XAI_KEY}`],
+    ["hf-token", `HF_TOKEN=${HF_TOKEN}`],
+    ["nvidia-key", `NVIDIA_API_KEY=${NVIDIA_KEY}`],
+    ["tailscale-key", `auth key: ${TAILSCALE_KEY}`],
+    ["discord-bot-token", `token: ${DISCORD_TOKEN}`],
+    // JSON-quoted env name (audit): env-secret used to require [:=] directly
+    // after the NAME, missing `"GEMINI_API_KEY": "..."` dumps.
+    ["env-secret", `"GEMINI_API_KEY": "${GOOGLE_KEY}"`],
   ];
   for (const [name, text] of cases) {
     it(`detects ${name}`, () => {
@@ -49,6 +75,34 @@ describe("scanSecrets", () => {
       "eyJhbGciOiJIUzI1NiJ9.onlytwoparts",          // 2-part, not a JWT
       "ghp_short",                                  // wrong length
       "xoxq-000",                                   // wrong slack letter + short
+      "AIzaShort",                                   // way under the 35-char tail
+      "gsk_short",                                   // way under the 20-char tail
+      "hf_ab",                                        // way under the 20-char tail
+      "the ya29 bucket",                              // no dot, no token tail
+      // Real strings the UNBOUNDED discord-bot-token rule masked (review): a
+      // .NET/Java logger name or stack frame, and a hashed webpack bundle
+      // asset. Both start with M, both carry a 6-char middle segment, and the
+      // second's tail is a legal 32-char hex hash — only the head bound
+      // rejects them, and this scanner now runs over every Agent Mode shell
+      // result, so masking these would cost every user their stack traces.
+      "MyApplicationServicesModule.Config.RegisterAllTheThingsHandler",
+      "Main_vendor_chunk_abcdefghijklmnop.a1b2c3.9f8e7d6c5b4a39281706f5e4d3c2b1a0",
+      // Exact off-by-one rejections (review): everything above is far too
+      // short, so a loosened quantifier would still be caught by nothing.
+      // These sit one character under each floor (or over each ceiling), which
+      // is where a future widening actually fails. Concatenated, never
+      // literal — GitHub push protection scans this file's text.
+      "AIza" + "S".repeat(34),                      // tail floor is 35
+      "ya29" + "." + "f".repeat(19),                // tail floor is 20
+      "gsk_" + "a".repeat(19),                      // tail floor is 20
+      "hf_" + "b".repeat(19),                       // tail floor is 20
+      "xai-" + "c".repeat(19),                      // tail floor is 20
+      "nvapi" + "-" + "d".repeat(19),               // tail floor is 20
+      "tskey" + "-" + "auth" + "-" + "e".repeat(19), // tail floor is 20
+      // discord segments: head 23-25 after the M/N sentinel, middle 6, tail 27-45.
+      "M" + "x".repeat(22) + "." + "y".repeat(6) + "." + "z".repeat(27), // head 1 short
+      "M" + "x".repeat(26) + "." + "y".repeat(6) + "." + "z".repeat(27), // head 1 long
+      "M" + "x".repeat(23) + "." + "y".repeat(6) + "." + "z".repeat(26), // tail 1 short
     ].join("\n");
     expect(scanSecrets(benign)).toEqual([]);
   });
@@ -339,6 +393,91 @@ describe("scanSecrets — bisected PEM blocks (upstream truncation)", () => {
     expect(masked).not.toContain(BODY_A);
     expect(masked).not.toContain(BODY_B);
     expect(masked).toContain("$ unrelated command output"); // no over-masking between them
+  });
+});
+
+// Audit: fixed-prefix provider/OAuth/bot-token key shapes (Google, Groq, xAI,
+// Hugging Face, NVIDIA, Tailscale, Discord) had no rule at all, and the
+// provider-key pattern's trailing \b shared the same gap once fixed here: \b
+// does not fire between a `-`/`_`-class char and whitespace, so a key ending
+// in `-` before a space used to lose its last byte to masking. Runtime-built
+// fixtures throughout — a key-shaped literal in this file trips GitHub push
+// protection on push.
+describe("scanSecrets — fixed-prefix key formats (audit)", () => {
+  it("provider-key: a key ending in - before whitespace is fully masked (was truncated by trailing \\b)", () => {
+    // A weak `not.toContain(SK)` check would pass vacuously here: once the
+    // "sk-" PREFIX is masked, the full original string can never be found as
+    // a substring again, regardless of whether the trailing '-' leaked. Only
+    // an exact-output assertion catches a one-byte tail leak.
+    const SK = "sk-" + "g".repeat(21) + "-"; // ends in '-', built at runtime
+    const text = `${SK} end`;
+    const masked = maskSecrets(text, scanSecrets(text));
+    expect(masked).toBe("[masked provider-key] end");
+  });
+
+  it("google-oauth: a DOTTED access token is masked through its last segment", () => {
+    // A real ya29 token carries dots inside it. The tail class used to exclude
+    // `.`, so the match stopped at the first inner dot and shipped the rest in
+    // the clear (review). Exact-output assertion, for the same reason as the
+    // provider-key test above: once any prefix is replaced, a
+    // `not.toContain(whole)` check can never fail. No `=`/`:` in the wrapper,
+    // so env-secret cannot win the longest-first race and mask it for us.
+    const TOKEN = "ya29" + "." + "a".repeat(25) + "." + "b".repeat(30);
+    const text = `Bearer ${TOKEN} end`;
+    const masked = maskSecrets(text, scanSecrets(text));
+    expect(masked).toBe("Bearer [masked google-oauth] end");
+  });
+
+  it("google-api-key: a class char glued to the tail shortens the match, it does not abandon it", () => {
+    // `{35}` exact meant the trailing lookahead had nothing to give back, so
+    // one extra char after the key failed the lookahead and killed the whole
+    // match — the key shipped raw (review). Both trailing shapes, plus the
+    // front-glue case that must STILL be rejected (\b never fires mid-word).
+    for (const suffix of ["-x", "Z"]) {
+      const KEY = "AIza" + "S".repeat(35);
+      const text = `${KEY}${suffix} end`;
+      const masked = maskSecrets(text, scanSecrets(text));
+      expect(masked).not.toContain("S".repeat(35));
+      expect(masked).toContain("[masked google-api-key]");
+    }
+    const glued = "x" + "AIza" + "S".repeat(35);
+    expect(scanSecrets(`${glued} end`)).toEqual([]);
+  });
+
+  // Property test, same seeded-LCG style as the PEM fuzz above: random
+  // 35-char [0-9A-Za-z_-] tails after AIza, wrapped in varied real-world
+  // contexts, asserting the raw key never survives masking.
+  it("no AIza-prefixed google key survives in any wrapped context (fuzz)", () => {
+    let seed = 987654321;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
+    const randKey = () =>
+      "AIza" + Array.from({ length: 35 }, () => ALPHABET[Math.floor(rnd() * ALPHABET.length)]).join("");
+    const CONTEXTS = [
+      (k) => `${k}`, // own line
+      (k) => `| ${k} | ok |`, // table cell
+      (k) => `{"key": "${k}"}`, // JSON value
+      (k) => `$ echo ${k}`, // echo output line
+      (k) => `${k}\r\n`, // CRLF line ending
+      (k) => `(${k})`, // inside parentheses
+    ];
+    let checked = 0;
+    for (let iter = 0; iter < 2500; iter++) {
+      const key = randKey();
+      const wrap = CONTEXTS[Math.floor(rnd() * CONTEXTS.length)];
+      const text = wrap(key);
+      const hits = scanSecrets(text);
+      expect(maskSecrets(text, hits), `key survived:\n${text}`).not.toContain(key);
+      // Count an iteration only when the rule under test is what saved it
+      // (review). An unconditional `checked++` inside a fixed loop proves the
+      // loop ran, nothing more — and the JSON-value context is masked by
+      // env-secret even with google-api-key deleted, so those iterations say
+      // nothing about this rule. Both halves are checked directly: the rule
+      // fired, AND the key would still be visible without it.
+      const others = hits.filter((h) => h.name !== "google-api-key");
+      if (others.length < hits.length && maskSecrets(text, others).includes(key)) checked++;
+    }
+    expect(checked).toBeGreaterThanOrEqual(2000); // measured 2057 of 2500 (seed is fixed)
   });
 });
 

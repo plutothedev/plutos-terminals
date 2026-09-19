@@ -11,7 +11,42 @@ const PATTERNS = [
   { name: "aws-access-key", re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
   { name: "github-pat", re: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/g },
   { name: "github-fine-grained", re: /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g },
-  { name: "provider-key", re: /\bsk[-_][A-Za-z0-9_-]{20,}\b/g },
+  // Trailing lookahead, not \b: \b does not fire between a `-`/`_`-class char
+  // and whitespace (both are non-word), so a key ending in `-` before a space
+  // let the quantifier backtrack and drop that last byte unmasked (latent
+  // gap, closed by audit). Applied to every fixed-prefix rule below too.
+  { name: "provider-key", re: /\bsk[-_][A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])/g },
+  // Built-in provider/OAuth/bot-token keys with a fixed literal prefix
+  // (audit, verified by evaluating each regex directly). Google, Groq, xAI,
+  // Hugging Face and NVIDIA are built-in providers (providers.js), so a bare
+  // key with no surrounding NAME= shape is exactly what a user's terminal
+  // prints, and neither env-secret nor provider-key catches a bare key.
+  // {35,} not {35}: with an exact count the trailing lookahead has nothing to
+  // give back, so one extra class char after the key failed the lookahead and
+  // abandoned the WHOLE match rather than shortening it — `AIza` + 35 + `-x`
+  // masked nothing. Every other rule here is open-ended for the same reason.
+  { name: "google-api-key", re: /\bAIza[0-9A-Za-z_-]{35,}(?![0-9A-Za-z_-])/g },
+  // A real ya29 access token carries dots inside its tail, so the tail class
+  // includes `.` and the lookahead matches that class — without either, the
+  // match stopped at the first inner dot and left the rest of the token
+  // visible (review). Cost: a token ending a sentence eats the period.
+  { name: "google-oauth", re: /\bya29\.[0-9A-Za-z._-]{20,}(?![0-9A-Za-z._-])/g },
+  { name: "groq-key", re: /\bgsk_[A-Za-z0-9]{20,}(?![A-Za-z0-9])/g },
+  { name: "xai-key", re: /\bxai-[A-Za-z0-9]{20,}(?![A-Za-z0-9])/g },
+  { name: "hf-token", re: /\bhf_[A-Za-z0-9]{20,}(?![A-Za-z0-9])/g },
+  { name: "nvidia-key", re: /\bnvapi-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])/g },
+  { name: "tailscale-key", re: /\btskey-[a-z]+-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])/g },
+  // Segments BOUNDED, not open-ended (review): an unbounded head and tail made
+  // this rule match any dotted identifier starting with M or N — a .NET/Java
+  // logger name or stack frame (`MyApplicationServicesModule.Config.Handler`)
+  // and a hashed webpack bundle asset (`Main_vendor_chunk_….a1b2c3.<hash>`)
+  // both masked. That is not cosmetic here: this scanner now runs over every
+  // Agent Mode shell result before the model sees it, so a masked stack frame
+  // costs every user their debugging. The bounds are the real token shape:
+  // head = base64url of the bot's snowflake (18-19 digits -> 24 or 26 chars
+  // including the M/N sentinel), middle = base64url of the 4-byte timestamp
+  // (always exactly 6), tail = the HMAC (27 legacy, 38 on newer tokens).
+  { name: "discord-bot-token", re: /\b[MN][A-Za-z0-9_-]{23,25}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,45}(?![A-Za-z0-9_-])/g },
   { name: "slack-token", re: /\bx(?:ox[abprs]|app)-[A-Za-z0-9-]{10,}\b/g },
   { name: "pem-private-key", re: /-----BEGIN ([A-Z ]*)PRIVATE KEY-----[\s\S]+?-----END \1PRIVATE KEY-----/g },
   { name: "jwt", re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g },
@@ -20,7 +55,11 @@ const PATTERNS = [
   // `kubectl get secret -o yaml`, CI variable exports — the shapes this app's
   // actual use case surfaces. Conservative: requires the secret word in the
   // NAME and a 6+ char value, so `KEY=1` or prose "the key to X" don't match.
-  { name: "env-secret", re: /\b[A-Z0-9_]{0,40}(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|PWD)[A-Z0-9_]{0,40}\s*[:=]\s*["']?[^\s"'`;|&(][^\s"'`;|&]{5,}/gi },
+  // Accepts an optional quote directly after the NAME (audit): a JSON dump
+  // quotes the key (`"GEMINI_API_KEY": "..."`), and the closing quote used to
+  // sit where this pattern required `[:=]` immediately, missing every
+  // JSON-shaped secret.
+  { name: "env-secret", re: /\b[A-Z0-9_]{0,40}(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASSPHRASE|PWD)[A-Z0-9_]{0,40}["']?\s*[:=]\s*["']?[^\s"'`;|&(][^\s"'`;|&]{5,}/gi },
   // Credentials embedded in a connection URL (DATABASE_URL, amqp://, etc.):
   // scheme://user:pass@ — mask through the '@'.
   { name: "url-credential", re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:[^\s:@/]+@/gi },
@@ -186,6 +225,18 @@ export function maskSecrets(text, hits) {
   // left visible. A regression test pins this. A FUTURE prefix-less pattern
   // whose sensitive region is NOT a shared subset would break the guarantee —
   // revisit maskSecrets (add span-merge) before adding one.
+  //
+  // The "fixed-prefix rules cannot cross" half of that is narrower than it
+  // reads (review): a prefix containing `_` can cross too, because `_` is a
+  // WORD character, so it kills the \b that url-credential's scheme needs.
+  // `hf_<25 alnum>https://u:p@h` (no delimiter at all) masks as
+  // `[masked hf-token]://u:p@h` — the hf token absorbs `https`, url-credential
+  // never matches, and the credential stays visible while visibleHits still
+  // reports a masked secret. Same shape for `gsk_`. Accepted, not fixed: it
+  // needs a key and a credential URL concatenated with zero separator, which
+  // no shell, env dump or config file produces, and the fix is the same
+  // span-merge rewrite this note already gates on. If a prefix-with-underscore
+  // rule ever lands next to a realistic delimiter-free shape, do the rewrite.
   const uniq = [...new Set(hits.map((h) => h.match))].sort((a, b) => b.length - a.length);
   for (const m of uniq) {
     const name = (hits.find((h) => h.match === m) || {}).name || "secret";

@@ -26,9 +26,16 @@ export default function SyncSection({ userSt, saveUser }) {
     saveUser((prev) => ({ ...prev, sync: { ...prev.sync, repoUrl, enabled: true } }));
     setPass(""); setPatVal("");
     setHasPass(true);
-    syncNow();
+    // No syncNow() here: flipping `enabled` starts the poller in App.jsx, and
+    // start() runs one sync immediately. Calling it here too just hit the
+    // engine's in-flight guard and queued a redundant second fetch 250ms later
+    // (and in a secondary window, where the engine is never configured, it only
+    // ever produced a bogus error status).
   }
   function disable() {
+    // The keychain passphrase + token stay put (re-enabling shouldn't retype
+    // them). The poller stops because App.jsx keys it on this flag, and the
+    // engine re-reads the flag on every tick so in-flight timers stop too.
     saveUser((prev) => ({ ...prev, sync: { ...prev.sync, enabled: false } }));
   }
 

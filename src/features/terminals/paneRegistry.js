@@ -88,7 +88,12 @@ function makeEntry() {
     jumpFwdId: null,
     spawnState: "unspawned", // "unspawned" | "starting" | "live". startSpawn flips to "starting"; spawn success flips to "live".
     spawnBody: null, // the spawn work itself, registered once by TerminalPane's first mount. Never call it directly, call startSpawn().
-    imageAddonDone: false, // set by attachImageAddon's .then — once per terminal lifetime (P4-T1)
+    // Once-per-terminal attach latches. The host outlives React fibers and
+    // moves between slots, so every attach checks its latch first or a tab
+    // move would stack duplicate listeners on the same terminal.
+    imageAddonDone: false, // set by attachImageAddon's .then (P4-T1)
+    canvasAddonDone: false, // set by attachCanvasAddon's .then
+    assistiveInputDone: false, // set by attachAssistiveInput (dictation support)
     setupDone: false,
     onDestroy: [],
     ui: null, // per-mount pointer table; repointed on EVERY mount (decision 4)

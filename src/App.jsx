@@ -5,15 +5,17 @@ import UpdateBanner from "./components/UpdateBanner.jsx";
 import LockScreen from "./features/terminals/LockScreen.jsx";
 import { isUnlockedThisSession } from "./features/terminals/masterPassword.js";
 import { destroyAll } from "./features/terminals/paneRegistry.js";
-import { USER_STORAGE_KEY, getWindowStorageKey, allOpenTabIds, SECRET_FIELDS, takeDiscardedLayout, localWriteHolds } from "./features/terminals/storageKeys.js";
+import { USER_STORAGE_KEY, getWindowStorageKey, harvestKeepList, SECRET_FIELDS, takeDiscardedLayout, localWriteHolds } from "./features/terminals/storageKeys.js";
 import { parseWorkspace, needsBackupRead } from "./features/terminals/workspaceBoot.js";
 import { createWorkspaceMirror } from "./features/terminals/workspaceMirror.js";
 import { runBootRecovery } from "./features/terminals/bootRecovery.js";
+import { runBootSweep } from "./features/terminals/diskGc.js";
 import { invoke } from "./backend.js";
 import {
   migrateAndLoad,
   saveSecretKeys,
   getCachedSecretKeys,
+  refreshSecretKeys,
   keychainAvailable,
 } from "./features/terminals/secretVault.js";
 import { ToastProvider, useToast } from "./components/Toast.jsx";
@@ -79,12 +81,36 @@ function readUserState() {
 // rather than losing the user's keys. SECRET_FIELDS is the ONE canonical list
 // (imported from storageKeys, shared with userStateMerge — review M10 #3).
 
+// The toast API for writeUserState, which is module-scope and so cannot reach
+// toastRef. AppInner wires this in a mount effect (see below); null until then,
+// which is before any user action can fail a write.
+let toastSink = null;
+
+// Put the plaintext copy back after the keychain refused it. Re-reads the CURRENT
+// blob rather than rewriting `next` wholesale, so a newer non-secret write that
+// landed during the failed keychain round-trip survives. The restored copy is
+// stripped again by the next save that the keychain accepts.
+function restoreLocalSecrets(next) {
+  try {
+    const raw = localStorage.getItem(USER_STORAGE_KEY);
+    const cur = raw ? JSON.parse(raw) : {};
+    for (const f of SECRET_FIELDS) if (next[f] !== undefined) cur[f] = next[f];
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(cur));
+  } catch (err) {
+    console.warn("Pluto's Terminal: could not restore the local key copy", err);
+  }
+}
+
 function writeUserState(next) {
   if (typeof window === "undefined") return;
+  // Synchronous on the happy path, as before: saveSecretKeys updates the vault's
+  // in-memory cache before it returns, so readUserSt resolves the new key at
+  // spawn time immediately, and the plaintext copy is stripped in the same tick.
+  const pending = saveSecretKeys(next.providerKeys, next.anthropicKey);
+  const stripped = keychainAvailable();
   try {
-    saveSecretKeys(next.providerKeys, next.anthropicKey);
     let safe = next;
-    if (keychainAvailable()) {
+    if (stripped) {
       safe = { ...next };
       for (const f of SECRET_FIELDS) delete safe[f];
     }
@@ -92,6 +118,30 @@ function writeUserState(next) {
   } catch (err) {
     console.warn("Pluto's Terminal: user-state localStorage write failed", err);
   }
+  // The strip above is a bet on a keychain write that has not happened yet, and
+  // the startup probe that justified it never re-runs. Windows Credential
+  // Manager caps a credential at 2560 bytes, so a long custom-endpoint token can
+  // start failing every write on a machine where the probe passed months ago.
+  // The old code swallowed that rejection and claimed it left the local fallback
+  // in place; it did not, and the key simply ceased to exist on the next launch.
+  // Optional-chained so a test that stubs secretVault with a void saveSecretKeys
+  // cannot turn a missing return value into a render-time throw.
+  pending?.catch?.((err) => {
+    console.warn("Pluto's Terminal: keychain key write failed", err);
+    // Both the restore AND the warning belong inside the stripped branch. On a
+    // box with no keychain at all (a Linux install with no secret service)
+    // nothing is ever stripped and nothing is at risk, but every save still
+    // rejects: an unguarded toast turned changing a theme into "Couldn't save
+    // your API key", five times over from one settings section alone.
+    if (stripped) {
+      restoreLocalSecrets(next);
+      try {
+        toastSink?.error(
+          "Couldn't save your API key to the OS keychain. It's being kept on this machine only. Check Credential Manager / Keychain Access.",
+        );
+      } catch { /* toast best-effort */ }
+    }
+  });
 }
 
 const DEFAULT_DISCORD_URL = DISCORD_URL;
@@ -181,6 +231,17 @@ function AppInner() {
   toastRef.current = toast;
   const quotaWarnedRef = useRef(false);
 
+  // writeUserState is module-scope (it predates the component and runs from the
+  // boot effect), so its failure path reaches the toast through a module-level
+  // sink. Wired in an effect, not in the render body: reassigning a module
+  // variable during render is a side effect (react-hooks/globals). Nothing is
+  // lost by waiting for mount — the earliest write that can fail is an async
+  // keychain round-trip. `toast` is memoized in ToastProvider, so this runs once.
+  useEffect(() => {
+    toastSink = toast;
+    return () => { if (toastSink === toast) toastSink = null; };
+  }, [toast]);
+
   // Persisting the whole state blob on every interaction (tab click, split-drag
   // release) means a synchronous JSON.stringify + localStorage write on the main
   // thread each time. Debounce the write so bursts coalesce; React state stays
@@ -223,7 +284,7 @@ function AppInner() {
       // further persistence — surface it ONCE so it's discoverable (audit M11).
       if (!quotaWarnedRef.current) {
         quotaWarnedRef.current = true;
-        try { toastRef.current?.error("Storage is full — layout changes may stop saving. Trim custom themes or saved workspaces."); } catch { /* toast best-effort */ }
+        try { toastRef.current?.error("Storage is full. Layout changes may stop saving. Trim custom themes or saved workspaces."); } catch { /* toast best-effort */ }
       }
     }
     // Durable mirror to the atomic Rust store (audit C2): localStorage is the
@@ -298,11 +359,16 @@ function AppInner() {
   // guard. ranRef keeps this to exactly one read_store per mount instead, and
   // there is no listener here to leak.
   const recoveryRanRef = useRef(false);
+  // Published so the disk GC below can wait for the restore to LAND before it
+  // harvests its keep-list (diskGc.js). Stays null when recovery never ran,
+  // which is the common case (the layout parsed) and means there is nothing to
+  // wait for. It never rejects: the catch is inside the promise.
+  const recoveryDoneRef = useRef(null);
   useEffect(() => {
     const boot = bootReadRef.current;
     if (!boot || recoveryRanRef.current) return;
     recoveryRanRef.current = true;
-    (async () => {
+    recoveryDoneRef.current = (async () => {
       try {
         await runBootRecovery({
           boot,
@@ -357,6 +423,10 @@ function AppInner() {
         if (macros) saveMacros(macros);
       },
       getRepoUrl: () => userStRef.current?.sync?.repoUrl,
+      // The engine's own off switch. Its work is driven by timers that outlive
+      // any one render, so it re-reads the LIVE flag on every tick instead of
+      // trusting whatever was true when it was configured.
+      getEnabled: () => !!userStRef.current?.sync?.enabled,
       setStatus: () => {},
     });
     // Macro edits go through saveMacros (not save/saveUser), so subscribe here
@@ -364,10 +434,21 @@ function AppInner() {
     const unsubMacros = onMacrosChanged(() => {
       if (userStRef.current?.sync?.enabled) notifyChange();
     });
-    let stopSync;
-    if (userStRef.current?.sync?.enabled) stopSync = startSync();
-    return () => { unsubMacros(); if (stopSync) stopSync(); };
+    return () => { unsubMacros(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The poller is keyed on the enabled flag, NOT on mount. Starting it inside
+  // the mount-only effect above meant "Disable sync" left the 5-minute poll
+  // pulling, merging and pushing with the user's token until the app restarted,
+  // and enabling sync after a boot where it was off started nothing at all.
+  // Declared after the configure effect so this one's immediate sync (start()
+  // runs syncNow() before it polls) always finds a configured engine; the
+  // engine gates on getEnabled too, for the stragglers a cleanup can't reach.
+  const syncEnabled = !!userSt?.sync?.enabled;
+  useEffect(() => {
+    if (!isPrimaryWindow() || !syncEnabled) return;
+    return startSync();
+  }, [syncEnabled]);
 
   // One-time migration: the legacy standalone Anthropic key now lives in the
   // Models section as providerKeys.anthropic (single source of truth for keys).
@@ -425,26 +506,48 @@ function AppInner() {
   // tour and window 2 is already open.
   useEffect(() => {
     const onStorage = (e) => {
-      if (e.key === USER_STORAGE_KEY && e.newValue) {
-        try {
+      if (e.key !== USER_STORAGE_KEY || !e.newValue) return;
+      let parsed;
+      try { parsed = JSON.parse(e.newValue); } catch { return; }
+      // Secrets come from the KEYCHAIN, re-read now — not from this window's own
+      // module cache, which is precisely the copy that is stale at this moment.
+      // The other window fired this event because it changed something; if what
+      // it changed was a provider key, the cache here still holds the value that
+      // key just replaced, and overlaying it would show (and later re-write) the
+      // rotated-away key. A revoked key that keeps coming back with no
+      // explanation is the whole defect.
+      //
+      // Detached promise, never awaited inline: this is a DOM event handler and
+      // a locked keychain can block for as long as the user takes to answer the
+      // OS prompt. The merge is computed AFTER the refresh, against the LIVE
+      // userStRef, so a second event landing meanwhile is merged in rather than
+      // dropped by a stale closure.
+      refreshSecretKeys()
+        .catch(() => getCachedSecretKeys()) // keychain unreachable: keep what we hold
+        .then((s) => {
           // Field-level LWW merge (audit M10): merge the other window's blob
           // onto THIS window's current state per-field by _fieldMeta timestamp,
           // so two windows editing DIFFERENT settings both survive instead of
-          // one clobbering the other. Then overlay the in-memory keychain cache —
-          // the persisted blob has secrets stripped (they live in the keychain),
-          // and mergeUserState carries local's secret fields through untouched.
-          const parsed = JSON.parse(e.newValue);
+          // one clobbering the other. mergeUserState carries local's secret
+          // fields through untouched; they are replaced below.
           const mergedFields = mergeUserState(userStRef.current, parsed);
-          const s = getCachedSecretKeys();
+          // With a proven keychain it is the sole source of truth, so a key the
+          // other window CLEARED disappears here too. Without one the keys still
+          // live in the plaintext blob, and the cache only fills its gaps.
+          const chainOk = keychainAvailable();
           const merged = {
             ...mergedFields,
-            providerKeys: { ...(mergedFields.providerKeys || {}), ...(s.providerKeys || {}) },
-            anthropicKey: s.anthropicKey || mergedFields.anthropicKey || "",
+            providerKeys: chainOk
+              ? { ...(s.providerKeys || {}) }
+              : { ...(mergedFields.providerKeys || {}), ...(s.providerKeys || {}) },
+            anthropicKey: chainOk
+              ? (s.anthropicKey || "")
+              : (s.anthropicKey || mergedFields.anthropicKey || ""),
           };
           userStRef.current = merged;
           setUserSt(merged);
-        } catch { /* ignore */ }
-      }
+        })
+        .catch(() => { /* ignore */ });
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -455,11 +558,33 @@ function AppInner() {
   // Header buttons are locked to "bracket" terminal-aesthetic style as of
   // v0.1.20 (the picker was removed; one canonical look across all skins).
 
+  // Same idea as toastRef above, for the same reason: it lets the GC effect
+  // below keep a `[]` dep array without silently depending on flushNow's
+  // identity staying stable (review F4). Updated in an effect rather than during
+  // render, which is what react-hooks/refs wants and costs nothing here: useRef
+  // seeds it with the first flushNow so the ref is never empty, and the sweep
+  // runs on an idle callback well after mount.
+  const flushNowRef = useRef(flushNow);
+  useEffect(() => { flushNowRef.current = flushNow; }, [flushNow]);
+
   // Disk GC (primary window only), on boot and then daily: reclaim scrollback
   // files whose tab is no longer open in ANY window AND untouched for 30+ days,
-  // and transcript day-folders past their retention window. The scrollback
-  // keep-set (every open tab id) is a safety exclusion, so a live tab's history
-  // is never swept; best-effort, never blocks boot.
+  // and transcript day-folders past their retention window. Best-effort, never
+  // blocks boot.
+  //
+  // The scrollback half is ORDERED, and the ordering is the whole point:
+  // harvestKeepList() reads localStorage only, so harvesting it while boot
+  // recovery is still awaiting read_store yields an EMPTY keep-list — which
+  // protects nothing and reaps every aged file of the very panes recovery is
+  // about to restore. runBootSweep awaits recovery, flushes the pending layout
+  // write so an adopted backup is actually IN localStorage, harvests, and
+  // refuses outright on an empty OR INCOMPLETE keep-list (diskGc.js has the full
+  // account; the incomplete case is the two-window one, where the primary's blob
+  // is unreadable and a secondary's ids make the list look healthy).
+  //
+  // transcript_sweep stays a bare invoke: it carries no keep-list at all (only
+  // a retention window), so none of the above applies to it and it must keep
+  // running even on the boot where the scrollback sweep refuses.
   //
   // It repeats because closing the window HIDES the app to the tray rather than
   // quitting (see lib.rs) — a boot-only sweep never fires again across a
@@ -467,12 +592,16 @@ function AppInner() {
   useEffect(() => {
     if (!isPrimaryWindow()) return;
     const sweep = () => {
-      invoke("scrollback_sweep", { keepTabIds: allOpenTabIds() })
-        .catch((e) => console.warn("Pluto's Terminal: scrollback sweep failed", e));
+      runBootSweep({
+        bootSettled: recoveryDoneRef.current,
+        flush: flushNowRef.current,
+        harvest: harvestKeepList,
+        invoke,
+      }).catch((e) => console.warn("Pluto's Terminal: scrollback sweep failed", e));
       invoke("transcript_sweep", {})
         .catch((e) => console.warn("Pluto's Terminal: transcript sweep failed", e));
     };
-    // Deferred off the boot burst (P4-T4): allOpenTabIds() walks + parses
+    // Deferred off the boot burst (P4-T4): harvestKeepList() walks + parses
     // every per-window localStorage blob, and GC latency is irrelevant.
     // Feature-detected fallback (audit C3): WKWebView has NO
     // requestIdleCallback — a bare call would ReferenceError and macOS builds
@@ -484,6 +613,14 @@ function AppInner() {
       (window.cancelIdleCallback ?? clearTimeout)(idle);
       clearInterval(id);
     };
+    // [] ON PURPOSE, and flushNow is read through a ref to keep it that way
+    // (review F4). flushNow is []-dep'd today so the array below was harmless,
+    // but it made the mount-once guarantee depend on a fact about ANOTHER hook:
+    // if that identity ever started changing, this effect would tear down and
+    // re-arm, which re-runs the idle sweep on every re-mint and restarts the
+    // 24 h interval from zero each time — a daily GC that never reaches its own
+    // deadline. The ref is read inside `sweep`, so each run still gets the
+    // current flush.
   }, []);
 
   // v4.0 one-time migration: force the "moba" (MobaXterm) LAYOUT once so everyone

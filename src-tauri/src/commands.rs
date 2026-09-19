@@ -1183,11 +1183,23 @@ pub fn scrollback_delete(app: AppHandle, tab_id: String) -> Result<(), String> {
 // tabs are closed. A file is deleted ONLY when it is BOTH (a) not owned by any
 // currently-open tab — the caller passes the union of open tab ids across every
 // window as a KEEP-list — AND (b) not written in `max_age` (default 30 days).
-// The keep-list is a safety EXCLUSION, so an incomplete set only ever KEEPS more
-// files (fail-safe), never deletes a wanted one; the age bound then reclaims the
-// truly-abandoned remainder. (Workspaces re-mint tab ids on load, so a
-// workspace-saved tab owns no scrollback under its stored id — only open tabs
-// do, which is exactly what the keep-list carries.)
+//
+// THE KEEP-LIST IS NOT FAIL-SAFE. An earlier version of this comment claimed an
+// incomplete set "only ever KEEPS more files, never deletes a wanted one". That
+// is backwards, and the team believed a guard existed that did not. The list is
+// an EXCLUSION set: every id in it protects files, so a SHORTER list protects
+// FEWER files and an EMPTY one protects none at all. The frontend harvests it
+// from localStorage alone, which is empty on exactly the boot where the profile
+// was lost and the durable backup is about to restore those panes.
+//
+// The age floor is the only real bound, and it is looser than it reads: a
+// rotated `.old.txt` keeps its rotation mtime, and loading a tab's scrollback
+// never writes the file, so after a month away every restored tab is eligible.
+// Hence the empty-list refusal in `sweep_scrollback_for` below.
+//
+// (Workspaces re-mint tab ids on load, so a workspace-saved tab owns no
+// scrollback under its stored id — only open tabs do, which is exactly what the
+// keep-list carries.)
 
 /// True iff `modified` is more than `max_age` before `now`. A future mtime
 /// (clock skew) counts as fresh, never stale.
@@ -1242,15 +1254,39 @@ fn sweep_stale_scrollback(
     removed
 }
 
-/// GC abandoned scrollback. `keep_tab_ids` = every tab id currently open in any
-/// window (the caller gathers these); their files are kept regardless of age.
-#[tauri::command]
-pub fn scrollback_sweep(
-    app: AppHandle,
-    keep_tab_ids: Vec<String>,
-    max_age_days: Option<u64>,
-) -> Result<usize, String> {
-    let dir = get_data_dir(&app).join("terminals").join("scrollback");
+/// Build the keep-set from live tab ids and reap the rest. Returns how many
+/// files were removed.
+///
+/// AN EMPTY `keep_tab_ids` REFUSES. There is no legitimate caller that means
+/// "protect nothing": the only command caller is the frontend's boot/daily GC,
+/// and an empty list there means the keep-list could not be read (missing or
+/// corrupt localStorage), not that zero tabs are open. Sweeping on it deletes
+/// every aged file, including the scrollback of panes boot recovery is about to
+/// restore from the durable backup.
+///
+/// The frontend refuses first (`diskGc.js`: it awaits boot recovery, flushes the
+/// pending layout write, harvests, and skips the invoke on an empty list). BOTH
+/// exist because they fail differently: the frontend guard also fixes the
+/// ORDERING (an empty list there is a symptom, not the disease), while this one
+/// holds for any future caller — the phone companion's dispatcher, a test
+/// harness, a hand-sent IPC message — that never reads diskGc.js at all.
+fn sweep_scrollback_for(
+    dir: &std::path::Path,
+    keep_tab_ids: &[String],
+    max_age: std::time::Duration,
+    now: std::time::SystemTime,
+) -> usize {
+    if keep_tab_ids.is_empty() {
+        // Returning 0 is indistinguishable from "nothing was stale", so the
+        // refusal says so out loud (review F5). The frontend refuses first and
+        // never sends an empty list, so reaching this is either a caller that
+        // does not go through diskGc.js or a keep-list that could not be built
+        // — both worth a line in the log rather than a silent no-op.
+        log::warn!(
+            "scrollback sweep refused: empty keep-list (protects nothing, so nothing was swept)"
+        );
+        return 0;
+    }
     // Both rotation segments of a live tab are protected: `.old.txt` carries
     // the older half of an open tab's history, and its mtime FREEZES at
     // rotation time — age alone would wrongly reap it on month-old resident
@@ -1262,17 +1298,32 @@ pub fn scrollback_sweep(
             [format!("{stem}.txt"), format!("{stem}.old.txt")]
         })
         .collect();
-    Ok(sweep_stale_scrollback(
+    sweep_stale_scrollback(dir, max_age, now, &keep)
+}
+
+/// GC abandoned scrollback. `keep_tab_ids` = every tab id currently open in any
+/// window (the caller gathers these); their files are kept regardless of age.
+/// An empty list is refused outright — see `sweep_scrollback_for`.
+#[tauri::command]
+pub fn scrollback_sweep(
+    app: AppHandle,
+    keep_tab_ids: Vec<String>,
+    max_age_days: Option<u64>,
+) -> Result<usize, String> {
+    let dir = get_data_dir(&app).join("terminals").join("scrollback");
+    Ok(sweep_scrollback_for(
         &dir,
+        &keep_tab_ids,
         max_age_from_days(max_age_days),
         std::time::SystemTime::now(),
-        &keep,
     ))
 }
 
 #[cfg(test)]
 mod scrollback_sweep_tests {
-    use super::{max_age_from_days, scrollback_is_stale, sweep_stale_scrollback};
+    use super::{
+        max_age_from_days, scrollback_is_stale, sweep_scrollback_for, sweep_stale_scrollback,
+    };
     use std::collections::HashSet;
     use std::time::{Duration, SystemTime};
 
@@ -1350,6 +1401,48 @@ mod scrollback_sweep_tests {
             sweep_stale_scrollback(&missing, Duration::from_secs(1), SystemTime::now(), &none()),
             0
         );
+    }
+
+    #[test]
+    fn empty_keep_list_deletes_nothing() {
+        // The keep-list is an EXCLUSION set, so an empty one protects NOTHING:
+        // without this guard the sweep degrades to "delete every aged file",
+        // which is exactly what reaped a recovering user's history while the
+        // frontend was still reading the durable backup. The frontend refuses
+        // first (diskGc.js); this is the floor under that.
+        let dir = std::env::temp_dir().join(format!("sb-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pane_a.txt"), "x").unwrap();
+        std::fs::write(dir.join("pane_a.old.txt"), "x").unwrap();
+        // An hour ahead with a one-second window: both files read as ancient.
+        let future = SystemTime::now() + Duration::from_secs(3_600);
+        let removed = sweep_scrollback_for(&dir, &[], Duration::from_secs(1), future);
+        assert_eq!(removed, 0);
+        assert!(dir.join("pane_a.txt").exists());
+        assert!(dir.join("pane_a.old.txt").exists());
+        // And a NON-empty list still reaps the unowned half, so the guard is a
+        // guard and not an off switch.
+        let removed = sweep_scrollback_for(
+            &dir,
+            &["pane_a".to_string()],
+            Duration::from_secs(1),
+            future,
+        );
+        assert_eq!(removed, 0); // every file present belongs to pane_a
+        std::fs::write(dir.join("pane_gone.txt"), "x").unwrap();
+        let later = SystemTime::now() + Duration::from_secs(7_200);
+        let removed = sweep_scrollback_for(
+            &dir,
+            &["pane_a".to_string()],
+            Duration::from_secs(1),
+            later,
+        );
+        assert_eq!(removed, 1);
+        assert!(dir.join("pane_a.txt").exists());
+        assert!(dir.join("pane_a.old.txt").exists());
+        assert!(!dir.join("pane_gone.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
