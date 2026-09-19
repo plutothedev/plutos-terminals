@@ -534,7 +534,7 @@ export default function NotebookView({ name, tabId, visible, paneTitles }) {
                 borderBottom: `1px solid ${DANGER}`,
               }}
             >
-              notebook file not found — it may have been moved or deleted
+              notebook file not found. It may have been moved or deleted
             </div>
           )}
           <div style={{ flex: 1, minHeight: 0 }}>
@@ -655,9 +655,9 @@ export default function NotebookView({ name, tabId, visible, paneTitles }) {
 
                 let note = null;
                 if (status === "running") note = { text: "running…", color: ACCENT };
-                else if (status === "changed") note = { text: "block changed during run — output discarded", color: DANGER };
+                else if (status === "changed") note = { text: "block changed during run, output discarded", color: DANGER };
                 else if (status === "skipped") note = { text: "skipped (multi-line)", color: DIM };
-                else if (kind === "multiline") note = { text: lineCount <= 1 ? "incomplete line — not supported yet" : "multi-line — not supported yet", color: DIM };
+                else if (kind === "multiline") note = { text: lineCount <= 1 ? "incomplete line, not supported yet" : "multi-line, not supported yet", color: DIM };
                 else if (!isRunnable) note = { text: "nothing to run", color: DIM };
                 else if (exit != null) note = { text: `exit ${exit}`, color: exit === "0" ? OK : DANGER };
 

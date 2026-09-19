@@ -19,14 +19,14 @@ describe("humanizeError mappings", () => {
     // The classic libssh2/sshd wording contains "Permission denied" — the auth
     // rule must win over the ACL rule.
     expect(humanizeError("Permission denied (publickey).").message)
-      .toBe("Authentication failed — check your credentials");
+      .toBe("Authentication failed. Check your credentials");
   });
 
   it("maps auth/password failures to the credentials sentence", () => {
     expect(humanizeError("[Session(-18)] Username/PublicKey combination invalid: authentication failed").message)
-      .toBe("Authentication failed — check your credentials");
+      .toBe("Authentication failed. Check your credentials");
     expect(humanizeError("wrong password for key").message)
-      .toBe("Authentication failed — check your credentials");
+      .toBe("Authentication failed. Check your credentials");
   });
 
   it("does not read a file error mentioning password.txt as an auth failure", () => {
@@ -35,7 +35,7 @@ describe("humanizeError mappings", () => {
 
   it("maps connection refused / timed out / unreachable to plain network sentences", () => {
     expect(humanizeError("Connection refused (os error 111)").message)
-      .toBe("Connection refused — nothing is listening at that address");
+      .toBe("Connection refused. Nothing is listening at that address");
     expect(humanizeError("A connection attempt failed... timed out (os error 10060)").message)
       .toBe("The connection timed out");
     expect(humanizeError("connect: network is unreachable").message)
@@ -46,12 +46,12 @@ describe("humanizeError mappings", () => {
 
   it("maps a poisoned lock to the internal-error sentence", () => {
     expect(humanizeError("PoisonError { poisoned lock: another task failed inside }").message)
-      .toBe("Internal error — please retry (the app recovered a background lock)");
+      .toBe("Internal error. Please retry (the app recovered a background lock)");
   });
 
   it("maps git2 non-fast-forward to pull-first", () => {
     expect(humanizeError("cannot push non-fast-forward reference; class=Reference").message)
-      .toBe("Remote has newer changes — pull first");
+      .toBe("Remote has newer changes. Pull first");
   });
 
   it("maps ssh2 handshake failures, winning over the timeout rule", () => {
@@ -117,6 +117,6 @@ describe("humanizeError fallback + composition", () => {
       .toBe("The connection was dropped by the other side");
     // "connection refused" must still win its own more specific rule.
     expect(humanizeError("connect ECONNREFUSED 127.0.0.1:22").message)
-      .toBe("Connection refused — nothing is listening at that address");
+      .toBe("Connection refused. Nothing is listening at that address");
   });
 });

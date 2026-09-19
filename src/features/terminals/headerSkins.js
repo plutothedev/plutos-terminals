@@ -36,7 +36,7 @@ export const ANSI_LIGHT = {
 export const HEADER_SKINS = [
   {
     id: "default",
-    label: "Default — flat dark, cyan accent",
+    label: "Default: flat dark, cyan accent",
     description: "The original. Subtle, gets out of the way.",
     xterm: {
       background: "#0a0a0a", foreground: "#d4d4d4", cursor: "#f8f8f2",
@@ -46,7 +46,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "neon",
-    label: "Neon Cyberpunk — magenta + cyan glow",
+    label: "Neon Cyberpunk: magenta + cyan glow",
     description: "Edgy, photogenic, distinctive. Glow on hover.",
     xterm: {
       background: "#0a0a14", foreground: "#00fff7", cursor: "#FF0080",
@@ -56,7 +56,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "magenta",
-    label: "Pluto Magenta — brand color",
+    label: "Pluto Magenta: brand color",
     description: "Magenta replaces cyan as the primary accent. Brand-forward.",
     xterm: {
       background: "#0a0a0a", foreground: "#d4d4d4", cursor: "#FF0080",
@@ -66,7 +66,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "crt",
-    label: "Retro CRT — phosphor green, all caps",
+    label: "Retro CRT: phosphor green, all caps",
     description: "Classic VT100 monochrome green-on-black. Strong aesthetic commitment.",
     xterm: {
       background: "#001408", foreground: "#33ff66", cursor: "#33ff66",
@@ -80,7 +80,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "linear",
-    label: "Modern Dark — refined SaaS polish",
+    label: "Modern Dark: refined SaaS polish",
     description: "Linear / Vercel feel. Filled buttons, gradients, micro-shadows.",
     xterm: {
       background: "#18181b", foreground: "#fafafa", cursor: "#fafafa",
@@ -90,7 +90,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "brutal",
-    label: "Brutalist Mono — black/white, sharp",
+    label: "Brutalist Mono: black/white, sharp",
     description: "No accent color, square corners, all caps. Confidence.",
     xterm: {
       background: "#000000", foreground: "#ffffff", cursor: "#ffffff",
@@ -104,7 +104,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "glass",
-    label: "Glassmorphic — translucent backdrop-blur",
+    label: "Glassmorphic: translucent backdrop-blur",
     description: "macOS-style frosted glass. Header floats over a subtly-tinted page.",
     xterm: {
       background: "#0a0a14", foreground: "#e0e0e8", cursor: "#ffffff",
@@ -114,7 +114,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "sunset",
-    label: "Synthwave Sunset — purple→orange gradient",
+    label: "Synthwave Sunset: purple→orange gradient",
     description: "80s retro-future. Hot pink title with glow.",
     xterm: {
       background: "#1a0530", foreground: "#ffd0e8", cursor: "#ff6ec7",
@@ -128,7 +128,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "amber",
-    label: "Solarized Amber — vintage monochrome",
+    label: "Solarized Amber: vintage monochrome",
     description: "Hercules-monitor warm amber. Easy on long sessions.",
     xterm: {
       background: "#1a0f00", foreground: "#ffb000", cursor: "#ffb000",
@@ -142,7 +142,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "daylight",
-    label: "Daylight — light theme",
+    label: "Daylight: light theme",
     description: "White bg, dark text. Only skin usable outdoors / in bright rooms.",
     xterm: {
       background: "#fafafa", foreground: "#383a42", cursor: "#526fff",
@@ -152,7 +152,7 @@ export const HEADER_SKINS = [
   },
   {
     id: "pro",
-    label: "Pro — Linear-inspired dark",
+    label: "Pro: Linear-inspired dark",
     description: "Clean, precise, modern. Professional terminal-emulator aesthetic (Termius / Linear).",
     xterm: {
       background: "#08090a",
@@ -233,7 +233,7 @@ export const HEADER_SKINS = [
   {
     id: "oled",
     label: "OLED Black",
-    description: "True #000 everywhere — chrome, panels, terminal. Separation comes from hairlines, not luminance.",
+    description: "True #000 everywhere: chrome, panels, terminal. Separation comes from hairlines, not luminance.",
     // Dark's readable palette over a true-black well; on OLED panels every
     // background pixel is literally off.
     xterm: {
@@ -269,32 +269,32 @@ export function getSkinXtermTheme(skinId, opts = {}) {
 export const HEADER_BUTTON_STYLES = [
   {
     id: "default",
-    label: "Default — bordered rectangle",
+    label: "Default: bordered rectangle",
     description: "Current button look. Subtle, gets out of the way.",
   },
   {
     id: "pill",
-    label: "Pill — fully rounded with soft fill",
+    label: "Pill: fully rounded with soft fill",
     description: "Rounded ends, subtle filled background, lift on hover. Friendlier feel.",
   },
   {
     id: "ghost",
-    label: "Ghost — underline only on hover",
+    label: "Ghost: underline only on hover",
     description: "No border at rest, underline appears on hover. Most minimal.",
   },
   {
     id: "filled",
-    label: "Filled — solid accent CTA",
+    label: "Filled: solid accent CTA",
     description: "Every button reads as a primary action. Loud, confident.",
   },
   {
     id: "bracket",
-    label: "Bracket — terminal [label] aesthetic",
+    label: "Bracket: terminal [label] aesthetic",
     description: "No borders, text wrapped in [brackets]. Pure terminal feel.",
   },
   {
     id: "chip",
-    label: "Chip — rounded with shadow",
+    label: "Chip: rounded with shadow",
     description: "Soft corners, subtle drop-shadow, slight elevation. Modern SaaS.",
   },
 ];
@@ -318,17 +318,17 @@ export function applyGlobalButtonStyle(styleId) {
 export const HEADER_LAYOUTS = [
   {
     id: "default",
-    label: "Default — standard density",
+    label: "Default: standard density",
     description: "Current spacing. Balanced for typical use.",
   },
   {
     id: "compact",
-    label: "Compact — tight density (more buttons fit)",
+    label: "Compact: tight density (more buttons fit)",
     description: "Smaller padding, tighter gap, smaller font. Good for narrow windows or when you want all controls visible without crowding.",
   },
   {
     id: "spacious",
-    label: "Spacious — generous density (easier to click)",
+    label: "Spacious: generous density (easier to click)",
     description: "Larger padding and gap. Easier touch targets, more breathing room, slightly bigger text.",
   },
 ];

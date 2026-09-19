@@ -1386,7 +1386,7 @@ function TerminalPane({
           if (method === "password") {
             password = getTabPassword(tabId);
             if (!password) {
-              term.writeln("\r\n\x1b[31m[SSH]\x1b[0m no password for this session — reopen it from the sidebar to reconnect.");
+              term.writeln("\r\n\x1b[31m[SSH]\x1b[0m no password for this session. Reopen it from the sidebar to reconnect.");
               return;
             }
           }

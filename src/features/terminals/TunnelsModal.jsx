@@ -121,7 +121,7 @@ export default function TunnelsModal({ open, host, user, forwards = [], busy, er
             />
           </div>
           <div style={{ flex: 1, fontSize: 11, color: "var(--phn-text-dim, #888)", paddingBottom: 7, lineHeight: 1.4 }}>
-            Dynamic <code>ssh -D</code> proxy — point a browser/app at SOCKS5 <code>127.0.0.1:{socksPort || "1080"}</code> to route through this host.
+            Dynamic <code>ssh -D</code> proxy. Point a browser/app at SOCKS5 <code>127.0.0.1:{socksPort || "1080"}</code> to route through this host.
           </div>
           <button
             onClick={submitSocks}

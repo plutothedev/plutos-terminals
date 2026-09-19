@@ -66,7 +66,7 @@ export default function SyncSection({ userSt, saveUser }) {
             {hasPass && <span style={{ opacity: 0.5, fontSize: 11, marginLeft: 6 }}>(saved)</span>}
           </>
         }
-        hint="Used to encrypt/decrypt sync blobs. Stored in the OS keychain — never written to disk or the repo."
+        hint="Used to encrypt/decrypt sync blobs. Stored in the OS keychain, never written to disk or the repo."
       >
         <Input
           type="password"

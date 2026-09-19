@@ -119,7 +119,7 @@ function ModalHost({
           open={vncOpen || !!vncLaunch}
           initial={vncLaunch?.project?.vnc || null}
           lockConnection={!!vncLaunch}
-          title={vncLaunch ? `Connect — ${vncLaunch.project.name}` : undefined}
+          title={vncLaunch ? `Connect: ${vncLaunch.project.name}` : undefined}
           onConnect={vncLaunch ? launchVnc : connectVnc}
           onSaveSession={vncLaunch ? undefined : (rec) => saveQuickConnection({ type: "vnc", ...rec })}
           onClose={() => { setVncOpen(false); setVncLaunch(null); }}
@@ -131,7 +131,7 @@ function ModalHost({
           open={rdpOpen || !!rdpLaunch}
           initial={rdpLaunch?.project?.rdp || null}
           lockConnection={!!rdpLaunch}
-          title={rdpLaunch ? `Connect — ${rdpLaunch.project.name}` : undefined}
+          title={rdpLaunch ? `Connect: ${rdpLaunch.project.name}` : undefined}
           onConnect={rdpLaunch ? launchRdp : connectRdp}
           onSaveSession={rdpLaunch ? undefined : (rec) => saveQuickConnection({ type: "rdp", ...rec })}
           onClose={() => { setRdpOpen(false); setRdpLaunch(null); }}

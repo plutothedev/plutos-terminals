@@ -29,7 +29,7 @@ import { scanSecrets, maskSecrets, visibleHits } from "./secretScan.js";
 // what the user is sharing; the dropped part is the oldest.
 export const SHARE_CAP = 256 * 1024; // chars of masked upload text
 const TRUNC_NOTE =
-  "[truncated: content exceeded the share size cap — showing the most recent portion]\n";
+  "[truncated: content exceeded the share size cap, showing the most recent portion]\n";
 
 // Tail-safe slice: never strand a LOW surrogate at the start of the kept tail.
 function tailSlice(s, n) {

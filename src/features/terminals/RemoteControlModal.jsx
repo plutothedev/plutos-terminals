@@ -143,7 +143,7 @@ export default function RemoteControlModal({ open, onClose }) {
 
         {!info?.running ? (
           <>
-            <p style={p}>Run a private server on this machine so your phone (or any browser) can view and type into your terminal sessions over your <b>Tailscale</b> tailnet — no relay, nothing exposed publicly.</p>
+            <p style={p}>Run a private server on this machine so your phone (or any browser) can view and type into your terminal sessions over your <b>Tailscale</b> tailnet: no relay, nothing exposed publicly.</p>
             <button onClick={start} disabled={busy} style={primaryBtn}>{busy ? "Starting…" : "Start server"}</button>
           </>
         ) : (
@@ -153,7 +153,7 @@ export default function RemoteControlModal({ open, onClose }) {
             <Field label="Link" value={info.url} onCopy={() => copy(info.url)} />
             <Field label="Access token" value={info.token} mono onCopy={() => copy(info.token)} />
             <div style={{ fontSize: 11, color: "var(--phn-text-faint, #6b7480)", margin: "6px 0 12px" }}>Serving on {info.host}:{info.port} · reachable over your tailnet.</div>
-            <div style={warn}>⚠ Anyone with this link can run commands in your terminals. Stop the server when you're done — restarting issues a fresh token.</div>
+            <div style={warn}>⚠ Anyone with this link can run commands in your terminals. Stop the server when you're done. Restarting issues a fresh token.</div>
             <button onClick={stop} disabled={busy} style={dangerBtn}>{busy ? "Stopping…" : "Stop server"}</button>
           </>
         )}

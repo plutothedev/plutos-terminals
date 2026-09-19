@@ -56,7 +56,7 @@ export default function DockMonitor({ sysStats, panels }) {
           <Gauge label="CPU" value={`${Math.round(sysStats.cpu)}%`} pct={sysStats.cpu} />
           <Gauge
             label="MEM"
-            value={sysStats.mem_total > 0 ? `${(sysStats.mem_used / 1e9).toFixed(1)} / ${(sysStats.mem_total / 1e9).toFixed(0)} G` : "—"}
+            value={sysStats.mem_total > 0 ? `${(sysStats.mem_used / 1e9).toFixed(1)} / ${(sysStats.mem_total / 1e9).toFixed(0)} G` : "-"}
             pct={sysStats.mem_total > 0 ? (sysStats.mem_used / sysStats.mem_total) * 100 : 0}
           />
           <Gauge label="DISK" value={`${Math.round(sysStats.disk_used_pct)}%`} pct={sysStats.disk_used_pct} />
@@ -102,7 +102,7 @@ export default function DockMonitor({ sysStats, panels }) {
             <div
               key={s.id}
               className={`phn-mon-row${st === "waiting" ? " is-waiting" : ""}`}
-              title={st === "waiting" ? `${s.label} — waiting for your approval` : `${s.label} — ${label}`}
+              title={st === "waiting" ? `${s.label}: waiting for your approval` : `${s.label}: ${label}`}
             >
               <span className="dot" style={{ background: DOT[st] || DOT.idle }} />
               <span className="nm">{s.label}</span>

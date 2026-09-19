@@ -350,7 +350,7 @@ export default function SnippetsDrawer({
             return (
               <div key={v} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <label style={{ fontSize: 10, color: "var(--phn-text-dim, #888)" }}>
-                  {v}{arg && arg.description ? ` — ${arg.description}` : ""}
+                  {v}{arg && arg.description ? ` (${arg.description})` : ""}
                 </label>
                 <input
                   className="phn-sidebar-search"

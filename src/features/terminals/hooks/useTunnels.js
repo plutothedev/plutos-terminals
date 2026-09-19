@@ -22,7 +22,7 @@ export function useTunnels({ activeTab, activeTabId, toast }) {
   const openTunnels = useCallback(() => {
     const conn = activeTab?.connection;
     if (!conn?.host || !conn?.user) {
-      toast.info("Open an SSH session first — tunnels forward ports through it.");
+      toast.info("Open an SSH session first. Tunnels forward ports through it.");
       return;
     }
     setTunnelError(null);
@@ -41,7 +41,7 @@ export function useTunnels({ activeTab, activeTabId, toast }) {
         password = getTabPassword(activeTabId);
         if (!password) { try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ } }
         if (!password) {
-          setTunnelError("No password for this session — reopen the SSH tab first.");
+          setTunnelError("No password for this session. Reopen the SSH tab first.");
           return;
         }
       }
@@ -75,7 +75,7 @@ export function useTunnels({ activeTab, activeTabId, toast }) {
         password = getTabPassword(activeTabId);
         if (!password) { try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ } }
         if (!password) {
-          setTunnelError("No password for this session — reopen the SSH tab first.");
+          setTunnelError("No password for this session. Reopen the SSH tab first.");
           return;
         }
       }

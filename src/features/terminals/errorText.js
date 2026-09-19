@@ -15,15 +15,15 @@
 //   keeps the more specific message.
 const RULES = [
   [/os error 2\b|NotFound|no such file|cannot find the (file|path)/i, "File not found"],
-  [/authenticat|authoriz|\bauth\b|publickey|password/i, "Authentication failed — check your credentials"],
+  [/authenticat|authoriz|\bauth\b|publickey|password/i, "Authentication failed. Check your credentials"],
   [/os error 5\b|access (is )?denied|permission denied/i, "Permission denied"],
-  [/non-fast-forward/i, "Remote has newer changes — pull first"],
+  [/non-fast-forward/i, "Remote has newer changes. Pull first"],
   [/handshake/i, "Could not establish the SSH connection"],
-  [/connection refused|ECONNREFUSED/i, "Connection refused — nothing is listening at that address"],
+  [/connection refused|ECONNREFUSED/i, "Connection refused. Nothing is listening at that address"],
   [/connection reset|ECONNRESET|reset by peer|broken pipe|EPIPE\b/i, "The connection was dropped by the other side"],
   [/tim(ed)?[ -]?out/i, "The connection timed out"],
   [/unreachable|could not resolve|failed to resolve|name or service not known|getaddrinfo|nodename nor servname/i, "The host could not be reached"],
-  [/poisoned/i, "Internal error — please retry (the app recovered a background lock)"],
+  [/poisoned/i, "Internal error. Please retry (the app recovered a background lock)"],
 ];
 
 const MAX_RAW = 160;

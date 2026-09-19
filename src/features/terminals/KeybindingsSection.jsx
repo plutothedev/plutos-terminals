@@ -163,7 +163,7 @@ export default function KeybindingsSection({ userSt, saveUser }) {
         <div style={{ display: "flex", alignItems: "center", gap: "var(--phn-sp-2)", padding: "5px 0", borderBottom: "1px solid var(--phn-border, #222)" }}>
           <span style={{ flex: 1, fontSize: 13 }}>
             Summon / hide window
-            <span style={{ opacity: 0.5, fontSize: 11 }}>&nbsp;— works even when Pluto is not focused</span>
+            <span style={{ opacity: 0.5, fontSize: 11 }}>&nbsp;(works even when Pluto is not focused)</span>
           </span>
           <button
             className="phn-ui-kbd"

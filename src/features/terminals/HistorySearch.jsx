@@ -49,7 +49,7 @@ export default function HistorySearch({ open, history, onClose, onInsert, onRun 
   };
 
   return (
-    <Modal open={open} title="Command history — search & re-run" onClose={onClose} width={660}>
+    <Modal open={open} title="Command history: search & re-run" onClose={onClose} width={660}>
       <Input
         ref={inputRef}
         value={q}
@@ -62,7 +62,7 @@ export default function HistorySearch({ open, history, onClose, onInsert, onRun 
           <div style={{ color: DIM, fontSize: "var(--phn-fs-sm)", padding: "var(--phn-sp-3) var(--phn-sp-1)" }}>
             {history && history.length
               ? "No commands match your filter."
-              : "No history yet — run some commands and they'll show up here."}
+              : "No history yet. Run some commands and they'll show up here."}
           </div>
         ) : (
           items.map((cmd, i) => (

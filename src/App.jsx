@@ -722,12 +722,12 @@ function Welcome({ discordUrl, onContinue }) {
           </span>
         </div>
         <div style={{ color: "var(--phn-text-dim)", fontSize: "var(--phn-fs-base)", marginBottom: "var(--phn-sp-6)" }}>
-          The AI-native multi-terminal — run agents in parallel, route any model, ship faster.
+          The AI-native multi-terminal: run agents in parallel, route any model, ship faster.
         </div>
 
         <p style={{ color: "var(--phn-text-fg)", fontSize: "var(--phn-fs-base)", lineHeight: "var(--phn-lh)", marginBottom: "var(--phn-sp-5)" }}>
           A free, source-available terminal for the <strong style={{ color: "var(--phn-text-active)" }}>Pluto community</strong>.
-          Run Claude Code, Codex and other agents side by side — each in its own git worktree, pointed at
+          Run Claude Code, Codex and other agents side by side, each in its own git worktree, pointed at
           {" "}<strong style={{ color: "var(--phn-text-active)" }}>any model you like</strong>.
         </p>
 
@@ -774,7 +774,7 @@ function Welcome({ discordUrl, onContinue }) {
           First time? You'll also need <strong style={{ color: "var(--phn-text-fg)" }}>Node.js</strong> + the{" "}
           <strong style={{ color: "var(--phn-text-fg)" }}>Claude Code CLI</strong> for{" "}
           <code style={{ background: "var(--phn-surface-bg)", padding: "1px 5px", borderRadius: "var(--phn-r-sm)", fontFamily: "var(--phn-mono-font)", fontSize: "var(--phn-fs-2xs)" }}>claude</code>{" "}
-          to run in a tab — the header's <strong style={{ color: "var(--phn-text-fg)" }}>setup</strong> has a guided checklist.
+          to run in a tab. The header's <strong style={{ color: "var(--phn-text-fg)" }}>setup</strong> has a guided checklist.
         </div>
 
         <div style={{ color: "var(--phn-text-faint)", fontSize: "var(--phn-fs-2xs)", fontFamily: "var(--phn-mono-font)" }}>

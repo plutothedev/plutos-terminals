@@ -31,7 +31,7 @@ function FKeyBar({
         { k: modCombo("M"), l: "Models", fn: () => setModelsOpen(true) },
         { k: "F9", l: "Macros", fn: () => setMacrosOpen(true) },
       ].map((b) => (
-        <button key={b.k} className="phn-fn" data-tour={b.tour} onClick={b.fn} title={`${b.k} — ${b.t || b.l}`}>
+        <button key={b.k} className="phn-fn" data-tour={b.tour} onClick={b.fn} title={`${b.k}: ${b.t || b.l}`}>
           <b>{b.k}</b> {b.l}
         </button>
       ))}

@@ -51,7 +51,7 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
     const q = input.trim();
     if (!q || loading) return;
     const llm = resolveActiveLLM(readUserSt());
-    if (!llm) { setError("No model configured — open the Models picker (toolbar) first."); return; }
+    if (!llm) { setError("No model configured. Open the Models picker (toolbar) first."); return; }
     setModel(llm.model);
     setError(null);
     const next = [...messages, { role: "user", content: q }];
@@ -123,7 +123,7 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
       <div className="phn-assistant-list" ref={listRef}>
         {messages.length === 0 && !loading && (
           <div className="phn-assistant-empty">
-            Ask anything — commands, errors, git, regex. Replies use your active model from the
+            Ask anything: commands, errors, git, regex. Replies use your active model from the
             <strong> Models</strong> picker; fenced commands get <em>Run</em> / <em>Insert</em> buttons.
           </div>
         )}

@@ -261,11 +261,11 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
               <span
                 className={e.is_dir ? "name dir" : "name"}
                 onClick={() => (e.is_dir ? list(e.path) : onSendToTerminal?.(`${shQuote(e.path)} `))}
-                title={e.is_dir ? e.name : `${e.name} — click to insert path`}
+                title={e.is_dir ? e.name : `${e.name}: click to insert path`}
               >
                 {e.name}
               </span>
-              <span className="size">{e.is_dir ? "—" : fmtSize(e.size)}</span>
+              <span className="size">{e.is_dir ? "-" : fmtSize(e.size)}</span>
               <span className="mod">{fmtMtime(e.mtime)}</span>
             </div>
           ))

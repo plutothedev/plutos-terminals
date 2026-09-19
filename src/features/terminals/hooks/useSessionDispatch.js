@@ -88,7 +88,7 @@ export function useSessionDispatch({
       if (project.proxyJump) {
         const b = projects.find((p) => p.name === project.proxyJump && p.connection);
         if (b) jump = { host: b.connection.host, port: b.connection.port || 22, user: b.connection.user, auth: b.connection.auth };
-        else toast.info(`Jump host "${project.proxyJump}" isn't a saved session — connecting directly.`);
+        else toast.info(`Jump host "${project.proxyJump}" isn't a saved session. Connecting directly.`);
       }
       const tab = {
         id: tabId,

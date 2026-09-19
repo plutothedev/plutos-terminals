@@ -39,7 +39,7 @@ export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
         if (password) setTabPassword(activeTabId, password);
       }
       if (!password) {
-        if (token === sftpTokenRef.current) setSftp({ connecting: false, id: null, error: "No saved password for this session — reopen the SSH tab, then open files." });
+        if (token === sftpTokenRef.current) setSftp({ connecting: false, id: null, error: "No saved password for this session. Reopen the SSH tab, then open files." });
         return;
       }
     }

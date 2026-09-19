@@ -78,7 +78,7 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
                 </div>
                 {s.deleteFailed && (
                   <div style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-danger, #e08784)", whiteSpace: "nowrap" }}>
-                    delete failed — still live; retry revoke or remove it on GitHub
+                    delete failed: still live; retry revoke or remove it on GitHub
                   </div>
                 )}
               </div>

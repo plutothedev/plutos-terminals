@@ -43,14 +43,14 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
     const q = intent.trim();
     if (!q) return;
     const llm = resolveActiveLLM(readUserSt());
-    if (!llm) { setError("No model configured — open the Models picker (toolbar) first."); return; }
+    if (!llm) { setError("No model configured. Open the Models picker (toolbar) first."); return; }
     setModelLabel(llm.model);
     setLoading(true); setError(null); setCommand("");
     const os = navigator.userAgent.includes("Windows") ? "Windows"
       : navigator.userAgent.includes("Mac") ? "macOS" : "Linux";
     const system =
       `You translate a natural-language request into a single ${shellName || "shell"} ` +
-      `command for ${os}. Output ONLY the command — no explanation, no markdown, no ` +
+      `command for ${os}. Output ONLY the command. No explanation, no markdown, no ` +
       `code fences, no leading "$". If multiple steps are required, join them with && ` +
       `on one line. Prefer safe, non-destructive commands.`;
     const prompt = (cwd ? `Current directory: ${cwd}\n` : "") + `Request: ${q}`;
@@ -111,7 +111,7 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
 
       {command && (
         <div style={{ marginTop: "var(--phn-sp-3)" }}>
-          <div style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-text-dim)", marginBottom: "var(--phn-sp-1)", letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 600 }}>Proposed command — review before running</div>
+          <div style={{ fontSize: "var(--phn-fs-2xs)", color: "var(--phn-text-dim)", marginBottom: "var(--phn-sp-1)", letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 600 }}>Proposed command: review before running</div>
           <Textarea
             ref={cmdRef}
             value={command}
@@ -129,7 +129,7 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
 
       <p style={{ fontSize: "var(--phn-fs-xs)", color: "var(--phn-text-dim)", marginTop: "var(--phn-sp-4)", lineHeight: "var(--phn-lh)" }}>
         Auto-detects: type a real command and Enter runs it; describe what you want in plain
-        English and Enter asks your active model to write it (shown for review — nothing runs
+        English and Enter asks your active model to write it (shown for review, nothing runs
         until you click <strong>Run</strong>). <em>Insert</em> drops a generated command on the
         prompt to tweak first.
       </p>

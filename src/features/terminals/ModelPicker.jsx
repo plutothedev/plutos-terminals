@@ -47,7 +47,7 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
     const next = { providerId, model: m };
     setActive(next);
     persist(keys, next, baseUrls);
-    toast.success(`Active model: ${m} — new shells route to ${p?.label || providerId}.`);
+    toast.success(`Active model: ${m}. New shells route to ${p?.label || providerId}.`);
   };
 
   const resetDefault = () => {
@@ -173,7 +173,7 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
           Each row shows what it routes: <strong>Claude Code</strong> (Anthropic-style) or{" "}
           <strong>Codex / OpenAI tools</strong> (OpenAI-style). Pick a chip or type any model id;
           the <em>Custom</em> row points at any OpenAI-compatible endpoint. Open a new tab after
-          picking — env is set at shell spawn. API keys are stored in the OS keychain (not plaintext localStorage).
+          picking. Env is set at shell spawn. API keys are stored in the OS keychain (not plaintext localStorage).
         </p>
       </div>
     </Modal>

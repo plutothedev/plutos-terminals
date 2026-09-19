@@ -78,7 +78,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
     const g = goal.trim();
     if (!g || running) return;
     const llm = resolveActiveLLM(readUserSt());
-    if (!llm) { setSteps([{ type: "error", text: "No model configured — open the Models picker (toolbar) first." }]); return; }
+    if (!llm) { setSteps([{ type: "error", text: "No model configured. Open the Models picker (toolbar) first." }]); return; }
     if (!tabId) { setSteps([{ type: "error", text: "No active terminal to run in." }]); return; }
     setRunning(true); stopRef.current = false;
     setSteps([]); // clear the previous run's log now that a new run is starting
@@ -252,7 +252,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
                 {ctx.pending.map((f) => (
                   <div key={f.path} style={{ marginTop: 6, border: "1px solid var(--phn-danger)", borderRadius: 6, padding: 8 }}>
                     <div style={{ marginBottom: 4 }}>
-                      Pending review: <strong>{f.name}</strong> ({f.path}) — not sent to the model until approved.
+                      Pending review: <strong>{f.name}</strong> ({f.path}). Not sent to the model until approved.
                     </div>
                     <pre style={{ maxHeight: 120, overflow: "auto", fontSize: 11, whiteSpace: "pre-wrap" }}>{f.content}</pre>
                     <Button
@@ -293,7 +293,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
             if (promptMenu.onKeyDown(e) === "handled") return;
             if (e.key === "Enter") start();
           }}
-          placeholder="Goal in plain English — e.g. find the largest files in this repo and summarize them"
+          placeholder="Goal in plain English, e.g. find the largest files in this repo and summarize them"
           disabled={running}
         />
         {running
@@ -312,7 +312,7 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
           </div>
           {pending.risky && (
             <div style={{ fontSize: 11, color: "#E05B5B", fontWeight: 600, marginBottom: 6 }}>
-              ⚠ This {pending.isShell ? "command matches a destructive / remote-code pattern" : "tool writes or is destructive"} — approval is required even with Auto-run on.
+              ⚠ This {pending.isShell ? "command matches a destructive / remote-code pattern" : "tool writes or is destructive"}. Approval is required even with Auto-run on.
             </div>
           )}
           {pending.isShell ? (

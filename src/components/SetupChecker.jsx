@@ -63,7 +63,7 @@ export default function SetupChecker({ open, onClose }) {
       toast.success("Install command copied.");
       setTimeout(() => setCopied(false), 1500);
     }).catch(() => {
-      toast.error("Copy failed — select the command text manually and Ctrl+C.");
+      toast.error("Copy failed. Select the command text manually and Ctrl+C.");
     });
   };
 
@@ -74,7 +74,7 @@ export default function SetupChecker({ open, onClose }) {
   return (
     <Modal open={open} title="Setup checker" onClose={onClose} width={620}>
       <p style={{ color: FG, fontSize: 12, lineHeight: 1.7, marginBottom: 18 }}>
-        Pluto's Terminal is a terminal app — it expects a few things on your machine.
+        Pluto's Terminal is a terminal app. It expects a few things on your machine.
         Run through this once and you're set. Re-open anytime from <strong style={{ color: ACCENT }}>Tools → Setup checker</strong>, or Ctrl+K.
       </p>
 
@@ -94,7 +94,7 @@ export default function SetupChecker({ open, onClose }) {
         status={npmStatus}
         installHint={(
           <>
-            npm should install with Node.js. If it's missing, your Node.js install may be incomplete — reinstall from <Link href="https://nodejs.org/">nodejs.org</Link>.
+            npm should install with Node.js. If it's missing, your Node.js install may be incomplete. Reinstall from <Link href="https://nodejs.org/">nodejs.org</Link>.
           </>
         )}
       />
@@ -125,7 +125,7 @@ export default function SetupChecker({ open, onClose }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22 }}>
         <button onClick={runChecks} style={chipBtnStyle}>Re-run checks</button>
         <div style={{ color: allGood ? GREEN : FG_DIM, fontSize: 11, fontWeight: allGood ? 600 : 400 }}>
-          {allGood ? "✓ all set — type `claude` in any tab" : "complete the items above to be ready"}
+          {allGood ? "✓ all set: type `claude` in any tab" : "complete the items above to be ready"}
         </div>
         <button onClick={onClose} style={primaryBtnStyle}>Done</button>
       </div>

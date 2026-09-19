@@ -591,7 +591,7 @@ function ProjectSidebar({
                 onContextMenu={(e) => handleRowContextMenu(p, e)}
                 onMouseEnter={() => setHoverId(p.id)}
                 onMouseLeave={() => setHoverId(null)}
-                title={collapsed ? p.name : (isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : (isSsh(p) ? `${p.connection?.user || ""}@${p.connection?.host || ""}:${p.connection?.port || 22} (double-click to rename)` : `${p.path} (double-click to rename)`))}
+                title={collapsed ? p.name : (isRenamingThis ? "Editing: press Enter to save, Esc to cancel" : (isSsh(p) ? `${p.connection?.user || ""}@${p.connection?.host || ""}:${p.connection?.port || 22} (double-click to rename)` : `${p.path} (double-click to rename)`))}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -710,7 +710,7 @@ function ProjectSidebar({
                         }}
                         title={latency[p.id] == null ? "Unreachable on SSH port" : `SSH connect latency: ${latency[p.id]}ms`}
                       >
-                        {latency[p.id] == null ? "—" : `${latency[p.id]}ms`}
+                        {latency[p.id] == null ? "-" : `${latency[p.id]}ms`}
                       </span>
                     )}
                     {!isSsh(p) ? (

@@ -35,7 +35,7 @@ export default function SshKeysModal({ open, onClose }) {
 
   const copyPub = (k) => {
     navigator.clipboard?.writeText(k.public_key);
-    toast.success(`Copied ${k.name}.pub — paste into the server's ~/.ssh/authorized_keys`);
+    toast.success(`Copied ${k.name}.pub. Paste into the server's ~/.ssh/authorized_keys`);
   };
 
   const generate = async () => {
@@ -58,7 +58,7 @@ export default function SshKeysModal({ open, onClose }) {
   return (
     <Modal open={open} title="SSH keys" onClose={onClose} width={620}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <span style={{ fontSize: 11, color: DIM }}>~/.ssh — {keys.length} key{keys.length === 1 ? "" : "s"}</span>
+        <span style={{ fontSize: 11, color: DIM }}>~/.ssh: {keys.length} key{keys.length === 1 ? "" : "s"}</span>
         <button onClick={() => setGen((v) => !v)} style={primaryBtn}>{gen ? "Cancel" : "Generate new key"}</button>
       </div>
 

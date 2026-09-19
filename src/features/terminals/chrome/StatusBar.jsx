@@ -61,7 +61,7 @@ function StatusBar({
               ? "Click to stop & save the active tab's recording"
               : "Click to switch to the recording tab"}
         >
-          {recordingCapHit ? "⚠ rec capped — save" : `● rec${recordingTabIds.length > 1 ? ` (×${recordingTabIds.length})` : ""}`}
+          {recordingCapHit ? "⚠ rec capped: save" : `● rec${recordingTabIds.length > 1 ? ` (×${recordingTabIds.length})` : ""}`}
         </button>
       )}
 

@@ -26,7 +26,7 @@ export default function MasterPasswordModal({ open, userSt, saveUser, onClose })
     // saveUser (cloud-sync poll, another window) can land during the await; a
     // spread of the pre-await userSt would revert it (lost-update, invariant 3).
     saveUser((prev) => ({ ...prev, masterPasswordHash: hash }));
-    toast.success(isSet ? "Master password changed." : "App lock set — you'll enter it on next launch.");
+    toast.success(isSet ? "Master password changed." : "App lock set. You'll enter it on next launch.");
     reset(); onClose();
   };
 

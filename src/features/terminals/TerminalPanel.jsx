@@ -845,7 +845,7 @@ function TerminalPanel({
                 // would be clipped along the bottom. No paint changes unless
                 // the tab is focused, so all fourteen skins are untouched.
                 style={{ cursor: isRenamingThis ? "text" : "pointer", outlineOffset: -2 }}
-                title={isRenamingThis ? "Editing — press Enter to save, Esc to cancel" : `${tab.label} (double-click or F2 to rename · Del to close)`}
+                title={isRenamingThis ? "Editing: press Enter to save, Esc to cancel" : `${tab.label} (double-click or F2 to rename · Del to close)`}
               >
                 {/* Drag-reorder drop bar (audit M6): a positive-z child, not a
                     box-shadow on the tab — the trapezoid ::before/::after fills
@@ -1039,7 +1039,7 @@ function TerminalPanel({
                  and the sweep would mistreat this tab's panes. */
               <>
               {import.meta.env.DEV && isSpecialTab(tab)
-                ? console.warn(`[panes] special tab ${tab.id} fell through to the TerminalPane arm — TerminalPanel's ternary is missing a type isSpecialTab() knows`)
+                ? console.warn(`[panes] special tab ${tab.id} fell through to the TerminalPane arm. TerminalPanel's ternary is missing a type isSpecialTab() knows`)
                 : null}
               {panes.map(({ node, rect }) => {
                 const isRoot = node.id === tab.id;

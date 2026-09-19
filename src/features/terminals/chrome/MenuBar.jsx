@@ -116,10 +116,10 @@ function MenuBar({
       items: [
         { label: "Workflows panel", action: () => selectRibbon("snippets") },
         { label: "Keystroke macros…", action: () => setMacrosOpen(true) },
-        { label: "Ask AI — plain English to command", shortcut: "Ctrl+I", action: () => setAskOpen(true) },
+        { label: "Ask AI: plain English to command", shortcut: "Ctrl+I", action: () => setAskOpen(true) },
         { label: "Summarize this session (AI)", action: () => { if (!activePaneId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activePaneId) }); } },
         { label: "Command history search…", shortcut: "Ctrl+R", action: () => setHistoryOpen(true) },
-        { label: "Models — pick provider + model…", action: () => setModelsOpen(true) },
+        { label: "Models: pick provider + model…", action: () => setModelsOpen(true) },
         { label: broadcast ? "Turn off broadcast typing" : "Turn on broadcast typing", action: () => toggleBroadcast() },
         { label: "Broadcast targets…", action: () => setBroadcastGroupOpen(true) },
         { divider: true },
@@ -134,7 +134,7 @@ function MenuBar({
       label: "View",
       items: [
         { label: ribbon ? "Hide tools panel" : "Show tools panel", action: () => selectRibbon(ribbon ? null : "snippets") },
-        { label: "Workspaces — save / restore layouts…", action: () => setWorkspacesOpen(true) },
+        { label: "Workspaces: save / restore layouts…", action: () => setWorkspacesOpen(true) },
         { divider: true },
         { label: "Themes…", action: () => setSettingsOpen(true) },
       ],
@@ -183,7 +183,7 @@ function MenuBar({
               className="moba-mb-model"
               onClick={() => setModelsOpen(true)}
               style={{ background: "transparent", border: "none", cursor: "pointer", font: "inherit", padding: 0, opacity: activeModelName ? 1 : 0.55 }}
-              title={activeModelName ? "Active model — click to change" : "No model configured — click to pick one"}
+              title={activeModelName ? "Active model, click to change" : "No model configured, click to pick one"}
             >
               <span className="moba-mb-modeldot" style={activeModelName ? undefined : { background: "var(--phn-text-faint, #586068)" }} />
               {activeModelName || "No model"}

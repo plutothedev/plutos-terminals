@@ -22,7 +22,7 @@ export default function WorkspacesModal({ open, workspaces, onClose, onSave, onL
   const tabCount = (ws) => (ws.panels || []).reduce((n, p) => n + (p.tabs ? p.tabs.length : 0), 0);
 
   return (
-    <Modal open={open} title="Workspaces — save / restore layouts" onClose={onClose} width={560}>
+    <Modal open={open} title="Workspaces: save / restore layouts" onClose={onClose} width={560}>
       <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
         <Input
           autoFocus
@@ -68,7 +68,7 @@ export default function WorkspacesModal({ open, workspaces, onClose, onSave, onL
 
       <p style={{ fontSize: "var(--phn-fs-2xs)", color: DIM, marginTop: "var(--phn-sp-3)", lineHeight: "var(--phn-lh)" }}>
         Captures your panels, tabs and splits (working dirs + start commands). Loading one{" "}
-        <strong>replaces</strong> the current layout — open sessions close and the saved ones re-open fresh.
+        <strong>replaces</strong> the current layout: open sessions close and the saved ones re-open fresh.
       </p>
     </Modal>
   );

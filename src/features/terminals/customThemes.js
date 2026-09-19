@@ -188,7 +188,7 @@ function deriveChrome(w, dark) {
 
 function warpDocToTheme(w) {
   if (!w || typeof w !== "object" || !w.background || !w.foreground) {
-    throw new Error("Not a Warp theme — needs at least `background` and `foreground`.");
+    throw new Error("Not a Warp theme. Needs at least `background` and `foreground`.");
   }
   // Validate every color is a real hex value before it flows into the CSS sink
   // (deriveChrome) or the xterm palette. Reject the whole theme on any bad color.
@@ -201,7 +201,7 @@ function warpDocToTheme(w) {
     }
   }
   const bad = checks.find(([, v]) => !isHexColor(v));
-  if (bad) throw new Error(`Invalid color for "${bad[0]}": ${bad[1]} — use #rgb / #rrggbb hex.`);
+  if (bad) throw new Error(`Invalid color for "${bad[0]}": ${bad[1]}. Use #rgb / #rrggbb hex.`);
 
   const dark = luminance(w.background) < 0.45;
   const name = (typeof w.name === "string" && w.name.trim()) || "Imported theme";

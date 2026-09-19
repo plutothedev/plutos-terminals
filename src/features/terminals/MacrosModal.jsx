@@ -35,7 +35,7 @@ export default function MacrosModal({ open, onClose, onReplay, canReplay, active
   const startRec = () => {
     if (!activePaneId) { toast.error("Open/focus a terminal to record into first."); return; }
     startMacroRecording(activePaneId);
-    toast.info("Recording the active terminal — avoid typing passwords (they'd be saved). Click Stop & save when done.");
+    toast.info("Recording the active terminal. Avoid typing passwords (they'd be saved). Click Stop & save when done.");
   };
 
   const stopRec = () => {
@@ -60,7 +60,7 @@ export default function MacrosModal({ open, onClose, onReplay, canReplay, active
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", borderRadius: 6, border: `1px solid ${recording ? "#ff6b6b" : "var(--phn-surface-border, #2a2a2a)"}`, background: "var(--phn-page-bg, #1c1c1c)" }}>
         {recording ? (
           <>
-            <span style={{ color: "#ff6b6b", fontSize: 12 }}>● recording the active terminal — no passwords</span>
+            <span style={{ color: "#ff6b6b", fontSize: 12 }}>● recording the active terminal, no passwords</span>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name this macro" style={input} />
             <button onClick={stopRec} style={primaryBtn}>Stop &amp; save</button>
             <button onClick={() => cancelMacroRecording()} style={ghostBtn}>Cancel</button>

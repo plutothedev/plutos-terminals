@@ -14,10 +14,10 @@ const STEPS = [
     body: (FG, ACCENT) => (
       <>
         <p style={{ marginBottom: 12 }}>
-          The left tree holds your saved sessions — local shells, SSH, serial, and RDP/VNC remote desktops. Click <strong style={{ color: ACCENT }}>+ Add session</strong> (or the Local / SSH toolbar buttons) to save a folder or a host, then click it anytime to open a tab.
+          The left tree holds your saved sessions: local shells, SSH, serial, and RDP/VNC remote desktops. Click <strong style={{ color: ACCENT }}>+ Add session</strong> (or the Local / SSH toolbar buttons) to save a folder or a host, then click it anytime to open a tab.
         </p>
         <p style={{ marginBottom: 12 }}>
-          Split any tab side by side or stacked, and run agents (Claude Code, Codex…) in parallel — background tabs glow yellow while running, green when finished, amber when one needs you.
+          Split any tab side by side or stacked, and run agents (Claude Code, Codex…) in parallel. Background tabs glow yellow while running, green when finished, amber when one needs you.
         </p>
       </>
     ),
@@ -28,7 +28,7 @@ const STEPS = [
     body: (FG, ACCENT) => (
       <>
         <p style={{ marginBottom: 12 }}>
-          Open <strong style={{ color: ACCENT }}>Settings</strong> ({formatCombo("Ctrl+,")}) to pick <strong style={{ color: ACCENT }}>Dark</strong>, <strong style={{ color: ACCENT }}>Light</strong>, or <strong style={{ color: ACCENT }}>OLED</strong> — the default, true #000 on every surface.
+          Open <strong style={{ color: ACCENT }}>Settings</strong> ({formatCombo("Ctrl+,")}) to pick <strong style={{ color: ACCENT }}>Dark</strong>, <strong style={{ color: ACCENT }}>Light</strong>, or <strong style={{ color: ACCENT }}>OLED</strong> (the default, true #000 on every surface).
         </p>
         <p style={{ marginBottom: 12 }}>
           Want more? Paste any Warp theme YAML (<strong>github.com/warpdotdev/themes</strong>) under Settings → Custom themes to reskin the terminal and the whole app, or sync with your OS light/dark automatically.
@@ -42,7 +42,7 @@ const STEPS = [
     body: (FG, ACCENT) => (
       <>
         <p style={{ marginBottom: 12 }}>
-          <strong style={{ color: ACCENT }}>Workflows</strong> are saved, parameterized commands — open the Workflows panel from the toolbar and click one to run it (Warp workflow YAML imports directly). <strong style={{ color: ACCENT }}>Fleet</strong> sits next to it: every session's state (running / finished / needs you) in one list.
+          <strong style={{ color: ACCENT }}>Workflows</strong> are saved, parameterized commands. Open the Workflows panel from the toolbar and click one to run it (Warp workflow YAML imports directly). <strong style={{ color: ACCENT }}>Fleet</strong> sits next to it: every session's state (running / finished / needs you) in one list.
         </p>
         <p style={{ marginBottom: 12 }}>
           <strong style={{ color: ACCENT }}>Ask AI</strong> ({modCombo("I")}) turns plain English into a shell command you review before it runs; <strong style={{ color: ACCENT }}>Agent Mode</strong> ({formatCombo("Ctrl+Shift+A")}) takes a goal and runs the commands itself, asking before anything risky. The right dock adds files (SFTP), an AI assistant, and a live CPU/MEM/DISK monitor.
@@ -60,15 +60,15 @@ const STEPS = [
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", marginBottom: 14, fontSize: 11 }}>
           <code style={kbdStyle}>{modCombo("K")}</code><span>Command palette (everything in one search)</span>
-          <code style={kbdStyle}>{modCombo("I")}</code><span>Ask AI — plain English to command</span>
+          <code style={kbdStyle}>{modCombo("I")}</code><span>Ask AI: plain English to command</span>
           <code style={kbdStyle}>{formatCombo("Ctrl+Shift+A")}</code><span>Agent Mode</span>
           <code style={kbdStyle}>{modCombo("R")}</code><span>Command history search</span>
           <code style={kbdStyle}>{formatCombo("Ctrl+Shift+T")}</code><span>New tab in active panel</span>
           <code style={kbdStyle}>{formatCombo("Ctrl+Shift+D")}</code><span>Split the active pane right</span>
-          <code style={kbdStyle}>{modCombo("1")}–8</code><span>Switch to panel N</span>
+          <code style={kbdStyle}>{modCombo("1")}-8</code><span>Switch to panel N</span>
         </div>
         <p style={{ marginBottom: 0 }}>
-          The F-key bar along the bottom mirrors the big ones — F1 help, F2 new tab, F3 split, F4 files (SFTP). Every shortcut is rebindable in Settings, and <strong style={{ color: ACCENT }}>Tools → Setup checker</strong> walks you through anything missing (Node, the Claude CLI).
+          The F-key bar along the bottom mirrors the big ones: F1 help, F2 new tab, F3 split, F4 files (SFTP). Every shortcut is rebindable in Settings, and <strong style={{ color: ACCENT }}>Tools → Setup checker</strong> walks you through anything missing (Node, the Claude CLI).
         </p>
       </>
     ),

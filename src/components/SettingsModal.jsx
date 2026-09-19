@@ -99,14 +99,14 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
         hint={
           <>
             All provider API keys (Anthropic, OpenAI, and the rest) and model selection now live in the{" "}
-            <strong>Models</strong> section — open it from the toolbar's <strong>Models</strong> button or the command palette (Ctrl+K → “Models”).
+            <strong>Models</strong> section. Open it from the toolbar's <strong>Models</strong> button or the command palette (Ctrl+K → “Models”).
           </>
         }
       />
 
       <Field
         label="Appearance (live preview)"
-        hint="Dark and Light switch the app's colors (terminal stays black). OLED turns every surface — app and terminal — true #000 for OLED panels."
+        hint="Dark and Light switch the app's colors (terminal stays black). OLED turns every surface (app and terminal) true #000 for OLED panels."
       >
         <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
           <Button variant={!isLight && !isOled ? "primary" : "ghost"} onClick={() => setTheme("moba")} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><SMoon size={13} /> Dark</span></Button>

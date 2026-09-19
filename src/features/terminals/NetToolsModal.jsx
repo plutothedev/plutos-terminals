@@ -96,7 +96,7 @@ export default function NetToolsModal({ open, initialHost, onClose }) {
             value={ports}
             onChange={(e) => setPorts(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") run(); }}
-            placeholder="ports — e.g. 22,80,443 or 1-1024"
+            placeholder="ports, e.g. 22,80,443 or 1-1024"
           />
           <div style={{ fontSize: "var(--phn-fs-2xs)", color: DIM, marginTop: 3 }}>Comma list or ranges; capped at 256 ports per scan.</div>
         </div>

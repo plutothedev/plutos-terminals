@@ -16,7 +16,7 @@ const SYSTEM =
   "You are a senior engineer pair-debugging in a terminal. A shell command just " +
   "failed. From the command, its output and exit code, explain the most likely " +
   "cause in 1-3 sentences, then give the exact fix command(s) in a fenced block. " +
-  "Be concise and specific — no preamble.";
+  "Be concise and specific. No preamble.";
 
 // Pull the first fenced command block out of the model's answer so we can offer
 // a one-click "run fix". Falls back to null when there's no fenced block.

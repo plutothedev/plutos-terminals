@@ -281,7 +281,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     // Don't toast on first-ever launch (single default empty panel).
     const isDefaultLayout = panelCount === 1 && tabCount === 1 && (!panels[0]?.tabs?.[0]?.startCommands || panels[0].tabs[0].startCommands.length === 0);
     if (!isDefaultLayout) {
-      toast.info(`Session restored — ${panelCount} panel${panelCount === 1 ? "" : "s"} · ${tabCount} tab${tabCount === 1 ? "" : "s"}`);
+      toast.info(`Session restored: ${panelCount} panel${panelCount === 1 ? "" : "s"} · ${tabCount} tab${tabCount === 1 ? "" : "s"}`);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -510,7 +510,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       }
     }
     // Leave the modal open so the user can retry once any running agent exits.
-    toast.error("Couldn't remove the worktree — a process may still be using it. Close any running agent and try again.", { detail: String(lastErr) });
+    toast.error("Couldn't remove the worktree. A process may still be using it. Close any running agent and try again.", { detail: String(lastErr) });
   }, [state.panels, closeTabs, toast]);
 
   // ── Project mutations ──────────────────────────────────────────────
@@ -590,7 +590,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     if (broadcast) {
       const n = writeBroadcast(command);
       if (n === 0) {
-        toast.error("No visible terminal is ready yet — try again in a moment.");
+        toast.error("No visible terminal is ready yet. Try again in a moment.");
         return;
       }
       toast.info(`Broadcast to ${n} terminal${n === 1 ? "" : "s"}: ${command.length > 32 ? command.slice(0, 32) + "…" : command}`);
@@ -598,7 +598,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     }
     const ok = writeToTab(activePaneId, command);
     if (!ok) {
-      toast.error("Active terminal isn't ready yet — try again in a moment.");
+      toast.error("Active terminal isn't ready yet. Try again in a moment.");
       return;
     }
     toast.info(`Inserted: ${command.length > 40 ? command.slice(0, 40) + "…" : command}`);
@@ -836,7 +836,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       height: 24,
       label: activeTab?.label || "tab",
     });
-    toast.success(`Recording "${activeTab?.label || "tab"}" — pick "Stop & save" when done.`);
+    toast.success(`Recording "${activeTab?.label || "tab"}". Pick "Stop & save" when done.`);
   }, [activePaneId, activeTab, toast]);
 
   const stopAndSaveRecording = useCallback(async () => {
@@ -847,7 +847,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     }
     const cast = recording.stopRecording(activePaneId);
     if (!cast) {
-      toast.error("Recording was empty — nothing to save.");
+      toast.error("Recording was empty, nothing to save.");
       return;
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -866,7 +866,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       } else {
         // Save canceled: the inflight crash-net copy is KEPT (audit C5) and
         // offered on next launch, instead of being lost.
-        toast.info("Save canceled — the recording is kept and offered next launch.");
+        toast.info("Save canceled. The recording is kept and offered next launch.");
       }
     } catch (err) {
       toast.error(humanizeError(err, "Save failed"));

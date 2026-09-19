@@ -119,7 +119,7 @@ export default function ShareModal({ open, kind, title, rawText, dateStamp, onCl
 
       {truncated && (
         <div style={{ color: FG_DIM, fontSize: 11, lineHeight: 1.5, marginBottom: 8, fontFamily: M }}>
-          Content exceeded the share size cap — only the most recent portion is shown and uploaded.
+          Content exceeded the share size cap. Only the most recent portion is shown and uploaded.
         </div>
       )}
 

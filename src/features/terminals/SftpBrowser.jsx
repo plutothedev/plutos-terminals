@@ -284,11 +284,11 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
               <span
                 className={e.is_dir ? "name dir" : "name"}
                 onClick={() => e.is_dir && list(e.path)}
-                title={e.is_dir ? e.name : `${e.name} — double-click to edit`}
+                title={e.is_dir ? e.name : `${e.name}: double-click to edit`}
               >
                 {e.name}
               </span>
-              <span className="size">{e.is_dir ? "—" : fmtSize(e.size)}</span>
+              <span className="size">{e.is_dir ? "-" : fmtSize(e.size)}</span>
               <span className="mod">{fmtMtime(e.mtime)}</span>
               <span className="phn-sftp-actions">
                 {!e.is_dir && (

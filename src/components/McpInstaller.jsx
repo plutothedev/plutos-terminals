@@ -19,7 +19,7 @@ const MCPS = [
     description: "Read + write files in a specific root directory. Lets Claude inspect / edit project files directly.",
     command: 'claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem ${PWD}',
     docs: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
-    notes: "On install you'll be asked to pick the directory to expose. Restrict scope — Claude inherits read+write to whatever directory you choose.",
+    notes: "On install you'll be asked to pick the directory to expose. Restrict scope: Claude inherits read+write to whatever directory you choose.",
   },
   {
     id: "github",
@@ -48,7 +48,7 @@ const MCPS = [
   {
     id: "fetch",
     name: "Fetch (HTTP)",
-    description: "Generic HTTP fetch — Claude can pull URLs and extract content. Lighter than puppeteer for plain HTML/JSON.",
+    description: "Generic HTTP fetch: Claude can pull URLs and extract content. Lighter than puppeteer for plain HTML/JSON.",
     command: 'claude mcp add fetch -- npx -y @modelcontextprotocol/server-fetch',
     docs: "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
     notes: "No auth or external dependencies. Default starting point if you just need 'read URL X'.",
@@ -100,10 +100,10 @@ export default function McpInstaller({ open, onClose }) {
   const onCopy = (mcp) => {
     navigator.clipboard.writeText(mcp.command).then(() => {
       setCopiedId(mcp.id);
-      toast.success(`${mcp.name} install command copied — paste in any pane.`);
+      toast.success(`${mcp.name} install command copied. Paste in any pane.`);
       setTimeout(() => setCopiedId((c) => (c === mcp.id ? null : c)), 1500);
     }).catch(() => {
-      toast.error("Copy failed — select the command text manually and Ctrl+C.");
+      toast.error("Copy failed. Select the command text manually and Ctrl+C.");
     });
   };
 
@@ -117,7 +117,7 @@ export default function McpInstaller({ open, onClose }) {
     if (argv.includes("${PWD}")) {
       let dir = null;
       try { dir = await invoke("pick_directory"); } catch { dir = null; }
-      if (!dir) { toast.info("Install cancelled — pick the directory to expose."); return; }
+      if (!dir) { toast.info("Install cancelled. Pick the directory to expose."); return; }
       argv = argv.map((a) => (a === "${PWD}" ? dir : a));
     }
     setInstallState((s) => ({ ...s, [mcp.id]: "installing" }));
@@ -152,7 +152,7 @@ export default function McpInstaller({ open, onClose }) {
         let dir = null;
         try { dir = await invoke("pick_directory"); } catch { dir = null; }
         if (!dir) {
-          toast.info("Add to Agent Mode cancelled — pick the directory to expose.");
+          toast.info("Add to Agent Mode cancelled. Pick the directory to expose.");
           setAddingId(null);
           return;
         }
@@ -229,7 +229,7 @@ export default function McpInstaller({ open, onClose }) {
         </div>
         {configured.length === 0 ? (
           <div style={{ color: FG_DIM, fontSize: 11, fontStyle: "italic" }}>
-            No MCP servers registered for Agent Mode yet — add one below.
+            No MCP servers registered for Agent Mode yet. Add one below.
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -252,7 +252,7 @@ export default function McpInstaller({ open, onClose }) {
                   checked={!!srv.enabled}
                   onChange={() => onToggleEnabled(srv)}
                   style={{ accentColor: ACCENT, cursor: "pointer", flexShrink: 0 }}
-                  title={srv.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+                  title={srv.enabled ? "Enabled, click to disable" : "Disabled, click to enable"}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ color: FG_ACTIVE, fontSize: 11, fontFamily: M }}>{srv.id}</span>
@@ -402,7 +402,7 @@ export default function McpInstaller({ open, onClose }) {
                   }}
                   title={
                     installState[mcp.id] === "ok" ? "Already installed in this session"
-                    : installState[mcp.id] === "error" ? "Last install failed — check toast for details"
+                    : installState[mcp.id] === "error" ? "Last install failed. Check toast for details"
                     : `Run "${mcp.command}" via your shell`
                   }
                 >
@@ -437,7 +437,7 @@ export default function McpInstaller({ open, onClose }) {
           value={secretValue}
           onChange={(e) => setSecretValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") closeSecret(secretValue); }}
-          placeholder="Paste token — stored in the OS keychain, never localStorage"
+          placeholder="Paste token. Stored in the OS keychain, never localStorage"
           style={{
             width: "100%", boxSizing: "border-box",
             background: "var(--phn-page-bg, #0a0a0a)", border: `1px solid ${BORDER}`,

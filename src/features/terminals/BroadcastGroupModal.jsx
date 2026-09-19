@@ -67,12 +67,12 @@ export default function BroadcastGroupModal({ open, panels, liveTabIds, current,
   };
 
   return (
-    <Modal open={open} title="Broadcast typing — choose targets" onClose={onClose} width={520}>
+    <Modal open={open} title="Broadcast typing: choose targets" onClose={onClose} width={520}>
       <div style={{ display: "flex", gap: "var(--phn-sp-2)", marginBottom: "var(--phn-sp-3)" }}>
         <Button variant="ghost" size="sm" onClick={() => setSel(new Set(allIds))}>Select all</Button>
         <Button variant="ghost" size="sm" onClick={() => setSel(new Set())}>Select none</Button>
         <span style={{ flex: 1 }} />
-        <Button variant="ghost" size="sm" onClick={() => { onUseAllVisible(); onClose(); }} title="Clear the group — broadcast to every visible terminal">
+        <Button variant="ghost" size="sm" onClick={() => { onUseAllVisible(); onClose(); }} title="Clear the group: broadcast to every visible terminal">
           All visible (default)
         </Button>
       </div>

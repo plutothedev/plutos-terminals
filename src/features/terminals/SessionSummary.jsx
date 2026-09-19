@@ -31,7 +31,7 @@ export default function SessionSummary({ open, text, onClose }) {
     const body = (text || "").trim();
     if (!body) { setLoading(false); setError("Nothing in this terminal to summarize yet."); return; }
     const llm = resolveActiveLLM(readUserSt());
-    if (!llm) { setLoading(false); setError("No model configured — open the Models picker first."); return; }
+    if (!llm) { setLoading(false); setError("No model configured. Open the Models picker first."); return; }
     setModelLabel(llm.model);
     setLoading(true); setError(null); setAnswer("");
     // Streaming (P3-T2): deltas render as they arrive — the spinner clears on
