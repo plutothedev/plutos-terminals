@@ -307,6 +307,7 @@ pub fn run() {
             commands::notebook_read,
             commands::notebook_write,
             llm::llm_complete,
+            llm::llm_list_models,
             llm::llm_stream,
             llm::llm_stream_cancel,
             llm_tools::llm_tool_turn,

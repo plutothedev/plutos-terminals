@@ -19,7 +19,9 @@ import { layoutFingerprint } from "../features/terminals/workspaceBoot.js";
 // tore down EVERY other pane's live SSH/SFTP/serial session in the window.
 // This variant catches locally, shows a small inline fallback, and leaves all
 // live sessions untouched. `label` names the surface; children can recover on
-// remount (the key bump via "Try again").
+// remount (the key bump via "Try again"). Optional `onError` runs after the
+// catch, for a surface whose fallback would otherwise be stranded: an open
+// modal's owner can close it there, so the next open mounts it fresh.
 export class PaneBoundary extends Component {
   constructor(props) {
     super(props);
@@ -31,19 +33,33 @@ export class PaneBoundary extends Component {
   componentDidCatch(error, info) {
     try { console.error(`Pluto's Terminal: ${this.props.label || "surface"} render error`, error, info); } catch { /* never throw */ }
     // Deliberately NO destroyAll — other panes' sessions stay alive.
+    try { this.props.onError?.(error); } catch { /* the boundary must never throw */ }
   }
   render() {
     if (!this.state.error) return this.props.children;
+    // Skin tokens, with the old dark literals as fallbacks: this fallback can
+    // render on a light surface (inside the Models dialog), where the dark
+    // literals measured 2.6:1 to 3.3:1 on moba-light and daylight. The error
+    // title uses the notice token the skin tests validate on every skin. The
+    // note and button text use --phn-panel-fg, the panel-text token the skin
+    // tests also validate: --phn-text-dim is deliberately faint on seven dark
+    // skins (2.6:1 to 3.7:1; review 2026-10-03) and --phn-text-fg is 4.37:1 on
+    // amber, while panel-fg is at least 4.66:1 on every skin's page and surface.
+    // Every pane boundary (VNC, RDP, notebook, remote editor, diff, Models)
+    // shows this fallback.
     return (
-      <div style={{ padding: 16, color: "#cfd6dd", fontFamily: "-apple-system, 'Segoe UI', sans-serif", fontSize: 13 }}>
-        <div style={{ color: "#E05B5B", fontWeight: 600, marginBottom: 6 }}>
+      <div style={{ padding: 16, color: "var(--phn-panel-fg, #cfd6dd)", fontFamily: "-apple-system, 'Segoe UI', sans-serif", fontSize: 13 }}>
+        <div style={{ color: "var(--phn-notice-error-fg, #E05B5B)", fontWeight: 600, marginBottom: 6 }}>
           {this.props.label || "This view"} hit an error.
         </div>
-        <div style={{ color: "#8a939e", fontSize: 12, marginBottom: 10 }}>
+        <div style={{ color: "var(--phn-panel-fg, #8a939e)", fontSize: 12, marginBottom: 10 }}>
           Your other sessions are unaffected.
         </div>
         <button
-          style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #333", background: "#1e2228", color: "#cfd6dd", cursor: "pointer", fontSize: 12 }}
+          style={{
+            padding: "6px 12px", borderRadius: 6, border: "1px solid var(--phn-surface-border, #333)",
+            background: "var(--phn-surface-bg, #1e2228)", color: "var(--phn-panel-fg, #cfd6dd)", cursor: "pointer", fontSize: 12,
+          }}
           onClick={() => this.setState((s) => ({ error: null, tries: s.tries + 1 }))}
         >
           Try again

@@ -555,3 +555,775 @@ pub async fn llm_stream(
     }
     Ok(full)
 }
+
+// ── Model discovery ─────────────────────────────────────────────────────────
+// The Models picker's lists were typed into providers.js by hand, so a build
+// only knew the models that existed when it shipped: v0.7.1 stopped at Claude
+// Opus 4.8 and never showed Opus 5.5. Every provider the app routes to
+// publishes the models it serves, so the picker now asks: Anthropic's
+// GET /v1/models (cursor-paged, newest first) for the two anthropic kinds, the
+// OpenAI-style GET {base}/models for everything else. Same key handling and the
+// same https rule (resolve_base) as llm_complete.
+//
+// The answer is untrusted input. A custom endpoint can return anything, and a
+// chosen id ends up as ANTHROPIC_MODEL / OPENAI_MODEL in every shell the app
+// spawns afterwards. So ids are held to the characters real model ids use
+// (anything else is dropped, never repaired), names lose control and bidi
+// characters, dates are range-checked, bodies are read under a size cap, and
+// the key is taken out of any error text before it leaves this module.
+
+/// One model a provider says it serves. `created` is unix seconds when the
+/// provider dates its models (Anthropic `created_at`, OpenAI `created`).
+#[derive(serde::Serialize, Debug, Clone, PartialEq)]
+pub struct ListedModel {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created: Option<i64>,
+}
+
+/// Largest list body read. OpenRouter's catalog, the biggest seen (466 models
+/// with descriptions and pricing, measured 2026-10-03), is 0.76 MB, so this is
+/// five times it. The cap is also the memory bound: serde_json::Value turns a
+/// body of tiny objects into 60x to 85x its size in nodes depending on shape
+/// (review 2026-10-03 measured 943 MB of heap from a 16 MB body, and 238 MB to
+/// 332 MB at 4 MB), transient and freed when the call returns. llm_complete
+/// reads the same endpoints with no cap at all.
+const MODEL_LIST_MAX_BYTES: usize = 4 * 1024 * 1024;
+/// Most of an error body read: enough for any provider's JSON error message.
+const MODEL_LIST_ERROR_BYTES: usize = 64 * 1024;
+/// Most models kept from one provider, after cleaning.
+const MODEL_LIST_MAX_MODELS: usize = 5000;
+/// Most Anthropic pages followed. At limit=1000 (the API's maximum) one page is
+/// the whole list; the bound only stops a cursor that never ends.
+const MODEL_LIST_MAX_PAGES: usize = 20;
+/// Total time for one page, body included (RequestBuilder::timeout semantics).
+const MODEL_LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// The latest release date taken at face value: 2100-01-01T00:00:00Z.
+const MAX_CREATED_SECS: i64 = 4_102_444_800;
+
+/// The client for list calls. It never follows a redirect: these requests carry
+/// the key in `x-api-key`, which reqwest does NOT strip on a cross-host hop
+/// (only Authorization and cookies; redirect.rs remove_sensitive_headers), and
+/// reqwest's default policy also follows https to http. A model list has no
+/// reason to redirect, so a 3xx comes back as an error instead. sync_git.rs
+/// turns redirects off for the same reason.
+fn list_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .user_agent("plutos-terminals")
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+}
+
+static LIST_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn list_client() -> &'static reqwest::Client {
+    LIST_CLIENT.get_or_init(|| list_client_builder().build().expect("model-list HTTP client (TLS backend init)"))
+}
+
+/// A model id the app may store and later inject at shell spawn, or None.
+/// Real ids are ASCII words joined by `-` `.` `_` `:` `/` (plus the odd `@`,
+/// `+`, `~` or `=`): `claude-opus-5-5`, `gpt-4o-2024-08-06`,
+/// `meta-llama/Llama-3.3-70B-Instruct`, `llama3.1:8b`, `qwen/qwen3:free`.
+/// Whitespace, quotes, angle brackets and control characters never appear in
+/// one, so an id carrying them is dropped whole.
+fn clean_model_id(raw: &str) -> Option<String> {
+    let id = raw.trim();
+    let ok = !id.is_empty()
+        && id.len() <= 200
+        && id.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/' | '@' | '+' | '~' | '=')
+        });
+    ok.then(|| id.to_string())
+}
+
+/// A display name with control characters and bidi/zero-width formatting
+/// removed (a hostile endpoint could otherwise reorder what the tooltip
+/// shows), capped at 120 characters. None when nothing printable is left.
+fn clean_model_name(raw: &str) -> Option<String> {
+    let s: String = raw
+        .chars()
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(
+                    *c,
+                    '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+                )
+        })
+        .take(120)
+        .collect();
+    let s = s.trim();
+    (!s.is_empty()).then(|| s.to_string())
+}
+
+/// Unix seconds from a raw provider date, or None. Seconds are taken as they
+/// are; a value in the millisecond, microsecond or nanosecond band is scaled
+/// down; anything else (zero, negative, past 2100, or between the bands) reads
+/// as undated. Without this a nanosecond `created` reached the picker as a
+/// year no JavaScript Date can hold, and formatting it threw during render,
+/// which took the whole window down (review 2026-10-03).
+fn plausible_secs(n: i64) -> Option<i64> {
+    if n <= 0 {
+        return None;
+    }
+    if n <= MAX_CREATED_SECS {
+        return Some(n);
+    }
+    for (floor, per_sec) in [
+        (1_000_000_000_000_i64, 1_000_i64),
+        (1_000_000_000_000_000, 1_000_000),
+        (1_000_000_000_000_000_000, 1_000_000_000),
+    ] {
+        if n >= floor && n / per_sec <= MAX_CREATED_SECS {
+            return Some(n / per_sec);
+        }
+    }
+    None
+}
+
+/// Unix seconds from an RFC 3339 date. Anthropic sends the epoch when it does
+/// not know a release date, which plausible_secs reads as undated.
+fn created_from_rfc3339(s: &str) -> Option<i64> {
+    plausible_secs(chrono::DateTime::parse_from_rfc3339(s.trim()).ok()?.timestamp())
+}
+
+/// Unix seconds from a numeric `created`.
+fn created_from_number(v: &serde_json::Value) -> Option<i64> {
+    let n = v.as_i64().or_else(|| v.as_f64().filter(|f| f.is_finite()).map(|f| f as i64))?;
+    plausible_secs(n)
+}
+
+/// The provider's own message in an error-shaped JSON body, trimmed and capped:
+/// `error.message` (OpenAI, Anthropic), `message`, `msg` (Z.AI), or `error`
+/// as a plain string.
+fn body_message(v: &serde_json::Value) -> Option<String> {
+    v.pointer("/error/message")
+        .and_then(|m| m.as_str())
+        .or_else(|| v.get("message").and_then(|m| m.as_str()))
+        .or_else(|| v.get("msg").and_then(|m| m.as_str()))
+        .or_else(|| v.get("error").and_then(|m| m.as_str()))
+        .map(|m| m.trim().chars().take(300).collect::<String>())
+        .filter(|m| !m.is_empty())
+}
+
+/// The array of model entries in a list body: `{"data": [...]}` (Anthropic,
+/// OpenAI and nearly every compatible server), a bare array (Together), or
+/// `{"models": [...]}`. Anything else is an error, never an empty list: Z.AI
+/// answers a refused key with HTTP 200 and `{"code":401,"msg":"token expired
+/// or incorrect"}` (checked live 2026-10-03), and reading that as "no models"
+/// hid the refusal and suppressed refreshes for an hour.
+///
+/// A list key that is present but null is an empty list only when the body is
+/// nothing but a list envelope: Ollama with no models pulled answers
+/// `{"object":"list","data":null}` (Go writes a nil slice as null). Any other
+/// key means the body is saying something else, and refusals come in too many
+/// shapes to enumerate (`{"code":401,"msg":...,"data":null,"success":false}`,
+/// `{"data":null,"status":401,"detail":...}`, MiniMax's `base_resp`; review
+/// rounds 3 and 4), so those are errors. A real array always wins, checked
+/// first, so `data: [...]` beside `models: null` keeps its list.
+fn list_entries(v: &serde_json::Value) -> Result<&Vec<serde_json::Value>, String> {
+    static EMPTY: Vec<serde_json::Value> = Vec::new();
+    if let Some(arr) = v
+        .as_array()
+        .or_else(|| v.get("data").and_then(|d| d.as_array()))
+        .or_else(|| v.get("models").and_then(|d| d.as_array()))
+    {
+        return Ok(arr);
+    }
+    let null_list = v.get("data").is_some_and(|d| d.is_null()) || v.get("models").is_some_and(|d| d.is_null());
+    let bare_envelope = v.as_object().is_some_and(|o| {
+        o.keys()
+            .all(|k| matches!(k.as_str(), "object" | "data" | "models" | "has_more" | "first_id" | "last_id"))
+    });
+    if null_list && bare_envelope {
+        return Ok(&EMPTY);
+    }
+    Err(match body_message(v) {
+        Some(m) => format!("The provider answered without a model list: {m}"),
+        None => "The provider answered without a model list.".to_string(),
+    })
+}
+
+/// One page of Anthropic's GET /v1/models: the models, plus the `after_id`
+/// cursor for the next page when `has_more` says there is one. A compatible
+/// gateway may answer in the OpenAI shape instead, so a numeric `created` is
+/// accepted when `created_at` is absent.
+fn parse_anthropic_page(v: &serde_json::Value) -> Result<(Vec<ListedModel>, Option<String>), String> {
+    let models = list_entries(v)?
+        .iter()
+        .filter_map(|m| {
+            let id = clean_model_id(m.get("id")?.as_str()?)?;
+            let name = m.get("display_name").and_then(|n| n.as_str()).and_then(clean_model_name);
+            let created = m
+                .get("created_at")
+                .and_then(|c| c.as_str())
+                .and_then(created_from_rfc3339)
+                .or_else(|| m.get("created").and_then(created_from_number));
+            Some(ListedModel { id, name, created })
+        })
+        .collect();
+    let next = if v.get("has_more").and_then(|h| h.as_bool()) == Some(true) {
+        v.get("last_id")
+            .and_then(|l| l.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+    Ok((models, next))
+}
+
+/// An OpenAI-style model list (see list_entries for the shapes). An entry's id
+/// is `id`, else `name`.
+fn parse_openai_list(v: &serde_json::Value) -> Result<Vec<ListedModel>, String> {
+    Ok(list_entries(v)?
+        .iter()
+        .filter_map(|m| {
+            let raw_id = m
+                .get("id")
+                .and_then(|i| i.as_str())
+                .or_else(|| m.get("name").and_then(|n| n.as_str()))?;
+            let id = clean_model_id(raw_id)?;
+            let name = m
+                .get("name")
+                .and_then(|n| n.as_str())
+                .filter(|n| *n != raw_id)
+                .or_else(|| m.get("display_name").and_then(|n| n.as_str()))
+                .and_then(clean_model_name);
+            let created = m
+                .get("created")
+                .and_then(created_from_number)
+                .or_else(|| m.get("created_at").and_then(|c| c.as_str()).and_then(created_from_rfc3339));
+            Some(ListedModel { id, name, created })
+        })
+        .collect())
+}
+
+/// Read at most `cap` bytes of a body. Returns the bytes and whether the body
+/// ran past the cap; reading stops there and the rest is never pulled.
+async fn read_capped(resp: reqwest::Response, cap: usize) -> Result<(Vec<u8>, bool), String> {
+    let mut stream = resp.bytes_stream();
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        let room = cap - buf.len();
+        if chunk.len() > room {
+            buf.extend_from_slice(&chunk[..room]);
+            return Ok((buf, true));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok((buf, false))
+}
+
+/// One list page as JSON, or "HTTP <code>: <message>". The status leads so the
+/// picker can tell a missing list endpoint (404) from a refused key (401)
+/// without reading prose.
+async fn list_page_json(resp: reqwest::Response, cap: usize) -> Result<serde_json::Value, String> {
+    let status = resp.status();
+    if !status.is_success() {
+        let (body, _) = read_capped(resp, MODEL_LIST_ERROR_BYTES).await.unwrap_or_default();
+        let msg = serde_json::from_slice::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| body_message(&v))
+            .unwrap_or_else(|| status.canonical_reason().unwrap_or("error").to_string());
+        return Err(format!("HTTP {}: {msg}", status.as_u16()));
+    }
+    let too_large = || format!("The provider's model list is larger than {} MB, so it was not read.", cap / (1024 * 1024));
+    if resp.content_length().is_some_and(|n| n > cap as u64) {
+        return Err(too_large());
+    }
+    let (body, truncated) = read_capped(resp, cap).await?;
+    if truncated {
+        return Err(too_large());
+    }
+    serde_json::from_slice(&body).map_err(|_| "The provider's model list was not valid JSON.".to_string())
+}
+
+/// An error text with the request's key taken out, for the screen. (The cache
+/// never stores provider wording at all: modelCatalog.js keeps only a fixed
+/// summary, because no redaction can promise to catch every echo.) Covers the
+/// whole key; a word that IS the key, any case, which is how a short key (a
+/// LiteLLM master key like `sk-1234`) gets caught; a word holding the key's
+/// first 12 characters, any case (a truncated echo); a word with a run of
+/// asterisks, the way OpenAI quotes a key's ends; and a word that abbreviates
+/// the key around "...", the way LiteLLM quotes it (`sk-...abcd`). Words split
+/// on any whitespace, and the whitespace itself is kept.
+fn redact_key(msg: &str, key: &str) -> String {
+    let key = key.trim();
+    let key_lc = key.to_ascii_lowercase();
+    let msg = if key.len() >= 8 { msg.replace(key, "[your key]") } else { msg.to_string() };
+    let head_lc = if key.len() >= 16 { key_lc.get(..12) } else { None };
+    // A short key with no digit is a documented placeholder (Ollama's
+    // "ollama", vLLM's "EMPTY"), not a secret, and matching it as a word only
+    // scrubs ordinary text ("the list is empty"). Real short keys
+    // (LiteLLM's "sk-1234") carry digits.
+    let word_rule = key.len() >= 8 || (key.len() >= 4 && key.chars().any(|c| c.is_ascii_digit()));
+    let is_key_word = |word: &str| {
+        let lc = word.to_ascii_lowercase();
+        let bare = lc.trim_matches(|c: char| !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'));
+        (word_rule && bare == key_lc)
+            || word.contains("***")
+            || head_lc.is_some_and(|h| lc.contains(h))
+            || lc.split_once("...").is_some_and(|(pre, _)| {
+                let pre = pre.trim_start_matches(|c: char| !c.is_ascii_alphanumeric());
+                pre.len() >= 2 && key_lc.starts_with(pre)
+            })
+    };
+    // The key-shaped middle of a word, so quotes, backticks and trailing
+    // punctuation around it survive ("`sk-1234`." becomes "`[key]`.").
+    let core = |word: &str| -> (usize, usize) {
+        let start = word.find(|c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '*' | '.'));
+        let end = word.rfind(|c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '*')).map(|i| i + 1);
+        match (start, end) {
+            (Some(s), Some(e)) if s < e => (s, e),
+            _ => (0, word.len()),
+        }
+    };
+    let mut out = String::with_capacity(msg.len());
+    for piece in msg.split_inclusive(char::is_whitespace) {
+        let (word, sep) = match piece.char_indices().last() {
+            Some((i, c)) if c.is_whitespace() => (&piece[..i], &piece[i..]),
+            _ => (piece, ""),
+        };
+        if is_key_word(word) {
+            let (s, e) = core(word);
+            out.push_str(&word[..s]);
+            out.push_str("[key]");
+            out.push_str(&word[e..]);
+        } else {
+            out.push_str(word);
+        }
+        out.push_str(sep);
+    }
+    out
+}
+
+/// [`llm_list_models`] with the client and the body cap injected, so tests can
+/// run it against a loopback server with a fresh client and a small cap.
+async fn list_models_with(
+    client: &reqwest::Client,
+    kind: &str,
+    base_url: &str,
+    api_key: &str,
+    cap: usize,
+) -> Result<Vec<ListedModel>, String> {
+    list_models_unredacted(client, kind, base_url, api_key, cap)
+        .await
+        .map_err(|e| redact_key(&e, api_key))
+}
+
+async fn list_models_unredacted(
+    client: &reqwest::Client,
+    kind: &str,
+    base_url: &str,
+    api_key: &str,
+    cap: usize,
+) -> Result<Vec<ListedModel>, String> {
+    if api_key.trim().is_empty() {
+        return Err("No API key is set for this provider.".to_string());
+    }
+    let mut models: Vec<ListedModel> = Vec::new();
+    if kind == "anthropic" || kind == "anthropic-compat" {
+        let base = resolve_base(base_url, "https://api.anthropic.com")?;
+        let mut after: Option<String> = None;
+        for _ in 0..MODEL_LIST_MAX_PAGES {
+            let mut req = client
+                .get(format!("{base}/v1/models"))
+                .timeout(MODEL_LIST_TIMEOUT)
+                .header("x-api-key", api_key)
+                .header("anthropic-version", "2023-06-01")
+                .query(&[("limit", "1000")]);
+            // Compatible gateways take the key as a bearer token, the way Claude
+            // Code sends ANTHROPIC_AUTH_TOKEN (same pairing as llm_complete).
+            // Anthropic itself gets x-api-key alone.
+            if kind == "anthropic-compat" {
+                req = req.header("authorization", format!("Bearer {api_key}"));
+            }
+            if let Some(cursor) = &after {
+                req = req.query(&[("after_id", cursor.as_str())]);
+            }
+            let page = list_page_json(send_with_retry(req).await?, cap).await?;
+            let (found, next) = parse_anthropic_page(&page)?;
+            models.extend(found);
+            match next {
+                // A cursor that repeats would loop forever; stop instead.
+                Some(n) if after.as_deref() != Some(n.as_str()) && models.len() < MODEL_LIST_MAX_MODELS => {
+                    after = Some(n)
+                }
+                _ => break,
+            }
+        }
+    } else {
+        let base = resolve_base(base_url, "https://api.openai.com/v1")?;
+        let req = client
+            .get(format!("{base}/models"))
+            .timeout(MODEL_LIST_TIMEOUT)
+            .header("authorization", format!("Bearer {api_key}"));
+        models = parse_openai_list(&list_page_json(send_with_retry(req).await?, cap).await?)?;
+    }
+    let mut seen = std::collections::HashSet::new();
+    models.retain(|m| seen.insert(m.id.clone()));
+    models.truncate(MODEL_LIST_MAX_MODELS);
+    Ok(models)
+}
+
+/// List the models a provider serves to this key, newest first where the
+/// provider dates them. `kind` and `base_url` follow llm_complete: the two
+/// anthropic kinds ask GET {base}/v1/models, everything else GET {base}/models.
+#[tauri::command]
+pub async fn llm_list_models(kind: String, base_url: String, api_key: String) -> Result<Vec<ListedModel>, String> {
+    list_models_with(list_client(), &kind, &base_url, &api_key, MODEL_LIST_MAX_BYTES).await
+}
+
+#[cfg(test)]
+mod list_models_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    type Heads = Arc<Mutex<Vec<String>>>;
+
+    /// A loopback HTTP server: every connection gets the raw response `respond`
+    /// builds from the request head, and every head is kept (lowercased) for
+    /// assertions. Loopback is the one place resolve_base allows cleartext,
+    /// which is what lets these tests drive the real request path.
+    async fn serve(respond: impl Fn(&str) -> String + Send + Sync + 'static) -> (String, Heads) {
+        let respond = Arc::new(respond);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heads: Heads = Arc::new(Mutex::new(Vec::new()));
+        let seen = heads.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else { return };
+                let seen = seen.clone();
+                let respond = respond.clone();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut tmp = [0u8; 4096];
+                    while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match sock.read(&mut tmp).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&buf).to_ascii_lowercase();
+                    seen.lock().unwrap().push(head.clone());
+                    let _ = sock.write_all(respond(&head).as_bytes()).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+        (format!("http://127.0.0.1:{port}"), heads)
+    }
+
+    fn json(status: u16, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    /// The production client's settings (no redirects), minus proxies so a
+    /// developer machine's proxy env cannot intercept loopback.
+    fn client() -> reqwest::Client {
+        list_client_builder().no_proxy().build().unwrap()
+    }
+
+    fn ids(models: &[ListedModel]) -> Vec<&str> {
+        models.iter().map(|m| m.id.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn anthropic_follows_the_cursor_with_the_key_header_only() {
+        let (base, heads) = serve(|head| {
+            if head.contains("after_id=claude-b") {
+                json(200, r#"{"data":[{"id":"claude-c","display_name":"Claude C","created_at":"2025-01-01T00:00:00Z"}],"has_more":false,"first_id":"claude-c","last_id":"claude-c"}"#)
+            } else {
+                json(200, r#"{"data":[{"id":"claude-a","display_name":"Claude A","created_at":"2026-09-01T00:00:00Z"},{"id":"claude-b","display_name":"Claude B","created_at":"1970-01-01T00:00:00Z"}],"has_more":true,"first_id":"claude-a","last_id":"claude-b"}"#)
+            }
+        })
+        .await;
+        let models = list_models_with(&client(), "anthropic", &base, "sk-test", MODEL_LIST_MAX_BYTES)
+            .await
+            .unwrap();
+        assert_eq!(ids(&models), ["claude-a", "claude-b", "claude-c"]);
+        assert_eq!(models[0].name.as_deref(), Some("Claude A"));
+        assert_eq!(models[0].created, Some(1_788_220_800)); // 2026-09-01T00:00:00Z
+        assert_eq!(models[1].created, None, "the epoch means undated");
+        let heads = heads.lock().unwrap();
+        assert_eq!(heads.len(), 2);
+        assert!(heads[0].starts_with("get /v1/models?limit=1000 "), "{}", heads[0]);
+        assert!(heads[1].contains("after_id=claude-b"));
+        for h in heads.iter() {
+            assert!(h.contains("x-api-key: sk-test"));
+            assert!(h.contains("anthropic-version: 2023-06-01"));
+            assert!(!h.contains("authorization:"), "native Anthropic gets x-api-key alone");
+        }
+    }
+
+    #[tokio::test]
+    async fn anthropic_compat_also_sends_the_key_as_a_bearer_token() {
+        let (base, heads) = serve(|_| json(200, r#"{"data":[{"id":"kimi-k2.5"}],"has_more":false}"#)).await;
+        let models = list_models_with(&client(), "anthropic-compat", &format!("{base}/anthropic"), "sk-test", MODEL_LIST_MAX_BYTES)
+            .await
+            .unwrap();
+        assert_eq!(ids(&models), ["kimi-k2.5"]);
+        let heads = heads.lock().unwrap();
+        assert!(heads[0].starts_with("get /anthropic/v1/models?limit=1000 "), "{}", heads[0]);
+        assert!(heads[0].contains("authorization: bearer sk-test"));
+        assert!(heads[0].contains("x-api-key: sk-test"));
+    }
+
+    #[tokio::test]
+    async fn a_repeating_cursor_stops_instead_of_looping() {
+        let (base, heads) = serve(|_| json(200, r#"{"data":[{"id":"m1"}],"has_more":true,"last_id":"m1"}"#)).await;
+        let models = list_models_with(&client(), "anthropic", &base, "k", MODEL_LIST_MAX_BYTES).await.unwrap();
+        assert_eq!(ids(&models), ["m1"], "duplicates across pages are dropped");
+        assert_eq!(heads.lock().unwrap().len(), 2, "page 2 repeats the cursor, so the walk ends there");
+    }
+
+    #[tokio::test]
+    async fn openai_style_lists_use_bearer_and_read_created() {
+        let (base, heads) = serve(|_| {
+            json(200, r#"{"object":"list","data":[{"id":"gpt-5","object":"model","created":1767225600,"owned_by":"openai"},{"id":"text-embedding-3-large","created":1705953180000}]}"#)
+        })
+        .await;
+        let models = list_models_with(&client(), "openai", &format!("{base}/v1"), "sk-oa", MODEL_LIST_MAX_BYTES)
+            .await
+            .unwrap();
+        // Non-chat filtering is the picker's job (modelCatalog.js), not this one's.
+        assert_eq!(ids(&models), ["gpt-5", "text-embedding-3-large"]);
+        assert_eq!(models[0].created, Some(1_767_225_600));
+        assert_eq!(models[1].created, Some(1_705_953_180), "milliseconds are read as ms");
+        let heads = heads.lock().unwrap();
+        assert!(heads[0].starts_with("get /v1/models "), "{}", heads[0]);
+        assert!(heads[0].contains("authorization: bearer sk-oa"));
+        assert!(!heads[0].contains("x-api-key"));
+    }
+
+    #[tokio::test]
+    async fn a_provider_error_leads_with_its_status_code() {
+        let (base, _) = serve(|_| {
+            json(401, r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#)
+        })
+        .await;
+        let err = list_models_with(&client(), "anthropic", &base, "bad", MODEL_LIST_MAX_BYTES).await.unwrap_err();
+        assert_eq!(err, "HTTP 401: invalid x-api-key");
+
+        let (base, _) = serve(|_| "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_string()).await;
+        let err = list_models_with(&client(), "openai", &base, "k", MODEL_LIST_MAX_BYTES).await.unwrap_err();
+        assert_eq!(err, "HTTP 404: Not Found", "no JSON message: the status reason stands in");
+    }
+
+    #[tokio::test]
+    async fn a_200_without_a_list_is_an_error_not_an_empty_list() {
+        // Z.AI's answer to a refused key on its Claude-compatible list path.
+        let (base, _) = serve(|_| json(200, r#"{"code":401,"msg":"token expired or incorrect","success":false}"#)).await;
+        let err = list_models_with(&client(), "anthropic-compat", &base, "k", MODEL_LIST_MAX_BYTES).await.unwrap_err();
+        assert_eq!(err, "The provider answered without a model list: token expired or incorrect");
+    }
+
+    #[tokio::test]
+    async fn a_declared_size_over_the_cap_is_refused_before_reading() {
+        // Declares 50 MB, sends 13 bytes, hangs up. Only the content-length
+        // check can call this "too large"; without it the read would end in a
+        // truncated-body error instead, so this discriminates.
+        let (base, _) = serve(|_| {
+            "HTTP/1.1 200 X\r\ncontent-type: application/json\r\ncontent-length: 50000000\r\nconnection: close\r\n\r\n{\"data\":[]}..".to_string()
+        })
+        .await;
+        let err = list_models_with(&client(), "openai", &base, "k", MODEL_LIST_MAX_BYTES).await.unwrap_err();
+        assert!(err.contains("larger than 4 MB"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn an_undeclared_oversized_body_stops_at_the_cap() {
+        let (base, _) = serve(|_| {
+            let body = format!(r#"{{"data":[{{"id":"{}"}}]}}"#, "a".repeat(5000));
+            format!("HTTP/1.1 200 X\r\ncontent-type: application/json\r\nconnection: close\r\n\r\n{body}")
+        })
+        .await;
+        let err = list_models_with(&client(), "openai", &base, "k", 1024).await.unwrap_err();
+        assert!(err.contains("larger than"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn redirects_are_not_followed() {
+        let (elsewhere, elsewhere_heads) = serve(|_| json(200, r#"{"data":[{"id":"stolen"}]}"#)).await;
+        let target = format!("{elsewhere}/v1/models");
+        let (base, _) = serve(move |_| {
+            format!("HTTP/1.1 302 Found\r\nlocation: {target}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+        })
+        .await;
+        let err = list_models_with(&client(), "anthropic", &base, "sk-ant-secret", MODEL_LIST_MAX_BYTES).await.unwrap_err();
+        assert!(err.starts_with("HTTP 302"), "{err}");
+        assert!(elsewhere_heads.lock().unwrap().is_empty(), "the key must not reach the redirect target");
+    }
+
+    #[tokio::test]
+    async fn the_key_is_taken_out_of_error_text() {
+        static CASE: AtomicUsize = AtomicUsize::new(0);
+        let (base, _) = serve(|_| match CASE.load(std::sync::atomic::Ordering::SeqCst) {
+            // A debug gateway echoing the whole key.
+            0 => json(401, r#"{"error":{"message":"Invalid API key: sk-or-v1-0123456789abcdef0123456789"}}"#),
+            // OpenAI's refusal: the key's ends around a row of asterisks.
+            1 => json(401, r#"{"error":{"message":"Incorrect API key provided: sk-or-v1********************6789. You can find your API key at https://platform.openai.com/account/api-keys."}}"#),
+            // A gateway that echoes a truncated key.
+            2 => json(401, r#"{"error":{"message":"unknown token sk-or-v1-0123456789abc for this route"}}"#),
+            // LiteLLM's refusal: the key abbreviated around "...".
+            3 => json(401, r#"{"error":{"message":"Received API Key = sk-...6789, Key Hash (Token) =9f2c"}}"#),
+            // An upper-cased truncated echo.
+            _ => json(401, r#"{"error":{"message":"bad token SK-OR-V1-0123456789ABC"}}"#),
+        })
+        .await;
+        let key = "sk-or-v1-0123456789abcdef0123456789";
+        for case in 0..5 {
+            CASE.store(case, std::sync::atomic::Ordering::SeqCst);
+            let err = list_models_with(&client(), "openai", &base, key, MODEL_LIST_MAX_BYTES).await.unwrap_err();
+            assert!(!err.to_ascii_lowercase().contains("0123456789"), "case {case}: {err}");
+            assert!(!err.contains("****"), "case {case}: {err}");
+            assert!(!err.contains("...6789"), "case {case}: {err}");
+            assert!(err.starts_with("HTTP 401: "), "case {case}: {err}");
+        }
+    }
+
+    #[test]
+    fn redaction_catches_short_keys_and_keeps_the_layout() {
+        // A short proxy master key, standing alone, any case, its punctuation kept.
+        assert_eq!(redact_key("invalid key `SK-1234`.\nretry", "sk-1234"), "invalid key `[key]`.\nretry");
+        assert_eq!(redact_key("Received API Key = sk-...6789, Key Hash", "sk-or-v1-0123456789"), "Received API Key = [key], Key Hash");
+        // Whitespace (newline, tab, double space) survives untouched.
+        assert_eq!(
+            redact_key("a\tb  c\nsk-or-v1-0123456789abcdef", "sk-or-v1-0123456789abcdef0123"),
+            "a\tb  c\n[key]"
+        );
+    }
+
+    #[test]
+    fn redaction_leaves_text_alone_when_there_is_nothing_to_hide() {
+        assert_eq!(redact_key("HTTP 404: url.not_found", "sk-anything-long-enough"), "HTTP 404: url.not_found");
+        assert_eq!(redact_key("Loading... please wait", "sk-anything-long-enough"), "Loading... please wait");
+        // A key too short to search for safely is not used as a pattern.
+        assert_eq!(redact_key("a key is required", "k"), "a key is required");
+        // Documented placeholder keys are not secrets and do not scrub words.
+        assert_eq!(redact_key("no models: try `ollama pull`", "ollama"), "no models: try `ollama pull`");
+        assert_eq!(redact_key("the list is empty", "EMPTY"), "the list is empty");
+    }
+
+    #[test]
+    fn a_null_list_from_a_server_with_no_models_is_an_empty_list() {
+        // Ollama with nothing pulled (Go writes a nil slice as null).
+        let v = serde_json::json!({ "object": "list", "data": null });
+        assert!(parse_openai_list(&v).unwrap().is_empty());
+        assert!(parse_anthropic_page(&v).unwrap().0.is_empty());
+    }
+
+    #[test]
+    fn a_null_list_never_hides_a_refusal_or_a_real_list() {
+        for refusal in [
+            serde_json::json!({ "code": 401, "msg": "token expired or incorrect", "data": null, "success": false }),
+            serde_json::json!({ "data": null, "error": { "message": "Incorrect API key provided" } }),
+            serde_json::json!({ "data": null, "success": false }),
+            serde_json::json!({ "code": 403, "data": null }),
+            // Refusal shapes no signal list would enumerate (review round 4).
+            serde_json::json!({ "data": null, "error": { "code": "invalid_api_key" } }),
+            serde_json::json!({ "data": null, "code": "401" }),
+            serde_json::json!({ "data": null, "status": 401, "detail": "Unauthorized" }),
+            serde_json::json!({ "data": null, "base_resp": { "status_code": 1004 } }),
+        ] {
+            assert!(parse_openai_list(&refusal).is_err(), "{refusal}");
+        }
+        let both = serde_json::json!({ "data": [{ "id": "gpt-5" }], "models": null });
+        assert_eq!(ids(&parse_openai_list(&both).unwrap()), ["gpt-5"]);
+    }
+
+    #[tokio::test]
+    async fn cleartext_to_a_public_host_is_refused_before_any_request() {
+        let err = list_models_with(&client(), "openai", "http://example.com/v1", "k", MODEL_LIST_MAX_BYTES)
+            .await
+            .unwrap_err();
+        assert!(err.contains("non-HTTPS"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn an_empty_key_is_refused_without_a_request() {
+        let err = list_models_with(&client(), "anthropic", "", "  ", MODEL_LIST_MAX_BYTES).await.unwrap_err();
+        assert!(err.contains("No API key"), "{err}");
+    }
+
+    #[test]
+    fn dates_are_scaled_to_seconds_and_range_checked() {
+        let s = 1_727_000_000_i64; // 2024-09-22
+        assert_eq!(plausible_secs(s), Some(s));
+        assert_eq!(plausible_secs(s * 1_000), Some(s), "ms");
+        assert_eq!(plausible_secs(s * 1_000_000), Some(s), "us");
+        assert_eq!(plausible_secs(s * 1_000_000_000), Some(s), "ns (the value that crashed the picker)");
+        for bad in [0, -5, 5_000_000_000, i64::MAX] {
+            assert_eq!(plausible_secs(bad), None, "{bad}");
+        }
+        assert_eq!(created_from_number(&serde_json::json!(1e300)), None);
+        assert_eq!(created_from_number(&serde_json::json!(1_727_000_000.5)), Some(s));
+        assert_eq!(created_from_rfc3339("9999-12-31T23:59:59Z"), None, "past 2100");
+        assert_eq!(created_from_rfc3339("1970-01-01T00:00:00Z"), None, "Anthropic's unknown date");
+    }
+
+    #[test]
+    fn hostile_ids_are_dropped_not_repaired() {
+        let v = serde_json::json!({ "data": [
+            { "id": "ok-model:1" },
+            { "id": "bad\nid" },
+            { "id": "<img src=x onerror=alert(1)>" },
+            { "id": "has space" },
+            { "id": "\"quoted\"" },
+            { "id": "$(rm -rf ~)" },
+            { "id": "a".repeat(201) },
+            { "id": "" },
+            { "id": 42 },
+            { "name": "named/only:latest" },
+        ]});
+        assert_eq!(ids(&parse_openai_list(&v).unwrap()), ["ok-model:1", "named/only:latest"]);
+    }
+
+    #[test]
+    fn names_lose_control_and_bidi_characters() {
+        assert_eq!(clean_model_name("Claude\u{202E}evil\u{0007} Opus\u{061C}"), Some("Claudeevil Opus".into()));
+        assert_eq!(clean_model_name(" \u{200B} "), None);
+        assert_eq!(clean_model_name(&"x".repeat(500)).map(|s| s.len()), Some(120));
+    }
+
+    #[test]
+    fn list_shapes_bare_array_and_models_key_and_no_list() {
+        let bare = serde_json::json!([{ "id": "together/m1", "created": 1700000000 }]);
+        assert_eq!(ids(&parse_openai_list(&bare).unwrap()), ["together/m1"]);
+        let models_key = serde_json::json!({ "models": [{ "name": "llama3.1:8b" }] });
+        assert_eq!(ids(&parse_openai_list(&models_key).unwrap()), ["llama3.1:8b"]);
+        let err = parse_openai_list(&serde_json::json!({ "error": "nope" })).unwrap_err();
+        assert_eq!(err, "The provider answered without a model list: nope");
+        assert!(parse_anthropic_page(&serde_json::json!({ "type": "error" })).is_err());
+        // An honest empty list is still a list.
+        assert!(parse_openai_list(&serde_json::json!({ "data": [] })).unwrap().is_empty());
+    }
+
+    #[test]
+    fn openrouter_names_are_kept_when_they_differ_from_the_id() {
+        let v = serde_json::json!({ "data": [
+            { "id": "anthropic/claude-opus-5.5", "name": "Anthropic: Claude Opus 5.5", "created": 1760000000 },
+            { "id": "same", "name": "same" },
+        ]});
+        let m = parse_openai_list(&v).unwrap();
+        assert_eq!(m[0].name.as_deref(), Some("Anthropic: Claude Opus 5.5"));
+        assert_eq!(m[1].name, None);
+    }
+
+    #[test]
+    fn anthropic_page_without_has_more_has_no_cursor() {
+        let (m, next) = parse_anthropic_page(&serde_json::json!({ "data": [{ "id": "a" }], "last_id": "a" })).unwrap();
+        assert_eq!(ids(&m), ["a"]);
+        assert_eq!(next, None);
+    }
+}

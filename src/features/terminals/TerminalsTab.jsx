@@ -14,7 +14,8 @@ import MenuBar from "./chrome/MenuBar.jsx";
 import ModalHost from "./chrome/ModalHost.jsx";
 import Toolbar from "./chrome/Toolbar.jsx";
 import { usePaletteCommands } from "./chrome/usePaletteCommands.jsx";
-import { PROVIDERS, findProvider } from "./providers.js";
+import { PROVIDERS, findProvider, resolveBaseUrl } from "./providers.js";
+import { phoneModelIds, readModelCache, refreshStaleLists, useModelCacheVersion } from "./modelCatalog.js";
 import LocalFileBrowser from "./LocalFileBrowser";
 import DockAssistant from "./DockAssistant";
 import DockMonitor from "./DockMonitor";
@@ -666,21 +667,45 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Phone companion: publish the model catalog + active selection. ONLY a `hasKey`
   // boolean per provider crosses the wire — the API keys never leave this
   // localStorage. The phone's picker sets `activeModel` (which the next spawned
-  // shell routes to), exactly like the desktop ModelPicker.
+  // shell routes to), exactly like the desktop ModelPicker. The lists are the
+  // same live ones the desktop picker shows (modelCatalog.js), capped per
+  // provider; `modelCacheVersion` re-derives this when a list lands.
+  const modelCacheVersion = useModelCacheVersion();
   const modelsJson = useMemo(() => {
     const keys = userSt?.providerKeys || {};
-    const providers = PROVIDERS.map((pp) => ({
-      id: pp.id,
-      label: pp.label,
-      models: pp.models || [],
-      hasKey: typeof keys[pp.id] === "string" && keys[pp.id].length > 0,
-    }));
+    const bases = userSt?.providerBaseUrls || {};
+    const cache = readModelCache();
+    const providers = PROVIDERS.map((pp) => {
+      const hasKey = typeof keys[pp.id] === "string" && keys[pp.id].length > 0;
+      return {
+        id: pp.id,
+        label: pp.label,
+        // A keyless provider shows its built-in list, as the desktop picker does.
+        models: phoneModelIds(pp, hasKey ? cache[pp.id] : null, resolveBaseUrl(pp, bases[pp.id]), userSt?.activeModel),
+        hasKey,
+      };
+    });
     return JSON.stringify({ active: userSt?.activeModel || null, providers });
-  }, [userSt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- modelCacheVersion is the cache's change signal
+  }, [userSt, modelCacheVersion]);
   useEffect(() => {
     if (!isPrimaryWindow()) return; // primary window owns the mirror
     invoke("companion_set_models", { models: modelsJson }).catch(() => {});
   }, [modelsJson]);
+
+  // Model lists: once per launch, a few seconds after boot settles, refresh
+  // any provider list older than 12 h for the providers that have a key, so a
+  // model released since the last look is already there when the picker (or
+  // the phone's) opens. Quiet: a failure is recorded on that provider's entry
+  // and shown in the picker, never toasted. https endpoints only, and keys are
+  // read per provider at the moment of asking (see refreshStaleLists). Primary
+  // window only, like the other singletons here; the cache is shared, so other
+  // windows see the result.
+  useEffect(() => {
+    if (!isPrimaryWindow()) return;
+    const t = setTimeout(() => { refreshStaleLists().catch(() => {}); }, 8000);
+    return () => clearTimeout(t);
+  }, []);
 
   // Phone companion → "new session" requests. The phone can't spawn a PTY itself,
   // so companion.rs emits this event and the desktop opens the tab (which spawns

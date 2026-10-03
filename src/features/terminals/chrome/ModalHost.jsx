@@ -28,6 +28,7 @@ import RdpConnectModal from "../RdpConnectModal";
 import OnboardingOverlay from "../OnboardingOverlay";
 import SettingsModal from "../../../components/SettingsModal.jsx";
 import { PaneBoundary } from "../../../components/ErrorBoundary.jsx";
+import { useToast } from "../../../components/Toast.jsx";
 import McpInstaller from "../../../components/McpInstaller.jsx";
 import SetupChecker from "../../../components/SetupChecker.jsx";
 import CommandPalette from "../../../components/CommandPalette.jsx";
@@ -89,6 +90,7 @@ function ModalHost({
   // MasterPassword fields, Settings' stale skin initializer). AgentMode stays
   // mounted: its agent loop lives in component state — unmounting mid-run
   // orphans the loop and hangs its next approval forever.
+  const toast = useToast();
   return (
     <>
       {(tunnelsOpen) && (
@@ -180,13 +182,29 @@ function ModalHost({
         </PaneBoundary>
       )}
 
+      {/* The picker renders lists fetched from provider endpoints (some
+          user-entered), so it gets its own boundary: a render throw there
+          must not reach the app-wide one, which kills every live session.
+          The picker also guards its own content inside the dialog; this outer
+          one only catches a throw above that, and its in-flow fallback would
+          sit clipped below the window, so it closes Models instead, says so
+          (a silent close reads as a dead button), and the next open mounts a
+          fresh picker. */}
       {(modelsOpen) && (
-        <ModelPicker
-          open={modelsOpen}
-          userSt={userSt}
-          saveUser={saveUser}
-          onClose={() => setModelsOpen(false)}
-        />
+        <PaneBoundary
+          label="Models"
+          onError={() => {
+            setModelsOpen(false);
+            toast.error("Models hit an error and was closed. Your sessions are unaffected.");
+          }}
+        >
+          <ModelPicker
+            open={modelsOpen}
+            userSt={userSt}
+            saveUser={saveUser}
+            onClose={() => setModelsOpen(false)}
+          />
+        </PaneBoundary>
       )}
 
       {(askOpen) && (

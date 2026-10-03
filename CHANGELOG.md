@@ -1,5 +1,56 @@
 # Changelog
 
+## v0.7.2: New models show up without an app update (2026-10-03)
+
+The Models picker now shows each provider's own, current model list, so a
+model released after this build appears on its own. Built with two independent
+reviewers over four rounds; every finding was fixed and given a test that fails
+without the fix.
+
+### Added
+- **New models show up without an app update.** The Models picker only knew
+  the model ids typed into the app when it was built, so v0.7.1 stopped at
+  Claude Opus 4.8 and anything released after it (Claude Opus 5.5, Sonnet 5.5,
+  Fable 5.1) could only be reached by typing its id. Once a provider's key is
+  set, the picker now shows the list that provider publishes for that key,
+  newest first, and models released in the last 30 days carry a "new" label.
+  The list is cached, refreshed when the row is opened and it is over an hour
+  old, and has a Refresh button. Once per launch the app also refreshes, in
+  the background, any list over 12 hours old, over https only, and an address
+  that has never answered is not asked again at launch after its first
+  failure. So a key is never sent unattended over plain http, or resent at
+  every launch to an address that has never answered. The built-in list shows
+  before a key is entered. If a fetch fails, the last list from that address
+  stays, with the reason; with no earlier list, the built-in one shows. An
+  address that answers 404 has no list there (Moonshot's Claude-compatible
+  address is one):
+  it keeps the built-in list, opening its row asks again only after a week,
+  and Retry asks at once. Embedding, speech, image and moderation models are
+  left out (they can still be typed). A long list gets a filter box. The phone
+  companion's picker shows the same lists.
+- The request goes from the app's backend, with the same key and endpoint a
+  new shell would use and the same rule that refuses to send a key over plain
+  http to a public address. It never follows a redirect, since reqwest keeps
+  the `x-api-key` header across hosts. A provider's error wording is never
+  stored: the cache keeps only a fixed summary such as "HTTP 401", and the full
+  text shows for the current session only, with the key taken out of the
+  usual echo forms (the whole key, a truncated one, one masked with asterisks,
+  one abbreviated around "..."; OpenAI and LiteLLM both quote part of the key
+  back). Ids in a provider's list that contain anything a real model id never
+  does (spaces, quotes, angle brackets, control characters) are dropped, and
+  release dates outside 1970 to 2100 are ignored. A response over 4 MB is
+  refused; the largest real list, OpenRouter's, is 0.76 MB.
+- The Models dialog catches its own render errors. A failure there used to
+  reach the app-wide error screen, which closes every terminal and SSH
+  session. Now a failure in a provider's row shows inside the dialog, any
+  other failure in the dialog closes it with a notice, and no session is
+  touched either way. The fallback that shows on such an error also follows
+  the skin now, so it reads on the light skins.
+
+### Changed
+- The built-in Anthropic list is current: Claude Opus 5.5, Sonnet 5.5,
+  Fable 5.1, Haiku 4.5, Opus 5, Sonnet 5 and Opus 4.8.
+
 ## v0.7.1: Dictation support, cloud-sync hardening, secret-masking coverage (2026-09-18)
 
 Everything an external code audit of v0.7.0 found, verified against the source

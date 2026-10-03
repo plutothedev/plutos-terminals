@@ -7,8 +7,12 @@
 //       ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN (or ANTHROPIC_API_KEY) + ANTHROPIC_MODEL
 //   - kind "openai" / "openai-compat"  →  Codex & OpenAI-style tools read
 //       OPENAI_BASE_URL + OPENAI_API_KEY + OPENAI_MODEL
-// Model IDs drift fast, so every provider also accepts a custom model id in the
-// UI. The "custom" provider (allowBaseUrl) lets the user point at ANY
+// Model IDs drift fast. The `models` below are only the BUILT-IN fallback: once
+// a provider has a key, the picker shows the list the provider itself publishes
+// (modelCatalog.js -> llm_list_models), so a model released after this build
+// still appears. These lists show before a key is entered, or when a provider
+// has no list endpoint or the fetch fails. Every provider also accepts a typed
+// model id. The "custom" provider (allowBaseUrl) lets the user point at ANY
 // OpenAI-compatible endpoint — Hermes' "or any endpoint" escape hatch.
 // Base URLs verified against https://hermes-agent.nousresearch.com/docs/integrations/providers
 
@@ -19,7 +23,11 @@ export const PROVIDERS = [
     kind: "anthropic",
     runsWith: "Claude Code",
     keysUrl: "https://console.anthropic.com/settings/keys",
-    models: ["claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+    // Current generation first. Ids from Anthropic's model catalog (2026-09-25).
+    models: [
+      "claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-4-5-20251001",
+      "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8",
+    ],
   },
   {
     id: "nous",
@@ -169,8 +177,10 @@ export function findProvider(id) {
 }
 
 // Resolve the base URL for a provider: a user-supplied override (custom
-// endpoints, regional mirrors) wins over the catalog default.
-function resolveBaseUrl(p, override) {
+// endpoints, regional mirrors) wins over the catalog default. Exported for
+// modelCatalog.js, which must list models from the same endpoint a spawned
+// shell will route to.
+export function resolveBaseUrl(p, override) {
   const o = typeof override === "string" ? override.trim() : "";
   return o || p.baseUrl || "";
 }
