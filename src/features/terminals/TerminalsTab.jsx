@@ -39,7 +39,7 @@ import { useSftpDock } from "./hooks/useSftpDock.js";
 import { useRemoteDesktopLaunch } from "./hooks/useRemoteDesktopLaunch.js";
 import { useSshConnect } from "./hooks/useSshConnect.js";
 import { useProjects } from "./hooks/useProjects.js";
-import { useTabTelemetry } from "./hooks/useTabTelemetry.js";
+import { useTabTelemetry, projectIndexOf } from "./hooks/useTabTelemetry.js";
 import { useWorkspaceTree } from "./hooks/useWorkspaceTree.js";
 import { useSessionDispatch } from "./hooks/useSessionDispatch.js";
 import { useWorkspaces } from "./hooks/useWorkspaces.js";
@@ -58,7 +58,7 @@ import { hasUnsavedRemoteEdits } from "./remoteEditDirty.js";
 import { writeToTab, writeBroadcast, getTabText, getPtyId } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
 import { navigatePane } from "./paneNav.js";
-import { resolveActivePaneId, allPaneTargets, findPaneOwner } from "./activePane.js";
+import { resolveActivePaneId, allPaneTargets, findPaneOwner, activeSshContext, paneSessionLabel } from "./activePane.js";
 import { nextTabId, tabIdAt } from "./tabNav.js";
 import { reconcile, getEntry } from "./paneRegistry.js";
 import { allRenderedPaneIds, isSpecialTab } from "./paneIds.js";
@@ -253,18 +253,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     };
   }, [state.panels]);
 
-  // Root-pane→project index for the activity store's project rollups (P2-T1).
-  // Root tab ids only — today's rollup semantics. Rebuilt on layout/project
-  // changes, which re-render everything anyway; the store routes per-write
-  // project notifications through it.
+  // Pane→project index for the activity store's project rollups (P2-T1): every
+  // pane that belongs to a saved session, a tab's root pane or one folded in by
+  // drag-to-split (projectIndexOf). Rebuilt on layout/project changes, which
+  // re-render everything anyway; the store routes per-write project
+  // notifications through it.
   useEffect(() => {
-    const idx = new Map();
-    for (const panel of state.panels) {
-      for (const tab of panel.tabs || []) {
-        if (tab.projectId) idx.set(tab.id, tab.projectId);
-      }
-    }
-    setProjectIndex(idx);
+    setProjectIndex(projectIndexOf(state.panels));
   }, [state.panels, projects]);
 
   // Session-restore confirmation toast — fires once per app launch (not per
@@ -428,7 +423,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Claude /cost telemetry (transient) + per-tab project maps. Activity lives
+  // Claude /cost telemetry (transient) + pane-keyed project maps. Activity lives
   // in activityStore (P2-T1) — consumers subscribe to their own slice.
   const {
     tabCosts,
@@ -571,6 +566,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // inline (ModalHost's `activeTab?.activePaneId || activeTabId`) and is now
   // fed from here like everything else.
   const activePaneId = resolveActivePaneId(activeTab);
+  // The SSH session the tab-wide tools act on (SFTP dock, tunnels, the net
+  // tools' host, the Port forwarding menu): the focused pane's own connection,
+  // else the tab's root one. See activeSshContext.
+  const activeSsh = useMemo(() => activeSshContext(activeTab), [activeTab]);
   // Recordings are pane-keyed too, so the status bar's "is the focused terminal
   // the one recording?" test has to ask about the pane, not the tab.
   const activeTabRecording = activePaneId ? recordingTabIds.includes(activePaneId) : false;
@@ -633,7 +632,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           out.push({
             id,
             tabId: leafId,
-            label: leaves.length > 1 ? `${tab.label || "shell"} ·${i + 1}` : tab.label || "shell",
+            // Names the machine a remote pane types into (paneSessionLabel).
+            label: paneSessionLabel(tab, leafId, i, leaves.length),
             active,
           });
         });
@@ -760,7 +760,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // ── SFTP remote file browser (Phase 3) ─────────────────────────────────
   // Bound to the active SSH tab; connects/disconnects automatically (see
   // useSftpDock). dockTab/setDockTab stay here — the right-dock JSX uses them.
-  const { sftp, focusFilesDock } = useSftpDock({ activeTab, activeTabId, dockTab, setDockTab });
+  const { sftp, focusFilesDock } = useSftpDock({ ssh: activeSsh, dockTab, setDockTab });
 
   // Secondary left panel selection (Snippets / Agents). "files" focuses the
   // right dock's SFTP tab. "sessions" is a no-op — the tree is always docked.
@@ -798,7 +798,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   }, [activePaneId, broadcast, toast]);
 
   // ── SSH port forwarding (tunnels) ───────────────────────────────────────
-  const { tunnelsOpen, setTunnelsOpen, forwards, tunnelBusy, tunnelError, openTunnels, startForward, startSocks, stopForward } = useTunnels({ activeTab, activeTabId, toast });
+  const { tunnelsOpen, setTunnelsOpen, forwards, tunnelBusy, tunnelError, openTunnels, startForward, startSocks, stopForward } = useTunnels({ ssh: activeSsh, toast });
 
   // ── VNC / RDP / serial connect + launch (modal-driven) — see
   // useRemoteDesktopLaunch. setVncLaunch / setRdpLaunch are returned so
@@ -1114,6 +1114,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         equalizePanes={equalizePanes}
         closeTab={guardedCloseTab}
         activeTab={activeTab}
+        activeSsh={activeSsh}
         panels={state.panels}
         activePanelId={state.activePanelId}
         importSshConfig={importSshConfig}
@@ -1155,6 +1156,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       <Toolbar
         activeTabId={activeTabId}
         activeTab={activeTab}
+        activeSsh={activeSsh}
         splitPane={splitPane}
         broadcast={broadcast}
         toggleBroadcast={toggleBroadcast}
@@ -1304,7 +1306,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                   <DockAssistant onSendToTerminal={sendToActiveTerminal} shellName={shellName} cwd={activeTab?.cwd} prompts={savedPrompts} />
                 ) : dockTab === "monitor" ? (
                   <DockMonitor sysStats={sysStats} panels={state.panels} />
-                ) : activeTab?.connection ? (
+                ) : activeSsh ? (
                   <SftpBrowser
                     docked
                     connecting={sftp?.connecting}
@@ -1414,6 +1416,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         sharesOpen={sharesOpen}
         setSharesOpen={setSharesOpen}
         activeTab={activeTab}
+        activeSsh={activeSsh}
         activePaneId={activePaneId}
         shellName={shellName}
         insertSnippet={insertSnippet}

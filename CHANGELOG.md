@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **SSH and serial tabs can be dragged into a split.** Dragging a tab onto
+  the edge of another tab's pane used to work only for local terminal tabs.
+  An SSH or serial tab now folds in the same way: its live session carries on
+  in the new pane, and after a restart that pane comes back as itself (same
+  host or port, folder and start commands) instead of as a local shell. A
+  password login needs its password again after a restart, as an SSH tab
+  does. The folded pane keeps its saved session's auto-approve setting and
+  its project's status in the sidebar, and keeps writing the same transcript.
+- **Detaching a tab to a new window keeps all of its panes.** Each pane
+  re-spawns as itself in the new window; detach used to keep only the first
+  pane and close the rest. A password login needs its password again in the
+  new window, as a detached SSH tab always has.
+
+### Fixed
+- **Every pane is labelled with the machine it really runs on.** The
+  broadcast-typing picker, the SFTP file dock, port forwarding and the
+  network tools all assumed that only a tab's first pane could be remote. The
+  broadcast picker now labels each pane with its own address (and serial
+  panes with their port, which they never had), and the dock, port forwarding
+  and the network tools follow the focused pane, so a remote pane folded into
+  a local tab gets its own files and tunnels. A local pane split off an SSH
+  tab keeps the dock on that tab's host, as before. An address reads
+  user@host, plus the port when it is not 22, since two ports behind one
+  router are often two machines.
+- **The phone companion names the machine behind each session.** A remote
+  pane's entry now shows its address or serial port unless it is the tab's
+  own first pane and the tab's name already says it, so a production shell
+  folded into a local tab cannot read as just "work ·2" on the phone. A local
+  pane split off an SSH or serial tab now reads "(local)", so it cannot pass
+  for the remote machine the tab is named after.
+- Closing a tab or a panel clears the in-memory SSH password of every pane in
+  it, closing a folded-in SSH pane clears that pane's, and reopening a closed
+  tab restores every pane's password, not just the first one's.
+- Agent worktree tabs take no part in drag-to-split, in either direction. The
+  worktree's Discard finds the tabs using it by their tab, so a folded-away
+  worktree pane would have been missed and left running in the folder Discard
+  deletes, and a pane folded into a worktree tab would have been closed by a
+  Discard that never mentioned it.
+
 ## v0.7.2: New models show up without an app update (2026-10-03)
 
 The Models picker now shows each provider's own, current model list, so a

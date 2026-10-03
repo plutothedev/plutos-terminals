@@ -1,7 +1,7 @@
 // (C)
 import { describe, it, expect } from "vitest";
 import { leafRects, navigatePane } from "./paneNav.js";
-import { equalizeRatios, splitLeaf } from "./splitTree.js";
+import { equalizeRatios, splitLeaf, mapLeaves } from "./splitTree.js";
 
 // A | B side by side.
 const row = (a, b, ratio = 0.5, id = "s1") => ({ id, dir: "row", ratio, a, b });
@@ -108,5 +108,22 @@ describe("equalizeRatios / splitLeaf newFirst (splitTree additions)", () => {
     const after = splitLeaf(row(L("a"), L("b"), 0.5, "s1"), "b", "col", sub, "s9");
     expect(after.b.b).toEqual(sub);
     expect(after.b.a).toEqual(L("b"));
+  });
+
+  it("mapLeaves transforms targeted leaves and preserves structure", () => {
+    const tree = row(L("root"), col(L("x"), L("y"), 0.7, "s2"), 0.4, "s1");
+    // Stamp spawn config onto the "root" leaf only: the drag-to-split use.
+    const stamped = mapLeaves(tree, (leaf) =>
+      leaf.id === "root" ? { ...leaf, connection: { host: "box" } } : leaf
+    );
+    expect(stamped.a).toEqual({ id: "root", connection: { host: "box" } });
+    expect(stamped.b.a).toEqual(L("x")); // untouched leaves pass through
+    expect(stamped.ratio).toBe(0.4); // split nodes + ratios preserved
+    expect(stamped.b.ratio).toBe(0.7);
+    expect(tree.a).toEqual(L("root")); // input not mutated
+    // Identity fn = structural clone with identical content.
+    expect(mapLeaves(tree, (l) => l)).toEqual(tree);
+    // Single-leaf tree: fn applies to the root itself.
+    expect(mapLeaves(L("only"), (l) => ({ ...l, cwd: "/w" }))).toEqual({ id: "only", cwd: "/w" });
   });
 });

@@ -65,6 +65,15 @@ export function removeLeaf(node, targetId) {
   return { ...node, a, b };
 }
 
+// Structure-preserving map over every leaf. `fn` returns the (possibly new)
+// leaf; splits are rebuilt around the results. Used by drag-to-split to stamp
+// a folded tab's spawn config onto its root leaf.
+export function mapLeaves(node, fn) {
+  if (!node) return node;
+  if (isLeaf(node)) return fn(node);
+  return { ...node, a: mapLeaves(node.a, fn), b: mapLeaves(node.b, fn) };
+}
+
 // Reset every split's divider to 0.5 ("Equalize splits").
 export function equalizeRatios(node) {
   if (!node || isLeaf(node)) return node;

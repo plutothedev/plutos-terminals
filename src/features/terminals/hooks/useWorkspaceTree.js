@@ -17,9 +17,21 @@ import { getWindowStorageKey } from "../storageKeys.js";
 import { freshId } from "../ids.js";
 import { defaultPanel, renumberDefaultLabels, removeTabsFromWorkspace } from "../workspaceModel.js";
 import { isSpecialTab } from "../paneIds.js";
-import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio, equalizeRatios } from "../splitTree";
+import { paneSpawnConfig } from "../activePane.js";
+import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio, equalizeRatios, mapLeaves } from "../splitTree";
 import { MAX_PANELS } from "../grid";
 import { humanizeError } from "../errorText.js";
+
+// Every key a tab's transient SSH passwords can live under: the tab's own id
+// (its root pane, even after closePane collapsed that pane away) plus every
+// pane in its layout. An SSH tab folded in by drag-to-split keeps its password
+// under its pane id (the leaf keeps the folded tab's id), so clearing only
+// `tab.id` would leave that password in memory after the tab closed, and
+// stashing only `tab.id` would reopen a merged SSH pane unable to log in.
+export function passwordKeysOf(tab) {
+  if (!tab) return [];
+  return [...new Set([tab.id, ...leafIds(getLayout(tab))])];
+}
 
 export function useWorkspaceTree({ state, persist, toast }) {
   // Recently-closed tabs, for reopen (Ctrl+Shift+T). Stash the tab config + where
@@ -57,7 +69,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
     // respawns the same tab id in another panel — keeps its password.
     const st = stateRef.current;
     const closing = st.panels.find(p => p.id === panelId);
-    if (closing) closing.tabs.forEach(t => clearTabPassword(t.id));
+    if (closing) closing.tabs.forEach(t => passwordKeysOf(t).forEach(clearTabPassword));
     const panels = st.panels.filter(p => p.id !== panelId);
     if (panels.length === 0) {
       const panel = defaultPanel();
@@ -175,15 +187,21 @@ export function useWorkspaceTree({ state, persist, toast }) {
     }
     const closedIdx = target.tabs.findIndex(t => t.id === tabId);
     const closedTab = target.tabs[closedIdx];
+    const keys = closedTab ? passwordKeysOf(closedTab) : [tabId];
     if (stash && closedTab && !closedTab.home) {
-      // Stash the tab's transient SSH password (in-memory only, never persisted)
-      // alongside the recently-closed record — clearTabPassword below drops it
-      // from the bridge, and without the stash Ctrl+Shift+T reopened an SSH tab
-      // that could no longer authenticate.
-      recentlyClosedRef.current.push({ panelId, index: closedIdx, tab: closedTab, password: getTabPassword(tabId) });
+      // Stash every pane's transient SSH password (in-memory only, never
+      // persisted) alongside the recently-closed record: clearTabPassword below
+      // drops them from the bridge, and without the stash Ctrl+Shift+T reopened
+      // an SSH tab (or a merged SSH pane) that could no longer authenticate.
+      const passwords = {};
+      for (const id of keys) {
+        const pw = getTabPassword(id);
+        if (pw != null) passwords[id] = pw;
+      }
+      recentlyClosedRef.current.push({ panelId, index: closedIdx, tab: closedTab, passwords });
       if (recentlyClosedRef.current.length > 12) recentlyClosedRef.current.shift();
     }
-    clearTabPassword(tabId); // tab genuinely leaving; closePanel handles the 1-tab case
+    keys.forEach(clearTabPassword); // tab genuinely leaving; closePanel handles the 1-tab case
     const panels = st.panels.map(p => {
       if (p.id !== panelId) return p;
       const tabs = renumberDefaultLabels(p.tabs.filter(t => t.id !== tabId));
@@ -211,7 +229,10 @@ export function useWorkspaceTree({ state, persist, toast }) {
     const st = stateRef.current;
     const next = removeTabsFromWorkspace(st, pairs);
     if (!next) return;
-    next.removedTabIds.forEach(clearTabPassword);
+    const byId = new Map(st.panels.flatMap((p) => p.tabs.map((t) => [t.id, t])));
+    for (const id of next.removedTabIds) {
+      (byId.has(id) ? passwordKeysOf(byId.get(id)) : [id]).forEach(clearTabPassword);
+    }
     persist({ ...st, panels: next.panels, activePanelId: next.activePanelId });
   }, [persist]);
 
@@ -222,9 +243,10 @@ export function useWorkspaceTree({ state, persist, toast }) {
     const st = stateRef.current;
     const last = recentlyClosedRef.current.pop();
     if (!last) return;
-    // Restore the SSH password stashed at close time so the respawned session
-    // can authenticate without re-prompting (in-memory only, app-run lifetime).
-    if (last.password != null) setTabPassword(last.tab.id, last.password);
+    // Restore the SSH passwords stashed at close time, one per pane, so the
+    // respawned sessions can authenticate without re-prompting (in-memory
+    // only, app-run lifetime).
+    for (const [id, pw] of Object.entries(last.passwords || {})) setTabPassword(id, pw);
     const hasPanel = st.panels.some(p => p.id === last.panelId);
     const pid = hasPanel ? last.panelId : st.activePanelId;
     const panels = st.panels.map(p => {
@@ -292,9 +314,13 @@ export function useWorkspaceTree({ state, persist, toast }) {
 
   // Detach a tab into its own window: write a one-panel state under the new
   // window's per-window key (App reads `…:state:v0:<w>`), close the tab here,
-  // then open the window. The session re-spawns from its saved config (cwd /
-  // connection / start commands) — a fresh process, not a live hand-off, since
-  // the running PTY id isn't persisted.
+  // then open the window. Every pane re-spawns from its saved config (cwd /
+  // connection / serial / start commands): a fresh process, not a live
+  // hand-off, since the running PTY id isn't persisted. The split layout goes
+  // along. It used to be dropped, which cost only local shells while every
+  // non-root pane was one; an SSH or serial tab folded in by drag-to-split
+  // carries its transport on its leaf, and dropping the layout would close
+  // that session without a word.
   const detachTab = useCallback(async (panelId, tabId) => {
     const st = stateRef.current;
     const panel = st.panels.find(p => p.id === panelId);
@@ -303,7 +329,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
     if (src.home) { toast.info("Open a session in this tab first, then detach it."); return; }
     const winId = `${Date.now().toString(36)}`.slice(-6);
     const newPanelId = freshId("panel");
-    const tabCopy = { ...src, layout: undefined, activePaneId: undefined };
+    const tabCopy = { ...src };
     const newState = {
       panels: [{ id: newPanelId, tabs: [tabCopy], activeTabId: tabCopy.id }],
       activePanelId: newPanelId,
@@ -338,7 +364,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
     if (!panel) return;
     const kept = panel.tabs.filter(t => t.id === keepTabId);
     if (kept.length === 0) return;
-    panel.tabs.forEach(t => { if (t.id !== keepTabId) clearTabPassword(t.id); });
+    panel.tabs.forEach(t => { if (t.id !== keepTabId) passwordKeysOf(t).forEach(clearTabPassword); });
     const panels = st.panels.map(p =>
       p.id === panelId ? { ...p, tabs: renumberDefaultLabels(kept), activeTabId: keepTabId } : p
     );
@@ -451,6 +477,11 @@ export function useWorkspaceTree({ state, persist, toast }) {
       return;
     }
     const next = removeLeaf(layout, paneId);
+    // A merged SSH pane (drag-to-split) keeps its password under its own id, so
+    // it leaves with the pane. The root pane's password stays: it is keyed by
+    // the tab id, and the dock tools still fall back to the tab's connection
+    // (activeSshContext) after the root pane closes, as they always have.
+    if (paneId !== tabId) clearTabPassword(paneId);
     const remaining = leafIds(next);
     let activePaneId = tab.activePaneId || tab.id;
     if (!remaining.includes(activePaneId)) activePaneId = remaining[0];
@@ -513,10 +544,12 @@ export function useWorkspaceTree({ state, persist, toast }) {
   // Every pane keeps its id, so the pane registry re-parents the live PTYs;
   // nothing respawns. `newFirst` puts the incoming panes on the left/top side.
   //
-  // v1 gate (mirrored in TerminalPanel's canSplitDropTab): plain local tabs
-  // only. Leaves don't carry connection/serial config — a merged remote tab
-  // would keep its live session now but silently respawn as a local shell
-  // after an app restart, so remote tabs keep the move-to-panel drop instead.
+  // The dragged tab's spawn config (connection / serial / cwd / startCommands /
+  // systemPrompt) is stamped onto its root leaf so the pane respawns correctly
+  // after an app restart: TerminalPanel reads non-root leaf config from the
+  // leaf itself (paneSpawnConfig). The tab-wide tools (SFTP dock, tunnels,
+  // network tools) follow the focused pane's own connection (activeSshContext),
+  // so a merged SSH pane gets its own files and tunnels.
   const moveTabIntoSplit = useCallback((draggedTabId, targetTabId, targetPaneId, dir, newFirst = false) => {
     const st = stateRef.current;
     if (draggedTabId === targetTabId) return;
@@ -527,10 +560,16 @@ export function useWorkspaceTree({ state, persist, toast }) {
     const target = tgtPanel.tabs.find((t) => t.id === targetTabId);
     if (!dragged || !target) return;
     // Terminal tabs only, both sides (home/vnc/rdp/notebook render special
-    // views, not a pane tree). The caller also gates on connection/serial for
-    // the dragged tab; re-checking the structural half here keeps the op safe
-    // for any future caller.
-    if (isSpecialTab(dragged) || isSpecialTab(target)) return;
+    // views, not a pane tree). Local, SSH and serial tabs may all be folded in:
+    // the dragged tab's spawn fields are stamped onto its leaf below. Agent
+    // worktree tabs take no part, in either direction. Discard finds the tabs
+    // using a worktree by their tab-level `worktree` field (TerminalsTab
+    // discardWorktree): a worktree tab folded away would be missed and left
+    // running in the folder Discard deletes, and a pane folded INTO a worktree
+    // tab would be closed by a Discard that never mentioned it. TerminalPanel
+    // mirrors both rules (canSplitDrop, data-pane-no-fold); re-checking here
+    // keeps the op safe for any future caller.
+    if (isSpecialTab(dragged) || isSpecialTab(target) || dragged.worktree || target.worktree) return;
     const targetLayout = getLayout(target);
     const targetIds = new Set(leafIds(targetLayout));
     if (!targetIds.has(targetPaneId)) return;
@@ -538,8 +577,34 @@ export function useWorkspaceTree({ state, persist, toast }) {
     // would duplicate one. Can't happen through the UI; cheap to keep honest.
     if (leafIds(getLayout(dragged)).some((id) => targetIds.has(id))) return;
 
+    // Stamp what the dragged tab's root pane runs onto that pane's leaf (its
+    // id is the tab id; getLayout's implicit leaf and every stored layout's
+    // first split both preserve that), read through paneSpawnConfig, the same
+    // reader TerminalPanel spawns from, so what is stamped is exactly what was
+    // running. From here on the pane is a non-root leaf of the target tab and
+    // reads its own fields: the live session carries on, and after a restart
+    // it respawns as itself (SSH, serial, cwd, start commands) instead of as a
+    // local shell. Only set fields are copied, so plain local leaves stay lean.
+    // The pane's other leaves already carry their own fields. A root pane that
+    // closePane collapsed away has no leaf, and nothing is stamped.
+    const rootSpawn = paneSpawnConfig(dragged, dragged.id);
+    // closePane keeps a closed root pane's password under the tab id (the dock
+    // tools fall back to the tab's connection). Once this tab is folded away,
+    // nothing can resolve that id again, so drop the password with the tab.
+    if (!leafIds(getLayout(dragged)).includes(dragged.id)) clearTabPassword(dragged.id);
+    const draggedLayout = mapLeaves(getLayout(dragged), (leaf) => {
+      if (leaf.id !== dragged.id) return leaf;
+      const stamped = { ...leaf };
+      for (const [field, value] of Object.entries(rootSpawn)) {
+        if (value != null && !(Array.isArray(value) && value.length === 0)) stamped[field] = value;
+      }
+      // Which saved session this pane is, so it keeps that session's
+      // auto-approve and transcript name (useTabTelemetry paneProjectIds).
+      if (dragged.projectId) stamped.projectId = dragged.projectId;
+      return stamped;
+    });
     const nextLayout = splitLeaf(
-      targetLayout, targetPaneId, dir, getLayout(dragged), freshId("split"), newFirst
+      targetLayout, targetPaneId, dir, draggedLayout, freshId("split"), newFirst
     );
     const focusPaneId = dragged.activePaneId || dragged.id;
 

@@ -38,12 +38,13 @@ describe("activityStore", () => {
     expect(c).toEqual({ p1: "active", p2: "waiting" });
   });
 
-  it("project rollup follows the index, root-only, waiting outranks active", () => {
+  it("project rollup follows the index, unindexed panes ignored, waiting outranks active", () => {
     setProjectIndex(new Map([["tabA", "proj1"], ["tabB", "proj1"], ["tabC", "proj2"]]));
     setPaneActivity("tabA", "active");
     setPaneActivity("tabB", "waiting");
     setPaneActivity("tabC", "done");
-    // A non-root pane id (not in the index) must not leak into rollups.
+    // A pane id that is not in the index (a plain split pane) must not leak
+    // into rollups.
     setPaneActivity("pane-split-leaf", "active");
     expect(storeRollups()).toEqual({ proj1: "waiting", proj2: "done" });
   });

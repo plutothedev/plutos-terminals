@@ -6,7 +6,7 @@ import {
 import MobaToolbar from "../MobaToolbar";
 
 function Toolbar({
-  activeTabId, activeTab, splitPane, broadcast, toggleBroadcast,
+  activeTabId, activeTab, activeSsh, splitPane, broadcast, toggleBroadcast,
   tunnelsOpen, setTunnelsOpen, openTunnels, ribbon, selectRibbon,
   setDialog, setSerialOpen, setAskOpen, setAgentOpen, setModelsOpen,
   totalCost, quickConnect,
@@ -28,7 +28,7 @@ function Toolbar({
           { id: "split-col", icon: <SSplitCol size={15} />, label: "Stacked", onClick: () => activeTabId && splitPane(activeTabId, activeTab?.activePaneId || activeTabId, "col") },
         ] },
         { id: "multiexec", icon: <SMultiX />, label: "Broadcast", title: "Broadcast typing to every visible terminal at once", active: broadcast, onClick: toggleBroadcast },
-        { id: "tunnel", icon: <STunnel />, label: "Tunnel", title: activeTab?.connection ? "Port forwarding (SSH tunnels) for the active SSH session" : "Port forwarding: open an SSH session first", active: tunnelsOpen, disabled: !tunnelsOpen && !activeTab?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
+        { id: "tunnel", icon: <STunnel />, label: "Tunnel", title: activeSsh?.connection ? "Port forwarding (SSH tunnels) for the active SSH session" : "Port forwarding: open an SSH session first", active: tunnelsOpen, disabled: !tunnelsOpen && !activeSsh?.connection, onClick: () => (tunnelsOpen ? setTunnelsOpen(false) : openTunnels()) },
       ],
     },
     {
@@ -42,7 +42,7 @@ function Toolbar({
       ],
     },
   ], [
-    activeTabId, activeTab, splitPane, broadcast, toggleBroadcast,
+    activeTabId, activeTab, activeSsh, splitPane, broadcast, toggleBroadcast,
     tunnelsOpen, setTunnelsOpen, openTunnels, ribbon, selectRibbon,
   ]);
 

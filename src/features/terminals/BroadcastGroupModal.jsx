@@ -19,6 +19,7 @@ import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
 import { SLink } from "./toolbarIcons.jsx";
 import { getLayout, leafIds } from "./splitTree.js";
+import { paneAddress, paneSpawnConfig } from "./activePane.js";
 
 const DIM = "var(--phn-text-dim, #888)";
 
@@ -42,16 +43,19 @@ export default function BroadcastGroupModal({ open, panels, liveTabIds, current,
         return ids
           .map((id, i) => ({
             id,
-            // Only the ROOT leaf carries the tab's transport, so only it gets the
-            // host chip. TerminalPanel passes `connection={isRoot ? tab.connection
-            // : null}` with `isRoot = node.id === tab.id`, and TerminalPane with a
-            // null connection falls through to `pty_spawn`, so pane 2 of a split
-            // SSH tab, and the surviving pane after removeLeaf collapses the root
-            // away, are the user's OWN machine. Copying t.connection onto every row
-            // would advertise a remote host on a local shell, in the one picker
-            // whose whole job is choosing which machines a fanned-out keystroke
-            // reaches.
-            connection: id === t.id ? (t.connection || null) : null,
+            // Each pane's chip names the address THAT pane types into, read the
+            // same way TerminalPanel decides what the pane spawns
+            // (paneSpawnConfig): the tab's transport for its root leaf, the
+            // leaf's own for any other. Pane 2 of a split SSH tab, and the
+            // surviving pane after removeLeaf collapses the root away, carry no
+            // connection and are the user's OWN machine; an SSH tab folded in by
+            // drag-to-split carries its host on its leaf. Getting this wrong
+            // either way, a host chip on a local shell or none on a remote one,
+            // misleads the one picker whose whole job is choosing which machines
+            // a fanned-out keystroke reaches. The chip reads user@host and the
+            // port when it is not 22 (paneAddress), or a serial pane's device,
+            // which receives the keystroke too.
+            address: paneAddress(paneSpawnConfig(t, id)),
             label: ids.length > 1 ? `${t.label || "shell"} ·${i + 1}` : (t.label || "shell"),
           }))
           .filter((pane) => live.has(pane.id));
@@ -93,7 +97,7 @@ export default function BroadcastGroupModal({ open, panels, liveTabIds, current,
                     <span style={{ fontSize: "var(--phn-fs-sm)", color: "var(--phn-text-fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {ti + 1}. {pane.label}
                     </span>
-                    {pane.connection && <span style={{ fontSize: "var(--phn-fs-2xs)", color: DIM, display: "inline-flex", alignItems: "center", gap: 4 }}><SLink size={10} /> {pane.connection.host}</span>}
+                    {pane.address && <span style={{ fontSize: "var(--phn-fs-2xs)", color: DIM, display: "inline-flex", alignItems: "center", gap: 4 }}><SLink size={10} /> {pane.address}</span>}
                   </label>
                 ))}
               </div>

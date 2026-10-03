@@ -4,11 +4,13 @@
 // connect when that tab is an SSH session AND the SFTP dock tab is being viewed,
 // disconnect otherwise (so the backend connection never leaks). A monotonic
 // token (sftpTokenRef) discards a connect that resolves after the user has
-// switched away. SFTP auth reuses the shell tab's transient password (ptyBridge)
-// or the OS keychain — never persisted. Inputs: the active tab + the right-dock
-// tab state (dockTab/setDockTab stay in TerminalsTab; the dock JSX uses them).
-// Returns { sftp } for the SftpBrowser props and focusFilesDock for the F4 /
-// command-palette "focus files" action.
+// switched away. SFTP auth reuses the shell's transient password (ptyBridge)
+// or the OS keychain, never persisted. Inputs: `ssh`, the active SSH context
+// from activeSshContext() ({ connection, paneId }: the focused pane's own SSH
+// connection, else the tab's root one, and the pane id its password is stored
+// under), plus the right-dock tab state (dockTab/setDockTab stay in
+// TerminalsTab; the dock JSX uses them). Returns { sftp } for the SftpBrowser
+// props and focusFilesDock for the F4 / command-palette "focus files" action.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
@@ -17,13 +19,14 @@ import { sshAccount } from "../sshAccount.js";
 import { humanizeError } from "../errorText.js";
 import { evictSftpCaches } from "../SftpBrowser.jsx";
 
-export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
+export function useSftpDock({ ssh, dockTab, setDockTab }) {
   const [sftp, setSftp] = useState(null); // { connecting, id, error } | null
   // Monotonic token bumped whenever the active SSH context changes, so a
   // connect that resolves after the user has moved on can be discarded.
   const sftpTokenRef = useRef(0);
   const openSftp = useCallback(async (token) => {
-    const conn = activeTab?.connection;
+    const conn = ssh?.connection;
+    const passwordKey = ssh?.paneId;
     if (!conn?.host || !conn?.user) return;
     // Tear down any previous SFTP session before opening a new one so switching
     // between SSH tabs doesn't leak the backend connection.
@@ -31,12 +34,12 @@ export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
     const method = conn.auth?.method || "password";
     let password = null;
     if (method === "password") {
-      password = getTabPassword(activeTabId);
+      password = getTabPassword(passwordKey);
       if (!password) {
         // Fall back to the keychain (e.g. the shell tab connected from a saved
         // password, or after a restart).
         try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ }
-        if (password) setTabPassword(activeTabId, password);
+        if (password) setTabPassword(passwordKey, password);
       }
       if (!password) {
         if (token === sftpTokenRef.current) setSftp({ connecting: false, id: null, error: "No saved password for this session. Reopen the SSH tab, then open files." });
@@ -59,7 +62,7 @@ export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
     } catch (e) {
       if (token === sftpTokenRef.current) setSftp({ connecting: false, id: null, error: humanizeError(e).message });
     }
-  }, [activeTab, activeTabId]);
+  }, [ssh]);
 
   const closeSftp = useCallback(() => {
     setSftp((s) => {
@@ -73,21 +76,22 @@ export function useSftpDock({ activeTab, activeTabId, dockTab, setDockTab }) {
   // disconnects automatically with the active SSH tab via the effect below.
   const focusFilesDock = useCallback(() => setDockTab("files"), []);
 
-  // Keep the SFTP browser bound to the active tab: connect remote SFTP when the
-  // focused tab is an SSH session, disconnect (so we don't leak it) otherwise.
-  // Key on a stable connection identity so unrelated re-renders (activity/cost
-  // updates that rebuild the tab object) don't trigger a reconnect.
-  const sshKey = activeTab?.connection
-    ? `${activeTab.connection.user}@${activeTab.connection.host}:${activeTab.connection.port || 22}`
-    : null;
+  // Keep the SFTP browser bound to the active SSH context: connect remote SFTP
+  // when there is one, disconnect (so we don't leak it) otherwise. Key on a
+  // stable connection identity plus the pane it belongs to, so unrelated
+  // re-renders (activity/cost updates that rebuild the tab object) don't
+  // trigger a reconnect, while moving between two SSH panes (or tabs) does.
+  const conn = ssh?.connection;
+  const sshKey = conn ? `${conn.user}@${conn.host}:${conn.port || 22}` : null;
+  const sshPaneId = ssh?.paneId ?? null;
   useEffect(() => {
     const token = ++sftpTokenRef.current;
     // Connect lazily: only when the SFTP tab is actually being viewed, not just
-    // because an SSH tab is focused while the user is on Assistant/Monitor.
-    if (dockTab === "files" && activeTab?.connection) openSftp(token);
+    // because an SSH session is focused while the user is on Assistant/Monitor.
+    if (dockTab === "files" && sshKey) openSftp(token);
     else closeSftp();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTabId, sshKey, dockTab]);
+  }, [sshPaneId, sshKey, dockTab]);
 
   return { sftp, focusFilesDock };
 }

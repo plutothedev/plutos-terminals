@@ -81,6 +81,9 @@ function ModalHost({
   // pane. `Ask AI → Run` and `History → Run` append "\r", so getting this
   // wrong EXECUTED a command in an unfocused pane, possibly on another host.
   activeTab, activePaneId, shellName, insertSnippet,
+  // The SSH session tab-wide tools act on (activeSshContext): the focused
+  // pane's own connection, else the tab's root one.
+  activeSsh,
 }) {
   // P2-T3 (audited 24-modal classification): every modal below EXCEPT
   // AgentMode renders conditionally — the old always-render shape executed
@@ -96,8 +99,8 @@ function ModalHost({
       {(tunnelsOpen) && (
         <TunnelsModal
           open={tunnelsOpen}
-          host={activeTab?.connection?.host}
-          user={activeTab?.connection?.user}
+          host={activeSsh?.connection?.host}
+          user={activeSsh?.connection?.user}
           forwards={forwards}
           busy={tunnelBusy}
           error={tunnelError}
@@ -281,7 +284,7 @@ function ModalHost({
       {(netToolsOpen) && (
         <NetToolsModal
           open={netToolsOpen}
-          initialHost={activeTab?.connection?.host || ""}
+          initialHost={activeSsh?.connection?.host || ""}
           onClose={() => setNetToolsOpen(false)}
         />
       )}

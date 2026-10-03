@@ -17,6 +17,9 @@ function MenuBar({
   // activePaneId is the id the PTY-facing actions must use (Summarize reads the
   // pane-keyed text buffer). See ModalHost's prop block / audit FE-1.
   activeTabId, activePaneId, activeTab, panels, activePanelId, switchTabRel,
+  // The SSH session tab-wide tools act on (activeSshContext): the focused
+  // pane's own connection, else the tab's root one.
+  activeSsh,
   importSshConfig, selectRibbon, openTunnels,
   broadcast, toggleBroadcast, ribbon,
   activeModelName, toggleTheme, headerSkinId, exitApp,
@@ -104,7 +107,7 @@ function MenuBar({
         { divider: true },
         { label: "Sessions panel", action: () => selectRibbon("sessions") },
         { label: "Files (SFTP)", action: () => selectRibbon("files") },
-        { label: "Port forwarding…", disabled: !activeTab?.connection, action: () => openTunnels() },
+        { label: "Port forwarding…", disabled: !activeSsh?.connection, action: () => openTunnels() },
         { label: "Serial console…", action: () => setSerialOpen(true) },
         { label: "VNC remote desktop…", action: () => setVncOpen(true) },
         { label: "RDP remote desktop…", action: () => setRdpOpen(true) },
@@ -160,7 +163,7 @@ function MenuBar({
   ], [
     addTab, addHomeTab, newNotebook, openNotebook, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
     activeTabId, activePaneId, activeTab, panels, activePanelId,
-    activePanelTabCount, switchTabRel,
+    activePanelTabCount, switchTabRel, activeSsh,
     toast, importSshConfig, selectRibbon, openTunnels,
     broadcast, toggleBroadcast, ribbon, onStartTour,
   ]);

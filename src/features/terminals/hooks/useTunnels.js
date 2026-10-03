@@ -1,9 +1,11 @@
 // (C)
 // SSH port forwarding (tunnels) — a self-contained lifecycle lifted verbatim out
 // of the TerminalsTab god component. Local-forwards and the SOCKS5 proxy run
-// through the ACTIVE SSH tab's connection; the password comes from the in-memory
+// through the ACTIVE SSH session's connection; the password comes from the in-memory
 // ptyBridge cache or the OS keychain (via secret_get) and is NEVER persisted.
-// Inputs: the active tab ({ activeTab, activeTabId }) + toast. setForwards /
+// Inputs: `ssh`, the active SSH context from activeSshContext() ({ connection,
+// paneId }: the focused pane's own SSH connection, else the tab's root one, and
+// the pane id its password is stored under) + toast. setForwards /
 // setTunnelBusy / setTunnelError stay internal; the values are returned for the
 // TunnelsModal to render.
 
@@ -13,24 +15,24 @@ import { getTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
 import { humanizeError } from "../errorText.js";
 
-export function useTunnels({ activeTab, activeTabId, toast }) {
+export function useTunnels({ ssh, toast }) {
   const [tunnelsOpen, setTunnelsOpen] = useState(false);
   const [forwards, setForwards] = useState([]); // { id, localPort, remoteHost, remotePort } (transient)
   const [tunnelBusy, setTunnelBusy] = useState(false);
   const [tunnelError, setTunnelError] = useState(null);
 
   const openTunnels = useCallback(() => {
-    const conn = activeTab?.connection;
+    const conn = ssh?.connection;
     if (!conn?.host || !conn?.user) {
       toast.info("Open an SSH session first. Tunnels forward ports through it.");
       return;
     }
     setTunnelError(null);
     setTunnelsOpen(true);
-  }, [activeTab, toast]);
+  }, [ssh, toast]);
 
   const startForward = useCallback(async ({ localPort, remoteHost, remotePort }) => {
-    const conn = activeTab?.connection;
+    const conn = ssh?.connection;
     if (!conn) return;
     setTunnelBusy(true);
     setTunnelError(null);
@@ -38,7 +40,7 @@ export function useTunnels({ activeTab, activeTabId, toast }) {
       const method = conn.auth?.method || "password";
       let password = null;
       if (method === "password") {
-        password = getTabPassword(activeTabId);
+        password = getTabPassword(ssh?.paneId);
         if (!password) { try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ } }
         if (!password) {
           setTunnelError("No password for this session. Reopen the SSH tab first.");
@@ -61,10 +63,10 @@ export function useTunnels({ activeTab, activeTabId, toast }) {
     } finally {
       setTunnelBusy(false);
     }
-  }, [activeTab, activeTabId, toast]);
+  }, [ssh, toast]);
 
   const startSocks = useCallback(async ({ localPort }) => {
-    const conn = activeTab?.connection;
+    const conn = ssh?.connection;
     if (!conn) return;
     setTunnelBusy(true);
     setTunnelError(null);
@@ -72,7 +74,7 @@ export function useTunnels({ activeTab, activeTabId, toast }) {
       const method = conn.auth?.method || "password";
       let password = null;
       if (method === "password") {
-        password = getTabPassword(activeTabId);
+        password = getTabPassword(ssh?.paneId);
         if (!password) { try { password = await invoke("secret_get", { account: sshAccount(conn) }); } catch { /* ignore */ } }
         if (!password) {
           setTunnelError("No password for this session. Reopen the SSH tab first.");
@@ -90,7 +92,7 @@ export function useTunnels({ activeTab, activeTabId, toast }) {
     } finally {
       setTunnelBusy(false);
     }
-  }, [activeTab, activeTabId, toast]);
+  }, [ssh, toast]);
 
   const stopForward = useCallback(async (id) => {
     try { await invoke("port_forward_stop", { id }); } catch { /* ignore */ }

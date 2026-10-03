@@ -8,7 +8,7 @@
 // rollups. Inputs: the workspace state + the project list.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getLayout, leafIds } from "../splitTree";
+import { getLayout, leafIds, leaves } from "../splitTree";
 import { allRenderedPaneIds, isSpecialTab } from "../paneIds.js";
 
 // Identity-stable shallow-map memo (P2-T2): recomputes per deps like useMemo,
@@ -65,10 +65,36 @@ export function activityCounts(tabs, activities) {
   return counts;
 }
 
+// [paneId, projectId] for every pane of `tab` that belongs to a saved session:
+// the root pane carries the tab's projectId, a folded-in pane its leaf's.
+export function paneProjectIds(tab) {
+  const out = [];
+  if (tab?.projectId) out.push([tab.id, tab.projectId]);
+  for (const leaf of tab ? leaves(getLayout(tab)) : []) {
+    if (leaf.id !== tab.id && leaf.projectId) out.push([leaf.id, leaf.projectId]);
+  }
+  return out;
+}
+
+// The activity store's pane -> project index, behind each project's status in
+// the sidebar: every pane that belongs to a saved session (paneProjectIds), so
+// a saved session folded into another tab's split still shows in its
+// project's status. A plain split pane carries no projectId and never feeds
+// a rollup.
+export function projectIndexOf(panels) {
+  const idx = new Map();
+  for (const panel of panels || []) {
+    for (const tab of panel.tabs || []) {
+      for (const [paneId, projectId] of paneProjectIds(tab)) idx.set(paneId, projectId);
+    }
+  }
+  return idx;
+}
+
 export function useTabTelemetry({ state, projects }) {
   // (Activity state moved to activityStore.js in P2-T1 — producers write the
   // module store; consumers subscribe to their slice. This hook keeps costs
-  // and the per-tab project maps.)
+  // and the pane-keyed project maps.)
 
   // Per-tab cost tracking ({tabId: { tokens, cost }}). Aggregated for the
   // header display. Not persisted — cumulative figures come from Claude's
@@ -102,8 +128,12 @@ export function useTabTelemetry({ state, projects }) {
     }, 1000));
   }, []);
 
-  // Maps from tab id -> project metadata, so each TerminalPane knows which
-  // project it represents (for auto-approve toggle + transcript filename).
+  // Maps from PANE id -> project metadata, so each TerminalPane knows which
+  // saved session it is (auto-approve toggle + transcript filename +
+  // notification name). A tab's root pane (id === tab id) is the tab's own
+  // session; a pane folded in by drag-to-split carries its session's id on its
+  // leaf (moveTabIntoSplit stamps projectId), so it keeps its auto-approve and
+  // keeps writing the same transcript file it wrote as a tab.
   // Identity-stable (P2-T2): rebuilt on every workspace mutation but usually
   // shallow-equal — returning the PREVIOUS object then keeps the panel memos
   // holding across unrelated tab switches. A real toggle/rename changes the
@@ -112,9 +142,10 @@ export function useTabTelemetry({ state, projects }) {
     const ap = {};
     for (const panel of state.panels) {
       for (const tab of panel.tabs) {
-        if (!tab.projectId) continue;
-        const project = projects.find(p => p.id === tab.projectId);
-        if (project?.autoApprove) ap[tab.id] = true;
+        for (const [paneId, projectId] of paneProjectIds(tab)) {
+          const project = projects.find(p => p.id === projectId);
+          if (project?.autoApprove) ap[paneId] = true;
+        }
       }
     }
     return ap;
@@ -123,9 +154,10 @@ export function useTabTelemetry({ state, projects }) {
     const names = {};
     for (const panel of state.panels) {
       for (const tab of panel.tabs) {
-        if (!tab.projectId) continue;
-        const project = projects.find(p => p.id === tab.projectId);
-        if (project) names[tab.id] = project.name;
+        for (const [paneId, projectId] of paneProjectIds(tab)) {
+          const project = projects.find(p => p.id === projectId);
+          if (project) names[paneId] = project.name;
+        }
       }
     }
     return names;

@@ -10,8 +10,10 @@
 // - Data is paneId → activity ONLY. The pane→project mapping is a separate
 //   index OWNED BY THIS STORE but SET by TerminalsTab's layout effect —
 //   producer-captured projectIds go stale across moveTabIntoSplit absorption
-//   and removeProject detach (plan-audit H1). Index keys are ROOT pane ids
-//   (tab.id), preserving today's root-only project rollup semantics.
+//   and removeProject detach (plan-audit H1). Index keys are the panes that
+//   belong to a saved session: a tab's root pane (tab.id) and any pane folded
+//   in by drag-to-split that carries its own projectId (useTabTelemetry
+//   projectIndexOf). A plain split pane is never indexed.
 // - "idle" deletes the key (the old state's normalization).
 // - Whole-map/rollup snapshots are CACHED per version — React 18's
 //   useSyncExternalStore requires getSnapshot to return a stable reference
@@ -23,7 +25,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { mergeActivity } from "./hooks/useTabTelemetry.js";
 
 const activities = new Map(); // paneId -> 'waiting'|'active'|'done' (idle = absent)
-let projectIndex = new Map(); // rootPaneId (tab.id) -> projectId
+let projectIndex = new Map(); // paneId -> projectId (useTabTelemetry projectIndexOf)
 let version = 0;
 
 const paneListeners = new Map(); // paneId -> Set<cb>
@@ -162,8 +164,8 @@ function getRollupSnapshot() {
     for (const [paneId, pid] of projectIndex) {
       value[pid] = mergeActivity(value[pid] || "idle", activities.get(paneId) || "idle");
     }
-    // Content-diff (stream audit W3): a NON-indexed pane's flip (split
-    // children never feed rollups) bumps version but can't change any
+    // Content-diff (stream audit W3): a NON-indexed pane's flip (a plain
+    // split pane never feeds a rollup) bumps version but can't change any
     // project's value — keep the previous identity so useProjectRollups
     // consumers (sidebar, home cards) bail instead of re-rendering.
     const prev = rollupSnapshot.value;

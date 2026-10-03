@@ -8,7 +8,7 @@ import MobaHomeScreen from "./MobaHomeScreen";
 import NotebookView from "./NotebookView";
 import ShareModal from "./ShareModal.jsx";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
-import { resolveActivePaneId } from "./activePane.js";
+import { leafSpawnConfig, paneSpawnConfig, resolveActivePaneId } from "./activePane.js";
 import { SSplitRow, SSplitCol } from "./toolbarIcons.jsx";
 import { dropZone, zoneToSplit, zonePreviewRect } from "./splitDropZones.js";
 import { isSpecialTab } from "./paneIds.js";
@@ -325,16 +325,17 @@ function TerminalPanel({
   //
   // Pane-addressed, not tab-addressed (audit FE-1). TerminalPane writes its
   // transcript under its own LEAF id (`transcriptName(liveProjectName(),
-  // tabIdRef.current)`), and the project-name half only reaches the ROOT leaf
-  // (`projectName={isRoot ? … : null}` below), so the stem has to be rebuilt
-  // from the resolved pane under the same isRoot rule. Keyed on tab.id this
+  // tabIdRef.current)`), and the project-name half comes from the PANE-keyed
+  // project map (`projectName={tabProjectNames?.[node.id]}` below: the root
+  // pane's is the tab's session, a folded-in pane's its own), so the stem has
+  // to be rebuilt from the resolved pane through that same map. Keyed on tab.id this
   // could only ever share pane 1 of a split, and once the ORIGINAL pane was
   // closed (removeLeaf collapses to the sibling, leaving no leaf whose id
   // equals tab.id) it either claimed "Nothing recorded yet." for a tab with a
   // live shell, or served the DEAD pane's on-disk history as the live one's.
   const shareTranscript = async (tab) => {
     const paneId = resolveActivePaneId(tab);
-    const name = transcriptName(paneId === tab.id ? (tabProjectNames?.[tab.id] || null) : null, paneId);
+    const name = transcriptName(tabProjectNames?.[paneId] || null, paneId);
     let rawText = "";
     try {
       rawText = await invoke("transcript_read_all", { name });
@@ -375,12 +376,14 @@ function TerminalPanel({
     let ghost = null;
     let lastTargetEl = null;
     let dropIndex = null; // in-strip reorder target, when dragging over our own panel
-    // Pane-edge split targeting (drag a tab onto a pane's edge). Only plain
-    // local terminal tabs may fold into another tab's layout: leaves don't
-    // carry connection/serial config, so a merged remote tab would silently
-    // respawn as a local shell after an app restart (see moveTabIntoSplit).
-    // Ineligible tabs keep the classic move-to-panel drop everywhere.
-    const canSplitDrop = !isSpecialTab(tab) && !tab.connection && !tab.serial;
+    // Pane-edge split targeting (drag a tab onto a pane's edge). Local, SSH
+    // and serial tabs may fold into another tab's layout: moveTabIntoSplit
+    // stamps what the tab's pane runs onto its leaf, so it respawns as itself
+    // after a restart. Special tabs (home/vnc/rdp/notebook) have no pane tree,
+    // and an agent worktree tab must stay a tab (Discard finds a worktree's
+    // users by their tab-level field), so both keep the classic move-to-panel
+    // drop. moveTabIntoSplit re-checks the same two rules.
+    const canSplitDrop = !isSpecialTab(tab) && !tab.worktree;
     let splitDrop = null; // {targetTabId, targetPaneId, dir, newFirst} while over an edge zone
     let dropPreviewEl = null;
     const clearSplitPreview = () => {
@@ -410,7 +413,8 @@ function TerminalPanel({
         // center zone falls through to the classic behaviors below.
         splitDrop = null;
         const paneEl = canSplitDrop ? el?.closest("[data-pane-id]") : null;
-        if (paneEl && paneEl.dataset.paneTabId && paneEl.dataset.paneTabId !== tab.id) {
+        // A worktree tab's panes take no folded-in tab (moveTabIntoSplit says why).
+        if (paneEl && paneEl.dataset.paneTabId && paneEl.dataset.paneTabId !== tab.id && paneEl.dataset.paneNoFold !== "1") {
           const zone = dropZone(ev.clientX, ev.clientY, paneEl.getBoundingClientRect());
           const split = zoneToSplit(zone);
           if (split) {
@@ -1043,6 +1047,10 @@ function TerminalPanel({
                 : null}
               {panes.map(({ node, rect }) => {
                 const isRoot = node.id === tab.id;
+                // What this pane runs: the tab's fields for its root leaf, the
+                // leaf's own for any other (an SSH or serial tab folded in by
+                // drag-to-split carries its transport on its leaf).
+                const spawn = isRoot ? paneSpawnConfig(tab, tab.id) : leafSpawnConfig(node);
                 const paneActive = node.id === tabActivePaneId;
                 const zoomed = zoomNodeId != null && node.id === zoomNodeId;
                 const r = zoomed ? { left: 0, top: 0, width: 100, height: 100 } : rect;
@@ -1052,6 +1060,7 @@ function TerminalPanel({
                     className="phn-pane"
                     data-pane-id={node.id}
                     data-pane-tab-id={tab.id}
+                    data-pane-no-fold={tab.worktree ? "1" : undefined}
                     onMouseDownCapture={() => { if (multi && !paneActive) onActivatePane?.(tab.id, node.id); }}
                     style={{
                       position: "absolute",
@@ -1069,17 +1078,17 @@ function TerminalPanel({
                     <TerminalPane
                       visible={tabVisible}
                       active={tabVisible && paneActive}
-                      cwd={isRoot ? (tab.cwd || null) : (node.cwd ?? null)}
-                      connection={isRoot ? (tab.connection || null) : null}
-                      serial={isRoot ? (tab.serial || null) : null}
-                      startCommands={isRoot ? (tab.startCommands || null) : null}
-                      systemPrompt={isRoot ? (tab.systemPrompt || null) : null}
+                      cwd={spawn.cwd}
+                      connection={spawn.connection}
+                      serial={spawn.serial}
+                      startCommands={spawn.startCommands}
+                      systemPrompt={spawn.systemPrompt}
                       xtermTheme={xtermTheme}
                       promptEditor={promptEditor}
                       promptEditorVim={promptEditorVim}
                       tabId={node.id}
-                      projectName={isRoot ? (tabProjectNames?.[tab.id] || null) : null}
-                      autoApprove={isRoot ? (tabAutoApprove?.[tab.id] || false) : false}
+                      projectName={tabProjectNames?.[node.id] || null}
+                      autoApprove={tabAutoApprove?.[node.id] || false}
                       onCostUpdate={costHandlerFor(node.id)}
                       saveUser={saveUser}
                     />
