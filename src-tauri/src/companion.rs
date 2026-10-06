@@ -728,6 +728,16 @@ fn parse_value(raw: &str) -> serde_json::Value {
     serde_json::from_str(if t.is_empty() { "null" } else { t }).unwrap_or(serde_json::Value::Null)
 }
 
+/// The event payload for a phone's model pick, or an error when `model` is not
+/// a model id by llm::clean_model_id, the rule a provider's own list is held
+/// to. The id becomes ANTHROPIC_MODEL / OPENAI_MODEL in every shell spawned
+/// afterwards, so it is checked here, before it reaches the desktop at all, as
+/// well as on the desktop when it is applied (providers.js phoneModelChoice).
+fn active_model_payload(provider_id: &str, model: &str) -> Result<serde_json::Value, String> {
+    let model = crate::llm::clean_model_id(model).ok_or_else(|| "not a model id".to_string())?;
+    Ok(serde_json::json!({ "providerId": provider_id, "model": model }))
+}
+
 /// Execute a backend command for the companion. A small, explicit allow-list (the
 /// commands the Phase-1 page needs) — calls the existing Tauri command fns by
 /// providing the managed state / app handle ourselves. Unknown commands error so
@@ -818,14 +828,10 @@ fn dispatch(
         // `saveUser` — a single field, NOT `write_store`: a leaked token can't
         // touch the persisted layout, the snippet set, or read/write the API keys.
         "set_active_model" => {
-            let provider_id = s("providerId")?;
-            let model = s("model")?;
-            app.emit(
-                "companion://set-active-model",
-                serde_json::json!({ "providerId": provider_id, "model": model }),
-            )
-            .map(|_| serde_json::Value::Null)
-            .map_err(|e| e.to_string())
+            let payload = active_model_payload(&s("providerId")?, &s("model")?)?;
+            app.emit("companion://set-active-model", payload)
+                .map(|_| serde_json::Value::Null)
+                .map_err(|e| e.to_string())
         }
         // Phase 5 web push. The page fetches the VAPID public key (its
         // applicationServerKey), subscribes via pushManager, and sends the
@@ -1765,5 +1771,20 @@ mod companion_assets_tests {
         assert!(XTERM_JS.contains("define.amd"), "xterm.js is not the UMD build");
         assert!(ADDON_FIT_JS.contains("FitAddon"), "addon-fit.js missing its export");
         assert!(XTERM_CSS.contains(".xterm"), "xterm.css looks wrong");
+    }
+}
+
+#[cfg(test)]
+mod active_model_tests {
+    use super::active_model_payload;
+
+    #[test]
+    fn a_phone_model_pick_must_be_a_model_id() {
+        let ok = active_model_payload("openrouter", " anthropic/claude-3.5-sonnet:beta ").unwrap();
+        assert_eq!(ok["providerId"], "openrouter");
+        assert_eq!(ok["model"], "anthropic/claude-3.5-sonnet:beta", "trimmed");
+        for bad in ["", "   ", "two words", "x\u{0}y", "x\ny", "\u{1b}]52;c;aGk=\u{7}", &"a".repeat(201)] {
+            assert_eq!(active_model_payload("anthropic", bad), Err("not a model id".to_string()), "{bad:?}");
+        }
     }
 }

@@ -99,7 +99,7 @@ function makeEntry() {
     ui: null, // per-mount pointer table; repointed on EVERY mount (decision 4)
     counters: {
       lastCost: { tokens: 0, cost: 0 },
-      family: null,
+      model: null, // costScan resolveModel's key, e.g. 'opus 5.5'
       scrollbackChunks: [],
       scrollbackBytes: 0,
       userHasTyped: false,

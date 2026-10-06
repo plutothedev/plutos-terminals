@@ -1,7 +1,9 @@
 // (C)
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, test, expect } from "vitest";
-import { buildPosixShellInit, buildPowerShellInit, parsePlutoCmdReport } from "./shellIntegration.js";
+import { buildNoticeSuffix, buildPosixShellInit, buildPowerShellInit, isAppNoticeCommand, parsePlutoCmdReport } from "./shellIntegration.js";
+import { getCommandHistory, recordCommand } from "./ptyBridge.js";
 
 describe("shell-integration OSC-1337 nonce (audit H1)", () => {
   test("POSIX cmdCapture bakes the nonce into every PlutoCmd emit", () => {
@@ -223,5 +225,79 @@ describe("TerminalPane wires the real gate (audit TQ-2 residual)", () => {
     // A null verdict must short-circuit BEFORE recordCommand, not fall through
     // to a fallback decode.
     expect(region).toMatch(/if\s*\(!report\)\s*return true;/);
+  });
+});
+
+// The notice a local shell prints after the setup's clear (TerminalPane) is
+// typed into the user's shell, so it is refused, never escaped, unless it is
+// plain text, and the shells that exist here run it to prove nothing in it is
+// read as syntax.
+describe("buildNoticeSuffix", () => {
+  const ESC = String.fromCharCode(27);
+  // Every printable ASCII character but the quote and the backslash.
+  const ALL_PLAIN = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i))
+    .filter((c) => c !== "'" && c !== "\\" && c !== "!")
+    .join("");
+  test("refuses anything that could be read as shell syntax, rather than escaping it", () => {
+    const bad = [undefined, null, 42, "", "it's", "wow!", "x!!y", "a\\b", "a" + String.fromCharCode(10) + "b", "a" + ESC + "b",
+      "caf" + String.fromCharCode(0xe9), "x".repeat(301)];
+    for (const text of bad) {
+      expect(buildNoticeSuffix(text, false), JSON.stringify(text)).toBe("");
+      expect(buildNoticeSuffix(text, true), JSON.stringify(text)).toBe("");
+    }
+    expect(buildNoticeSuffix("x".repeat(300), false)).not.toBe("");
+  });
+  test("starts a command of its own, with the text in single quotes", () => {
+    expect(buildNoticeSuffix("[models] hi", false)).toBe("; printf '\\033[2m%s\\033[0m\\n' '[models] hi'");
+    expect(buildNoticeSuffix("[models] hi", true)).toBe("; [Console]::WriteLine([char]27 + '[2m[models] hi' + [char]27 + '[0m')");
+  });
+  const shells = [
+    ["/bin/sh", ["-c"]],
+    ["/bin/bash", ["-c"]],
+    ["/bin/zsh", ["-f", "-c"]],
+    ["/bin/tcsh", ["-f", "-c"]],
+    ["/bin/csh", ["-f", "-c"]],
+    ["/opt/homebrew/bin/fish", ["--no-config", "-c"]],
+    ["/usr/local/bin/fish", ["--no-config", "-c"]],
+    ["/usr/bin/fish", ["--no-config", "-c"]],
+  ];
+  for (const [sh, args] of shells) {
+    test.skipIf(!existsSync(sh))(`${sh} prints every plain character literally, dim, on its own line`, () => {
+      const text = "[models] " + ALL_PLAIN;
+      const out = execFileSync(sh, [...args, buildNoticeSuffix(text, false).slice(2)], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
+      expect(out).toBe(ESC + "[2m" + text + ESC + "[0m" + String.fromCharCode(10));
+    });
+  }
+  for (const pwsh of ["/opt/homebrew/bin/pwsh", "/usr/local/bin/pwsh", "/usr/bin/pwsh"]) {
+    test.skipIf(!existsSync(pwsh))(`${pwsh} prints every plain character literally`, () => {
+      const text = "[models] " + ALL_PLAIN;
+      const out = execFileSync(pwsh, ["-NoProfile", "-Command", buildNoticeSuffix(text, true).slice(2)], { encoding: "utf8" });
+      expect(out.replace(/\r?\n$/, "")).toBe(ESC + "[2m" + text + ESC + "[0m");
+    });
+  }
+});
+
+// bash's DEBUG trap reports each command of the setup's display line, the
+// notice included, and zsh and PowerShell report the whole line: none of it
+// is the user's, so the notice never reaches the command history.
+describe("the notice stays out of the command history", () => {
+  const posix = buildNoticeSuffix("[models] hi", false).slice(2);
+  const ps = buildNoticeSuffix("[models] hi", true).slice(2);
+  test("isAppNoticeCommand knows both forms, alone or inside a whole reported line", () => {
+    expect(isAppNoticeCommand(posix)).toBe(true);
+    expect(isAppNoticeCommand(ps)).toBe(true);
+    expect(isAppNoticeCommand(" clear; cat '/tmp/welcome.ansi'; " + posix)).toBe(true);
+    for (const cmd of ["git status", "printf '%s' hi", "echo '[models] hi'", "", null, undefined, 42]) {
+      expect(isAppNoticeCommand(cmd), JSON.stringify(cmd)).toBe(false);
+    }
+  });
+  test("recordCommand skips it and still records the user's own commands", () => {
+    recordCommand(posix);
+    recordCommand(ps);
+    recordCommand(" clear; cat '/tmp/welcome.ansi'; " + posix);
+    recordCommand("git log --oneline -5");
+    const history = getCommandHistory();
+    expect(history[0]).toBe("git log --oneline -5");
+    expect(history.some((c) => c.includes("[models] hi"))).toBe(false);
   });
 });

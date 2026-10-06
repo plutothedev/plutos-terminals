@@ -99,6 +99,17 @@ git2 = { version = "0.19", default-features = false, features = ["vendored-libgi
 # Model Context Protocol client (official SDK). stdio child-process + streamable
 # HTTP transports for connecting to MCP servers; protocol/handshake handled here.
 rmcp = { version = "1.7", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "client-side-sse"] }
+# rmcp's MCP transport speaks reqwest 0.13 (the app's own calls use 0.12).
+# Named directly only to hand rmcp a client with the app's redirect rule
+# (mcp/client.rs mcp_http_client). The features are exactly the ones the tree
+# already enables (rmcp: json, stream; the updater: rustls-no-provider), so
+# nothing new is compiled.
+reqwest013 = { package = "reqwest", version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
+# reqwest 0.13 above is built without a crypto provider (rustls-no-provider,
+# the updater's choice) and panics without a process default, so
+# mcp/client.rs installs ring, as the updater does. Same version and feature
+# the updater already uses.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Remember window size/position/maximized across launches (geometry only —
 # visibility is deliberately not tracked; see lib.rs).
 tauri-plugin-window-state = "2.4.1"

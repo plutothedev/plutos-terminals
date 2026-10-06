@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
-import { resolveActiveLLM } from "./providers.js";
+import { noModelMessage, resolveActiveLLM } from "./providers.js";
 import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
 import { humanizeError } from "./errorText.js";
@@ -30,8 +30,9 @@ export default function SessionSummary({ open, text, onClose }) {
     ran.current = true;
     const body = (text || "").trim();
     if (!body) { setLoading(false); setError("Nothing in this terminal to summarize yet."); return; }
-    const llm = resolveActiveLLM(readUserSt());
-    if (!llm) { setLoading(false); setError("No model configured. Open the Models picker first."); return; }
+    const llmState = readUserSt();
+    const llm = resolveActiveLLM(llmState);
+    if (!llm) { setLoading(false); setError(noModelMessage(llmState)); return; }
     setModelLabel(llm.model);
     setLoading(true); setError(null); setAnswer("");
     // Streaming (P3-T2): deltas render as they arrive — the spinner clears on

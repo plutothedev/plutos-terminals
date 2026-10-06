@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Textarea } from "../../components/ui.jsx";
-import { resolveActiveLLM } from "./providers.js";
+import { noModelMessage, resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { modCombo } from "./keybindings.js";
 import { classifyInput } from "./inputClassify.js";
@@ -42,8 +42,9 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
   const generate = async () => {
     const q = intent.trim();
     if (!q) return;
-    const llm = resolveActiveLLM(readUserSt());
-    if (!llm) { setError("No model configured. Open the Models picker (toolbar) first."); return; }
+    const llmState = readUserSt();
+    const llm = resolveActiveLLM(llmState);
+    if (!llm) { setError(noModelMessage(llmState)); return; }
     setModelLabel(llm.model);
     setLoading(true); setError(null); setCommand("");
     const os = navigator.userAgent.includes("Windows") ? "Windows"

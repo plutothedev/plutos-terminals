@@ -3,7 +3,8 @@ import { invoke } from "@backend";
 import { listen } from "@backend";
 import { setPaneActivity } from "./activityStore.js";
 import { stripAnsi, detectPendingPrompt } from "./promptDetect.js";
-import { buildScanWindow, evictScanChunks, reconcileCost, resolveFamily } from "./costScan.js";
+import { buildScanWindow, evictScanChunks, reconcileCost, resolveModel } from "./costScan.js";
+import { blendedRatePerM } from "./modelRates.js";
 import { computePromptRect, samePromptRect } from "./promptRect.js";
 import { shouldPaneTakeFocus } from "./tabStripFocus.js";
 import { Terminal } from "@xterm/xterm";
@@ -124,14 +125,15 @@ function attachAssistiveInput(entry, t, paneId) {
 }
 import "@xterm/xterm/css/xterm.css";
 import { pushOutput as pushRecordingOutput } from "./recording.js";
-import { envForModel } from "./providers.js";
+import { activeModelProblem, envForModel } from "./providers.js";
+import { keysReady, keysSettled } from "./secretVault.js";
 import { readUserSt, readWindowBlob, isPrimaryWindow } from "./storageKeys.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import { actionForEvent } from "./keybindings.js";
 import { buildWelcomeBanner } from "./welcomeBanner.js";
-import { buildPosixShellInit, buildPowerShellInit, parsePlutoCmdReport } from "./shellIntegration.js";
-import { resolveEnvFromUserState } from "./spawnEnv.js";
+import { buildNoticeSuffix, buildPosixShellInit, buildPowerShellInit, parsePlutoCmdReport } from "./shellIntegration.js";
+import { resolveEnvFromUserState, shellNotice } from "./spawnEnv.js";
 import { createAssistiveInputWatcher, isModalOpen } from "./assistiveInput.js";
 // PromptEditor rides behind the default-off promptEditor flag yet its static
 // import chained the whole CodeMirror stack (~130kB gz) into EVERYONE's boot
@@ -280,28 +282,16 @@ const TOKENS_PATTERNS = [
 const MODEL_LINE_RE = /([\d,]+)\s*input,\s*([\d,]+)\s*output(?:,\s*([\d,]+)\s*cache\s*read)?(?:,\s*([\d,]+)\s*cache\s*write)?/gi;
 const COST_SCAN_BYTES = 10_000;
 
-// Per-family blended cost per 1M tokens (USD). Used to derive a live cost
-// estimate from observed token counts when Claude Code hasn't printed an
-// explicit "Total cost: $X.XX" line yet (the inline status banner shows
-// tokens like "1.6k tokens · thought for 2s" but never the dollar figure).
+// The live cost estimate: observed tokens times a blended per-model rate,
+// shown until Claude Code prints an explicit "Total cost: $X.XX" line (the
+// inline status banner shows tokens like "1.6k tokens · thought for 2s" but
+// never the dollar figure). The rates, their sources and the mix they assume
+// live in modelRates.js; the explicit COST_RE match takes priority whenever
+// pluto runs /cost.
 //
-// Blended rate assumes a typical Claude Code mix: cache-heavy input + moderate
-// output. Real cost depends on the input/output/cache-read/cache-write split,
-// but this estimate is within 2x of the real number for normal sessions, and
-// the explicit COST_RE match takes priority whenever pluto runs /cost.
-//
-// Source: Anthropic Claude API pricing for the Claude 4.x family with prompt
-// caching enabled. Estimate is per million total tokens charged through the
-// API, weighting cache-read at ~75%, fresh-input at ~12%, output at ~13%.
-const FAMILY_BLENDED_RATE_PER_M = {
-  opus: 12.0,
-  sonnet: 2.5,
-  haiku: 0.7,
-};
-const DEFAULT_FAMILY = "opus"; // Worst-case fallback when banner not yet parsed.
-
-// Family detection (which Claude model is in play) lives in costScan.js:
-// resolveFamily() is sticky-but-re-evaluating, and detectFamily() returns null
+// Model detection (which Claude model is in play, version included, since
+// Opus 5.5 costs about a quarter of Opus 4.1) lives in costScan.js:
+// resolveModel() is sticky-but-re-evaluating, and detectModel() returns null
 // rather than a default so the caller can tell "no banner in this window" from
 // "the banner says opus". Do NOT re-inline a detector here -- an inlined copy
 // that defaults on no-match is exactly the bug that pinned every session to
@@ -703,24 +693,25 @@ function TerminalPane({
     const modelSum = sumModelLines(text);
     if (modelSum > bestTokens) bestTokens = modelSum;
 
-    // Re-resolve the model family BEFORE the estimate below consumes it, so a
+    // Re-resolve the model BEFORE the estimate below consumes it, so a
     // window that both names the model and reports tokens is costed at the
-    // right rate on its very first scan. resolveFamily keeps the previous
+    // right rate on its very first scan. resolveModel keeps the previous
     // value when this window names no model (the banner scrolls out fast) and
     // replaces it when it does (a mid-session /model switch is real). See
     // costScan.js. The old code here latched on the first non-empty result,
     // and its detector defaulted to "opus" on no match, so the family was
     // pinned by the shell's own prompt on the first PTY chunk (PERF-2).
-    e.counters.family = resolveFamily(e.counters.family, text);
+    e.counters.model = resolveModel(e.counters.model, text);
 
-    // Derive a live cost estimate from total tokens × per-family blended
+    // Derive a live cost estimate from total tokens × the model's blended
     // rate. Claude Code's inline status banner shows tokens climbing in real
     // time but never the dollar figure, so without this estimate the cost
     // stays at $0 until pluto runs /cost — which most sessions never trigger.
-    // The rate table stays here (pricing data); reconcileCost owns the rules
-    // that keep the estimate and the authoritative figure from fighting.
-    const family = e.counters.family || DEFAULT_FAMILY;
-    const ratePerM = FAMILY_BLENDED_RATE_PER_M[family] || FAMILY_BLENDED_RATE_PER_M[DEFAULT_FAMILY];
+    // The rate table lives in modelRates.js (pricing data); reconcileCost owns
+    // the rules that keep the estimate and the authoritative figure from
+    // fighting.
+    // No model named yet: modelRates.js's DEFAULT_MODEL (an Opus session).
+    const ratePerM = blendedRatePerM(e.counters.model);
 
     const next = reconcileCost(prev, { authoritative, tokens: bestTokens, ratePerM });
 
@@ -1328,6 +1319,13 @@ function TerminalPane({
     entry.spawnBody = () => {
       (async () => {
       const restored = await replayScrollback();
+      // At launch the keychain is read in the background (App.jsx
+      // migrateAndLoad), and until that first read finishes the cache holds no
+      // keys: a pane restored at launch used to start its shell without them.
+      // A local shell waits for it, bounded (secretVault keysReady); SSH and
+      // serial panes never get these keys. The wait comes BEFORE the size read
+      // below, so a fit that lands meanwhile is the size the PTY starts at.
+      if (!serial && !connection) await keysReady(2000);
       try {
         const cols = Math.max(term.cols, MIN_COLS);
         const rows = Math.max(term.rows, MIN_ROWS);
@@ -1336,6 +1334,8 @@ function TerminalPane({
         // pastes. Failsafe: if state is unreadable, spawn without env overrides
         // — user can paste manually.
         let extraEnv = null;
+        // The pane's one-line notice (shellNotice), "" when there is none.
+        let modelNotice = "";
         try {
           // v0.1.21: anthropicKey now lives in the shared user-state key
           // so multi-window users don't re-enter it per window. Fall back
@@ -1351,16 +1351,26 @@ function TerminalPane({
           // The keychain-overlaid read (readUserSt) stays above; this only
           // maps the already-read blob.
           Object.assign(env, resolveEnvFromUserState(userPersisted, envForModel));
+          // A saved model choice that cannot be used withholds the legacy key
+          // below too (see resolveEnvFromUserState).
+          const modelProblem = userPersisted?.activeModel ? activeModelProblem(userPersisted) : null;
+          const routingBlocked = Boolean(modelProblem);
           // envOverrides (and the legacy anthropicKey for not-yet-migrated
           // users) still live in the per-window state. Use the per-window key
           // (matches App's write key) so a detached ?w= window reads ITS OWN
           // state, not the default window's — previously this read the bare key
           // and silently missed a secondary window's overrides.
           const persisted = readWindowBlob(); // memoized shared parse (P4-T4)
+          // The legacy key is a default Anthropic key, so it never joins a
+          // Claude-compatible gateway's env either (see resolveEnvFromUserState).
+          if (!routingBlocked && !env.ANTHROPIC_API_KEY && !env.ANTHROPIC_BASE_URL && persisted && typeof persisted.anthropicKey === "string" && persisted.anthropicKey.length > 0) {
+            env.ANTHROPIC_API_KEY = persisted.anthropicKey;
+          }
+          // A local shell that got no provider key for a reason the user can
+          // act on says so in one dim line (shellNotice), so a CLI asking for a
+          // login is not a mystery. SSH and serial panes never get this env.
+          if (!serial && !connection) modelNotice = shellNotice(userPersisted, env, keysSettled());
           if (persisted) {
-            if (!env.ANTHROPIC_API_KEY && persisted && typeof persisted.anthropicKey === "string" && persisted.anthropicKey.length > 0) {
-              env.ANTHROPIC_API_KEY = persisted.anthropicKey;
-            }
             if (persisted && persisted.envOverrides && typeof persisted.envOverrides === "object") {
               for (const [k, v] of Object.entries(persisted.envOverrides)) {
                 if (typeof v === "string" && v.length > 0) env[k] = v;
@@ -1369,6 +1379,11 @@ function TerminalPane({
           }
           if (Object.keys(env).length > 0) extraEnv = env;
         } catch (_) { /* ignore */ }
+        // A tab that runs its own start commands is never cleared, so its
+        // notice goes to the pane now, above the shell. Every other local shell
+        // prints it itself after the setup's clear, which would wipe anything
+        // written before it (buildNoticeSuffix, in the display command below).
+        if (modelNotice && cmdsAtSpawn.length > 0) term.writeln(`\x1b[2m${modelNotice}\x1b[0m`);
         // v0.1.29: pass tabId so the PTY reader thread can own the on-disk
         // scrollback file. Replaces the previous unmount-time renderer-side
         // scrollback_save, which raced process death on tray→Quit (async
@@ -1673,6 +1688,13 @@ function TerminalPane({
             }, 200);
           }
         });
+        // A fit that landed while the PTY was being created fired before the
+        // listener above existed, so the PTY would keep its spawn size until
+        // the next resize. Bring it to the terminal's size now.
+        if (entryLive() && ptyId && (Math.max(term.cols, MIN_COLS) !== cols || Math.max(term.rows, MIN_ROWS) !== rows)) {
+          setTabDims(tabId, term.cols, term.rows);
+          invoke("pty_resize", { id: ptyId, cols: Math.max(term.cols, MIN_COLS), rows: Math.max(term.rows, MIN_ROWS) }).catch(() => {});
+        }
 
         // App-owned prompt editor: drop to raw passthrough whenever a full-screen
         // app takes the alternate screen buffer (vim, less, a TUI); restore after.
@@ -1780,9 +1802,9 @@ function TerminalPane({
               const p = await invoke("write_welcome_file", { content: raw });
               if (!p) return;
               const lit = String(p);
-              const cmd = isWindowsUA
+              const cmd = (isWindowsUA
                 ? `Clear-Host; Get-Content -Raw -Encoding utf8 -LiteralPath '${lit.replace(/'/g, "''")}'`
-                : ` clear; cat '${lit.replace(/'/g, "'\\''")}'`;
+                : ` clear; cat '${lit.replace(/'/g, "'\\''")}'`) + buildNoticeSuffix(modelNotice, isWindowsUA);
               entry.ui.bannerCols.set(cols); // via the table — this closure outlives its fiber
               await invoke("pty_write", { id: ptyId, data: cmd + "\r" });
             } catch { /* best-effort refresh */ }
@@ -1826,6 +1848,7 @@ function TerminalPane({
                   if (p) winDisplay = `${psMarker}; Clear-Host; Get-Content -Raw -Encoding utf8 -LiteralPath '${String(p).replace(/'/g, "''")}'`;
                 } catch { /* no file → just clear */ }
               }
+              winDisplay += buildNoticeSuffix(modelNotice, true);
               try { await invoke("pty_write", { id: ptyId, data: winDisplay + "\r" }); } catch {}
             }
           } else {
@@ -1843,6 +1866,7 @@ function TerminalPane({
                 if (p) display = `${shMarker}; clear; cat '${String(p).replace(/'/g, "'\\''")}'`;
               } catch { /* no file → just clear */ }
             }
+            display += buildNoticeSuffix(modelNotice, false);
             if (entryLive() && ptyId) {
               try { await invoke("pty_write", { id: ptyId, data: promptSetup + "\r" }); } catch {}
               try { await invoke("pty_write", { id: ptyId, data: cmdCapture + "\r" }); } catch {}

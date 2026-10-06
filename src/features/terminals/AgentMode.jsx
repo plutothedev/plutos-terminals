@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Textarea } from "../../components/ui.jsx";
 import { invoke } from "@backend";
-import { resolveActiveLLM } from "./providers.js";
+import { noModelMessage, resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { runAndCapture } from "./ptyBridge.js";
 import { toolTurn } from "./llmTools.js";
@@ -77,8 +77,9 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
   const start = async () => {
     const g = goal.trim();
     if (!g || running) return;
-    const llm = resolveActiveLLM(readUserSt());
-    if (!llm) { setSteps([{ type: "error", text: "No model configured. Open the Models picker (toolbar) first." }]); return; }
+    const llmState = readUserSt();
+    const llm = resolveActiveLLM(llmState);
+    if (!llm) { setSteps([{ type: "error", text: noModelMessage(llmState) }]); return; }
     if (!tabId) { setSteps([{ type: "error", text: "No active terminal to run in." }]); return; }
     setRunning(true); stopRef.current = false;
     setSteps([]); // clear the previous run's log now that a new run is starting

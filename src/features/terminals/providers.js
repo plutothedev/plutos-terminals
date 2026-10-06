@@ -172,6 +172,120 @@ export const PROVIDERS = [
   },
 ];
 
+// The one rule for a model id the app stores and hands to new shells as
+// ANTHROPIC_MODEL / OPENAI_MODEL: 1 to 200 characters from the set real model
+// ids use (letters, digits and . _ - : / @ + ~ = # [ ]), not starting with
+// "-", which a script passing the variable unquoted would read as a flag. The
+// set covers OpenRouter's ~vendor/... and @preset/..., Cloudflare's @cf/...,
+// the local path vLLM serves as its id (/models/Qwen2.5-7B-Instruct), a
+// Fireworks dedicated deployment (model#deployment), and Claude Code's own
+// "[1m]" suffix (sonnet[1m] is Sonnet with the 1M context). It is
+// the rule llm.rs clean_model_id holds a provider's own list to (a Rust test
+// pins this line to it). Every way an id can be set passes through it: typed
+// in Models, sent from the phone, and once more at spawn, which also covers an
+// id synced from another device. So a NUL byte or an oversized value cannot
+// stop shells from starting, and no escape sequence rides along into a tool
+// that prints the model name.
+const MODEL_ID_RE = /^(?!-)[A-Za-z0-9._:/@+~=#[\]-]{1,200}$/;
+export function isModelId(id) {
+  return typeof id === "string" && MODEL_ID_RE.test(id);
+}
+
+// What the phone's model pick changes, or null to ignore it: a known provider
+// that has a key on this machine, and a model id that passes isModelId. Nothing
+// else from the payload is kept.
+export function phoneModelChoice(payload, userSt) {
+  const providerId = payload?.providerId;
+  const model = typeof payload?.model === "string" ? payload.model.trim() : "";
+  if (typeof providerId !== "string" || !isModelId(model)) return null;
+  if (!findProvider(providerId) || !providerKeyFor(userSt, providerId)) return null;
+  return { providerId, model };
+}
+
+// A base URL a new shell can be handed as an environment variable: at most
+// 2048 characters, with no space or control character, which could stop the
+// shell starting or split a tool's config line. Where it points stays the
+// user's call, as it always was for shells: a homelab gateway on a bare LAN
+// name (http://mac-mini:11434), a Tailscale address or host.docker.internal
+// is a normal setup. The app's own calls keep the stricter https rule
+// (llm.rs resolve_base).
+function shellSafeBaseUrl(url) {
+  return typeof url === "string" && url.length <= 2048 && !hasControlOrSpace(url);
+}
+
+// Whether `s` holds a character that has no place in an address handed to a
+// shell as an environment variable: a control character (C0, DEL and C1, NEL
+// among them), a format character (zero-width ones, bidi marks, the BOM), a
+// space or a line or paragraph separator of any kind, or a lone surrogate,
+// which would make the whole spawn request unencodable so that no new shell
+// starts. Some tools split a config line at the separators, and the invisible
+// ones would hide in a value.
+const NOT_IN_A_SHELL_VALUE = /[\p{Cc}\p{Cf}\p{Cs}\p{Z}]/u;
+function hasControlOrSpace(s) {
+  return NOT_IN_A_SHELL_VALUE.test(s);
+}
+
+// The API key this device holds for `providerId`, or "" when it holds none:
+// the Models key, or for Anthropic itself the standalone key from before
+// Models held keys (falling back to it is no swap of provider). Every check
+// of whether a provider has a key asks here, so new shells, the in-app AI,
+// Models, the phone and activeModelProblem cannot disagree about it.
+export function providerKeyFor(userSt, providerId) {
+  if (typeof providerId !== "string") return "";
+  const keys = userSt?.providerKeys;
+  const k = keys && typeof keys === "object" && Object.prototype.hasOwnProperty.call(keys, providerId) ? keys[providerId] : undefined;
+  if (typeof k === "string" && k.trim()) return k;
+  const legacy = providerId === "anthropic" ? userSt?.anthropicKey : undefined;
+  if (typeof legacy === "string" && legacy.trim()) return legacy;
+  return "";
+}
+
+// Why the saved model choice cannot be used, or null when it can: an unknown
+// provider (synced from a newer build, say), an id that fails isModelId (typed
+// or synced before the rule existed), a provider with no API key on this
+// device, or one that needs a base URL and has none here (the choice syncs
+// between devices; keys and addresses do not), or a base URL that fails
+// shellSafeBaseUrl. A choice with a problem routes NOWHERE, not to the default
+// Claude key: the user picked a provider, and quietly sending their terminal
+// text to a different one would break that choice (an internal gateway picked
+// for confidentiality, say). New shells get no provider key, the in-app AI
+// says no model is configured, the menu bar and the phone show none, and
+// Models says why and offers Use default.
+// `keysKnown: false` (before the first keychain read has finished, see
+// secretVault keysSettled) skips the key check: a key that has not been read
+// yet is not a missing key.
+export function activeModelProblem(userSt, { keysKnown = true } = {}) {
+  const am = userSt?.activeModel;
+  if (!am) return null;
+  const p = typeof am.providerId === "string" ? findProvider(am.providerId) : null;
+  if (!p) return "its provider is not one this app knows";
+  if (!isModelId(am.model)) return "its model id has characters a model id never has";
+  if (keysKnown && !providerKeyFor(userSt, am.providerId)) return "its provider has no API key on this device (adding one fixes it)";
+  const url = resolveBaseUrl(p, userSt?.providerBaseUrls?.[am.providerId]);
+  if (!url && (p.kind === "anthropic-compat" || p.kind === "openai-compat")) {
+    return "its provider has no base URL on this device (adding one fixes it)";
+  }
+  if (url && !shellSafeBaseUrl(url)) return "its base URL has a space or a control character in it, or is too long";
+  return null;
+}
+
+// The saved model choice when it can be used (activeModelProblem, with the
+// same options), else null.
+export function validActiveModel(userSt, opts) {
+  const am = userSt?.activeModel;
+  if (!am || activeModelProblem(userSt, opts)) return null;
+  return { providerId: am.providerId, model: am.model };
+}
+
+// What the AI panels say when resolveActiveLLM finds no model: the saved
+// choice's problem when there is one, else how to set one up.
+export function noModelMessage(userSt) {
+  const problem = userSt?.activeModel ? activeModelProblem(userSt) : null;
+  return problem
+    ? `Your saved model choice cannot be used: ${problem}. Open the Models picker (toolbar) to fix it, or choose Use default there.`
+    : "No model configured. Open the Models picker (toolbar) first.";
+}
+
 export function findProvider(id) {
   return PROVIDERS.find((p) => p.id === id) || null;
 }
@@ -185,27 +299,32 @@ export function resolveBaseUrl(p, override) {
   return o || p.baseUrl || "";
 }
 
-// Resolve the LLM the AI error explainer should call, from user-state. Prefers
-// the active picked model; falls back to the plain Anthropic key (default
-// Claude) from the welcome screen. Returns null if nothing is configured.
+// Resolve the LLM the AI panels should call, from user-state. Prefers the
+// active picked model; with no model picked, falls back to the plain Anthropic
+// key (default Claude). Returns null when nothing is configured, and when the
+// saved choice cannot be used (activeModelProblem; noModelMessage says which).
 // Shape: { kind, baseUrl, apiKey, model }.
 export function resolveActiveLLM(userSt) {
+  // A saved choice that cannot be used routes nowhere (activeModelProblem):
+  // falling back to the default key would send the text to a provider the user
+  // did not pick. The callers then say no model is configured.
+  if (userSt?.activeModel && activeModelProblem(userSt)) return null;
   const am = userSt?.activeModel;
-  const keys = userSt?.providerKeys || {};
   const baseUrls = userSt?.providerBaseUrls || {};
-  if (am?.providerId && am?.model && typeof keys[am.providerId] === "string" && keys[am.providerId]) {
+  const amKey = am?.providerId ? providerKeyFor(userSt, am.providerId) : "";
+  if (am?.providerId && am?.model && amKey) {
     const p = findProvider(am.providerId);
     if (p) {
       const baseUrl = resolveBaseUrl(p, baseUrls[am.providerId]);
       // Compat kinds can't route without a base URL (e.g. custom with none set).
       if ((p.kind === "anthropic-compat" || p.kind === "openai-compat") && !baseUrl) return null;
-      return { kind: p.kind, baseUrl, apiKey: keys[am.providerId], model: am.model };
+      return { kind: p.kind, baseUrl, apiKey: amKey, model: am.model };
     }
   }
   // Default Claude key: the Models section's Anthropic key, falling back to the
   // legacy standalone key for not-yet-migrated state.
-  const defaultAnthropic = keys.anthropic || userSt?.anthropicKey;
-  if (typeof defaultAnthropic === "string" && defaultAnthropic) {
+  const defaultAnthropic = providerKeyFor(userSt, "anthropic");
+  if (defaultAnthropic) {
     // Cheap, fast Claude for quick explanations (exact dated id so it resolves).
     return { kind: "anthropic", baseUrl: "", apiKey: defaultAnthropic, model: "claude-haiku-4-5-20251001" };
   }
@@ -217,8 +336,11 @@ export function resolveActiveLLM(userSt) {
 // `baseUrl` overrides the catalog default (custom endpoints / regional mirrors).
 export function envForModel(providerId, model, apiKey, baseUrl) {
   const p = findProvider(providerId);
-  if (!p || !apiKey || !model) return {};
+  // An id that fails isModelId or a base URL that fails shellSafeBaseUrl routes
+  // nothing (and resolveEnvFromUserState withholds the default key as well).
+  if (!p || !apiKey || !isModelId(model)) return {};
   const url = resolveBaseUrl(p, baseUrl);
+  if (url && !shellSafeBaseUrl(url)) return {};
   const e = {};
   if (p.kind === "anthropic") {
     e.ANTHROPIC_API_KEY = apiKey;

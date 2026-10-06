@@ -1,6 +1,6 @@
 // (C)
 import { describe, it, expect } from "vitest";
-import { buildScanWindow, detectFamily, evictScanChunks, reconcileCost, resolveFamily } from "./costScan";
+import { buildScanWindow, detectModel, evictScanChunks, reconcileCost, resolveModel } from "./costScan";
 
 // These test the REAL functions TerminalPane imports. There is no second copy
 // of the scan-window assembly, the chunk eviction, the family detector or the
@@ -53,39 +53,91 @@ describe("buildScanWindow", () => {
   });
 });
 
-describe("detectFamily", () => {
+describe("detectModel", () => {
   it("returns null when the text names no model", () => {
     // THE PERF-2 fix. This used to return "opus", which made a non-detection
     // indistinguishable from a detection and pinned every session to Opus
     // rates on the shell's own first prompt output.
-    expect(detectFamily("PS C:\\Users\\pluto> ")).toBe(null);
-    expect(detectFamily("michael@box:~/code$ npm test")).toBe(null);
-    expect(detectFamily("")).toBe(null);
-    expect(detectFamily(null)).toBe(null);
+    expect(detectModel("PS C:\\Users\\pluto> ")).toBe(null);
+    expect(detectModel("michael@box:~/code$ npm test")).toBe(null);
+    expect(detectModel("")).toBe(null);
+    expect(detectModel(null)).toBe(null);
   });
 
   it("reads the friendly banner form", () => {
-    expect(detectFamily("Opus 4.7 (1M context) with high effort")).toBe("opus");
-    expect(detectFamily("Sonnet 4.5 (1M context) \u00b7 Claude Max")).toBe("sonnet");
-    expect(detectFamily("Haiku 4 \u00b7 ready")).toBe("haiku");
+    expect(detectModel("Opus 4.7 (1M context) with high effort")).toBe("opus 4.7");
+    expect(detectModel("Sonnet 4.5 (1M context) \u00b7 Claude Max")).toBe("sonnet 4.5");
+    expect(detectModel("Haiku 4 \u00b7 ready")).toBe("haiku 4.0");
   });
 
   it("reads the API form printed in /cost output", () => {
-    expect(detectFamily("claude-sonnet-4-5: 12,345 input, 6,789 output")).toBe("sonnet");
-    expect(detectFamily("claude-opus-4-5: 100 input, 20 output")).toBe("opus");
-    expect(detectFamily("claude-haiku-4-5: 100 input, 20 output")).toBe("haiku");
+    expect(detectModel("claude-sonnet-4-5: 12,345 input, 6,789 output")).toBe("sonnet 4.5");
+    expect(detectModel("claude-opus-4-5: 100 input, 20 output")).toBe("opus 4.5");
+    expect(detectModel("claude-haiku-4-5: 100 input, 20 output")).toBe("haiku 4.5");
   });
 
   it("is case-insensitive", () => {
-    expect(detectFamily("CLAUDE-OPUS-4-5")).toBe("opus");
-    expect(detectFamily("SONNET 4.5")).toBe("sonnet");
+    expect(detectModel("CLAUDE-OPUS-4-5")).toBe("opus 4.5");
+    expect(detectModel("SONNET 4.5")).toBe("sonnet 4.5");
+  });
+
+  it("reads the version, which the price depends on", () => {
+    // Opus 5.5 costs about a quarter of Opus 4.1 (modelRates.js).
+    expect(detectModel("Opus 5.5 (1M context) with medium effort")).toBe("opus 5.5");
+    expect(detectModel("claude-opus-5-5: 100 input, 20 output")).toBe("opus 5.5");
+    expect(detectModel("claude-opus-5: 100 input")).toBe("opus 5.0");
+    expect(detectModel("claude-opus-4-1-20250805: 100 input")).toBe("opus 4.1");
+    expect(detectModel("claude-haiku-4-5-20251001: 100 input")).toBe("haiku 4.5");
+    expect(detectModel("claude-sonnet-5-5")).toBe("sonnet 5.5");
+  });
+
+  it("does not read a dated id's date as its minor version", () => {
+    expect(detectModel("claude-opus-4-20250514: 100 input")).toBe("opus 4.0");
+    expect(detectModel("claude-sonnet-4-20250514")).toBe("sonnet 4.0");
+  });
+
+  it("reads a dot between the major and minor version, as OpenRouter and LiteLLM write ids", () => {
+    expect(detectModel("anthropic/claude-opus-4.5: 100 input")).toBe("opus 4.5");
+    expect(detectModel("claude-opus-5.5")).toBe("opus 5.5");
+    expect(detectModel("claude-fable-5.1")).toBe("fable 5.1");
+    expect(detectModel("claude-haiku-4.5")).toBe("haiku 4.5");
+  });
+
+  it("reads the Claude 3 naming, version first", () => {
+    expect(detectModel("claude-3-7-sonnet-20250219: 100 input, 20 output")).toBe("sonnet 3.7");
+    expect(detectModel("claude-3-5-haiku-20241022")).toBe("haiku 3.5");
+    expect(detectModel("claude-3-opus-20240229")).toBe("opus 3.0");
+    expect(detectModel("anthropic/claude-3.5-sonnet")).toBe("sonnet 3.5");
+    expect(detectModel("claude-3.7-sonnet:thinking")).toBe("sonnet 3.7");
+  });
+
+  it("knows Fable and Mythos, in both forms", () => {
+    expect(detectModel("Fable 5.1 (1M context)")).toBe("fable 5.1");
+    expect(detectModel("claude-fable-5-1: 100 input, 20 output")).toBe("fable 5.1");
+    expect(detectModel("Mythos 5.1")).toBe("mythos 5.1");
+    expect(detectModel("claude-mythos-5")).toBe("mythos 5.0");
+  });
+
+  it("reports a bare family when the text gives no version", () => {
+    expect(detectModel("model: claude-opus")).toBe("opus");
+  });
+
+  it("does not read a year after a family name as its version", () => {
+    // A version is one or two digits; "Opus 2026" is prose, not Opus 20.
+    expect(detectModel("the Opus 2026 roadmap")).toBe(null);
+    expect(detectModel("Sonnet 1999 anthology")).toBe(null);
+  });
+
+  it("does not fire on fable or mythos in prose", () => {
+    expect(detectModel("Aesop's fable about the fox")).toBe(null);
+    expect(detectModel("the founding mythos of the company")).toBe(null);
   });
 
   it("does not fire on a bare family word with no version digit", () => {
     // Guards the estimate against prose: someone catting a README that says
     // "we moved off opus" must not reprice the session.
-    expect(detectFamily("we moved off opus last quarter")).toBe(null);
-    expect(detectFamily("haiku poetry generator")).toBe(null);
+    expect(detectModel("we moved off opus last quarter")).toBe(null);
+    expect(detectModel("haiku poetry generator")).toBe(null);
   });
 
   it("takes the LAST model named in the window, not the first", () => {
@@ -97,7 +149,7 @@ describe("detectFamily", () => {
       "Set model to Sonnet 4.5",
       "1.6k tokens \u00b7 thought for 2s",
     ].join("\n");
-    expect(detectFamily(window)).toBe("sonnet");
+    expect(detectModel(window)).toBe("sonnet 4.5");
   });
 
   it("gives the same answer when called twice on the same text", () => {
@@ -109,39 +161,41 @@ describe("detectFamily", () => {
     // loop shaped as it is, exec() returning null resets lastIndex by itself,
     // so deleting that line changes nothing observable and no test here kills
     // the mutant. The line stays as future-proofing against exactly the
-    // first-match-wins rewrite above; see the comment on FAMILY_DETECT_RE.
+    // first-match-wins rewrite above; see the comment on MODEL_DETECT_RE.
     const window = "claude-opus-4-5 then claude-haiku-4-5";
-    expect(detectFamily(window)).toBe("haiku");
-    expect(detectFamily(window)).toBe("haiku");
-    expect(detectFamily("Sonnet 4.5")).toBe("sonnet");
+    expect(detectModel(window)).toBe("haiku 4.5");
+    expect(detectModel(window)).toBe("haiku 4.5");
+    expect(detectModel("Sonnet 4.5")).toBe("sonnet 4.5");
   });
 });
 
-describe("resolveFamily", () => {
-  it("adopts a family the window names", () => {
-    expect(resolveFamily(null, "Sonnet 4.5 \u00b7 Claude Max")).toBe("sonnet");
+describe("resolveModel", () => {
+  it("adopts a model the window names", () => {
+    expect(resolveModel(null, "Sonnet 4.5 \u00b7 Claude Max")).toBe("sonnet 4.5");
   });
 
-  it("KEEPS the previous family when the window names none (sticky)", () => {
+  it("KEEPS the previous model when the window names none (sticky)", () => {
     // The reason the original code latched at all: the banner scrolls out of
     // the 10KB window within seconds on a busy session, and losing the family
     // there would silently reprice the tab at the opus default.
-    expect(resolveFamily("sonnet", "just some build output\n$ ")).toBe("sonnet");
-    expect(resolveFamily("haiku", "")).toBe("haiku");
+    expect(resolveModel("sonnet 4.5", "just some build output\n$ ")).toBe("sonnet 4.5");
+    expect(resolveModel("haiku 4.5", "")).toBe("haiku 4.5");
   });
 
-  it("REPLACES the previous family when the window names a different one", () => {
+  it("REPLACES the previous model when the window names a different one", () => {
     // The half the latch could not do. `/model sonnet` mid-session, or a second
     // `claude` run in the same tab, genuinely changes the model.
-    expect(resolveFamily("opus", "Set model to Sonnet 4.5")).toBe("sonnet");
-    expect(resolveFamily("sonnet", "claude-haiku-4-5: 10 input, 2 output")).toBe("haiku");
+    expect(resolveModel("opus 5.5", "Set model to Sonnet 4.5")).toBe("sonnet 4.5");
+    expect(resolveModel("sonnet 4.5", "claude-haiku-4-5: 10 input, 2 output")).toBe("haiku 4.5");
+    // A version change within one family is a real change too.
+    expect(resolveModel("opus 4.1", "Opus 5.5 (1M context)")).toBe("opus 5.5");
   });
 
   it("stays null while nothing has ever been detected", () => {
-    // Leaves the caller's `family || DEFAULT_FAMILY` to supply the worst-case
-    // opus rate, which is the intended not-yet-known behaviour.
-    expect(resolveFamily(null, "PS C:\\Users\\pluto> ")).toBe(null);
-    expect(resolveFamily(undefined, "")).toBe(null);
+    // Leaves modelRates.js's DEFAULT_MODEL to supply the Opus rate, which is
+    // the intended not-yet-known behaviour.
+    expect(resolveModel(null, "PS C:\\Users\\pluto> ")).toBe(null);
+    expect(resolveModel(undefined, "")).toBe(null);
   });
 
   it("regression PERF-2: a shell prompt on the first chunk no longer pins the family", () => {
@@ -149,13 +203,13 @@ describe("resolveFamily", () => {
     // the FIRST PTY chunk, which for a local shell is the shell's own banner,
     // long before anyone types `claude`.
     let family = null;
-    family = resolveFamily(family, "Windows PowerShell\nPS C:\\Users\\pluto> ");
+    family = resolveModel(family, "Windows PowerShell\nPS C:\\Users\\pluto> ");
     expect(family).toBe(null);            // old code: "opus", permanently
-    family = resolveFamily(family, "PS C:\\Users\\pluto> claude --model sonnet");
-    family = resolveFamily(family, "Sonnet 4.5 (1M context)\n1.6k tokens");
-    expect(family).toBe("sonnet");        // costed at $2.50/M, not $12/M
-    family = resolveFamily(family, "\u23fa Running tests...\n");
-    expect(family).toBe("sonnet");        // survives the banner scrolling out
+    family = resolveModel(family, "PS C:\\Users\\pluto> claude --model sonnet");
+    family = resolveModel(family, "Sonnet 4.5 (1M context)\n1.6k tokens");
+    expect(family).toBe("sonnet 4.5");    // costed at Sonnet 4.5's rate, not the Opus default
+    family = resolveModel(family, "\u23fa Running tests...\n");
+    expect(family).toBe("sonnet 4.5");    // survives the banner scrolling out
   });
 });
 

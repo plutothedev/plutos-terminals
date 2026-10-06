@@ -12,7 +12,7 @@ import Modal from "../../components/Modal.jsx";
 import { PaneBoundary } from "../../components/ErrorBoundary.jsx";
 import { useToast } from "../../components/Toast.jsx";
 import { Button, Input, Chip } from "../../components/ui.jsx";
-import { PROVIDERS, findProvider, resolveBaseUrl } from "./providers.js";
+import { PROVIDERS, activeModelProblem, findProvider, isModelId, providerKeyFor, resolveBaseUrl } from "./providers.js";
 import {
   PICKER_REFRESH_MS,
   agoLabel,
@@ -44,6 +44,21 @@ function chipTitle(m) {
   return `Use ${m.name || m.id}${released}`;
 }
 
+// A saved id as the banner shows it: cut to 60 characters, and every
+// character a model id may not hold shown as "?", so a control, bidi or
+// invisible character from a synced id cannot reorder or hide anything in
+// the line.
+const ID_CHAR = /^[A-Za-z0-9._:/@+~=#[\]-]$/;
+function displayId(id) {
+  let out = "";
+  let n = 0;
+  for (const ch of String(id ?? "")) {
+    if (n++ === 60) break;
+    out += ID_CHAR.test(ch) ? ch : "?";
+  }
+  return out;
+}
+
 export default function ModelPicker({ open, onClose, userSt, saveUser }) {
   const toast = useToast();
   const [keys, setKeys] = useState({});
@@ -64,6 +79,9 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
     if (!open) return;
     setKeys({ ...(userSt?.providerKeys || {}) });
     setBaseUrls({ ...(userSt?.providerBaseUrls || {}) });
+    // The saved choice as it is, even one that cannot be used: every save below
+    // writes `active` back, and writing a stand-in would erase the user's
+    // choice on this device and, through sync, on the others.
     setActive(userSt?.activeModel || null);
     setExpanded(userSt?.activeModel?.providerId || PROVIDERS[0].id);
     setCustom({});
@@ -97,7 +115,11 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
   const chooseModel = (providerId, model) => {
     const m = (model || "").trim();
     if (!m) { toast.error("Pick or type a model id first."); return; }
-    if (typeof keys[providerId] !== "string" || !keys[providerId].trim()) {
+    if (!isModelId(m)) {
+      toast.error("A model id uses letters, digits and . _ - : / @ + ~ = # [ ] only, up to 200 characters, and does not start with a dash.");
+      return;
+    }
+    if (!providerKeyFor({ providerKeys: keys, anthropicKey: userSt?.anthropicKey }, providerId)) {
       toast.error("Enter the provider's API key first.");
       return;
     }
@@ -107,6 +129,13 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
       return;
     }
     const next = { providerId, model: m };
+    // The checks above cover the common cases; this catches the rest (a base URL
+    // with a space in it, say) before a choice that cannot be used is saved.
+    const problem = activeModelProblem({ activeModel: next, providerKeys: keys, providerBaseUrls: baseUrls, anthropicKey: userSt?.anthropicKey });
+    if (problem) {
+      toast.error(`That choice cannot be used: ${problem}.`);
+      return;
+    }
     setActive(next);
     persist(keys, next, baseUrls);
     toast.success(`Active model: ${m}. New shells route to ${p?.label || providerId}.`);
@@ -140,7 +169,13 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
     }
   };
 
-  const activeProvider = active ? findProvider(active.providerId) : null;
+  // What is wrong with the saved choice, judged against the base URLs as edited
+  // here; `shown` is the choice when it can be used.
+  const savedProblem = active
+    ? activeModelProblem({ activeModel: active, providerKeys: keys, providerBaseUrls: baseUrls, anthropicKey: userSt?.anthropicKey })
+    : null;
+  const shown = savedProblem ? null : active;
+  const activeProvider = shown ? findProvider(shown.providerId) : null;
   const cache = readModelCache();
 
   return (
@@ -157,28 +192,35 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
             display: "flex", alignItems: "center", justifyContent: "space-between",
             gap: "var(--phn-sp-3)", marginBottom: "var(--phn-sp-3)", padding: "var(--phn-sp-2) var(--phn-sp-3)",
             borderRadius: "var(--phn-r-md)", flexShrink: 0, background: "var(--phn-page-bg)",
-            border: `1px solid ${active ? "var(--phn-link)" : "var(--phn-surface-border)"}`,
+            border: `1px solid ${shown ? "var(--phn-link)" : "var(--phn-surface-border)"}`,
           }}
         >
           <div style={{ fontSize: "var(--phn-fs-sm)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {active ? (
+            {shown ? (
               <>
                 <span style={{ color: "var(--phn-text-dim)" }}>Active&nbsp;</span>
-                <strong style={{ color: "var(--phn-link)", fontFamily: "var(--phn-mono-font)" }}>{active.model}</strong>
-                <span style={{ color: "var(--phn-text-dim)" }}> · {activeProvider?.label || active.providerId}</span>
+                <strong style={{ color: "var(--phn-link)", fontFamily: "var(--phn-mono-font)" }}>{shown.model}</strong>
+                <span style={{ color: "var(--phn-text-dim)" }}> · {activeProvider?.label || shown.providerId}</span>
               </>
+            ) : savedProblem ? (
+              <span style={{ color: "var(--phn-text-dim)" }}>Active: none</span>
             ) : (
               <span style={{ color: "var(--phn-text-dim)" }}>Active: default (your Anthropic key → Claude)</span>
             )}
           </div>
           {active && <Button variant="ghost" size="sm" onClick={resetDefault}>Use default</Button>}
         </div>
+        {savedProblem && (
+          <div role="status" style={{ fontSize: "var(--phn-fs-xs)", color: "var(--phn-notice-warn-fg, #b8860b)", margin: "calc(-1 * var(--phn-sp-2)) 0 var(--phn-sp-3)" }}>
+            Your saved choice ({displayId(active?.model)}) cannot be used: {savedProblem}. Until you pick again or press Use default (which clears it on your synced devices too), new shells and the AI get no model.
+          </div>
+        )}
 
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: "var(--phn-sp-1)", paddingRight: 4 }}>
           {PROVIDERS.map((p) => {
             const isOpen = expanded === p.id;
             const hasKey = typeof keys[p.id] === "string" && keys[p.id].trim().length > 0;
-            const isActive = active?.providerId === p.id;
+            const isActive = shown?.providerId === p.id;
             return (
               <div
                 key={p.id}
@@ -212,7 +254,7 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
                     loading={isRefreshing(p.id)}
                     filterText={filter[p.id] || ""}
                     customText={custom[p.id] || ""}
-                    activeModel={isActive ? active.model : null}
+                    activeModel={isActive ? shown.model : null}
                     onKey={(v) => setKey(p.id, v)}
                     onKeyBlur={() => onKeyBlur(p.id)}
                     onBase={(v) => setBaseUrl(p.id, v)}

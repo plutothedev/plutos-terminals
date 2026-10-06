@@ -41,6 +41,83 @@
   worktree pane would have been missed and left running in the folder Discard
   deletes, and a pane folded into a worktree tab would have been closed by a
   Discard that never mentioned it.
+- **The app's AI calls no longer follow a redirect to another host or port,
+  or from https down to http.** Ask, the Assistant and Agent Mode send your
+  key in a header (`x-api-key`) that the HTTP library kept when a server
+  redirected to a different host or port, and the library also followed a
+  redirect from https down to plain http. So a provider address that answered
+  with a redirect could have passed your key to an address you never entered,
+  or sent it in cleartext. A redirect is now followed only within the same
+  host and port (plain http may still upgrade to https), and a refused one
+  stops with a message saying where it pointed (a host, a port or plain
+  http), so a moved endpoint reads as a settings problem. One narrow case
+  remains: for a plain-http address written as a bare IP, the server you set
+  can redirect to the same address spelled another way, which some systems
+  dial as a different address.
+- **MCP servers get the same protection.** An MCP server's token is no longer
+  sent to a plain-http public address (https, or http only for localhost or a
+  private-LAN address, as for API keys), and the MCP connection follows
+  redirects by the rule above. It used to follow a redirect from https down
+  to http on the same port with the token attached. Connecting to an HTTP MCP
+  server could also fail if it happened before the app's first update check,
+  because the TLS library had no crypto provider set until then.
+- **Claude-compatible gateways no longer receive your Anthropic key.** Since
+  v0.2.0, with Moonshot (Kimi), Z.AI (GLM) or MiniMax picked in Models, new
+  shells carried your default Anthropic key next to the gateway's own token,
+  and Claude Code sends both on every request once it uses that key (always
+  in print mode; in an interactive session after you approve it at its
+  one-time prompt), so the gateway's operator could receive a working
+  Anthropic key. Those shells now get only the gateway's
+  token, and an Anthropic key in the app's own environment is blanked in them
+  too. One that your shell startup file exports still goes along (Claude Code
+  sends that too), so take it out of the file if you use one of these
+  gateways. If you picked one of them while an Anthropic key was saved,
+  rotating that key is a sensible precaution.
+- **Model ids are checked wherever one can be set.** A typed id, a pick sent
+  from the phone and an id synced from another device all become
+  `ANTHROPIC_MODEL` or `OPENAI_MODEL` in every new shell. Each now has to be a
+  model id: up to 200 letters, digits and `. _ - : / @ + ~ = # [ ]`, not
+  starting with a dash. That covers the real ids we know of, including Claude
+  Code's `[1m]` 1M-context suffix (`sonnet[1m]`), the local path vLLM serves as
+  an id and a Fireworks dedicated deployment (`model#deployment`), and keeps a
+  stray NUL byte, an escape sequence or an oversized value out of new shells,
+  where it could stop them starting. A provider's base URL with a space, a
+  control character or a format character (zero-width, bidirectional,
+  byte-order mark) in it, or an oversized one, is kept out of new shells too;
+  where it points stays your call, so a gateway on a LAN name still works.
+- **A saved model choice that cannot be used is no longer swapped for
+  another provider.** If the saved choice fails those checks, names a provider
+  this build does not know, or has no API key or address on this device (the
+  choice syncs between devices; keys and addresses do not), new shells get no
+  provider key and the AI reports no model, instead of quietly falling back to
+  your default Claude key and sending your text to a provider you did not pick.
+  A new local shell prints one line saying why, the AI panels say why, the
+  menu bar and the phone show no model once the keychain has been read, and
+  Models explains and offers Use default. The choice itself is kept until you
+  change it, and Models refuses a choice that could not be used when you pick
+  it. Anthropic's old standalone key now counts for an Anthropic choice in
+  new shells, the in-app AI, Models' choice check and the phone (shells used
+  to get the key without the chosen model), and never for another provider.
+- **A shell restored at launch waits briefly for your API keys.** Since your
+  keys moved to the OS keychain, a pane that opened with the app could start
+  its shell before the app had finished reading the keychain, and that shell
+  got no provider key. Local shells now wait for that first read, two seconds
+  at most in all; one that still starts first says so in one line, and a tab
+  opened after the keys load has them. The launch read also tries again when
+  settings saved at the same moment made it set aside what it read, which
+  could keep your keys out of the app for a whole session. A setting saved
+  while that first read runs can no longer delete a saved key the app had
+  not shown you yet, and is no longer undone when the read finishes.
+- **A new shell starts at its pane's size.** A pane that finished laying out
+  while its shell was being created could leave the shell at the size it
+  started with, often 80 by 24, until the next resize.
+- **The live cost estimate prices the model you are actually running.** It
+  charged every Opus session at Opus 4's rate and had no rate for Fable, so a
+  session on Opus 5.5, Claude Code's default, was estimated at about 3.7 times
+  its real cost. It now reads the model's version (Opus 5.5, Fable 5.1,
+  Sonnet 4.6 and so on, including ids written `anthropic/claude-opus-4.5` and
+  the Claude 3 naming) and uses Anthropic's current price for it. A `/cost`
+  total still replaces the estimate whenever one appears.
 
 ### Changed
 - DOMPurify, which the code editor uses, is 3.4.16, clearing a low-severity

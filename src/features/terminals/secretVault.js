@@ -76,6 +76,25 @@ let probePromise = null;
 // tell "the keychain is settled" from "the keychain is mid-change and the cache
 // holds a value the user typed that is not on disk yet". See reloadOnce.
 let pendingSaves = 0;
+// How many launch loads (migrateAndLoad) are running; React's StrictMode runs
+// App's mount effect twice in development, so it is a count. App merges the
+// keychain's keys into its state only once that load succeeds, so until then
+// a save carries state that may not hold them: such a save may delete only a
+// key this window's state has held since the load began (launchHeld), never
+// one App has not merged yet (see saveSecretKeys). A load that fails leaves
+// the guard up for the session, since App then never merges.
+let launching = 0;
+// What this window's state has held since the launch load began: the keys it
+// started with (the plaintext ones App passed in) and every key a save of its
+// own has carried. A removal needs the key on screen first, so these are the
+// only keys a save made during the load can mean to delete.
+let launchHeld = { ids: new Set(), legacy: false };
+// What this window's state has dropped during the load: held keys a later save
+// no longer carried. That is what a removal looks like; a save from state older
+// than a refresh looks the same and is read the same way. The load's own write
+// leaves these out and deletes them, so a plaintext key removed while the load
+// is still reading the keychain does not come back with the migration.
+let launchDropped = { ids: new Set(), legacy: false };
 // Whether this window has probed the whole catalog at least once. The first
 // load always does, so an install whose index an older build narrowed recovers
 // on the next launch rather than staying broken forever.
@@ -170,6 +189,35 @@ export function keychainAvailable() {
 
 export function isLoaded() {
   return loaded;
+}
+
+// Settles when the first read of the keychain has FINISHED, keys or not (an
+// unavailable keychain settles it too). isLoaded() turns true when that read
+// starts, not when the keys are in. Until it finishes, the cache is empty even
+// for a user with saved keys, because localStorage no longer holds them once
+// the keychain does: a pane restored at launch used to start its shell before
+// the read finished, and so without the user's keys. Such a pane waits here
+// (keysReady), bounded so a slow keychain cannot hold shells back: every pane
+// shares one deadline, set by the first to ask, so the shells restored at
+// launch wait that long at most in all, and none waits once it has passed.
+let firstReadSettled = false;
+let firstReadDone = () => {};
+const firstRead = new Promise((resolve) => {
+  firstReadDone = resolve;
+});
+let launchDeadline = null;
+
+/** True once the first keychain read has finished. */
+export function keysSettled() {
+  return firstReadSettled;
+}
+
+/** Resolves when the first keychain read has finished, or at the launch
+ *  deadline (`timeoutMs` after the first call); never rejects. */
+export function keysReady(timeoutMs) {
+  if (firstReadSettled) return Promise.resolve();
+  if (!launchDeadline) launchDeadline = new Promise((resolve) => setTimeout(resolve, timeoutMs));
+  return Promise.race([firstRead, launchDeadline]);
 }
 
 // ---------------------------------------------------------------- reads
@@ -459,14 +507,29 @@ async function reloadOnce() {
   return true;
 }
 
-async function reload() {
+// One refresh of the cache from the keychain; true when a pass actually read
+// it (an unavailable keychain counts: reloadOnce then keeps the local copy).
+// Bounded retry, not a loop: a window saving continuously must not trap a
+// refresh here. The cache keeps the user's own newest values either way, and
+// the next storage event or launch reconciles what this pass could not. Only
+// a pass that read settles the first-read signal (keysReady): when a save
+// deferred every pass, the cache has not seen the keychain and may hold none
+// of the keys there.
+async function reloadPasses() {
   await probeKeychain();
-  // Bounded retry, not a loop: a window saving continuously must not trap a
-  // refresh here. The cache keeps the user's own newest values either way, and
-  // the next storage event or launch reconciles what this pass could not.
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (await queue(() => reloadOnce())) break;
+    if (await queue(() => reloadOnce())) {
+      if (!firstReadSettled) {
+        firstReadSettled = true;
+        firstReadDone();
+      }
+      return true;
+    }
   }
+  return false;
+}
+async function reload() {
+  await reloadPasses();
   return cache;
 }
 
@@ -481,16 +544,31 @@ export function loadSecretKeys() {
  *  copy that is stale in that moment: window B would keep showing (and then
  *  re-writing) the key window A had just rotated away. Async on purpose — the
  *  caller must not block a DOM event handler on a keychain round-trip. */
-export function refreshSecretKeys() {
-  return reload();
+export async function refreshSecretKeys() {
+  const keys = await reload();
+  // App's storage handler puts what a refresh read on screen, so while the
+  // launch guard is up those keys count as held: the user can remove them.
+  if (launching > 0) {
+    for (const id of Object.keys(cache.providerKeys)) {
+      launchHeld.ids.add(id);
+      launchDropped.ids.delete(id);
+    }
+    if (cache.anthropicKey) {
+      launchHeld.legacy = true;
+      launchDropped.legacy = false;
+    }
+  }
+  return keys;
 }
 
 // ---------------------------------------------------------------- writes
 
 /** The per-provider operations that take `base` to `next`. Empty when nothing
  *  changed, which is the whole point: an unrelated user-state save must not
- *  touch the keychain at all. */
-function diffOps(base, next) {
+ *  touch the keychain at all. `deletable` is a launch-time save's limit (see
+ *  saveSecretKeys): the ids it may delete, and whether it may delete the
+ *  standalone key; null means anything. */
+function diffOps(base, next, deletable = null) {
   const ops = [];
   const ids = new Set([...Object.keys(base.providerKeys), ...Object.keys(next.providerKeys)]);
   for (const id of ids) {
@@ -500,11 +578,14 @@ function diffOps(base, next) {
     // Note a delete comes from "in the BASELINE and not in next", never from
     // "stored and not in next": a stale window cannot delete a provider another
     // window added, because it never knew about it.
-    if (after === undefined) ops.push({ kind: "delete", id });
+    if (after === undefined) {
+      if (!deletable || deletable.ids.has(id)) ops.push({ kind: "delete", id });
+    }
     else ops.push({ kind: "set", id, value: after });
   }
   if (base.anthropicKey !== next.anthropicKey) {
-    ops.push(next.anthropicKey ? { kind: "legacy-set", value: next.anthropicKey } : { kind: "legacy-delete" });
+    if (next.anthropicKey) ops.push({ kind: "legacy-set", value: next.anthropicKey });
+    else if (!deletable || deletable.legacy) ops.push({ kind: "legacy-delete" });
   }
   return ops;
 }
@@ -638,6 +719,36 @@ async function applyOps(ops) {
  *  later secret in plaintext. */
 export function saveSecretKeys(providerKeys, anthropicKey) {
   const next = normalize({ providerKeys, anthropicKey });
+  // Decided when the save is made, not when its turn in the queue comes: a
+  // save made during the launch load may delete only what this window's state
+  // held before it, even when it runs after the load has finished.
+  let deletable = null;
+  if (launching > 0) {
+    deletable = { ids: new Set(launchHeld.ids), legacy: launchHeld.legacy };
+    for (const id of deletable.ids) if (next.providerKeys[id] === undefined) launchDropped.ids.add(id);
+    for (const id of Object.keys(next.providerKeys)) {
+      launchHeld.ids.add(id);
+      launchDropped.ids.delete(id);
+    }
+    if (deletable.legacy && !next.anthropicKey) launchDropped.legacy = true;
+    if (next.anthropicKey) {
+      launchHeld.legacy = true;
+      launchDropped.legacy = false;
+    }
+  }
+  return saveKeys(next, deletable);
+}
+
+// The save itself. A key a launch-time save may not delete stays in the cache
+// as well as the keychain, so the cache always shows what the keychain will
+// hold, and App's merge cannot drop it.
+function saveKeys(next, deletable) {
+  if (deletable) {
+    for (const [id, value] of Object.entries(cache.providerKeys)) {
+      if (next.providerKeys[id] === undefined && !deletable.ids.has(id)) next.providerKeys[id] = value;
+    }
+    if (!next.anthropicKey && !deletable.legacy && cache.anthropicKey) next.anthropicKey = cache.anthropicKey;
+  }
   cache = next;
   // Covers the path where a save lands before any load: until the readback
   // proves persistence, keychainAvailable() stays false and the caller keeps its
@@ -651,7 +762,7 @@ export function saveSecretKeys(providerKeys, anthropicKey) {
   pendingSaves += 1;
   return queue(async () => {
     try {
-      const ops = diffOps(persisted, next);
+      const ops = diffOps(persisted, next, deletable);
       if (!ops.length) return; // nothing changed: do not touch the keychain
       await applyOps(ops);
     } finally {
@@ -664,15 +775,47 @@ export function saveSecretKeys(providerKeys, anthropicKey) {
  *  (AWAITED so the caller can safely strip plaintext only after this resolves),
  *  and update the cache. Throws if a keychain write fails. */
 export async function migrateAndLoad(legacyProviderKeys, legacyAnthropicKey) {
-  const fromChain = await reload();
+  const atMount = normalize({ providerKeys: legacyProviderKeys, anthropicKey: legacyAnthropicKey });
+  if (launching === 0) {
+    launchHeld = { ids: new Set(), legacy: false };
+    launchDropped = { ids: new Set(), legacy: false };
+  }
+  for (const id of Object.keys(atMount.providerKeys)) launchHeld.ids.add(id);
+  if (atMount.anthropicKey) launchHeld.legacy = true;
+  launching += 1;
+  // No finally: a load that fails leaves the guard up (see `launching`).
+  const result = await launchLoad(legacyProviderKeys, legacyAnthropicKey);
+  launching -= 1;
+  return result;
+}
+async function launchLoad(legacyProviderKeys, legacyAnthropicKey) {
+  // App merges the keys this returns into its own state once, when it
+  // resolves, so this first load has to read the keychain: a save landing in each of a
+  // refresh's passes defers them all (reloadOnce), and the keys there would
+  // stay out of this window for the whole session. Try again a few times,
+  // backing off (1.5 s in all), then carry on with what the saves left.
+  let read = await reloadPasses();
+  for (let retry = 1; !read && retry <= 4; retry++) {
+    await new Promise((resolve) => setTimeout(resolve, 150 * retry));
+    read = await reloadPasses();
+  }
+  const fromChain = cache;
   const merged = normalize({
     // keychain wins on overlap (source of truth post-migration); legacy fills gaps.
     providerKeys: { ...(legacyProviderKeys || {}), ...fromChain.providerKeys },
     anthropicKey: fromChain.anthropicKey || (typeof legacyAnthropicKey === "string" ? legacyAnthropicKey : "") || "",
   });
-  await saveSecretKeys(merged.providerKeys, merged.anthropicKey);
+  // Its own save, not one of App's: it records nothing as held, and it
+  // leaves out and deletes only keys a save made while it ran no longer
+  // carried (launchDropped; a read can have put such a key back in the cache).
+  for (const id of launchDropped.ids) delete merged.providerKeys[id];
+  if (launchDropped.legacy) merged.anthropicKey = "";
+  await saveKeys(merged, { ids: new Set(launchDropped.ids), legacy: launchDropped.legacy });
   // NOTE: a successful write is deliberately NOT proof of persistence (the mock
   // store "succeeds" too) — keychainOk comes only from probeKeychain's readback.
   loaded = true;
-  return cache;
+  // A copy of the cache, which a save made during the load can only have
+  // added to or changed (a key rotated meanwhile comes back rotated), never
+  // emptied of a key App has not merged yet.
+  return { providerKeys: { ...cache.providerKeys }, anthropicKey: cache.anthropicKey };
 }

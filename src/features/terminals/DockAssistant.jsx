@@ -4,7 +4,7 @@
 // touches the webview. When the model replies with a fenced command you can run
 // or insert it into the active terminal.
 import { useEffect, useRef, useState } from "react";
-import { resolveActiveLLM } from "./providers.js";
+import { noModelMessage, resolveActiveLLM } from "./providers.js";
 import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
 import { SSend } from "./toolbarIcons.jsx";
@@ -50,8 +50,9 @@ export default function DockAssistant({ onSendToTerminal, shellName, cwd, prompt
   const send = async () => {
     const q = input.trim();
     if (!q || loading) return;
-    const llm = resolveActiveLLM(readUserSt());
-    if (!llm) { setError("No model configured. Open the Models picker (toolbar) first."); return; }
+    const llmState = readUserSt();
+    const llm = resolveActiveLLM(llmState);
+    if (!llm) { setError(noModelMessage(llmState)); return; }
     setModel(llm.model);
     setError(null);
     const next = [...messages, { role: "user", content: q }];

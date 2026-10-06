@@ -9,6 +9,9 @@
 /// status BEFORE parsing JSON matters — an HTML 502 from a proxy must surface
 /// as "502 Bad Gateway: <html>…", not as a JSON decode error.
 pub(crate) async fn http_error(status: reqwest::StatusCode, resp: reqwest::Response) -> String {
+    if let Some(msg) = refused_redirect_message(status, resp.headers(), resp.url()) {
+        return msg;
+    }
     let body = resp.text().await.unwrap_or_default();
     if let Some(msg) = serde_json::from_str::<serde_json::Value>(&body)
         .ok()
@@ -41,14 +44,132 @@ use std::sync::OnceLock;
 
 static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+/// Most redirects the shared client follows in one chain.
+pub(crate) const MAX_REDIRECTS: usize = 5;
+
+/// Whether the shared client follows a redirect from `first`, the URL the
+/// request was sent to, on to `next`: only within the same host and port, over
+/// http or https, and never from https down to http. The one port change
+/// allowed is http upgrading to https on https's own port (443). The LLM calls
+/// carry the API key in `x-api-key`, which reqwest does NOT strip on a
+/// cross-host or cross-port hop (only Authorization and cookies; redirect.rs
+/// remove_sensitive_headers), and reqwest's default policy also follows https
+/// to http. So a provider, or anything answering at its address, could
+/// otherwise send a 30x and receive the key at an address the user never
+/// entered, or in cleartext. A same-host hop (a trailing slash, a moved path)
+/// still works, for a base given as an IP address too: local MCP servers on
+/// 127.0.0.1 (FastMCP answers /mcp with a 307 to /mcp/) depend on it.
+///
+/// Known residual, accepted: this rule sees the WHATWG-normalised host, while
+/// the connector dials the Location's own text, and the two can read an
+/// unusual IPv4 spelling differently (macOS takes "0177.0.0.1" as 177.0.0.1
+/// where WHATWG reads 127.0.0.1; review 2026-10-05). Only the server that just
+/// received the key can send such a Location, so it gains nothing it did not
+/// already have, and only a plain-http base is exposed: over https the
+/// connector checks the certificate against the spelling it dials and refuses
+/// an alternative one before any handshake. Refusing every redirect from an
+/// IP-address base to close it broke those MCP servers.
+pub(crate) fn redirect_allowed(first: &reqwest::Url, next: &reqwest::Url) -> bool {
+    let Some(host) = first.host_str() else { return false };
+    if !matches!(next.scheme(), "http" | "https") {
+        return false;
+    }
+    let same_host = next.host_str().is_some_and(|h| h.eq_ignore_ascii_case(host));
+    let downgrade = first.scheme() == "https" && next.scheme() != "https";
+    let same_port = next.port_or_known_default() == first.port_or_known_default();
+    let upgrade = first.scheme() == "http" && next.scheme() == "https" && next.port_or_known_default() == Some(443);
+    same_host && !downgrade && (same_port || upgrade)
+}
+
+/// The shared client's settings, also what the tests build from.
+fn shared_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .user_agent("plutos-terminals")
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() > MAX_REDIRECTS {
+                return attempt.error("too many redirects");
+            }
+            let allowed = attempt
+                .previous()
+                .first()
+                .is_some_and(|first| redirect_allowed(first, attempt.url()));
+            if allowed {
+                attempt.follow()
+            } else {
+                // The 30x itself comes back to the caller, which reports it
+                // through refused_redirect_message.
+                attempt.stop()
+            }
+        }))
+}
+
 pub(crate) fn http_client() -> &'static reqwest::Client {
-    CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .user_agent("plutos-terminals")
-            .connect_timeout(std::time::Duration::from_secs(15))
-            .build()
-            .expect("shared HTTP client (TLS backend init)")
-    })
+    CLIENT.get_or_init(|| shared_client_builder().build().expect("shared HTTP client (TLS backend init)"))
+}
+
+/// A failed send, as the user reads it. A redirect chain longer than
+/// MAX_REDIRECTS gets a fixed sentence, because reqwest's own text carries the
+/// last address in the chain, which the provider chose. Every other error
+/// keeps reqwest's text, which names the base URL the user set.
+pub(crate) fn send_error(e: reqwest::Error) -> String {
+    if e.is_redirect() {
+        format!("the provider redirected more than {MAX_REDIRECTS} times, so the request stopped. Check the base URL in Models.")
+    } else {
+        e.to_string()
+    }
+}
+
+/// The error for a redirect the shared client would not follow
+/// (redirect_allowed), or None when there is no redirect to describe: a
+/// status that is not 3xx, or a 3xx with no usable Location (304, 300, a bare
+/// 301), which then reads as its plain status. It says what kind of place the
+/// provider pointed at, naming a host or port but never the full address, and
+/// what to check, so a moved endpoint reads as a settings problem rather than
+/// a bare "301 Moved Permanently".
+pub(crate) fn refused_redirect_message(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    from: &reqwest::Url,
+) -> Option<String> {
+    if !status.is_redirection() {
+        return None;
+    }
+    let target = headers
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|loc| from.join(loc).ok())?;
+    let same_host = match (target.host_str(), from.host_str()) {
+        (Some(t), Some(f)) => t.eq_ignore_ascii_case(f),
+        _ => false,
+    };
+    let place = if !matches!(target.scheme(), "http" | "https") {
+        "an address that is not http or https".to_string()
+    } else if !same_host {
+        format!("another host ({})", target.host_str().unwrap_or("no host"))
+    } else if from.scheme() == "https" && target.scheme() != "https" {
+        "plain http".to_string()
+    } else if target.port_or_known_default() != from.port_or_known_default() {
+        let port = target.port_or_known_default().map_or_else(|| "none".to_string(), |p| p.to_string());
+        format!("another port ({port})")
+    } else {
+        "another address".to_string()
+    };
+    Some(format!(
+        "{status}: the provider redirected to {place}. The app only sends your key to the base URL you set, so check that address in Models."
+    ))
+}
+
+/// The error for a streaming call's non-2xx answer: a refused redirect as
+/// refused_redirect_message words it, else the JSON error message, else the
+/// status. Error bodies are plain JSON, not SSE.
+async fn stream_http_error(status: reqwest::StatusCode, resp: reqwest::Response) -> String {
+    if let Some(msg) = refused_redirect_message(status, resp.headers(), resp.url()) {
+        return msg;
+    }
+    let v: serde_json::Value = resp.json().await.unwrap_or_else(|_| serde_json::json!({}));
+    let msg = v.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("");
+    if msg.is_empty() { status.to_string() } else { msg.to_string() }
 }
 
 /// Transient statuses worth retrying: rate limit, upstream unavailable, and
@@ -81,9 +202,9 @@ pub(crate) async fn send_with_retry(
     loop {
         let this_try = match builder.try_clone() {
             Some(b) => b,
-            None => return builder.send().await.map_err(|e| e.to_string()),
+            None => return builder.send().await.map_err(send_error),
         };
-        let resp = this_try.send().await.map_err(|e| e.to_string())?;
+        let resp = this_try.send().await.map_err(send_error)?;
         let status = resp.status().as_u16();
         if !is_retryable_status(status) || attempt >= 2 {
             return Ok(resp);
@@ -489,14 +610,11 @@ pub async fn llm_stream(
     let resp = tokio::time::timeout(std::time::Duration::from_secs(30), send_fut)
         .await
         .map_err(|_| "timed out waiting for the provider to respond".to_string())?
-        .map_err(|e| e.to_string())?;
+        .map_err(send_error)?;
 
     let status = resp.status();
     if !status.is_success() {
-        // Error bodies are plain JSON, not SSE.
-        let v: serde_json::Value = resp.json().await.unwrap_or_else(|_| serde_json::json!({}));
-        let msg = v.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("");
-        return Err(if msg.is_empty() { status.to_string() } else { msg.to_string() });
+        return Err(stream_http_error(status, resp).await);
     }
 
     let mut stream = resp.bytes_stream();
@@ -628,13 +746,12 @@ fn list_client() -> &'static reqwest::Client {
 /// `meta-llama/Llama-3.3-70B-Instruct`, `llama3.1:8b`, `qwen/qwen3:free`.
 /// Whitespace, quotes, angle brackets and control characters never appear in
 /// one, so an id carrying them is dropped whole.
-fn clean_model_id(raw: &str) -> Option<String> {
+pub(crate) fn clean_model_id(raw: &str) -> Option<String> {
     let id = raw.trim();
-    let ok = !id.is_empty()
-        && id.len() <= 200
-        && id.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/' | '@' | '+' | '~' | '=')
-        });
+    let allowed = |c: char| {
+        c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/' | '@' | '+' | '~' | '=' | '#' | '[' | ']')
+    };
+    let ok = !id.is_empty() && id.len() <= 200 && !id.starts_with('-') && id.chars().all(allowed);
     ok.then(|| id.to_string())
 }
 
@@ -978,20 +1095,20 @@ pub async fn llm_list_models(kind: String, base_url: String, api_key: String) ->
 }
 
 #[cfg(test)]
-mod list_models_tests {
+pub(crate) mod list_models_tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    type Heads = Arc<Mutex<Vec<String>>>;
+    pub(crate) type Heads = Arc<Mutex<Vec<String>>>;
 
     /// A loopback HTTP server: every connection gets the raw response `respond`
     /// builds from the request head, and every head is kept (lowercased) for
     /// assertions. Loopback is the one place resolve_base allows cleartext,
     /// which is what lets these tests drive the real request path.
-    async fn serve(respond: impl Fn(&str) -> String + Send + Sync + 'static) -> (String, Heads) {
+    pub(crate) async fn serve(respond: impl Fn(&str) -> String + Send + Sync + 'static) -> (String, Heads) {
         let respond = Arc::new(respond);
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1021,7 +1138,7 @@ mod list_models_tests {
         (format!("http://127.0.0.1:{port}"), heads)
     }
 
-    fn json(status: u16, body: &str) -> String {
+    pub(crate) fn json(status: u16, body: &str) -> String {
         format!(
             "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
             body.len()
@@ -1325,5 +1442,232 @@ mod list_models_tests {
         let (m, next) = parse_anthropic_page(&serde_json::json!({ "data": [{ "id": "a" }], "last_id": "a" })).unwrap();
         assert_eq!(ids(&m), ["a"]);
         assert_eq!(next, None);
+    }
+}
+
+#[cfg(test)]
+mod redirect_tests {
+    use super::list_models_tests::{json, serve};
+    use super::*;
+
+    fn url(s: &str) -> reqwest::Url {
+        reqwest::Url::parse(s).unwrap()
+    }
+
+    /// The production client's settings, minus proxies so a developer
+    /// machine's proxy env cannot intercept loopback.
+    fn client() -> reqwest::Client {
+        shared_client_builder().no_proxy().build().unwrap()
+    }
+
+    fn redirect(status: &str, location: &str) -> String {
+        format!("HTTP/1.1 {status}\r\nlocation: {location}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+    }
+
+    /// The loopback server under its host NAME, for the tests that need two
+    /// spellings of one server (a name and an IP address are different hosts).
+    fn named(base: &str) -> String {
+        base.replace("127.0.0.1", "localhost")
+    }
+
+    fn port_of(base: &str) -> String {
+        base.rsplit(':').next().unwrap().to_string()
+    }
+
+    #[test]
+    fn only_same_host_same_port_redirects_that_keep_https_are_allowed() {
+        let api = url("https://api.example.com/v1/messages");
+        assert!(redirect_allowed(&api, &url("https://api.example.com/v1/messages/")));
+        assert!(redirect_allowed(&api, &url("https://API.example.com/v2/messages")));
+        assert!(redirect_allowed(&api, &url("https://api.example.com:443/v1")), "443 is https's own port");
+        assert!(!redirect_allowed(&api, &url("https://api.example.com:8443/v1")), "another port can be another service");
+        assert!(!redirect_allowed(&api, &url("http://api.example.com/v1/messages")), "a downgrade sends the key in cleartext");
+        assert!(
+            !redirect_allowed(&url("https://gw.example:8443/v1"), &url("http://gw.example:8443/v1")),
+            "a downgrade that keeps the port is still a downgrade"
+        );
+        assert!(!redirect_allowed(&api, &url("https://evil.example/v1/messages")));
+        assert!(!redirect_allowed(&api, &url("https://api.example.com.evil.example/v1")));
+        assert!(!redirect_allowed(&api, &url("ftp://api.example.com/v1")), "not a web address");
+        assert!(!redirect_allowed(&api, &url("file:///etc/passwd")));
+        let lan = url("http://gateway.local:8080/v1");
+        assert!(redirect_allowed(&lan, &url("http://gateway.local:8080/v1/")));
+        assert!(redirect_allowed(&lan, &url("https://gateway.local/v1")), "an upgrade onto https's own port");
+        assert!(!redirect_allowed(&lan, &url("https://gateway.local:8443/v1")), "an upgrade that also moves port");
+        assert!(!redirect_allowed(&lan, &url("http://gateway.local:9090/v1")));
+        assert!(!redirect_allowed(&lan, &url("ws://gateway.local:8080/v1")));
+    }
+
+    #[test]
+    fn a_base_given_as_an_ip_address_follows_a_same_address_redirect() {
+        // FastMCP answers /mcp with a 307 to /mcp/, and local MCP servers are
+        // usually configured as http://127.0.0.1:port.
+        for base in ["http://127.0.0.1:8000/mcp", "http://192.168.1.50:8080/v1", "http://[::1]:8080/v1"] {
+            let b = url(base);
+            assert!(redirect_allowed(&b, &b.join("/mcp/").unwrap()), "{base}");
+        }
+        assert!(!redirect_allowed(&url("http://127.0.0.1:8000/mcp"), &url("http://127.0.0.2:8000/mcp/")));
+        assert!(!redirect_allowed(&url("http://127.0.0.1:8000/mcp"), &url("http://localhost:8000/mcp/")));
+    }
+
+    #[test]
+    fn a_refused_redirect_says_where_it_pointed_and_never_the_full_address() {
+        let msg = |status: reqwest::StatusCode, from: &str, location: Option<&str>| {
+            let mut h = reqwest::header::HeaderMap::new();
+            if let Some(l) = location {
+                h.insert(reqwest::header::LOCATION, l.parse().unwrap());
+            }
+            refused_redirect_message(status, &h, &url(from))
+        };
+        let api = "https://api.example.com/v1/messages";
+        let m = msg(reqwest::StatusCode::TEMPORARY_REDIRECT, api, Some("https://evil.example/collect?k=1")).unwrap();
+        assert!(m.starts_with("307 Temporary Redirect: the provider redirected to another host (evil.example)."), "{m}");
+        assert!(!m.contains("collect"), "{m}");
+        let m = msg(reqwest::StatusCode::MOVED_PERMANENTLY, api, Some("http://api.example.com/v1/messages")).unwrap();
+        assert!(m.contains("redirected to plain http."), "{m}");
+        let m = msg(reqwest::StatusCode::FOUND, api, Some("https://api.example.com:8443/v1")).unwrap();
+        assert!(m.contains("redirected to another port (8443)."), "{m}");
+        let m = msg(reqwest::StatusCode::FOUND, api, Some("javascript:alert(1)")).unwrap();
+        assert!(m.contains("redirected to an address that is not http or https."), "{m}");
+        // No Location is no redirect to describe: 304, 300, a bare 301.
+        assert_eq!(msg(reqwest::StatusCode::NOT_MODIFIED, api, None), None);
+        assert_eq!(msg(reqwest::StatusCode::MULTIPLE_CHOICES, api, None), None);
+        assert_eq!(msg(reqwest::StatusCode::MOVED_PERMANENTLY, api, None), None);
+        assert_eq!(msg(reqwest::StatusCode::NOT_FOUND, api, Some("https://evil.example/")), None);
+    }
+
+    #[tokio::test]
+    async fn a_same_host_redirect_is_followed_with_the_key() {
+        let (base, heads) = serve(|head| {
+            if head.starts_with("get /a ") { redirect("302 Found", "/b") } else { json(200, "{}") }
+        })
+        .await;
+        let resp = client().get(format!("{}/a", named(&base))).header("x-api-key", "sk-test").send().await.unwrap();
+        assert_eq!(resp.status(), 200);
+        let heads = heads.lock().unwrap();
+        assert_eq!(heads.len(), 2);
+        assert!(heads[1].starts_with("get /b "), "{}", heads[1]);
+        assert!(heads[1].contains("x-api-key: sk-test"));
+    }
+
+    #[tokio::test]
+    async fn a_redirect_to_another_host_never_carries_the_key_there() {
+        // The same server and port under another host name, so the host alone
+        // is what refuses the hop: the server must never see a second request.
+        let port = std::sync::Arc::new(std::sync::OnceLock::<String>::new());
+        let p = port.clone();
+        let (base, heads) = serve(move |head| {
+            if head.starts_with("post /v1/messages ") {
+                redirect("307 Temporary Redirect", &format!("http://127.0.0.1:{}/steal", p.get().unwrap()))
+            } else {
+                json(200, "{}")
+            }
+        })
+        .await;
+        port.set(port_of(&base)).unwrap();
+        let resp = client()
+            .post(format!("{}/v1/messages", named(&base)))
+            .header("x-api-key", "sk-secret")
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 307);
+        let msg = http_error(resp.status(), resp).await;
+        assert!(msg.contains("another host (127.0.0.1)"), "{msg}");
+        assert!(!msg.contains("sk-secret"));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let heads = heads.lock().unwrap();
+        assert_eq!(heads.len(), 1, "the key reached the other host: {heads:?}");
+    }
+
+    #[tokio::test]
+    async fn a_redirect_to_another_port_never_carries_the_key_there() {
+        let (other, other_heads) = serve(|_| json(200, "{}")).await;
+        let other_port = port_of(&other);
+        let (base, _) = serve(move |_| redirect("307 Temporary Redirect", &format!("http://localhost:{other_port}/steal"))).await;
+        let resp = client()
+            .post(format!("{}/v1/messages", named(&base)))
+            .header("x-api-key", "sk-secret")
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 307);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(other_heads.lock().unwrap().is_empty(), "the key reached another port");
+    }
+
+    #[tokio::test]
+    async fn a_base_given_as_an_ip_address_follows_a_same_address_redirect_with_the_key() {
+        let (base, heads) = serve(|head| {
+            if head.starts_with("get /mcp ") { redirect("307 Temporary Redirect", "/mcp/") } else { json(200, "{}") }
+        })
+        .await;
+        let resp = client().get(format!("{base}/mcp")).header("x-api-key", "sk-test").send().await.unwrap();
+        assert_eq!(resp.status(), 200);
+        let heads = heads.lock().unwrap();
+        assert_eq!(heads.len(), 2);
+        assert!(heads[1].starts_with("get /mcp/ ") && heads[1].contains("x-api-key: sk-test"), "{}", heads[1]);
+    }
+
+    #[tokio::test]
+    async fn the_stream_reports_a_refused_redirect_too() {
+        let (base, _) = serve(|_| redirect("307 Temporary Redirect", "https://evil.example/v1/messages")).await;
+        let resp = client().post(format!("{}/v1/messages", named(&base))).body("{}").send().await.unwrap();
+        let msg = stream_http_error(resp.status(), resp).await;
+        assert!(msg.contains("another host (evil.example)"), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn an_endless_same_host_chain_stops_without_echoing_an_address() {
+        let (base, heads) = serve(|head| {
+            let n: usize = head
+                .split_whitespace()
+                .nth(1)
+                .and_then(|path| path.trim_start_matches("/hop").parse().ok())
+                .unwrap_or(0);
+            redirect("302 Found", &format!("/hop{}", n + 1))
+        })
+        .await;
+        let err = client().get(format!("{}/hop0", named(&base))).send().await.unwrap_err();
+        let msg = send_error(err);
+        assert!(msg.contains("more than 5 times"), "{msg}");
+        assert!(!msg.contains("hop"), "{msg}");
+        assert_eq!(heads.lock().unwrap().len(), MAX_REDIRECTS + 1);
+    }
+}
+
+#[cfg(test)]
+mod model_id_mirror_tests {
+    use super::clean_model_id;
+
+    /// providers.js keeps a JS copy of this rule (MODEL_ID_RE, applied where an
+    /// id is typed, sent from the phone, or handed to a new shell). Nothing
+    /// else ties the two together, so this pins both: the JS line verbatim, and
+    /// Rust's character set, first-character rule and length cap to the same
+    /// ones. A change on either side fails here; change both, then this test.
+    #[test]
+    fn the_js_model_id_rule_matches_clean_model_id() {
+        let js = include_str!("../../src/features/terminals/providers.js");
+        assert!(
+            js.contains(r"const MODEL_ID_RE = /^(?!-)[A-Za-z0-9._:/@+~=#[\]-]{1,200}$/;"),
+            "MODEL_ID_RE in providers.js changed: make clean_model_id match, then update this test"
+        );
+        for c in (0u8..128).map(char::from) {
+            let allowed = c.is_ascii_alphanumeric() || "._:/@+~=#[]-".contains(c);
+            assert_eq!(clean_model_id(&format!("a{c}b")).is_some(), allowed, "{c:?} after the first character");
+            if c.is_whitespace() {
+                continue; // clean_model_id trims first, as the JS callers do
+            }
+            assert_eq!(clean_model_id(&format!("{c}ab")).is_some(), allowed && c != '-', "{c:?} as the first character");
+        }
+        assert!(clean_model_id(&"a".repeat(200)).is_some());
+        assert!(clean_model_id(&"a".repeat(201)).is_none());
+        assert!(clean_model_id("sonnet[1m]").is_some(), "Claude Code's 1M-context suffix");
+        assert!(clean_model_id("/models/Qwen2.5-7B-Instruct").is_some(), "vLLM serves a local path as the id");
+        assert!(clean_model_id("accounts/fireworks/models/x#accounts/acme/deployments/d1").is_some(), "a Fireworks deployment");
+        assert!(clean_model_id("-rf").is_none(), "an id never starts with a dash");
+        assert!(clean_model_id("é").is_none(), "ASCII only, as in the JS class");
     }
 }

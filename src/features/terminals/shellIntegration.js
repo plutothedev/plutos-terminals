@@ -157,3 +157,34 @@ export function parsePlutoCmdReport(data, sessionNonce) {
     return null;
   }
 }
+
+// Printable ASCII with no quote, backslash or exclamation mark: the only text
+// buildNoticeSuffix will type into a shell. csh and tcsh expand "!" as history
+// even inside single quotes.
+const PLAIN_NOTICE = /^[\x20\x22-\x26\x28-\x5b\x5d-\x7e]{1,300}$/;
+
+// How each notice command starts, which is also how the shell reports it
+// back: bash's DEBUG trap reports each simple command of the display line,
+// zsh and PowerShell the whole line.
+const NOTICE_POSIX = "printf '\\033[2m%s\\033[0m\\n' '";
+const NOTICE_PS = "[Console]::WriteLine([char]27 + '[2m";
+
+// A dim one-line notice for the shell to print, as a suffix to the setup's
+// display command: it then lands after the setup's clear (which wipes anything
+// written to the pane before it) and before the first prompt. The text is
+// typed into the shell, so anything but printable ASCII without a quote, a
+// backslash or an exclamation mark, or over 300 characters, gets "" (no
+// notice) rather than escaping.
+// POSIX shells print it through printf's %s, PowerShell with WriteLine; both
+// hold it in single quotes, where nothing else is special.
+export function buildNoticeSuffix(text, windows) {
+  if (typeof text !== "string" || !PLAIN_NOTICE.test(text)) return "";
+  return windows ? `; ${NOTICE_PS}${text}' + [char]27 + '[0m')` : `; ${NOTICE_POSIX}${text}'`;
+}
+
+// Whether a command the shell reported is, or carries, the app's own notice
+// line: the app talking, not the user, so it stays out of the command history
+// (ptyBridge recordCommand).
+export function isAppNoticeCommand(cmd) {
+  return typeof cmd === "string" && (cmd.includes(NOTICE_POSIX) || cmd.includes(NOTICE_PS));
+}

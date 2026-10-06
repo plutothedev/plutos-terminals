@@ -6,7 +6,7 @@
 // browser request. Reads provider config straight from localStorage (same
 // pattern TerminalPane uses for env injection).
 import { useEffect, useRef, useState } from "react";
-import { resolveActiveLLM } from "./providers.js";
+import { noModelMessage, resolveActiveLLM } from "./providers.js";
 import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
 import { humanizeError } from "./errorText.js";
@@ -38,10 +38,11 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
     if (!block) return;
     if (ranFor.current === block.key) return; // one call per failed block
     ranFor.current = block.key;
-    const llm = resolveActiveLLM(readUserSt());
+    const llmState = readUserSt();
+    const llm = resolveActiveLLM(llmState);
     if (!llm) {
       setLoading(false);
-      setError("No model configured. Open the Models picker (toolbar) or set your Anthropic key.");
+      setError(noModelMessage(llmState));
       return;
     }
     setModelLabel(llm.model);

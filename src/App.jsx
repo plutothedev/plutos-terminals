@@ -485,12 +485,17 @@ function AppInner() {
   // unavailable the keys simply stay in localStorage.
   useEffect(() => {
     migrateAndLoad(userSt.providerKeys, userSt.anthropicKey)
-      .then(() => {
-        const s = getCachedSecretKeys();
+      .then((loaded) => {
+        // Merge the keys the load returns (its own snapshot, not the shared
+        // cache, which a save can change meanwhile) onto the LIVE state, not
+        // this mount's closure: the first load can take a while (it reads the
+        // keychain again when saves set its reads aside, see secretVault
+        // migrateAndLoad), and a setting saved meanwhile must not be reverted.
+        const cur = userStRef.current;
         const merged = {
-          ...userSt,
-          providerKeys: { ...(userSt.providerKeys || {}), ...s.providerKeys },
-          anthropicKey: s.anthropicKey || userSt.anthropicKey || "",
+          ...cur,
+          providerKeys: { ...(cur.providerKeys || {}), ...(loaded?.providerKeys || {}) },
+          anthropicKey: loaded?.anthropicKey || cur.anthropicKey || "",
         };
         userStRef.current = merged;
         setUserSt(merged);

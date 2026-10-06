@@ -9,6 +9,7 @@
 // its live dimensions, or fan a write out to every visible terminal at once.
 
 import { loadJSON } from "./safeParse.js";
+import { isAppNoticeCommand } from "./shellIntegration.js";
 
 const writers = new Map(); // tabId -> (data: string) => void
 const readers = new Map(); // tabId -> () => string (recent terminal text)
@@ -131,6 +132,7 @@ let cmdHistory = [];
 export function recordCommand(cmd) {
   const c = String(cmd || "").trim();
   if (!c || c.length > 400) return; // skip empty / huge pastes
+  if (isAppNoticeCommand(c)) return; // the app's own notice line, not the user's
   cmdHistory = cmdHistory.filter((x) => x !== c); // move-to-front (dedupe)
   cmdHistory.unshift(c);
   if (cmdHistory.length > HISTORY_CAP) cmdHistory.length = HISTORY_CAP;

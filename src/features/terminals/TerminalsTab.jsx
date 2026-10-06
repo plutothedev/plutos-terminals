@@ -14,7 +14,7 @@ import MenuBar from "./chrome/MenuBar.jsx";
 import ModalHost from "./chrome/ModalHost.jsx";
 import Toolbar from "./chrome/Toolbar.jsx";
 import { usePaletteCommands } from "./chrome/usePaletteCommands.jsx";
-import { PROVIDERS, findProvider, resolveBaseUrl } from "./providers.js";
+import { PROVIDERS, phoneModelChoice, providerKeyFor, resolveBaseUrl, validActiveModel } from "./providers.js";
 import { phoneModelIds, readModelCache, refreshStaleLists, useModelCacheVersion } from "./modelCatalog.js";
 import LocalFileBrowser from "./LocalFileBrowser";
 import DockAssistant from "./DockAssistant";
@@ -52,6 +52,7 @@ import {
   effectiveSkinValue,
 } from "./headerSkins";
 import { isPrimaryWindow } from "./storageKeys.js";
+import { keysSettled } from "./secretVault.js";
 import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
 import { hasUnsavedRemoteEdits } from "./remoteEditDirty.js";
@@ -606,7 +607,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Active model label — read once here so both StatusBar and MenuBar (chrome/)
   // receive an identical string prop instead of each re-deriving it from userSt.
-  const activeModelName = userSt?.activeModel?.model;
+  // A saved choice that cannot be used shows as no model, as new shells treat
+  // it. Until the first keychain read has finished, a key not read yet is not
+  // a missing one, so the chip does not blink "No model" at launch.
+  const activeModelName = validActiveModel(userSt, { keysKnown: keysSettled() })?.model;
 
   // ── Phone companion: publish the live session list ──────────────────────────
   // The companion server (companion.rs) can't read the webview's localStorage
@@ -672,20 +676,21 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // provider; `modelCacheVersion` re-derives this when a list lands.
   const modelCacheVersion = useModelCacheVersion();
   const modelsJson = useMemo(() => {
-    const keys = userSt?.providerKeys || {};
     const bases = userSt?.providerBaseUrls || {};
     const cache = readModelCache();
+    // The saved choice the phone may show and list (see activeModelName).
+    const choice = validActiveModel(userSt, { keysKnown: keysSettled() });
     const providers = PROVIDERS.map((pp) => {
-      const hasKey = typeof keys[pp.id] === "string" && keys[pp.id].length > 0;
+      const hasKey = Boolean(providerKeyFor(userSt, pp.id));
       return {
         id: pp.id,
         label: pp.label,
         // A keyless provider shows its built-in list, as the desktop picker does.
-        models: phoneModelIds(pp, hasKey ? cache[pp.id] : null, resolveBaseUrl(pp, bases[pp.id]), userSt?.activeModel),
+        models: phoneModelIds(pp, hasKey ? cache[pp.id] : null, resolveBaseUrl(pp, bases[pp.id]), choice),
         hasKey,
       };
     });
-    return JSON.stringify({ active: userSt?.activeModel || null, providers });
+    return JSON.stringify({ active: choice, providers });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- modelCacheVersion is the cache's change signal
   }, [userSt, modelCacheVersion]);
   useEffect(() => {
@@ -730,18 +735,14 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Phone companion → "set active model". The phone picks a provider/model from
   // the pushed catalog; we accept it only when it's a known provider WITH a key
-  // configured, then persist activeModel (one field — NOT write_store, so a leaked
-  // token can't rewrite the layout or touch keys). The next spawned shell routes
-  // to it (TerminalPane reads activeModel at spawn). Ref carries latest userSt.
+  // configured and a valid model id (phoneModelChoice), then persist activeModel
+  // (one field, NOT write_store, so a leaked token can't rewrite the layout or
+  // touch keys). The next spawned shell routes to it (TerminalPane reads
+  // activeModel at spawn). Ref carries latest userSt.
   const setActiveModelRef = useRef(() => {});
   setActiveModelRef.current = (payload) => {
-    const providerId = payload?.providerId;
-    const model = payload?.model;
-    if (!providerId || typeof model !== "string" || !model) return;
-    const provider = findProvider(providerId);
-    const key = userSt?.providerKeys?.[providerId];
-    if (!provider || typeof key !== "string" || !key) return; // unknown provider / no key → ignore
-    saveUser({ ...userSt, activeModel: { providerId, model } });
+    const next = phoneModelChoice(payload, userSt);
+    if (next) saveUser({ ...userSt, activeModel: next });
   };
   useEffect(() => {
     if (!isPrimaryWindow()) return; // primary window only (see new-session)
