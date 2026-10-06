@@ -42,6 +42,10 @@
   deletes, and a pane folded into a worktree tab would have been closed by a
   Discard that never mentioned it.
 
+### Changed
+- DOMPurify, which the code editor uses, is 3.4.16, clearing a low-severity
+  advisory. No other dependency moved.
+
 ## v0.7.2: New models show up without an app update (2026-10-03)
 
 The Models picker now shows each provider's own, current model list, so a
