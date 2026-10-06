@@ -1,5 +1,6 @@
 // (C)
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { humanizeError } from "./errorText";
 
 describe("humanizeError mappings", () => {
@@ -118,5 +119,16 @@ describe("humanizeError fallback + composition", () => {
     // "connection refused" must still win its own more specific rule.
     expect(humanizeError("connect ECONNREFUSED 127.0.0.1:22").message)
       .toBe("Connection refused. Nothing is listening at that address");
+  });
+
+  it("shows the settings-sync refusals whole, as their own sentence", () => {
+    // sync_git.rs words these for the user, so no rule here may swap one for a
+    // generic sentence (the "Authentication failed" rule reads keywords), and
+    // none may run past the length shown in full.
+    const rs = readFileSync(new URL("../../../src-tauri/src/sync_git.rs", import.meta.url), "utf8");
+    const refusals = [...rs.matchAll(/^const (?:PLAIN_HTTP_REFUSED|SYNC_URL_UNREADABLE|SYNC_ORIGIN_CHANGED|SYNC_URL_REWRITTEN): &str =\s*"([^"]+)";/gm)]
+      .map((m) => m[1]);
+    expect(refusals).toHaveLength(4);
+    for (const text of refusals) expect(humanizeError(text).message).toBe(text);
   });
 });

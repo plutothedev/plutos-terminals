@@ -124,3 +124,5 @@ tauri-plugin-process = "2"
 
 [dev-dependencies]
 tempfile = "3"
+# A paused clock for tests (#[tokio::test(start_paused = true)]).
+tokio = { version = "1", features = ["test-util"] }

@@ -285,19 +285,120 @@ fn clear_push_subscriptions() {
 fn store_subscription(sub_json: &str) -> Result<(), String> {
     let incoming: serde_json::Value =
         serde_json::from_str(sub_json).map_err(|e| e.to_string())?;
-    let endpoint = incoming.get("endpoint").and_then(|v| v.as_str()).unwrap_or("");
-    if endpoint.is_empty() {
-        return Err("subscription missing endpoint".into());
-    }
-    let mut subs: Vec<serde_json::Value> = kr_get("push_subscriptions")
+    let stored: Vec<serde_json::Value> = kr_get("push_subscriptions")
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
-    subs.retain(|s| s.get("endpoint").and_then(|v| v.as_str()) != Some(endpoint));
-    subs.push(incoming);
+    let subs = with_subscription(stored, incoming)?;
     kr_set(
         "push_subscriptions",
         &serde_json::to_string(&subs).map_err(|e| e.to_string())?,
     )
+}
+
+/// The most Web Push subscriptions kept, and the most characters the stored
+/// list may take. A phone registers one per browser, so a handful is plenty,
+/// and the whole list lives in one keychain entry, which Windows' Credential
+/// Manager caps at 1280 characters. The oldest go first.
+const MAX_PUSH_SUBSCRIPTIONS: usize = 4;
+const MAX_PUSH_LIST_CHARS: usize = 1200;
+
+/// A subscription's endpoint in the one spelling it is checked, kept and sent
+/// in (the WHATWG parser's), when it belongs to a browser push service: https,
+/// the default port, no credentials, and one of the services browsers use
+/// (push_service_host). Anything else is refused, so a paired phone cannot
+/// point the desktop's push requests at this machine, the local network or
+/// any other server.
+fn checked_push_endpoint(endpoint: &str) -> Option<String> {
+    if endpoint.len() > 2048 {
+        return None;
+    }
+    let u = reqwest::Url::parse(endpoint).ok()?;
+    let ok = u.scheme() == "https"
+        && u.port().is_none()
+        && u.username().is_empty()
+        && u.password().is_none()
+        && u.host_str().is_some_and(push_service_host);
+    ok.then(|| String::from(u))
+}
+
+/// The push services browsers use: Google's FCM for Chrome and the other
+/// Chromium browsers (fcm.googleapis.com, and android.googleapis.com for older
+/// subscriptions), Mozilla's for Firefox, Apple's for Safari, and Microsoft's
+/// WNS for older Edge. Every label has to be there and be a plain hostname
+/// label (letters, digits, "-" and "_"): ".notify.windows.com" names no host,
+/// and a label with a quote, a backtick or a brace passes the URL parser but
+/// not the one the sender uses, so it would be stored and never sent.
+fn push_service_host(host: &str) -> bool {
+    let h = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+    let plain = |label: &str| {
+        !label.is_empty() && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    };
+    if !h.split('.').all(plain) {
+        return false;
+    }
+    h == "fcm.googleapis.com"
+        || h == "android.googleapis.com"
+        || h == "push.services.mozilla.com"
+        || h.ends_with(".push.services.mozilla.com")
+        || h == "push.apple.com"
+        || h.ends_with(".push.apple.com")
+        || h.ends_with(".notify.windows.com")
+}
+
+/// The stored list with `incoming` added: its endpoint must pass
+/// checked_push_endpoint, and is kept in the spelling that was checked, and its
+/// keys must look like keys; only the endpoint and keys are kept; there is one
+/// entry per endpoint (a re-registration replaces the old one and moves to the
+/// end, so a phone that re-registers on every reconnect does not push other
+/// devices out); an entry an older build kept that would not pass now is
+/// dropped; and the oldest go until the list holds at most
+/// MAX_PUSH_SUBSCRIPTIONS and fits in MAX_PUSH_LIST_CHARS, newest last.
+fn with_subscription(
+    mut subs: Vec<serde_json::Value>,
+    incoming: serde_json::Value,
+) -> Result<Vec<serde_json::Value>, String> {
+    let raw = incoming.get("endpoint").and_then(|v| v.as_str()).unwrap_or("");
+    if raw.is_empty() {
+        return Err("subscription missing endpoint".into());
+    }
+    let endpoint = checked_push_endpoint(raw)
+        .ok_or_else(|| "subscription endpoint is not a browser push service".to_string())?;
+    let key = |name: &str| {
+        incoming.pointer(&format!("/keys/{name}")).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    };
+    let (p256dh, auth) = (key("p256dh"), key("auth"));
+    if p256dh.is_empty() || p256dh.len() > 128 || auth.is_empty() || auth.len() > 64 {
+        return Err("subscription keys are missing or malformed".into());
+    }
+    // Only what a push needs is kept, whatever else the page sent.
+    let entry = serde_json::json!({ "endpoint": endpoint, "keys": { "p256dh": p256dh, "auth": auth } });
+    if entry.to_string().len() + 2 > MAX_PUSH_LIST_CHARS {
+        return Err("subscription is too large to store".into());
+    }
+    subs.retain(|s| {
+        s.get("endpoint")
+            .and_then(|v| v.as_str())
+            .and_then(checked_push_endpoint)
+            .is_some_and(|stored| stored != endpoint)
+    });
+    subs.push(entry);
+    while subs.len() > MAX_PUSH_SUBSCRIPTIONS
+        || serde_json::to_string(&subs).map_or(usize::MAX, |list| list.len()) > MAX_PUSH_LIST_CHARS
+    {
+        subs.remove(0);
+    }
+    Ok(subs)
+}
+
+/// How long one push send may take before it is dropped.
+const PUSH_SEND_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// `fut`, or an error once `limit` has passed: a push service that accepts
+/// the connection and never answers must not hold a task forever.
+async fn within<T>(limit: Duration, fut: impl std::future::Future<Output = T>) -> Result<T, String> {
+    tokio::time::timeout(limit, fut)
+        .await
+        .map_err(|_| format!("timed out after {}s", limit.as_secs()))
 }
 
 /// Send one Web Push to a stored subscription (async, spawned off the command
@@ -306,8 +407,12 @@ fn store_subscription(sub_json: &str) -> Result<(), String> {
 async fn send_push(sub_json: String, vapid_priv_b64: String, payload: Vec<u8>) {
     use web_push::WebPushClient as _;
     let result: Result<(), String> = async {
-        let sub: web_push::SubscriptionInfo =
+        let mut sub: web_push::SubscriptionInfo =
             serde_json::from_str(&sub_json).map_err(|e| e.to_string())?;
+        // One stored before endpoints were checked is skipped, not sent, and
+        // the sender is handed the spelling that was checked.
+        sub.endpoint = checked_push_endpoint(&sub.endpoint)
+            .ok_or_else(|| "subscription endpoint is not a browser push service".to_string())?;
         let mut sig = web_push::VapidSignatureBuilder::from_base64(&vapid_priv_b64, &sub)
             .map_err(|e| e.to_string())?;
         sig.add_claim("sub", "mailto:companion@plutos-terminals.local");
@@ -317,7 +422,7 @@ async fn send_push(sub_json: String, vapid_priv_b64: String, payload: Vec<u8>) {
         builder.set_vapid_signature(signature);
         let msg = builder.build().map_err(|e| e.to_string())?;
         let client = web_push::HyperWebPushClient::new();
-        client.send(msg).await.map_err(|e| e.to_string())
+        within(PUSH_SEND_TIMEOUT, client.send(msg)).await?.map_err(|e| e.to_string())
     }
     .await;
     if let Err(e) = result {
@@ -1786,5 +1891,198 @@ mod active_model_tests {
         for bad in ["", "   ", "two words", "x\u{0}y", "x\ny", "\u{1b}]52;c;aGk=\u{7}", &"a".repeat(201)] {
             assert_eq!(active_model_payload("anthropic", bad), Err("not a model id".to_string()), "{bad:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod push_subscription_tests {
+    use super::{checked_push_endpoint, send_push, with_subscription, within};
+    use base64::Engine as _;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    fn sub(endpoint: &str) -> serde_json::Value {
+        serde_json::json!({ "endpoint": endpoint, "keys": { "p256dh": "x", "auth": "y" } })
+    }
+    fn fcm(id: &str) -> String {
+        format!("https://fcm.googleapis.com/fcm/send/{id}")
+    }
+    fn passes(endpoint: &str) -> bool {
+        checked_push_endpoint(endpoint).is_some()
+    }
+
+    #[test]
+    fn only_the_browsers_push_services() {
+        for ok in [
+            "https://fcm.googleapis.com/fcm/send/abc",
+            "https://android.googleapis.com/gcm/send/abc",
+            "https://updates.push.services.mozilla.com/wpush/v2/abc",
+            "https://web.push.apple.com/QAbc",
+            "https://wns2-par02p.notify.windows.com/w/?token=abc",
+            "https://fcm.googleapis.com./fcm/send/abc",
+        ] {
+            assert!(passes(ok), "{ok}");
+        }
+        let long = format!("https://fcm.googleapis.com/fcm/send/{}", "a".repeat(2100));
+        for bad in [
+            "",
+            "http://fcm.googleapis.com/fcm/send/abc",
+            "https://example.com/push/abc",
+            "https://fcm.googleapis.com.evil.example/x",
+            "https://evilfcm.googleapis.com/x",
+            "https://user@fcm.googleapis.com/x",
+            "https://fcm.googleapis.com:8443/x",
+            "https://127.0.0.1/x",
+            "https://0.0.0.0/x",
+            "https://[::]/x",
+            "https://localhost./x",
+            "https://nas/x",
+            "https://100.64.1.1/x",
+            "https://:pw@fcm.googleapis.com/x",
+            "https://xpush.apple.com/x",
+            "https://evilpush.services.mozilla.com/x",
+            "https://xnotify.windows.com/x",
+            "https://.notify.windows.com/x",
+            "https://x..push.apple.com/x",
+            "https://a`b.notify.windows.com/p",
+            "https://a{b}.push.apple.com/x",
+            r#"https://a"b.push.apple.com/x"#,
+            "https://fcm.googleapis.com../x",
+            "not a url",
+            long.as_str(),
+        ] {
+            assert!(!passes(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_re_registration_replaces_its_entry_instead_of_pushing_others_out() {
+        let mut subs = vec![];
+        for id in ["a", "b", "a", "c"] {
+            subs = with_subscription(subs, sub(&fcm(id))).unwrap();
+        }
+        let order: Vec<String> = subs.iter().map(|s| s["endpoint"].as_str().unwrap().to_string()).collect();
+        assert_eq!(order, vec![fcm("b"), fcm("a"), fcm("c")]);
+    }
+
+    #[test]
+    fn the_list_stays_within_the_count_and_the_keychain_size() {
+        let mut subs = vec![];
+        for i in 0..10 {
+            subs = with_subscription(subs, sub(&fcm(&i.to_string()))).unwrap();
+        }
+        assert_eq!(subs.len(), 4, "a handful per phone");
+        assert_eq!(subs.last().unwrap()["endpoint"], fcm("9"), "the newest stay");
+        // Longer endpoints: fewer fit, and the newest still stays.
+        let mut subs = vec![];
+        for i in 0..6 {
+            subs = with_subscription(subs, sub(&fcm(&format!("{i}{}", "z".repeat(380))))).unwrap();
+        }
+        let units = serde_json::to_string(&subs).unwrap().encode_utf16().count();
+        assert!(units <= 1280, "Windows' Credential Manager holds 1280 UTF-16 units ({units})");
+        assert!(subs.len() < 4);
+        assert_eq!(subs.last().unwrap()["endpoint"], fcm(&format!("5{}", "z".repeat(380))));
+    }
+
+    #[test]
+    fn only_the_endpoint_and_keys_are_kept() {
+        let incoming = serde_json::json!({
+            "endpoint": fcm("a"),
+            "expirationTime": null,
+            "keys": { "p256dh": "x", "auth": "y", "extra": "z".repeat(500) },
+            "junk": "j".repeat(5000),
+        });
+        let subs = with_subscription(vec![], incoming).unwrap();
+        assert_eq!(subs, vec![sub(&fcm("a"))]);
+        for keys in [
+            serde_json::json!({ "auth": "y" }),
+            serde_json::json!({ "p256dh": "x", "auth": "" }),
+            serde_json::json!({ "p256dh": "x".repeat(129), "auth": "y" }),
+            serde_json::json!({ "p256dh": "x", "auth": "y".repeat(65) }),
+        ] {
+            let bad = serde_json::json!({ "endpoint": fcm("a"), "keys": keys });
+            assert!(with_subscription(vec![], bad).is_err());
+        }
+        let longest = serde_json::json!({ "endpoint": fcm("a"), "keys": { "p256dh": "x".repeat(128), "auth": "y".repeat(64) } });
+        assert!(with_subscription(vec![], longest).is_ok());
+        assert!(with_subscription(vec![], sub("https://example.com/x")).is_err());
+    }
+
+    #[test]
+    fn the_endpoint_is_kept_as_checked_and_unsendable_old_entries_go() {
+        let subs = with_subscription(vec![], sub("https://FCM.googleapis.com/fcm/send/a")).unwrap();
+        assert_eq!(subs, vec![sub(&fcm("a"))], "kept in the spelling that was checked");
+        let subs = with_subscription(subs, sub(&fcm("a"))).unwrap();
+        assert_eq!(subs.len(), 1, "one entry for the endpoint, however it was spelled");
+        let old = vec![sub("http://192.168.1.5/push"), sub(&fcm("b"))];
+        let subs = with_subscription(old, sub(&fcm("c"))).unwrap();
+        assert_eq!(subs, vec![sub(&fcm("b")), sub(&fcm("c"))], "an entry that could never be sent is dropped");
+    }
+
+    #[test]
+    fn a_registration_too_large_to_store_is_refused_instead_of_emptying_the_list() {
+        let subs = with_subscription(vec![sub(&fcm("a"))], sub(&fcm("b"))).unwrap();
+        let big = sub(&fcm(&"z".repeat(1200)));
+        assert!(with_subscription(subs, big).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_send_that_never_answers_gives_up() {
+        // The outer bound turns a `within` that never gives up into a failed
+        // assertion here instead of a test run that hangs.
+        let gave_up = tokio::time::timeout(
+            Duration::from_secs(5),
+            within(Duration::from_millis(50), std::future::pending::<()>()),
+        )
+        .await;
+        assert!(matches!(gave_up, Ok(Err(_))), "within gave up on its own, inside its limit");
+        assert_eq!(within(Duration::from_secs(5), async { 7 }).await, Ok(7));
+    }
+
+    // With real keys, so that only the endpoint check stands between a stored
+    // subscription and a request to wherever it points.
+    #[tokio::test]
+    async fn send_push_never_contacts_an_endpoint_outside_the_push_services() {
+        use p256::elliptic_curve::sec1::ToEncodedPoint;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counted = hits.clone();
+        tokio::spawn(async move {
+            while let Ok((_conn, _)) = listener.accept().await {
+                counted.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let vapid = p256::SecretKey::random(&mut rand::rngs::OsRng);
+        let browser = p256::SecretKey::random(&mut rand::rngs::OsRng);
+        let sub = serde_json::json!({
+            "endpoint": format!("http://127.0.0.1:{port}/push/abc"),
+            "keys": {
+                "p256dh": b64.encode(browser.public_key().to_encoded_point(false).as_bytes()),
+                "auth": b64.encode([7u8; 16]),
+            },
+        });
+        let sent = tokio::time::timeout(
+            Duration::from_secs(5),
+            send_push(sub.to_string(), b64.encode(vapid.to_bytes()), b"{}".to_vec()),
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(sent.is_ok(), "send_push came back");
+        assert_eq!(hits.load(Ordering::SeqCst), 0, "nothing was sent to that endpoint");
+    }
+
+    #[test]
+    fn storing_goes_through_the_checks_and_the_send_is_bounded() {
+        let src = include_str!("companion.rs").replace("\r\n", "\n");
+        let store = &src[src.find("fn store_subscription(").unwrap()..];
+        let store = &store[..store.find("\n}\n").unwrap()];
+        assert!(store.contains("let subs = with_subscription(stored, incoming)?;"));
+        let send = &src[src.find("async fn send_push(").unwrap()..];
+        let send = &send[..send.find("\n}\n").unwrap()];
+        assert!(send.contains("within(PUSH_SEND_TIMEOUT, client.send(msg))"));
+        assert!(send.contains("sub.endpoint = checked_push_endpoint(&sub.endpoint)"));
     }
 }

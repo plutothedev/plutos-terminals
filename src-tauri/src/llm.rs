@@ -12,7 +12,8 @@ pub(crate) async fn http_error(status: reqwest::StatusCode, resp: reqwest::Respo
     if let Some(msg) = refused_redirect_message(status, resp.headers(), resp.url()) {
         return msg;
     }
-    let body = resp.text().await.unwrap_or_default();
+    let bytes = read_error_body(resp, ERROR_BODY_DEADLINE).await;
+    let body = String::from_utf8_lossy(&bytes);
     if let Some(msg) = serde_json::from_str::<serde_json::Value>(&body)
         .ok()
         .and_then(|v| {
@@ -29,6 +30,24 @@ pub(crate) async fn http_error(status: reqwest::StatusCode, resp: reqwest::Respo
     } else {
         format!("{status}: {excerpt}")
     }
+}
+
+/// How much of an error body is read: plenty for any provider's JSON error,
+/// and a limit on what a broken or hostile endpoint can make the app hold in
+/// memory (the rest of the body is never pulled).
+const ERROR_BODY_MAX_BYTES: usize = 64 * 1024;
+
+/// How long an error body may take to arrive. A streaming call has no total
+/// timeout, so a server that drips its error body must not hold it open.
+const ERROR_BODY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// An error body: at most ERROR_BODY_MAX_BYTES of it, and only what arrived by
+/// `deadline` (a body still arriving then, or one that broke off, is cut where
+/// it stands; the caller falls back to the status if that is nothing).
+async fn read_error_body(resp: reqwest::Response, deadline: std::time::Duration) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let _ = tokio::time::timeout(deadline, read_capped_into(resp, ERROR_BODY_MAX_BYTES, &mut buf)).await;
+    buf
 }
 
 // ── Shared HTTP client + retry policy (P3-T1) ───────────────────────────────
@@ -167,7 +186,8 @@ async fn stream_http_error(status: reqwest::StatusCode, resp: reqwest::Response)
     if let Some(msg) = refused_redirect_message(status, resp.headers(), resp.url()) {
         return msg;
     }
-    let v: serde_json::Value = resp.json().await.unwrap_or_else(|_| serde_json::json!({}));
+    let bytes = read_error_body(resp, ERROR_BODY_DEADLINE).await;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_else(|_| serde_json::json!({}));
     let msg = v.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("");
     if msg.is_empty() { status.to_string() } else { msg.to_string() }
 }
@@ -334,7 +354,9 @@ mod message_shape_tests {
 /// Is `host` a loopback / private / local-network address? Self-hosted LLMs
 /// (Ollama, LM Studio, llama.cpp) commonly run over plain http on the LAN, so we
 /// permit cleartext to those while still blocking cleartext to the public internet.
-fn is_private_or_local(host: &str) -> bool {
+/// Git sync builds its wider rule for plain http on this one
+/// (sync_git::cleartext_ok_for_sync).
+pub(crate) fn is_private_or_local(host: &str) -> bool {
     let h = host.trim_matches(|c| c == '[' || c == ']');
     if h == "localhost" || h.ends_with(".local") || h.ends_with(".localhost") {
         return true;
@@ -709,8 +731,6 @@ pub struct ListedModel {
 /// 332 MB at 4 MB), transient and freed when the call returns. llm_complete
 /// reads the same endpoints with no cap at all.
 const MODEL_LIST_MAX_BYTES: usize = 4 * 1024 * 1024;
-/// Most of an error body read: enough for any provider's JSON error message.
-const MODEL_LIST_ERROR_BYTES: usize = 64 * 1024;
 /// Most models kept from one provider, after cleaning.
 const MODEL_LIST_MAX_MODELS: usize = 5000;
 /// Most Anthropic pages followed. At limit=1000 (the API's maximum) one page is
@@ -920,18 +940,24 @@ fn parse_openai_list(v: &serde_json::Value) -> Result<Vec<ListedModel>, String> 
 /// Read at most `cap` bytes of a body. Returns the bytes and whether the body
 /// ran past the cap; reading stops there and the rest is never pulled.
 async fn read_capped(resp: reqwest::Response, cap: usize) -> Result<(Vec<u8>, bool), String> {
+    let mut buf = Vec::new();
+    let over = read_capped_into(resp, cap, &mut buf).await?;
+    Ok((buf, over))
+}
+
+/// read_capped into `buf`, so a caller that stops waiting keeps what came.
+async fn read_capped_into(resp: reqwest::Response, cap: usize, buf: &mut Vec<u8>) -> Result<bool, String> {
     let mut stream = resp.bytes_stream();
-    let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| e.to_string())?;
-        let room = cap - buf.len();
+        let room = cap.saturating_sub(buf.len());
         if chunk.len() > room {
             buf.extend_from_slice(&chunk[..room]);
-            return Ok((buf, true));
+            return Ok(true);
         }
         buf.extend_from_slice(&chunk);
     }
-    Ok((buf, false))
+    Ok(false)
 }
 
 /// One list page as JSON, or "HTTP <code>: <message>". The status leads so the
@@ -940,7 +966,7 @@ async fn read_capped(resp: reqwest::Response, cap: usize) -> Result<(Vec<u8>, bo
 async fn list_page_json(resp: reqwest::Response, cap: usize) -> Result<serde_json::Value, String> {
     let status = resp.status();
     if !status.is_success() {
-        let (body, _) = read_capped(resp, MODEL_LIST_ERROR_BYTES).await.unwrap_or_default();
+        let body = read_error_body(resp, ERROR_BODY_DEADLINE).await;
         let msg = serde_json::from_slice::<serde_json::Value>(&body)
             .ok()
             .and_then(|v| body_message(&v))
@@ -1669,5 +1695,152 @@ mod model_id_mirror_tests {
         assert!(clean_model_id("accounts/fireworks/models/x#accounts/acme/deployments/d1").is_some(), "a Fireworks deployment");
         assert!(clean_model_id("-rf").is_none(), "an id never starts with a dash");
         assert!(clean_model_id("é").is_none(), "ASCII only, as in the JS class");
+    }
+}
+
+#[cfg(test)]
+mod error_body_tests {
+    use super::list_models_tests::{json, serve};
+    use super::{http_error, stream_http_error, ERROR_BODY_MAX_BYTES};
+
+    // A JSON error whose message alone runs past the cap. Read whole, it would
+    // parse and come back as that whole message; read under the cap, it cannot
+    // parse, so what comes back is short.
+    fn huge() -> String {
+        format!("{{\"error\":{{\"message\":\"{}\"}}}}", "a".repeat(ERROR_BODY_MAX_BYTES * 2))
+    }
+
+    fn client() -> reqwest::Client {
+        reqwest::Client::builder().no_proxy().build().unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_error_body_is_read_only_up_to_the_cap() {
+        let (base, _) = serve(|_| json(500, &huge())).await;
+        let resp = client().get(format!("{base}/x")).send().await.unwrap();
+        let msg = http_error(resp.status(), resp).await;
+        assert!(msg.len() < 1000, "an excerpt, not the whole message ({} bytes)", msg.len());
+        assert!(msg.starts_with("500"), "the status leads");
+        let (base, _) = serve(|_| json(500, &huge())).await;
+        let resp = client().get(format!("{base}/x")).send().await.unwrap();
+        let read = super::read_error_body(resp, std::time::Duration::from_secs(5)).await;
+        assert_eq!(read.len(), 64 * 1024, "64 KB, as the CHANGELOG says");
+        // An ordinary error still comes through whole.
+        let (base, _) = serve(|_| json(401, r#"{"error":{"message":"invalid x-api-key"}}"#)).await;
+        let resp = client().get(format!("{base}/x")).send().await.unwrap();
+        assert_eq!(http_error(resp.status(), resp).await, "invalid x-api-key");
+    }
+
+    // A raw loopback server: answers each request with `head`, then writes
+    // `body_chunk` every `every` until the client goes away.
+    async fn drip(head: &'static str, body_chunk: Vec<u8>, every: std::time::Duration) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let chunk = body_chunk.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    let _ = sock.read(&mut buf).await;
+                    if sock.write_all(head.as_bytes()).await.is_err() {
+                        return;
+                    }
+                    loop {
+                        if sock.write_all(&chunk).await.is_err() {
+                            return;
+                        }
+                        if !every.is_zero() {
+                            tokio::time::sleep(every).await;
+                        }
+                    }
+                });
+            }
+        });
+        format!("http://127.0.0.1:{port}/x")
+    }
+
+    #[tokio::test]
+    async fn an_endless_error_body_is_not_read_to_the_end() {
+        // Chunked and never finished: read under the cap the call comes back at
+        // once with the first 64 KB; read whole it would never come back.
+        let chunk = format!("{:x}\r\n{}\r\n", 4096, "a".repeat(4096)).into_bytes();
+        let url = drip("HTTP/1.1 500 X\r\ncontent-type: text/plain\r\ntransfer-encoding: chunked\r\n\r\n", chunk, std::time::Duration::ZERO).await;
+        let resp = client().get(url).send().await.unwrap();
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(5), http_error(resp.status(), resp))
+            .await
+            .expect("the error came back without reading the whole body");
+        assert!(msg.contains("aaaa"), "an excerpt of what was read");
+    }
+
+    // A 500 whose body is one "a" at once and one more every `every`, paced by
+    // tokio's clock alone. The tests below run on a paused clock, which jumps to
+    // the next timer whenever every task is waiting, so the deadlines pass at
+    // once and how long a call took is measured exactly. No socket: over a real
+    // one the paused clock can run ahead of a byte still in flight.
+    fn dripping_500(every: std::time::Duration) -> reqwest::Response {
+        let drips = futures_util::stream::unfold(true, move |first| async move {
+            if !first {
+                tokio::time::sleep(every).await;
+            }
+            Some((Ok::<_, std::io::Error>(b"a".to_vec()), false))
+        });
+        let resp = tauri::http::Response::builder().status(500).body(reqwest::Body::wrap_stream(drips)).unwrap();
+        reqwest::Response::from(resp)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_dripping_error_body_is_cut_at_the_deadline() {
+        let resp = dripping_500(std::time::Duration::from_millis(100));
+        let body = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            super::read_error_body(resp, std::time::Duration::from_millis(300)),
+        )
+        .await
+        .expect("given up at the deadline, not waited out");
+        assert!((3..=4).contains(&body.len()) && body.iter().all(|&b| b == b'a'), "what had arrived: {body:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn every_error_path_gives_up_on_a_body_after_ten_seconds() {
+        for path in ["plain", "streaming", "model list"] {
+            let resp = dripping_500(std::time::Duration::from_secs(1));
+            let status = resp.status();
+            let start = tokio::time::Instant::now();
+            let read = async {
+                match path {
+                    "plain" => http_error(status, resp).await,
+                    "streaming" => stream_http_error(status, resp).await,
+                    _ => super::list_page_json(resp, 1024 * 1024).await.err().unwrap_or_default(),
+                }
+            };
+            let msg = tokio::time::timeout(std::time::Duration::from_secs(60), read)
+                .await
+                .unwrap_or_else(|_| panic!("{path}: still reading after a minute"));
+            let took = start.elapsed();
+            assert!(
+                took >= std::time::Duration::from_secs(10) && took < std::time::Duration::from_millis(10_050),
+                "{path}: {took:?}"
+            );
+            // The plain call shows what had arrived; the other two read only a
+            // JSON message, so they fall back to the status.
+            let expected = match path {
+                "plain" => "500 Internal Server Error: aaaaaaaaaa",
+                "streaming" => "500 Internal Server Error",
+                _ => "HTTP 500: Internal Server Error",
+            };
+            assert!(msg.starts_with(expected), "{path}: {msg}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_streaming_call_reads_its_error_body_only_up_to_the_cap() {
+        let (base, _) = serve(|_| json(500, &huge())).await;
+        let resp = client().get(format!("{base}/x")).send().await.unwrap();
+        let msg = stream_http_error(resp.status(), resp).await;
+        assert!(msg.len() < 1000, "the status, not the whole message ({} bytes)", msg.len());
+        let (base, _) = serve(|_| json(429, r#"{"error":{"message":"slow down"}}"#)).await;
+        let resp = client().get(format!("{base}/x")).send().await.unwrap();
+        assert_eq!(stream_http_error(resp.status(), resp).await, "slow down");
     }
 }

@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **The settings-sync address is checked before any credentials are sent to
+  it.** A sync repository set to a plain `http://` address outside your own
+  machine or local network would have carried your Git access token, or a
+  password written into the address, in clear text. The app now refuses it
+  and suggests ssh or the server's private IP. Your own network covers this
+  machine, private IP addresses, Tailscale IP addresses, and names that
+  look local, such as `nas`, `nas.local`, `gitea.lan` or `git.home.arpa`.
+  The address is also read once and handed on exactly as it was checked, so
+  an unusual spelling cannot make the check and the connection disagree
+  about the host. If your git config rewrites the address (`insteadOf` or
+  `pushurl`), your token goes only to a rewritten address that passes the
+  same check and is spelled exactly as the app would write it.
+- **The phone companion's push notifications go only to the browsers' push
+  services** (Google, Mozilla, Apple and Microsoft), so the desktop can no
+  longer be pointed at itself, your local network or any other server. Only a
+  registration's address and keys are kept, at most four and never more than
+  the keychain can hold, and a send that gets no answer gives up after 20
+  seconds instead of waiting forever.
+- **An error reply from an AI provider is read only up to 64 KB and for at
+  most 10 seconds.** A broken or hostile endpoint could otherwise make the app
+  hold an enormous error in memory, or keep a streaming call waiting on an
+  error that never finishes arriving.
+
 ## v0.7.3: SSH and serial tabs fold into splits; API keys stay with their provider (2026-10-06)
 
 ### Added

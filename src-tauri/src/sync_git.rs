@@ -33,17 +33,30 @@ fn repo_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// skips its host comparison entirely. By default, in other words, a redirect
 /// can walk the user's token to a host they never configured.
 ///
-/// There is no useful second line of defence to build inside this callback.
-/// libgit2 hands it the ORIGINAL configured URL, never the redirect target
-/// (`smart.c` sets the transport's `url` once at connect and passes that same
-/// pointer to the credentials callback; a redirect rewrites a different field,
-/// `server.url`), so a host check here could only ever compare a value with
-/// itself. An earlier version of this file did exactly that.
+/// There is no host pin to build inside this callback: libgit2 hands it the
+/// remote's URL (after any `insteadOf` rewrite in the user's git config), never
+/// the redirect target (`smart.c` sets the transport's `url` once at connect
+/// and passes that same pointer to the credentials callback; a redirect
+/// rewrites a different field, `server.url`), so comparing hosts here could
+/// only compare a value with itself, which an earlier version of this file
+/// did. What it can still check is where that URL points: no credentials go
+/// to a URL repo_url_for_git would not hand libgit2 as it stands
+/// (`credentials_refusal`).
 fn callbacks(pat: Option<String>) -> RemoteCallbacks<'static> {
     let mut cb = RemoteCallbacks::new();
-    cb.credentials(move |_url, username, allowed| {
+    cb.credentials(move |url, username, allowed| {
         if allowed.is_ssh_key() {
             return Cred::ssh_key_from_agent(username.unwrap_or("git"));
+        }
+        // `url` is the address credentials would travel to (see above): the
+        // token, or with none the system's default ones (on Windows libgit2
+        // can answer a Negotiate or NTLM challenge with the signed-in user's
+        // identity). An Http-class error, unlike a classless one, is what
+        // pull_at reports instead of reading it as an empty remote. The code
+        // is generic, not Auth: git2 writes the code into the error text, and
+        // the UI reads "Auth" there as a wrong token.
+        if let Some(reason) = credentials_refusal(url) {
+            return Err(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::Http, reason));
         }
         if let Some(ref token) = pat {
             return Cred::userpass_plaintext(username.unwrap_or("git"), token);
@@ -52,6 +65,106 @@ fn callbacks(pat: Option<String>) -> RemoteCallbacks<'static> {
     });
     cb
 }
+
+/// A repository URL in the one spelling the app hands to libgit2. An http(s)
+/// URL is read with the WHATWG parser and written back out: libgit2 reads a URL
+/// its own way (its authority runs to the first "/" whatever comes before it,
+/// it percent-decodes the host, and the system resolver reads an IPv4
+/// literal's leading zeros its own way), so a check on the typed text could
+/// judge one host while libgit2 dials another; on the re-written text both read
+/// the same host. Plain http to a host outside the user's own network is
+/// refused (cleartext_ok_for_sync), credentials or not: it would carry them,
+/// a token or a user:password in the URL alike, in clear text. Anything else
+/// (ssh, scp-style, file) is left as typed, trimmed.
+fn repo_url_for_git(url: &str) -> Result<String, String> {
+    let raw = url.trim();
+    let prefix = raw.get(..8).unwrap_or(raw).to_ascii_lowercase();
+    if !(prefix.starts_with("http://") || prefix.starts_with("https://")) {
+        return Ok(raw.to_string());
+    }
+    let u = reqwest::Url::parse(raw).map_err(|_| SYNC_URL_UNREADABLE.to_string())?;
+    if u.scheme() == "http" && !cleartext_ok_for_sync(u.host_str().unwrap_or("")) {
+        return Err(PLAIN_HTTP_REFUSED.to_string());
+    }
+    Ok(String::from(u))
+}
+
+/// Why the credentials callback must send no credentials to `url`, if it must
+/// not: repo_url_for_git's own reason for a URL it refuses, or, for one it
+/// would write in another spelling, that the user's git config rewrote the
+/// address (`insteadOf`, `pushInsteadOf` or `pushurl`; pull, push and gc check
+/// the origin itself first), which libgit2 could read differently from the
+/// check.
+fn credentials_refusal(url: &str) -> Option<String> {
+    match repo_url_for_git(url) {
+        Err(reason) => Some(reason),
+        Ok(canonical) if canonical != url.trim() => Some(SYNC_URL_REWRITTEN.to_string()),
+        Ok(_) => None,
+    }
+}
+
+/// A clone's origin has to be the spelling repo_url_for_git writes, and pass
+/// its rule, before pull, push or gc touch the network. An origin from an older
+/// build, or edited by hand, could carry credentials in the URL itself (which
+/// libgit2 sends without asking the credentials callback) or be read
+/// differently by libgit2. clone_or_open_at replaces such a clone first in
+/// every normal sync, so this only fires on a direct call.
+fn check_origin(repo: &Repository) -> Result<(), String> {
+    let remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
+    let url = remote.url().unwrap_or("");
+    if repo_url_for_git(url)? != url.trim() {
+        return Err(SYNC_ORIGIN_CHANGED.to_string());
+    }
+    Ok(())
+}
+
+/// The credentials callback's refusal, when that is what `e` is, as its own
+/// sentence: git2's Display adds "; class=Http (34)", which reads as noise and
+/// pushes the advice past the length the UI shows in full.
+fn callback_refusal(e: &git2::Error) -> Option<String> {
+    [PLAIN_HTTP_REFUSED, SYNC_URL_UNREADABLE, SYNC_URL_REWRITTEN]
+        .contains(&e.message())
+        .then(|| e.message().to_string())
+}
+
+/// Whether plain http may carry sync credentials to `host`: this machine or a
+/// network the user owns, where the traffic does not cross the internet. On
+/// top of llm::is_private_or_local (loopback, private-LAN and .local), the
+/// names home and office networks use (a single-label name such as "nas", and
+/// .lan, .home.arpa and .internal) and the 100.64.0.0/10 range Tailscale hands
+/// out. Kept apart from is_private_or_local, which also decides where an AI
+/// provider's API key may go over plain http: widening that is its own call.
+fn cleartext_ok_for_sync(host: &str) -> bool {
+    let h = host.trim_matches(|c| c == '[' || c == ']');
+    if crate::llm::is_private_or_local(h) {
+        return true;
+    }
+    if let Ok(ip) = h.parse::<std::net::Ipv4Addr>() {
+        let [a, b, _, _] = ip.octets();
+        return a == 100 && (64..128).contains(&b);
+    }
+    if h.parse::<std::net::Ipv6Addr>().is_ok() {
+        return false;
+    }
+    // A trailing dot roots a name in the DNS: "nas." names a top-level domain,
+    // as public as "ai.", while "nas.lan." is still nas.lan. An unrooted single
+    // label is taken as local on purpose (a home server's name); a resolver
+    // that falls back to the root could still reach a top-level domain's own
+    // address, which only its registry runs, so the risk there is a typo.
+    let rooted = h.ends_with('.');
+    let name = h.strip_suffix('.').unwrap_or(h).to_ascii_lowercase();
+    !name.is_empty()
+        && ((!name.contains('.') && !rooted)
+            || crate::llm::is_private_or_local(&name)
+            || [".lan", ".home.arpa", ".internal"].iter().any(|suffix| name.ends_with(*suffix)))
+}
+
+const PLAIN_HTTP_REFUSED: &str = "Sync refused: plain http to this host could send your credentials over the internet in clear text. Use ssh (git@host:path) or the server's private IP.";
+const SYNC_URL_UNREADABLE: &str = "Sync refused: the repository address could not be read as a URL.";
+const SYNC_ORIGIN_CHANGED: &str =
+    "Sync refused: the local copy points somewhere the settings do not. Save the repository address in Settings again.";
+const SYNC_URL_REWRITTEN: &str =
+    "Sync refused: your git config rewrites the repository address (insteadOf or pushurl), so the app cannot check where it goes.";
 
 /// The only place this module builds fetch options (and `push_options` below
 /// the only place it builds push options). Both disable redirect following, for
@@ -181,6 +294,13 @@ fn discard_clone(dir: &Path) -> Result<(), String> {
 }
 
 fn clone_or_open_at(dir: &Path, repo_url: &str, pat: Option<String>) -> Result<(), String> {
+    // One spelling from here on, the one the check judged (repo_url_for_git),
+    // so libgit2 dials the host that was checked. Refused up front, before the
+    // cache is touched or the server contacted, so the setting fails with a
+    // clear reason rather than at the first push; pull, push, gc and the
+    // credentials callback check again.
+    let repo_url = repo_url_for_git(repo_url)?;
+    let repo_url = repo_url.as_str();
     if dir.join(".git").exists() {
         // The clone is a CACHE of the configured remote, never a source of
         // truth (pull_at force-moves the branch to FETCH_HEAD, and gc already
@@ -221,12 +341,13 @@ fn clone_or_open_at(dir: &Path, repo_url: &str, pat: Option<String>) -> Result<(
             normalize_head(dir);
             Ok(())
         }
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(callback_refusal(&e).unwrap_or_else(|| e.to_string())),
     }
 }
 
 fn pull_at(dir: &Path, pat: Option<String>) -> Result<PullResult, String> {
     let repo = Repository::open(dir).map_err(|e| e.to_string())?;
+    check_origin(&repo)?;
     {
         let mut remote = repo.find_remote("origin").map_err(|e| e.to_string())?;
         let mut fo = fetch_options(pat);
@@ -235,7 +356,8 @@ fn pull_at(dir: &Path, pat: Option<String>) -> Result<PullResult, String> {
             use git2::ErrorClass::*;
             match e.class() {
                 Net | Ssh | Http | Callback => {
-                    return Err(format!("repo fetch failed (check credentials/URL): {e}"));
+                    return Err(callback_refusal(&e)
+                        .unwrap_or_else(|| format!("repo fetch failed (check credentials/URL): {e}")));
                 }
                 _ => { /* empty repo or no such branch yet — tolerate */ }
             }
@@ -262,6 +384,7 @@ fn pull_at(dir: &Path, pat: Option<String>) -> Result<PullResult, String> {
 
 fn push_at(dir: &Path, salt: String, blob: String, pat: Option<String>) -> Result<(), String> {
     let repo = Repository::open(dir).map_err(|e| e.to_string())?;
+    check_origin(&repo)?;
     // The destructive half: fs::write follows a symlink, so an unchecked write
     // here truncates and overwrites the link's target with ciphertext.
     reject_non_regular_pair(dir)?;
@@ -285,7 +408,7 @@ fn push_at(dir: &Path, salt: String, blob: String, pat: Option<String>) -> Resul
     let mut po = push_options(pat);
     remote
         .push(&[&format!("refs/heads/{BRANCH}:refs/heads/{BRANCH}")], Some(&mut po))
-        .map_err(|e| format!("push failed (pull first?): {e}"))?;
+        .map_err(|e| callback_refusal(&e).unwrap_or_else(|| format!("push failed (pull first?): {e}")))?;
     Ok(())
 }
 
@@ -342,6 +465,9 @@ fn gc_at(dir: &Path, pat: Option<String>) -> Result<(), String> {
             .ok_or_else(|| "origin URL is not valid UTF-8".to_string())?
             .to_string()
     };
+    if repo_url_for_git(&url)? != url.trim() {
+        return Err(SYNC_ORIGIN_CHANGED.to_string());
+    }
 
     let parent = dir.parent().ok_or_else(|| "sync repo has no parent dir".to_string())?;
     let name = dir
@@ -471,6 +597,266 @@ pub async fn sync_push(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_http_is_refused_outside_your_own_network() {
+        for url in [
+            "http://example.com/me/sync.git",
+            "HTTP://example.com/me/sync.git",
+            "http://203.0.113.9/sync.git",
+            "http://user:secret@203.0.113.9/sync.git",
+            "http://localhost.evil.example/sync.git",
+            "http://0.0.0.0/sync.git",
+            "http://[::]/sync.git",
+            "http://100.128.0.1/sync.git",
+            "http://100.63.255.255/sync.git",
+            "http://ai./sync.git",
+            "http://com./sync.git",
+            "http://nas./sync.git",
+        ] {
+            assert_eq!(repo_url_for_git(url), Err(PLAIN_HTTP_REFUSED.to_string()), "{url}");
+        }
+        assert_eq!(repo_url_for_git("http://203.0.113.9%00/sync.git"), Err(SYNC_URL_UNREADABLE.to_string()));
+        for url in [
+            "https://github.com/me/sync.git",
+            "http://localhost:3000/me/sync.git",
+            "http://127.0.0.1/sync.git",
+            "http://192.168.1.20/git/sync.git",
+            "http://10.0.0.5/sync.git",
+            "http://nas.local/sync.git",
+            "http://nas/sync.git",
+            "http://gitea.lan:3000/me/sync.git",
+            "http://nas.home.arpa/sync.git",
+            "http://git.internal/sync.git",
+            "http://100.101.102.103/sync.git",
+            "http://100.64.0.1/sync.git",
+            "http://100.127.255.255/sync.git",
+            "http://localhost./sync.git",
+            "http://nas.lan./sync.git",
+            "http://git.internal./sync.git",
+            "git@github.com:me/sync.git",
+            "ssh://git@github.com/me/sync.git",
+            "file:///tmp/sync.git",
+        ] {
+            assert_eq!(repo_url_for_git(url).as_deref(), Ok(url), "{url}");
+        }
+        assert_eq!(repo_url_for_git("  https://github.com/me/sync.git ").as_deref(), Ok("https://github.com/me/sync.git"));
+    }
+
+    #[test]
+    fn the_address_libgit2_gets_names_the_host_that_was_checked() {
+        // Spellings the WHATWG parser and libgit2 read differently: each comes
+        // out with an authority libgit2 reads as the host that was judged.
+        for (typed, handed_on) in [
+            ("http://localhost?@203.0.113.9:8080/x.git", "http://localhost/?@203.0.113.9:8080/x.git"),
+            ("http://localhost#@203.0.113.9:8080/x.git", "http://localhost/#@203.0.113.9:8080/x.git"),
+            ("http://localhost\\@203.0.113.9:8080/x.git", "http://localhost/@203.0.113.9:8080/x.git"),
+            ("http://0177.0.0.1:8080/x.git", "http://127.0.0.1:8080/x.git"),
+            ("http://012.0.0.1/x.git", "http://10.0.0.1/x.git"),
+        ] {
+            assert_eq!(repo_url_for_git(typed).as_deref(), Ok(handed_on), "{typed}");
+        }
+        // The callback sends credentials to that spelling alone, and says why not.
+        let refusal = |url: &str| credentials_refusal(url);
+        assert_eq!(refusal("http://localhost?@203.0.113.9:8080/x.git").as_deref(), Some(SYNC_URL_REWRITTEN));
+        assert_eq!(refusal("http://localhost/?@203.0.113.9:8080/x.git"), None);
+        assert_eq!(refusal("http://LOCALHOST:3000/x.git").as_deref(), Some(SYNC_URL_REWRITTEN));
+        assert_eq!(refusal("http://203.0.113.9/x.git").as_deref(), Some(PLAIN_HTTP_REFUSED));
+        assert_eq!(refusal("http://203.0.113.9%00/x.git").as_deref(), Some(SYNC_URL_UNREADABLE));
+        assert_eq!(refusal("https://github.com/me/sync.git"), None);
+        assert_eq!(refusal("git@github.com:me/sync.git"), None);
+    }
+
+    // A loopback "git server" that answers every request 401 (Basic) and keeps
+    // each request head, so a test can see whether credentials ever arrived.
+    // The tests reach it as 0.0.0.0, which the rule counts as outside the
+    // user's network but the OS connects to this machine.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn serve_401() -> (u16, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heads = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = heads.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { return };
+                let mut buf = Vec::new();
+                let mut tmp = [0u8; 4096];
+                while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match s.read(&mut tmp) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                    }
+                }
+                seen.lock().unwrap().push(String::from_utf8_lossy(&buf).to_ascii_lowercase());
+                let _ = s.write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"sync\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+        (port, heads)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn scratch_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("pluto-sync-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn the_callback_keeps_the_token_from_plain_http_outside_your_network() {
+        let (port, heads) = serve_401();
+        let dir = scratch_dir("callback");
+        let repo = git2::Repository::init(&dir).unwrap();
+        let mut remote = repo.remote("origin", &format!("http://0.0.0.0:{port}/me/sync.git")).unwrap();
+        let mut fo = fetch_options(Some("dummy-token-1234".into()));
+        let err = remote.fetch(&[BRANCH], Some(&mut fo), None).unwrap_err();
+        assert!(err.message().contains("plain http"), "{}", err.message());
+        assert_eq!(err.class(), git2::ErrorClass::Http, "an error pull_at reports, not an empty remote");
+        assert!(!err.to_string().to_ascii_lowercase().contains("auth"), "not shown as a wrong token: {err}");
+        assert_eq!(callback_refusal(&err).as_deref(), Some(PLAIN_HTTP_REFUSED));
+        let heads = heads.lock().unwrap();
+        assert!(!heads.is_empty(), "the server was reached");
+        assert!(heads.iter().all(|h| !h.contains("authorization:")), "no credentials were sent");
+        drop(heads);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn pull_push_and_gc_refuse_an_origin_outside_the_rule_before_any_request() {
+        let (port, heads) = serve_401();
+        let dir = scratch_dir("origin");
+        let repo = git2::Repository::init(&dir).unwrap();
+        repo.remote("origin", &format!("http://0.0.0.0:{port}/me/sync.git")).unwrap();
+        drop(repo);
+        let pulled = pull_at(&dir, Some("dummy-token-1234".into())).err().unwrap_or_default();
+        assert!(pulled.contains("plain http"), "{pulled}");
+        let pushed = push_at(&dir, "salt".into(), "blob".into(), Some("dummy-token-1234".into())).err().unwrap_or_default();
+        assert!(pushed.contains("plain http"), "{pushed}");
+        let collected = gc_at(&dir, Some("dummy-token-1234".into())).err().unwrap_or_default();
+        assert!(collected.contains("plain http"), "{collected}");
+        assert!(heads.lock().unwrap().is_empty(), "nothing was sent");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_refusal_inside_the_callback_reaches_the_ui_as_its_own_sentence() {
+        // origin passes the rule, and a push URL set by hand points outside
+        // it, so only the credentials callback stands between the token and
+        // that host.
+        let (port, heads) = serve_401();
+        let dir = scratch_dir("pushurl");
+        let repo = git2::Repository::init(&dir).unwrap();
+        repo.remote("origin", "http://localhost/me/sync.git").unwrap();
+        repo.config().unwrap().set_str("remote.origin.pushurl", &format!("http://0.0.0.0:{port}/me/sync.git")).unwrap();
+        drop(repo);
+        let pushed = push_at(&dir, "salt".into(), "blob".into(), Some("dummy-token-1234".into()));
+        assert_eq!(pushed, Err(PLAIN_HTTP_REFUSED.to_string()));
+        let heads = heads.lock().unwrap();
+        assert!(!heads.is_empty(), "the server was reached");
+        assert!(heads.iter().all(|h| !h.contains("authorization:")), "no credentials were sent");
+        drop(heads);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn every_refusal_from_inside_the_callback_comes_back_as_its_own_sentence() {
+        // The unreadable one is reachable too: a rewrite to a host with an
+        // encoded NUL, which libgit2 cuts short and the URL parser refuses.
+        for sentence in [PLAIN_HTTP_REFUSED, SYNC_URL_UNREADABLE, SYNC_URL_REWRITTEN] {
+            let e = git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::Http, sentence);
+            assert_eq!(callback_refusal(&e).as_deref(), Some(sentence));
+        }
+        let other = git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::Http, "unexpected http status code: 500");
+        assert_eq!(callback_refusal(&other), None);
+    }
+
+    #[test]
+    fn ssh_still_asks_the_agent() {
+        // Over ssh the agent's key answers, on a channel that is encrypted and
+        // pinned by known_hosts. Pinned by source: a test ssh server is more
+        // than this suite runs.
+        let src = include_str!("sync_git.rs").replace("\r\n", "\n");
+        let from = &src[src.find("fn callbacks(").unwrap()..];
+        let body = &from[..from.find("\n}\n").unwrap()];
+        assert!(body.contains("if allowed.is_ssh_key() {"));
+        assert!(body.contains(r#"return Cred::ssh_key_from_agent(username.unwrap_or("git"));"#));
+    }
+
+    #[test]
+    fn the_clone_and_pull_paths_show_a_callback_refusal_as_its_own_sentence() {
+        // push_at is pinned end to end above. A refusal inside the callback
+        // reaches the clone only through a rewrite in the user's global git
+        // config, which a test cannot set without moving libgit2's search path
+        // for every test in the process, and reaches pull not at all today
+        // (check_origin reads the URL fetch uses), so these two are pinned by
+        // their source.
+        let src = include_str!("sync_git.rs").replace("\r\n", "\n");
+        let body = |head: &str| {
+            let from = &src[src.find(head).unwrap()..];
+            from[..from.find("\n}\n").unwrap()].to_string()
+        };
+        assert!(body("fn clone_or_open_at(").contains("Err(e) => Err(callback_refusal(&e).unwrap_or_else(|| e.to_string())),"));
+        assert!(body("fn pull_at(").contains("return Err(callback_refusal(&e)"));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn with_no_token_the_callback_still_sends_nothing_outside_the_rule() {
+        // With no token the callback would answer with the system's default
+        // credentials, which on Windows can be the signed-in user's identity.
+        let (port, heads) = serve_401();
+        let dir = scratch_dir("nopat");
+        let repo = git2::Repository::init(&dir).unwrap();
+        repo.remote("origin", "http://localhost/me/sync.git").unwrap();
+        repo.config().unwrap().set_str("remote.origin.pushurl", &format!("http://0.0.0.0:{port}/me/sync.git")).unwrap();
+        drop(repo);
+        let pushed = push_at(&dir, "salt".into(), "blob".into(), None);
+        assert_eq!(pushed, Err(PLAIN_HTTP_REFUSED.to_string()));
+        assert!(!heads.lock().unwrap().is_empty(), "the server was reached");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_respelled_address_is_refused_as_a_rewrite_not_as_the_internet() {
+        // A local server, spelled in a way the check would write differently:
+        // the reason given is the rewrite, not plain http over the internet.
+        let (port, heads) = serve_401();
+        let dir = scratch_dir("respelled");
+        let repo = git2::Repository::init(&dir).unwrap();
+        repo.remote("origin", "http://localhost/me/sync.git").unwrap();
+        repo.config().unwrap().set_str("remote.origin.pushurl", &format!("http://LOCALHOST:{port}/me/sync.git")).unwrap();
+        drop(repo);
+        let pushed = push_at(&dir, "salt".into(), "blob".into(), Some("dummy-token-1234".into()));
+        assert_eq!(pushed, Err(SYNC_URL_REWRITTEN.to_string()));
+        let heads = heads.lock().unwrap();
+        assert!(!heads.is_empty(), "the server was reached");
+        assert!(heads.iter().all(|h| !h.contains("authorization:")), "no credentials were sent");
+        drop(heads);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_clone_dials_the_host_that_was_checked() {
+        // Typed with "?@", this URL names localhost to the check but 0.0.0.0
+        // (this server) to libgit2's own parser; the clone must go to localhost,
+        // on a port nothing listens on, so the dial is refused without reaching
+        // anything else this machine runs.
+        let (port, heads) = serve_401();
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let dir = scratch_dir("dial");
+        let typed = format!("http://localhost:{closed}?@0.0.0.0:{port}/me/sync.git");
+        let _ = clone_or_open_at(&dir.join("clone"), &typed, Some("dummy-token-1234".into()));
+        assert!(heads.lock().unwrap().is_empty(), "libgit2 never dialed a host the check did not judge");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     // libgit2 wants `file:///C:/...` for Windows absolute paths (three slashes
     // before the drive letter) but `file:///var/...` on Unix — naively gluing
