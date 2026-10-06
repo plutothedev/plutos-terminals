@@ -1,6 +1,6 @@
 // (C)
 import { describe, it, expect } from "vitest";
-import { scanSecrets, maskSecrets } from "./secretScan.js";
+import { scanSecrets, maskSecrets, __pairedLookupSteps } from "./secretScan.js";
 
 const FAKE_PEM = [
   "-----BEGIN RSA PRIVATE KEY-----",
@@ -258,11 +258,32 @@ describe("scanSecrets — bisected PEM blocks (upstream truncation)", () => {
       // exercised the paired-hit coverage lookup. With thousands of paired
       // blocks a re-scan-from-zero per banner is O(P^2): measured 574 ms at
       // 10k blocks before the lookup became a binary search.
-      const text = `-----BEGIN A PRIVATE KEY-----\n${"M".repeat(40)}\n-----END A PRIVATE KEY-----\n`.repeat(10000);
-      const t0 = Date.now();
-      const hits = scanSecrets(text);
-      expect(hits.length).toBe(10000);
-      expect(Date.now() - t0).toBeLessThan(150);
+      //
+      // COUNTED, not timed. This asserted "under 150 ms at 10k blocks" and
+      // failed at random under a full parallel suite run (305 ms on 2026-10-03)
+      // while passing alone every time; growth-in-CPU-time versions then either
+      // flaked or missed a quadratic lookup on a loaded machine, and Windows'
+      // 15.6 ms process clock defeats short timings outright. The lookup counts
+      // its own steps (__pairedLookupSteps), so this reads the algorithm's cost
+      // directly. Sixteen times the blocks costs a binary search about 22 times
+      // the steps (log2 grows from 10 to 14); a lookup that re-scans grows about
+      // 256 times, and one rewritten without the counter reads as zero. It
+      // guards this lookup only: the whole scan's time is not asserted here (the
+      // unpaired-banner test below still times its own path). A loose time limit
+      // on the whole scan was tried and dropped (2026-10-05): at this size a
+      // quadratic line split ran only 3 to 8 times the clean scan, inside the
+      // clean scan's own spread under load, so no limit could both catch it and
+      // never flake.
+      const block = `-----BEGIN A PRIVATE KEY-----\n${"M".repeat(40)}\n-----END A PRIVATE KEY-----\n`;
+      const stepsFor = (blocks) => {
+        __pairedLookupSteps.count = 0;
+        expect(scanSecrets(block.repeat(blocks)).length).toBe(blocks);
+        return __pairedLookupSteps.count;
+      };
+      const small = stepsFor(1000);
+      const large = stepsFor(16000);
+      expect(small).toBeGreaterThan(0);
+      expect(large / small).toBeLessThan(32);
     });
 
     it("stays fast with many unpaired END banners (no quadratic backward scan)", () => {

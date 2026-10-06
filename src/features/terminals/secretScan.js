@@ -123,6 +123,13 @@ function classifyLines(s) {
 
 const isKeyish = (k) => k === "body" || k === "begin" || k === "end";
 
+// Steps the paired-hit coverage lookup inside scanSecrets has taken, for the
+// test that keeps that lookup logarithmic (secretScan.test.js, "paired-hit
+// lookup is not quadratic"). Counting rather than timing is what lets that test
+// hold on a loaded machine and on Windows' coarse process clock; a timed
+// version flaked under load and could miss a quadratic lookup.
+export const __pairedLookupSteps = { count: 0 };
+
 export function scanSecrets(text) {
   const s = String(text ?? "");
   const hits = [];
@@ -153,6 +160,7 @@ export function scanSecrets(text) {
     let hi = pemHits.length - 1;
     let best = -1;
     while (lo <= hi) {
+      __pairedLookupSteps.count += 1;
       const mid = (lo + hi) >> 1;
       if (pemHits[mid].index <= i) { best = mid; lo = mid + 1; } else hi = mid - 1;
     }
