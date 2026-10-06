@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.3: SSH and serial tabs fold into splits; API keys stay with their provider (2026-10-06)
 
 ### Added
 - **SSH and serial tabs can be dragged into a split.** Dragging a tab onto
