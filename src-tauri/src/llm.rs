@@ -516,7 +516,7 @@ pub async fn llm_complete(
         if !status.is_success() {
             return Err(http_error(status, resp).await);
         }
-        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        let v = read_reply_json(resp).await?;
         let text = v
             .get("content")
             .and_then(|c| c.as_array())
@@ -547,7 +547,7 @@ pub async fn llm_complete(
         if !status.is_success() {
             return Err(http_error(status, resp).await);
         }
-        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        let v = read_reply_json(resp).await?;
         let text = v
             .pointer("/choices/0/message/content")
             .and_then(|s| s.as_str())
@@ -639,15 +639,56 @@ pub async fn llm_stream(
         return Err(stream_http_error(status, resp).await);
     }
 
-    let mut stream = resp.bytes_stream();
+    pump_sse(resp.bytes_stream(), anthropic, is_cancelled, |p| {
+        let _ = on_chunk.send(p.to_string());
+    })
+    .await
+}
+
+/// Largest SSE event held while waiting for the blank line that ends it. A
+/// real event is one JSON delta of a few hundred bytes (a tool-call or usage
+/// event a few KB), so this is far above any of them; it bounds what an
+/// endpoint that never sends a blank line can make the app hold.
+const SSE_EVENT_MAX_BYTES: usize = 1024 * 1024;
+
+/// Most reply text one streaming call keeps. The Anthropic body asks for
+/// max_tokens 1024, but the OpenAI-compatible body sets no max_tokens (the
+/// provider's own limit applies, and a custom endpoint has none it must keep),
+/// so the provider does not bound this. The largest outputs any model offers
+/// are around 128K tokens, roughly 0.5 MB of text, so this is eight times it.
+const STREAM_TEXT_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// The SSE read loop behind llm_stream: decodes the body, splits it into
+/// events on blank lines, hands each text delta to `emit`, and returns the
+/// whole text. Bounded by SSE_EVENT_MAX_BYTES for the event still arriving and
+/// STREAM_TEXT_MAX_BYTES for the text; past either the call ends with an error.
+async fn pump_sse<S, B, E>(
+    mut stream: S,
+    anthropic: bool,
+    is_cancelled: impl Fn() -> bool,
+    mut emit: impl FnMut(&str),
+) -> Result<String, String>
+where
+    S: futures_util::Stream<Item = Result<B, E>> + Unpin,
+    B: AsRef<[u8]>,
+    E: std::fmt::Display,
+{
     let mut buf = String::new();
+    // How much of `buf` has been searched for a blank line without finding
+    // one. Each chunk searches only from here (one byte back, for a "\n\n"
+    // split across chunks), so a long event is not rescanned on every chunk.
+    let mut scanned = 0usize;
     let mut full = String::new();
-    // Incomplete trailing UTF-8 bytes carried across network chunks — a
+    // Incomplete trailing UTF-8 bytes carried across network chunks: a
     // multibyte char straddling a chunk boundary must not become U+FFFD
     // (see pty::decode_utf8_stream).
     let mut pending: Vec<u8> = Vec::new();
+    // A "\r" that ended the last chunk, held until the next one shows whether
+    // a "\n" follows; normalized per chunk, a "\r\n" split across chunks would
+    // stay "\r\n" and a "\r\n\r\n" event end would never be found.
+    let mut held_cr = false;
     loop {
-        // Idle timeout between chunks — long generations stream for minutes
+        // Idle timeout between chunks: long generations stream for minutes
         // legitimately; 90s of SILENCE means the stream died.
         let next = tokio::time::timeout(std::time::Duration::from_secs(90), stream.next())
             .await
@@ -660,40 +701,73 @@ pub async fn llm_stream(
             return Ok(full);
         }
         let bytes = chunk.map_err(|e| e.to_string())?;
-        let text = crate::pty::decode_utf8_stream(&mut pending, &bytes);
+        let mut text = crate::pty::decode_utf8_stream(&mut pending, bytes.as_ref());
+        if std::mem::take(&mut held_cr) {
+            text.insert(0, '\r');
+        }
+        if text.ends_with('\r') {
+            text.pop();
+            held_cr = true;
+        }
         buf.push_str(&text.replace("\r\n", "\n"));
         // Process complete SSE events (separated by a blank line).
-        while let Some(idx) = buf.find("\n\n") {
-            let event: String = buf[..idx].to_string();
-            buf = buf[idx + 2..].to_string();
-            for line in event.lines() {
-                let line = line.trim_start();
-                let data = match line.strip_prefix("data:") {
-                    Some(d) => d.trim(),
-                    None => continue,
-                };
-                if data.is_empty() || data == "[DONE]" {
-                    continue;
+        let mut from = scanned.saturating_sub(1);
+        let mut consumed = 0;
+        while let Some(off) = buf.as_bytes()[from..].windows(2).position(|w| w == b"\n\n") {
+            let idx = from + off;
+            for piece in sse_event_pieces(&buf[consumed..idx], anthropic) {
+                if full.len() + piece.len() > STREAM_TEXT_MAX_BYTES {
+                    return Err(format!(
+                        "The provider's reply passed {} MB, so it was stopped there.",
+                        STREAM_TEXT_MAX_BYTES / (1024 * 1024)
+                    ));
                 }
-                let v: serde_json::Value = match serde_json::from_str(data) {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                let piece = if anthropic {
-                    v.pointer("/delta/text").and_then(|t| t.as_str())
-                } else {
-                    v.pointer("/choices/0/delta/content").and_then(|t| t.as_str())
-                };
-                if let Some(p) = piece {
-                    if !p.is_empty() {
-                        full.push_str(p);
-                        let _ = on_chunk.send(p.to_string());
-                    }
-                }
+                full.push_str(&piece);
+                emit(&piece);
             }
+            consumed = idx + 2;
+            from = consumed;
+        }
+        buf.drain(..consumed);
+        scanned = buf.len();
+        if buf.len() > SSE_EVENT_MAX_BYTES {
+            return Err(format!(
+                "The provider sent a streaming event larger than {} MB without ending it, so the reply was stopped.",
+                SSE_EVENT_MAX_BYTES / (1024 * 1024)
+            ));
         }
     }
     Ok(full)
+}
+
+/// The text deltas in one SSE event: Anthropic content_block_delta
+/// (`delta.text`) or OpenAI-compatible `choices[0].delta.content`. Lines that
+/// are not `data:`, `[DONE]`, and data that is not JSON are skipped.
+fn sse_event_pieces(event: &str, anthropic: bool) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in event.lines() {
+        let line = line.trim_start();
+        let data = match line.strip_prefix("data:") {
+            Some(d) => d.trim(),
+            None => continue,
+        };
+        if data.is_empty() || data == "[DONE]" {
+            continue;
+        }
+        let v: serde_json::Value = match serde_json::from_str(data) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let piece = if anthropic {
+            v.pointer("/delta/text").and_then(|t| t.as_str())
+        } else {
+            v.pointer("/choices/0/delta/content").and_then(|t| t.as_str())
+        };
+        if let Some(p) = piece.filter(|p| !p.is_empty()) {
+            out.push(p.to_string());
+        }
+    }
+    out
 }
 
 // ── Model discovery ─────────────────────────────────────────────────────────
@@ -728,8 +802,8 @@ pub struct ListedModel {
 /// five times it. The cap is also the memory bound: serde_json::Value turns a
 /// body of tiny objects into 60x to 85x its size in nodes depending on shape
 /// (review 2026-10-03 measured 943 MB of heap from a 16 MB body, and 238 MB to
-/// 332 MB at 4 MB), transient and freed when the call returns. llm_complete
-/// reads the same endpoints with no cap at all.
+/// 332 MB at 4 MB), transient and freed when the call returns. Chat replies
+/// are held to the same bound (REPLY_MAX_BYTES).
 const MODEL_LIST_MAX_BYTES: usize = 4 * 1024 * 1024;
 /// Most models kept from one provider, after cleaning.
 const MODEL_LIST_MAX_MODELS: usize = 5000;
@@ -943,6 +1017,28 @@ async fn read_capped(resp: reqwest::Response, cap: usize) -> Result<(Vec<u8>, bo
     let mut buf = Vec::new();
     let over = read_capped_into(resp, cap, &mut buf).await?;
     Ok((buf, over))
+}
+
+/// Largest non-streaming reply body read (llm_complete, llm_tools). A reply is
+/// one JSON object whose text is bounded by max_tokens on the Anthropic bodies
+/// but by nothing this app sets on the OpenAI-compatible ones, so a broken or
+/// hostile endpoint could otherwise send as much as its request timeout lets it.
+/// The largest real outputs, around 128K tokens, are roughly 0.5 MB of text, so
+/// this is eight times that, and the same 4 MB MODEL_LIST_MAX_BYTES measured
+/// as a safe memory bound for a parsed serde_json::Value.
+const REPLY_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// A successful non-streaming reply as JSON, read under REPLY_MAX_BYTES.
+pub(crate) async fn read_reply_json(resp: reqwest::Response) -> Result<serde_json::Value, String> {
+    let too_large = || format!("The provider's reply is larger than {} MB, so it was not read.", REPLY_MAX_BYTES / (1024 * 1024));
+    if resp.content_length().is_some_and(|n| n > REPLY_MAX_BYTES as u64) {
+        return Err(too_large());
+    }
+    let (body, truncated) = read_capped(resp, REPLY_MAX_BYTES).await?;
+    if truncated {
+        return Err(too_large());
+    }
+    serde_json::from_slice(&body).map_err(|e| e.to_string())
 }
 
 /// read_capped into `buf`, so a caller that stops waiting keeps what came.
@@ -1842,5 +1938,180 @@ mod error_body_tests {
         let (base, _) = serve(|_| json(429, r#"{"error":{"message":"slow down"}}"#)).await;
         let resp = client().get(format!("{base}/x")).send().await.unwrap();
         assert_eq!(stream_http_error(resp.status(), resp).await, "slow down");
+    }
+}
+
+#[cfg(test)]
+mod stream_cap_tests {
+    use super::list_models_tests::serve;
+    use super::{pump_sse, sse_event_pieces, SSE_EVENT_MAX_BYTES, STREAM_TEXT_MAX_BYTES};
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const SSE_HEAD: &str = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n";
+
+    fn client() -> reqwest::Client {
+        reqwest::Client::builder().no_proxy().build().unwrap()
+    }
+
+    fn http_chunk(data: &[u8]) -> Vec<u8> {
+        let mut out = format!("{:x}\r\n", data.len()).into_bytes();
+        out.extend_from_slice(data);
+        out.extend_from_slice(b"\r\n");
+        out
+    }
+
+    // A loopback SSE server: answers with a 200 text/event-stream head, writes
+    // each of `parts` as its own HTTP chunk with `gap` between them, then
+    // either finishes the body or, with `endless`, keeps writing the last part
+    // every `gap` until the client goes away.
+    async fn sse_server(parts: Vec<Vec<u8>>, gap: Duration, endless: bool) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let parts = parts.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    let _ = sock.read(&mut buf).await;
+                    if sock.write_all(SSE_HEAD.as_bytes()).await.is_err() {
+                        return;
+                    }
+                    for p in &parts {
+                        if sock.write_all(&http_chunk(p)).await.is_err() {
+                            return;
+                        }
+                        let _ = sock.flush().await;
+                        tokio::time::sleep(gap).await;
+                    }
+                    if endless {
+                        let last = http_chunk(parts.last().unwrap());
+                        loop {
+                            if sock.write_all(&last).await.is_err() {
+                                return;
+                            }
+                            tokio::time::sleep(gap).await;
+                        }
+                    }
+                    let _ = sock.write_all(b"0\r\n\r\n").await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+        format!("http://127.0.0.1:{port}/x")
+    }
+
+    async fn pump(url: String) -> (Result<String, String>, Vec<String>) {
+        let resp = client().get(url).send().await.unwrap();
+        assert_eq!(resp.status(), 200);
+        let mut seen = Vec::new();
+        let r = tokio::time::timeout(
+            Duration::from_secs(20),
+            pump_sse(resp.bytes_stream(), false, || false, |p| seen.push(p.to_string())),
+        )
+        .await
+        .expect("the call ended instead of reading forever");
+        (r, seen)
+    }
+
+    fn delta(text: &str) -> String {
+        format!("data: {}\n\n", serde_json::json!({"choices": [{"delta": {"content": text}}]}))
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_never_ends_an_event_is_stopped_at_the_cap() {
+        // 64 KB of one data line every 2 ms, never a blank line. Unbounded, the
+        // buffer grows until the 20 s timeout in pump() gives up.
+        let line = format!("data: {}", "a".repeat(64 * 1024)).into_bytes();
+        let url = sse_server(vec![line], Duration::from_millis(2), true).await;
+        let (r, seen) = pump(url).await;
+        let err = r.expect_err("stopped with an error once past the cap");
+        assert!(err.contains("larger than 1 MB"), "a clear reason: {err}");
+        assert!(seen.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_finished_body_with_no_blank_line_over_the_cap_is_an_error() {
+        let body = format!("data: {}", "a".repeat(SSE_EVENT_MAX_BYTES + 1));
+        let (url, _) = serve(move |_| {
+            format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            )
+        })
+        .await;
+        let url = format!("{url}/x");
+        let (r, _) = pump(url).await;
+        assert!(r.is_err(), "over the cap is an error, not an empty reply: {r:?}");
+    }
+
+    #[tokio::test]
+    async fn an_event_split_across_two_chunks_still_parses() {
+        let ev = delta("hello world");
+        let (a, b) = ev.split_at(ev.len() / 2);
+        let first = format!("{}{a}", delta("one "));
+        let url = sse_server(vec![first.into_bytes(), b.as_bytes().to_vec()], Duration::from_millis(50), false).await;
+        let (r, seen) = pump(url).await;
+        assert_eq!(r.unwrap(), "one hello world");
+        assert_eq!(seen, vec!["one ", "hello world"]);
+    }
+
+    // Exact chunk boundaries, without a socket: the separator itself split
+    // between chunks, as "\n|\n" and as "\r\n\r|\n", and a multibyte char split.
+    async fn pump_parts(parts: Vec<&[u8]>, anthropic: bool) -> Result<String, String> {
+        let s = futures_util::stream::iter(parts.into_iter().map(|p| Ok::<_, std::io::Error>(p.to_vec())));
+        pump_sse(s, anthropic, || false, |_| {}).await
+    }
+
+    #[tokio::test]
+    async fn a_separator_split_between_chunks_is_found() {
+        let ev = delta("x");
+        let (a, b) = ev.split_at(ev.len() - 1);
+        assert_eq!(pump_parts(vec![a.as_bytes(), b.as_bytes()], false).await.unwrap(), "x");
+        let crlf = ev.replace('\n', "\r\n");
+        let (a, b) = crlf.split_at(crlf.len() - 1);
+        assert_eq!(pump_parts(vec![a.as_bytes(), b.as_bytes()], false).await.unwrap(), "x");
+        let (a, b) = crlf.split_at(crlf.len() - 2);
+        assert_eq!(pump_parts(vec![a.as_bytes(), b.as_bytes()], false).await.unwrap(), "x");
+        let anth = "data: {\"delta\":{\"text\":\"\u{e9}t\u{e9}\"}}\n\n";
+        let at = anth.find('\u{e9}').unwrap() + 1; // inside the two-byte char
+        let (a, b) = anth.as_bytes().split_at(at);
+        assert_eq!(pump_parts(vec![a, b], true).await.unwrap(), "\u{e9}t\u{e9}");
+    }
+
+    #[tokio::test]
+    async fn many_small_events_in_one_chunk_all_parse() {
+        let body: String = (0..1000).map(|i| delta(&i.to_string())).collect();
+        let want: String = (0..1000).map(|i| i.to_string()).collect();
+        assert_eq!(pump_parts(vec![body.as_bytes()], false).await.unwrap(), want);
+    }
+
+    #[tokio::test]
+    async fn reply_text_past_its_cap_is_an_error() {
+        // Each event is well under the event cap; together they pass the text cap.
+        let ev = delta(&"a".repeat(256 * 1024));
+        let n = STREAM_TEXT_MAX_BYTES / (256 * 1024) + 1;
+        let parts: Vec<&[u8]> = std::iter::repeat_n(ev.as_bytes(), n).collect();
+        let err = pump_parts(parts, false).await.expect_err("stopped past the text cap");
+        assert!(err.contains("passed 4 MB"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_non_streaming_reply_is_read_only_up_to_its_cap() {
+        use super::list_models_tests::json;
+        let big = format!("{{\"x\":\"{}\"}}", "a".repeat(super::REPLY_MAX_BYTES));
+        let (base, _) = serve(move |_| json(200, &big)).await;
+        let resp = client().get(format!("{base}/x")).send().await.unwrap();
+        let err = super::read_reply_json(resp).await.expect_err("over the cap");
+        assert!(err.contains("larger than 4 MB"), "{err}");
+        let (base, _) = serve(|_| json(200, r#"{"ok":1}"#)).await;
+        let resp = client().get(format!("{base}/x")).send().await.unwrap();
+        assert_eq!(super::read_reply_json(resp).await.unwrap()["ok"], 1);
+    }
+
+    #[test]
+    fn event_pieces_skip_non_data_and_done() {
+        let ev = "event: x\ndata: [DONE]\ndata: not json\n: comment\ndata: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}";
+        assert_eq!(sse_event_pieces(ev, false), vec!["hi"]);
     }
 }

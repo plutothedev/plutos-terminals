@@ -25,6 +25,15 @@
   most 10 seconds.** A broken or hostile endpoint could otherwise make the app
   hold an enormous error in memory, or keep a streaming call waiting on an
   error that never finishes arriving.
+- **A streaming AI reply is bounded.** A provider that answered with a stream
+  that never ended its event (no blank line) could make the app hold an
+  ever-growing buffer and rescan all of it on every piece that arrived. An
+  unfinished event is now held up to 1 MB and a reply's text up to 4 MB, and
+  past either the reply stops with a clear error. Only the new part of the
+  stream is searched for the end of an event, and an event end split across
+  two pieces of the stream (including `\r\n` line endings) is still found.
+  Non-streaming replies, including the agent's tool turns, are read only up
+  to 4 MB.
 
 ## v0.7.3: SSH and serial tabs fold into splits; API keys stay with their provider (2026-10-06)
 

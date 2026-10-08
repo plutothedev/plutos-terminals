@@ -289,7 +289,7 @@ pub async fn llm_tool_turn(
 
     let status = resp.status();
     if !status.is_success() { return Err(http_error(status, resp).await); }
-    let v: Value = resp.json().await.map_err(|e| e.to_string())?;
+    let v: Value = crate::llm::read_reply_json(resp).await?;
     Ok(if anthropic { parse_anthropic_response(&v) } else { parse_openai_response(&v) })
 }
 
