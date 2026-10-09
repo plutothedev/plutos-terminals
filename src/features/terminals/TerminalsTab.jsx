@@ -742,7 +742,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   const setActiveModelRef = useRef(() => {});
   setActiveModelRef.current = (payload) => {
     const next = phoneModelChoice(payload, userSt);
-    if (next) saveUser({ ...userSt, activeModel: next });
+    if (next) saveUser((prev) => ({ ...prev, activeModel: next }));
   };
   useEffect(() => {
     if (!isPrimaryWindow()) return; // primary window only (see new-session)

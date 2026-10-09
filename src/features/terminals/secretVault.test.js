@@ -519,9 +519,12 @@ describe("App.jsx wiring", () => {
     expect(SRC).not.toMatch(/setKeychainUnavailable|keychainOk\s*=\s*false/);
   });
 
-  test("the local restore writes the canonical secret field list back", () => {
+  test("the local restore works over the canonical secret field list, keeping only what the keychain lacks", () => {
+    // Behaviour (which keys it keeps, after a refusal and after a save that
+    // landed) is pinned against the real App in App.launchKeys.test.jsx.
     const body = fnBody("restoreLocalSecrets");
     expect(body).toContain("SECRET_FIELDS");
     expect(body).toContain("USER_STORAGE_KEY");
+    expect(code(body)).toContain("keysNotInKeychain(");
   });
 });

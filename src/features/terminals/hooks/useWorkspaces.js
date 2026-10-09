@@ -11,17 +11,20 @@ import { useCallback } from "react";
 import { cloneWorkspaceFresh } from "../workspaceModel.js";
 import { humanizeError } from "../errorText.js";
 
+// The saved list as the live user state holds it.
+const listOf = (us) => (Array.isArray(us?.workspaces) ? us.workspaces : []);
+
 export function useWorkspaces({ state, persist, userSt, saveUser, toast }) {
-  const workspaces = Array.isArray(userSt?.workspaces) ? userSt.workspaces : [];
+  const workspaces = listOf(userSt);
+  // Updaters over the live user state (saveUserUpdaters.test.js): it carries the
+  // API keys, and a copy of the rendered one can lack a key that has reached
+  // App since, which the keychain mirror would then delete.
   const saveWorkspace = useCallback((name) => {
     const snap = JSON.parse(JSON.stringify({ panels: state.panels, activePanelId: state.activePanelId }));
-    const next = [
-      ...workspaces.filter((w) => w.name !== name),
-      { name, panels: snap.panels, activePanelId: snap.activePanelId, savedAt: Date.now() },
-    ];
-    saveUser({ ...userSt, workspaces: next });
+    const entry = { name, panels: snap.panels, activePanelId: snap.activePanelId, savedAt: Date.now() };
+    saveUser((prev) => ({ ...prev, workspaces: [...listOf(prev).filter((w) => w.name !== name), entry] }));
     toast.success(`Workspace "${name}" saved.`);
-  }, [state.panels, state.activePanelId, workspaces, userSt, saveUser, toast]);
+  }, [state.panels, state.activePanelId, saveUser, toast]);
   const loadWorkspace = useCallback((ws) => {
     try {
       const fresh = cloneWorkspaceFresh(JSON.parse(JSON.stringify(ws)));
@@ -33,7 +36,7 @@ export function useWorkspaces({ state, persist, userSt, saveUser, toast }) {
     }
   }, [state, persist, toast]);
   const deleteWorkspace = useCallback((name) => {
-    saveUser({ ...userSt, workspaces: workspaces.filter((w) => w.name !== name) });
-  }, [workspaces, userSt, saveUser]);
+    saveUser((prev) => ({ ...prev, workspaces: listOf(prev).filter((w) => w.name !== name) }));
+  }, [saveUser]);
   return { workspaces, saveWorkspace, loadWorkspace, deleteWorkspace };
 }

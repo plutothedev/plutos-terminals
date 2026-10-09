@@ -9,6 +9,7 @@
 // cannot be used here: it routes nowhere (not to a provider the user did not
 // pick), everything shows no model and says why, and Models keeps the choice.
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { useState } from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -127,7 +128,7 @@ describe("phoneModelChoice", () => {
     // keybindings.tabs.test.js does for the shortcut wiring.
     const src = source("TerminalsTab.jsx");
     const body = src.slice(src.indexOf("setActiveModelRef.current = (payload) => {"), src.indexOf('listen("companion://set-active-model"'));
-    expect(body).toMatch(/const next = phoneModelChoice\(payload, userSt\);\s*if \(next\) saveUser\(\{ \.\.\.userSt, activeModel: next \}\);/);
+    expect(body).toMatch(/const next = phoneModelChoice\(payload, userSt\);\s*if \(next\) saveUser\(\(prev\) => \(\{ \.\.\.prev, activeModel: next \}\)\);/);
     expect(body).not.toMatch(/payload\?\.model/);
     expect(src).toMatch(/const choice = validActiveModel\(userSt, \{ keysKnown: keysSettled\(\) \}\);/);
     expect(src).toMatch(/phoneModelIds\(pp, hasKey \? cache\[pp\.id\] : null, resolveBaseUrl\(pp, bases\[pp\.id\]\), choice\)/);
@@ -386,12 +387,28 @@ describe("a saved choice that cannot be used here routes nowhere, everywhere", (
 });
 
 describe("Models", () => {
-  function renderPicker(userSt, saveUser = vi.fn()) {
-    render(
-      <ToastProvider>
-        <ModelPicker open onClose={() => {}} userSt={userSt} saveUser={saveUser} />
-      </ToastProvider>,
-    );
+  // User state held the way App holds it: saveUser takes a value or an updater
+  // (Models saves through an updater over the live state), and the picker is
+  // re-rendered with what was saved. `saveUser.saved` lists each saved state.
+  function renderPicker(userSt) {
+    const live = { current: userSt };
+    const saveUser = vi.fn();
+    saveUser.saved = [];
+    function Host() {
+      const [state, setState] = useState(userSt);
+      saveUser.mockImplementation((next) => {
+        const resolved = typeof next === "function" ? next(live.current) : next;
+        live.current = resolved;
+        saveUser.saved.push(resolved);
+        setState(resolved);
+      });
+      return (
+        <ToastProvider>
+          <ModelPicker open onClose={() => {}} userSt={state} saveUser={saveUser} />
+        </ToastProvider>
+      );
+    }
+    render(<Host />);
     return saveUser;
   }
   test("a bad typed id is refused with the rule spelled out", async () => {
@@ -406,7 +423,7 @@ describe("Models", () => {
     fireEvent.change(screen.getByPlaceholderText("…or type any model id"), { target: { value: " sonnet[1m] " } });
     fireEvent.click(screen.getByRole("button", { name: "Use" }));
     expect(saveUser).toHaveBeenCalledTimes(1);
-    expect(saveUser.mock.calls[0][0].activeModel).toEqual({ providerId: "anthropic", model: "sonnet[1m]" });
+    expect(saveUser.saved[0].activeModel).toEqual({ providerId: "anthropic", model: "sonnet[1m]" });
   });
   test("a choice that could not be used is refused when it is picked, with the reason", async () => {
     // The custom row opens because the saved choice is there; its base URL has a space.
@@ -447,7 +464,7 @@ describe("Models", () => {
     fireEvent.change(screen.getByPlaceholderText("…or type any model id"), { target: { value: "claude-opus-5-5" } });
     fireEvent.click(screen.getByRole("button", { name: "Use" }));
     expect(saveUser).toHaveBeenCalledTimes(1);
-    expect(saveUser.mock.calls[0][0].activeModel).toEqual({ providerId: "anthropic", model: "claude-opus-5-5" });
+    expect(saveUser.saved[0].activeModel).toEqual({ providerId: "anthropic", model: "claude-opus-5-5" });
   });
   test("leaving a field does not erase a saved choice that cannot be used", () => {
     // Every save writes the picker's choice back, and activeModel syncs to the
@@ -456,7 +473,7 @@ describe("Models", () => {
     const saveUser = renderPicker({ providerKeys: { anthropic: "sk-ant-test" }, activeModel: savedChoice });
     fireEvent.blur(screen.getByPlaceholderText(/API key/));
     expect(saveUser).toHaveBeenCalled();
-    expect(saveUser.mock.calls.at(-1)[0].activeModel).toEqual(savedChoice);
+    expect(saveUser.saved.at(-1).activeModel).toEqual(savedChoice);
   });
   test("a valid saved choice shows as active, with no warning", () => {
     renderPicker({ providerKeys: { anthropic: "sk-ant-test" }, activeModel: { providerId: "anthropic", model: "claude-opus-5-5" } });

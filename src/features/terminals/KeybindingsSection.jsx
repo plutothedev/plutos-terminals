@@ -30,19 +30,26 @@ export default function KeybindingsSection({ userSt, saveUser }) {
     && Object.prototype.hasOwnProperty.call(userSt.keybindings, "summon");
   const summonCombo = summonHasOverride ? summonRaw : DEFAULT_SUMMON; // string | null
 
+  // Updaters over the live user state (saveUserUpdaters.test.js): it carries the
+  // API keys, and a copy of the rendered one can lack a key that has reached
+  // App since, which the keychain mirror would then delete.
   const writeBinding = (id, value) => {
-    const kb = { ...(userSt?.keybindings || {}) };
-    if (value === "__reset__") delete kb[id];
-    else kb[id] = value; // string (remap) or null (disabled)
-    saveUser({ ...userSt, keybindings: kb });
+    saveUser((prev) => {
+      const kb = { ...(prev?.keybindings || {}) };
+      if (value === "__reset__") delete kb[id];
+      else kb[id] = value; // string (remap) or null (disabled)
+      return { ...prev, keybindings: kb };
+    });
   };
 
   // Persist a summon change and (re)register it OS-wide via Rust.
   const applySummon = (value) => {
-    const kb = { ...(userSt?.keybindings || {}) };
-    if (value === "__reset__") delete kb.summon;
-    else kb.summon = value; // string or null (disabled)
-    saveUser({ ...userSt, keybindings: kb });
+    saveUser((prev) => {
+      const kb = { ...(prev?.keybindings || {}) };
+      if (value === "__reset__") delete kb.summon;
+      else kb.summon = value; // string or null (disabled)
+      return { ...prev, keybindings: kb };
+    });
     const effective = value === "__reset__" ? DEFAULT_SUMMON : value;
     invoke("set_summon_shortcut", { combo: effective || "" }).catch((err) => {
       setError(humanizeError(err, "Couldn't register hotkey").message);

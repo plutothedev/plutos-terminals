@@ -4,6 +4,7 @@
 // Before this, it only knew the ids typed into providers.js, so a model
 // released after the build (Claude Opus 5.5) could not be picked from a chip.
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { useState } from "react";
 import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
@@ -26,12 +27,28 @@ const ANTHROPIC_LIST = [
   { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", created: secsAgo(360 * DAY) },
 ];
 
-function renderPicker(userSt, saveUser = vi.fn()) {
-  render(
-    <ToastProvider>
-      <ModelPicker open onClose={() => {}} userSt={userSt} saveUser={saveUser} />
-    </ToastProvider>,
-  );
+// User state held the way App holds it: saveUser takes a value or an updater
+// (Models saves through an updater over the live state), and the picker is
+// re-rendered with what was saved. `saveUser.saved` lists each saved state.
+function renderPicker(userSt) {
+  const live = { current: userSt };
+  const saveUser = vi.fn();
+  saveUser.saved = [];
+  function Host() {
+    const [state, setState] = useState(userSt);
+    saveUser.mockImplementation((next) => {
+      const resolved = typeof next === "function" ? next(live.current) : next;
+      live.current = resolved;
+      saveUser.saved.push(resolved);
+      setState(resolved);
+    });
+    return (
+      <ToastProvider>
+        <ModelPicker open onClose={() => {}} userSt={state} saveUser={saveUser} />
+      </ToastProvider>
+    );
+  }
+  render(<Host />);
   return saveUser;
 }
 
@@ -90,7 +107,7 @@ describe("ModelPicker live lists", () => {
     const saveUser = renderPicker({ providerKeys: { anthropic: "sk" } });
     await waitFor(() => expect(screen.getByTitle(/^Use Claude Opus 5\.5/)).toBeTruthy());
     fireEvent.click(screen.getByTitle(/^Use Claude Opus 5\.5/));
-    expect(saveUser).toHaveBeenLastCalledWith(
+    expect(saveUser.saved.at(-1)).toEqual(
       expect.objectContaining({ activeModel: { providerId: "anthropic", model: "claude-opus-5-5" } }),
     );
   });

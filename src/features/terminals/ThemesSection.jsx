@@ -43,8 +43,11 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
     ...HEADER_SKINS.map((s) => ({ value: s.id, label: s.label })),
     ...themes.map((t) => ({ value: CUSTOM_PREFIX + t.id, label: `${t.name} (custom)` })),
   ];
-  const setFollow = (on) => saveUser({ ...userSt, themeFollowOS: on });
-  const setSlot = (key, val) => saveUser({ ...userSt, [key]: val });
+  // Updaters over the live user state (saveUserUpdaters.test.js): it carries the
+  // API keys, and a copy of the rendered one can lack a key that has reached
+  // App since, which the keychain mirror would then delete.
+  const setFollow = (on) => saveUser((prev) => ({ ...prev, themeFollowOS: on }));
+  const setSlot = (key, val) => saveUser((prev) => ({ ...prev, [key]: val }));
 
   const doImport = () => {
     const src = text.trim();
@@ -57,14 +60,18 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
       return;
     }
     // Importing applies the first theme; that's a manual pick, so drop OS sync.
-    saveUser({ ...userSt, customThemes: [...themes, ...parsed], themeFollowOS: false });
+    saveUser((prev) => ({
+      ...prev,
+      customThemes: [...(Array.isArray(prev?.customThemes) ? prev.customThemes : []), ...parsed],
+      themeFollowOS: false,
+    }));
     setText("");
     save({ ...st, headerSkin: CUSTOM_PREFIX + parsed[0].id });
     toast.success(parsed.length === 1 ? `Imported & applied “${parsed[0].name}”.` : `Imported ${parsed.length} themes.`);
   };
 
   const applyTheme = (id) => {
-    if (followOS) saveUser({ ...userSt, themeFollowOS: false });
+    if (followOS) saveUser((prev) => ({ ...prev, themeFollowOS: false }));
     save({ ...st, headerSkin: CUSTOM_PREFIX + id });
   };
 

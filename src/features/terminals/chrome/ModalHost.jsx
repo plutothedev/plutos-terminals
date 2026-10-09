@@ -340,7 +340,7 @@ function ModalHost({
 
       {!userSt?.terminalsOnboarded && (
         <OnboardingOverlay
-          onDismiss={() => saveUser({ ...userSt, terminalsOnboarded: true })}
+          onDismiss={() => saveUser((prev) => ({ ...prev, terminalsOnboarded: true }))}
         />
       )}
     </>

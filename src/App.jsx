@@ -17,6 +17,10 @@ import {
   getCachedSecretKeys,
   refreshSecretKeys,
   keychainAvailable,
+  keysInKeychain,
+  keysNotInKeychain,
+  keysReadFromKeychain,
+  showCachedSecretKeys,
 } from "./features/terminals/secretVault.js";
 import { ToastProvider, useToast } from "./components/Toast.jsx";
 import { ConfirmProvider } from "./components/ConfirmModal.jsx";
@@ -86,19 +90,69 @@ function readUserState() {
 // which is before any user action can fail a write.
 let toastSink = null;
 
-// Put the plaintext copy back after the keychain refused it. Re-reads the CURRENT
-// blob rather than rewriting `next` wholesale, so a newer non-secret write that
-// landed during the failed keychain round-trip survives. The restored copy is
-// stripped again by the next save that the keychain accepts.
+// Once a keychain write has settled, bring the plaintext keys in line with the
+// keychain: drop every copy of a key the keychain holds with that value
+// (keysInKeychain), whoever wrote it, and put back this window's keys the
+// keychain does not hold (keysNotInKeychain), for which this copy is the only
+// one. A copy of any other key stays: another window's refused key lands in
+// this blob too, and its copy is the only one there is (one key has one entry,
+// so for a key both windows hold, the last copy written wins). It used to put
+// back every key in `next` on a refusal, so one refused key copied all the
+// keychain's healthy keys into localStorage, and kept doing so on every save
+// while that key was refused. It runs after a save the keychain took as well:
+// an earlier save's refusal can put a copy back after this save stripped the
+// blob, and nothing else would take it out. Re-reads the CURRENT blob rather
+// than rewriting `next` wholesale, so a newer non-secret write that landed
+// during the keychain round-trip survives, and writes only when the keys
+// change, so a save that changes nothing here fires no storage event in the
+// other windows.
+//
+// Only a save of this window's runs it, never another window's storage event.
+// Putting a refused key's copy back the moment another window's save wiped it
+// would keep that key on disk if this window then closed, but every version of
+// that tried (fill, overwrite, tidy) let two windows rewrite the blob back and
+// forth, bring back a key removed in the other window, or leave a spare copy of
+// a key the keychain holds. Until the windows share a record of what was
+// removed, the copy waits for this window's next save.
 function restoreLocalSecrets(next) {
   try {
     const raw = localStorage.getItem(USER_STORAGE_KEY);
     const cur = raw ? JSON.parse(raw) : {};
-    for (const f of SECRET_FIELDS) if (next[f] !== undefined) cur[f] = next[f];
+    const plainKeys = cur.providerKeys && typeof cur.providerKeys === "object" ? { ...cur.providerKeys } : {};
+    let plainLegacy = typeof cur.anthropicKey === "string" ? cur.anthropicKey : "";
+    const held = keysInKeychain(plainKeys, plainLegacy);
+    for (const id of held.ids) delete plainKeys[id];
+    if (held.legacy) plainLegacy = "";
+    const { ids, legacy } = keysNotInKeychain(next.providerKeys, next.anthropicKey);
+    for (const id of ids) plainKeys[id] = next.providerKeys[id];
+    if (legacy) plainLegacy = next.anthropicKey;
+    const keep = {};
+    if (Object.keys(plainKeys).length) keep.providerKeys = plainKeys;
+    if (plainLegacy) keep.anthropicKey = plainLegacy;
+    if (SECRET_FIELDS.every((f) => JSON.stringify(cur[f]) === JSON.stringify(keep[f]))) return;
+    for (const f of SECRET_FIELDS) {
+      if (keep[f] === undefined) delete cur[f];
+      else cur[f] = keep[f];
+    }
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(cur));
   } catch (err) {
     console.warn("Pluto's Terminal: could not restore the local key copy", err);
   }
+}
+
+// A plain object handed to saveUser is a copy of the state some render saw,
+// and the user state carries the API keys: a key that reached App after that
+// render is missing from the copy, and the keychain mirror deletes a key
+// missing from a save. So such a save cannot change the keys; they come from
+// the live state. Keys change through an updater, saveUser((prev) => ...),
+// which every caller uses (saveUserUpdaters.test.js).
+function withLiveKeys(prev, next) {
+  const out = { ...next };
+  for (const f of SECRET_FIELDS) {
+    if (prev && f in prev) out[f] = prev[f];
+    else delete out[f];
+  }
+  return out;
 }
 
 function writeUserState(next) {
@@ -113,6 +167,19 @@ function writeUserState(next) {
     if (stripped) {
       safe = { ...next };
       for (const f of SECRET_FIELDS) delete safe[f];
+    } else {
+      // A keychain that could not be proven keeps the plaintext copy, since a
+      // write it "took" may be gone. Not of a key a read has returned from it,
+      // though: that one is there, and a copy here would only be a leak.
+      const seen = keysReadFromKeychain(next.providerKeys, next.anthropicKey);
+      if (seen.ids.length || seen.legacy) {
+        safe = { ...next };
+        if (seen.ids.length) {
+          safe.providerKeys = { ...next.providerKeys };
+          for (const id of seen.ids) delete safe.providerKeys[id];
+        }
+        if (seen.legacy) delete safe.anthropicKey;
+      }
     }
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(safe));
   } catch (err) {
@@ -126,6 +193,9 @@ function writeUserState(next) {
   // in place; it did not, and the key simply ceased to exist on the next launch.
   // Optional-chained so a test that stubs secretVault with a void saveSecretKeys
   // cannot turn a missing return value into a render-time throw.
+  //
+  // A save the keychain took: tidy any copy an earlier refusal left behind.
+  pending?.then?.(() => { if (stripped) restoreLocalSecrets(next); }, () => {});
   pending?.catch?.((err) => {
     console.warn("Pluto's Terminal: keychain key write failed", err);
     // Both the restore AND the warning belong inside the stripped branch. On a
@@ -397,7 +467,7 @@ function AppInner() {
   const userStRef = useRef(userSt);
   const saveUser = useCallback((next) => {
     const prev = userStRef.current;
-    const resolved = typeof next === "function" ? next(prev) : next;
+    const resolved = typeof next === "function" ? next(prev) : withLiveKeys(prev, next);
     // Stamp per-field write times (audit M10) so a cross-window storage event
     // can merge field-by-field instead of clobbering this window's edits.
     const stamped = stampFieldMeta(prev, resolved, Date.now());
@@ -450,20 +520,6 @@ function AppInner() {
     return startSync();
   }, [syncEnabled]);
 
-  // One-time migration: the legacy standalone Anthropic key now lives in the
-  // Models section as providerKeys.anthropic (single source of truth for keys).
-  // Copy it over so existing users see their key in the Models picker and the
-  // default-Claude injection keeps working.
-  useEffect(() => {
-    if (userSt.anthropicKey && !(userSt.providerKeys && userSt.providerKeys.anthropic)) {
-      saveUser({
-        ...userSt,
-        providerKeys: { ...(userSt.providerKeys || {}), anthropic: userSt.anthropicKey },
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // One-time migration (v0.4.3): OLED Black replaces refined-dark "moba" as the
   // default skin. Installs whose stored skin is unset or the old default flip to
   // "oled"; an explicit other choice (light, custom:<id>, legacy skins) is kept.
@@ -484,7 +540,19 @@ function AppInner() {
   // cache so spawn/AI paths still resolve them. Best-effort: if the keychain is
   // unavailable the keys simply stay in localStorage.
   useEffect(() => {
+    let failed = false;
     migrateAndLoad(userSt.providerKeys, userSt.anthropicKey)
+      // A load that failed (a key too big for the keychain, an index read that
+      // failed) still left the cache holding the keys every new shell gets, so
+      // App shows those: Models and the menu bar used to disagree with where
+      // shells were routed, and the user could neither see nor remove the
+      // keys. Shown, they count as held, so they can be removed.
+      .catch((err) => {
+        // The vault's error names provider ids only, never a key.
+        console.warn("Pluto's Terminal: the keychain load failed, showing the keys it holds", err);
+        failed = true;
+        return showCachedSecretKeys();
+      })
       .then((loaded) => {
         // Merge the keys the load returns (its own snapshot, not the shared
         // cache, which a save can change meanwhile) onto the LIVE state, not
@@ -499,9 +567,28 @@ function AppInner() {
         };
         userStRef.current = merged;
         setUserSt(merged);
-        writeUserState(merged); // keychainAvailable() now true → secrets pruned from localStorage
+        // Stripped only after a load that succeeded, whose own write confirmed
+        // the keychain holds the keys. After a failed one nothing is confirmed,
+        // and a strip now could take the only copy of a key with it if the
+        // keychain then hung; the next save retries the write instead, and
+        // keeps in plaintext exactly what the keychain still refuses.
+        if (!failed) writeUserState(merged); // keychainAvailable() now true → secrets pruned from localStorage
       })
-      .catch(() => { /* keychain unavailable — keep localStorage copy */ });
+      .catch((err) => console.warn("Pluto's Terminal: could not show the keychain's keys", err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // One-time migration: the legacy standalone Anthropic key now lives in the
+  // Models section as providerKeys.anthropic (single source of truth for keys).
+  // Copy it over so existing users see their key in the Models picker and the
+  // default-Claude injection keeps working.
+  useEffect(() => {
+    if (userSt.anthropicKey && !(userSt.providerKeys && userSt.providerKeys.anthropic)) {
+      saveUser((prev) => ({
+        ...prev,
+        providerKeys: { ...(prev.providerKeys || {}), anthropic: prev.anthropicKey },
+      }));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

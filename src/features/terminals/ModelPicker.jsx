@@ -61,9 +61,20 @@ function displayId(id) {
 
 export default function ModelPicker({ open, onClose, userSt, saveUser }) {
   const toast = useToast();
-  const [keys, setKeys] = useState({});
-  const [baseUrls, setBaseUrls] = useState({}); // providerId -> custom endpoint
-  const [active, setActive] = useState(null); // { providerId, model }
+  // What the user has typed here and not saved yet, per provider: a key (""
+  // when they cleared it) and an endpoint. Everything else on screen is the
+  // live user state. The picker used to copy the keys when it opened and save
+  // that copy on every blur, so a key that reached App while it was open (the
+  // first keychain read finishing, App's launch merge, another window's save)
+  // was missing from the save, and the keychain mirror deleted it.
+  const [keyEdits, setKeyEdits] = useState({});
+  const [baseEdits, setBaseEdits] = useState({});
+  const keys = { ...(userSt?.providerKeys || {}), ...keyEdits };
+  const baseUrls = { ...(userSt?.providerBaseUrls || {}), ...baseEdits }; // providerId -> custom endpoint
+  // The saved choice as it is, even one that cannot be used: writing a
+  // stand-in would erase the user's choice on this device and, through sync,
+  // on the others.
+  const active = userSt?.activeModel || null; // { providerId, model }
   const [expanded, setExpanded] = useState(null);
   const [custom, setCustom] = useState({}); // providerId -> typed model id
   const [filter, setFilter] = useState({}); // providerId -> filter text
@@ -74,15 +85,12 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
   // readModelCache below are read under this subscription).
   useModelCacheVersion();
 
-  // Hydrate from user-state each time the modal opens.
+  // Start clean each time the modal opens: unsaved typing from an earlier
+  // open is dropped, as it always was.
   useEffect(() => {
     if (!open) return;
-    setKeys({ ...(userSt?.providerKeys || {}) });
-    setBaseUrls({ ...(userSt?.providerBaseUrls || {}) });
-    // The saved choice as it is, even one that cannot be used: every save below
-    // writes `active` back, and writing a stand-in would erase the user's
-    // choice on this device and, through sync, on the others.
-    setActive(userSt?.activeModel || null);
+    setKeyEdits({});
+    setBaseEdits({});
     setExpanded(userSt?.activeModel?.providerId || PROVIDERS[0].id);
     setCustom({});
     setFilter({});
@@ -108,8 +116,24 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
     }
   }, [open, expanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const persist = (nextKeys, nextActive, nextBaseUrls = baseUrls) => {
-    saveUser({ ...userSt, providerKeys: nextKeys, activeModel: nextActive, providerBaseUrls: nextBaseUrls });
+  // Saves what the user changed here, and only that, onto the LIVE state: an
+  // updater, because App hands it its current state (userStRef), which can be
+  // ahead of what this dialog last rendered. `nextActive` is a new model
+  // choice, or undefined to leave the saved one alone. Once saved, an edit is
+  // App's state, so it is dropped here and a later change from elsewhere shows
+  // through instead of being written over by this dialog's older value.
+  const persist = (nextActive) => {
+    const k = keyEdits;
+    const b = baseEdits;
+    saveUser((prev) => {
+      const out = { ...prev };
+      if (Object.keys(k).length) out.providerKeys = { ...(prev?.providerKeys || {}), ...k };
+      if (Object.keys(b).length) out.providerBaseUrls = { ...(prev?.providerBaseUrls || {}), ...b };
+      if (nextActive !== undefined) out.activeModel = nextActive;
+      return out;
+    });
+    setKeyEdits({});
+    setBaseEdits({});
   };
 
   const chooseModel = (providerId, model) => {
@@ -136,20 +160,18 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
       toast.error(`That choice cannot be used: ${problem}.`);
       return;
     }
-    setActive(next);
-    persist(keys, next, baseUrls);
+    persist(next);
     toast.success(`Active model: ${m}. New shells route to ${p?.label || providerId}.`);
   };
 
   const resetDefault = () => {
-    setActive(null);
-    persist(keys, null, baseUrls);
+    persist(null);
     toast.success("Reverted to default (your Anthropic key / Claude).");
   };
 
-  const setKey = (providerId, value) => setKeys({ ...keys, [providerId]: value });
-  const setBaseUrl = (providerId, value) => setBaseUrls({ ...baseUrls, [providerId]: value });
-  const commitKeys = () => persist(keys, active, baseUrls); // save keys + endpoints on blur
+  const setKey = (providerId, value) => setKeyEdits((e) => ({ ...e, [providerId]: value }));
+  const setBaseUrl = (providerId, value) => setBaseEdits((e) => ({ ...e, [providerId]: value }));
+  const commitKeys = () => persist(undefined); // save keys + endpoints on blur
 
   // A new key (pasted or edited) loads that key's list as soon as the field is left.
   const onKeyBlur = (providerId) => {

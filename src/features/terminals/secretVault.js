@@ -69,6 +69,15 @@ let cache = { providerKeys: {}, anthropicKey: "" };
 // What we believe the KEYCHAIN holds: the baseline every delta is computed
 // against. Distinct from `cache`, which runs ahead of the keychain by design.
 let persisted = { providerKeys: {}, anthropicKey: "" };
+// Whether `persisted` has been set from a read of the keychain yet. Until it
+// has, it holds only what this window's own writes confirmed, so for any other
+// key it cannot tell whether another window changed it (see keepUnsaved).
+let baselineRead = false;
+// What the last read of the keychain returned, less any key a save has changed
+// since. Unlike `persisted`, a write does not add to it: on a keychain that
+// could not be proven to keep what it is given, a read that returned a key is
+// the only proof the key is there (keysReadFromKeychain).
+let readBack = { providerKeys: {}, anthropicKey: "" };
 let loaded = false;
 let keychainOk = false;
 let probePromise = null;
@@ -82,7 +91,8 @@ let pendingSaves = 0;
 // a save carries state that may not hold them: such a save may delete only a
 // key this window's state has held since the load began (launchHeld), never
 // one App has not merged yet (see saveSecretKeys). A load that fails leaves
-// the guard up for the session, since App then never merges.
+// the guard up for the session, since App then shows only what the cache
+// holds (showCachedSecretKeys), which need not be every key the keychain has.
 let launching = 0;
 // What this window's state has held since the launch load began: the keys it
 // started with (the plaintext ones App passed in) and every key a save of its
@@ -99,6 +109,76 @@ let launchDropped = { ids: new Set(), legacy: false };
 // load always does, so an install whose index an older build narrowed recovers
 // on the next launch rather than staying broken forever.
 let rebuiltOnce = false;
+// What the keychain held for a key ("" for nothing) when a write of this
+// window's for it last failed, as read just before that write. Until a read
+// answers for the key again, that is what this window last knew there
+// (lastKnown), newer than `persisted`.
+const lastTried = { providerKeys: new Map(), anthropicKey: undefined };
+// Whether the last read found no pre-v1 blob (v0). Until a read has, an entry
+// found empty may still have a value there, which every read merges in
+// (readAll), so an empty entry says nothing of what the keychain holds.
+let v0Gone = false;
+// Values this window holds unsaved that another window has since replaced or
+// removed in the keychain (see runOp). Never written, never given a plaintext
+// copy, and dropped at the next read that answers for the key: the newer
+// write stands, even if it is itself removed later.
+const overruled = { providerKeys: new Map(), anthropicKey: undefined };
+// The keys every read so far could not answer for (the entry's read threw).
+// Once a read has answered for a key, this window has seen it.
+let unobserved = { ids: new Set(), legacy: false };
+// The keys whose value this window's user typed (a save of this window's,
+// not the launch load's merge of a plaintext copy). Only asked of a key no
+// read has answered for (knows).
+const typedHere = { ids: new Set(), legacy: false };
+// The plaintext keys App's state held when the launch load began. A save made
+// during the load that carries one of them unchanged is App's state, not the
+// user's typing (typedHere).
+const launchPlain = { ids: new Map(), legacy: "" };
+
+// A record's entry for a provider id, or for the standalone key when `id` is
+// null; setting undefined clears it.
+function recorded(rec, id) {
+  return id === null ? rec.anthropicKey : rec.providerKeys.get(id);
+}
+function record(rec, id, value) {
+  if (id === null) rec.anthropicKey = value;
+  else if (value === undefined) rec.providerKeys.delete(id);
+  else rec.providerKeys.set(id, value);
+}
+function forget(id) {
+  record(lastTried, id, undefined);
+  record(overruled, id, undefined);
+}
+
+// What this window last knew the keychain held for a key: what its last
+// failed write of it found there, or else its baseline. undefined for a
+// provider it knows nothing of.
+function lastKnown(id) {
+  const tried = recorded(lastTried, id);
+  if (tried !== undefined) return tried;
+  return id === null ? persisted.anthropicKey : persisted.providerKeys[id];
+}
+
+// Whether this window has seen what the keychain holds for a key: a read
+// answered for it, or a write of its own landed there or looked first. Where
+// it has not, it knows nothing to compare with: what the keychain holds may
+// be an older copy it never saw, and its own value is the newer.
+function observed(id) {
+  if (recorded(lastTried, id) !== undefined) return true;
+  if (id === null) return persisted.anthropicKey !== "" || (baselineRead && !unobserved.legacy);
+  return persisted.providerKeys[id] !== undefined || (baselineRead && !unobserved.ids.has(id));
+}
+
+// Whether what the keychain holds for a key can overrule the value this
+// window holds for it: the window has seen the key (observed), or its value
+// is a plaintext copy the launch load merged in rather than one its user
+// typed here, which gives way to the keychain as the launch merge itself
+// does. Only a value typed here, for a key never seen, stays over what this
+// window cannot place in time.
+function knows(id) {
+  if (observed(id)) return true;
+  return baselineRead && !(id === null ? typedHere.legacy : typedHere.ids.has(id));
+}
 
 function normalize(obj) {
   const src = obj && typeof obj.providerKeys === "object" && obj.providerKeys ? obj.providerKeys : {};
@@ -164,8 +244,8 @@ function probeKeychain() {
   probePromise = (async () => {
     try {
       await invoke("secret_set", { account, secret: sentinel });
-      const readBack = await invoke("secret_get", { account });
-      keychainOk = readBack === sentinel;
+      const echo = await invoke("secret_get", { account });
+      keychainOk = echo === sentinel;
     } catch {
       keychainOk = false; // keychain locked, missing, or erroring: keep the local copy
     }
@@ -294,15 +374,19 @@ async function repairIndex(idx, found) {
 
 /** Read the per-provider entries named by the index. One unreadable entry is
  *  skipped rather than failing the whole load: a locked or missing entry must
- *  cost the user that one provider, not all of them. A skipped provider is also
- *  absent from `persisted`, so a later save can never mistake it for a delete. */
+ *  cost the user that one provider, not all of them. An entry that could not be
+ *  read is not one that is absent, so the ones whose read threw are named
+ *  (`unanswered`, and `legacyUnanswered` for the standalone key): a refresh
+ *  keeps what this window knew of them (reloadOnce), and readAll does not take
+ *  the keychain for empty. */
 async function readV1(ids) {
-  const out = { providerKeys: {}, anthropicKey: "" };
+  const out = { providerKeys: {}, anthropicKey: "", unanswered: [], legacyUnanswered: false };
   const got = await Promise.all(
     ids.map(async (id) => {
       try {
         return [id, await invoke("secret_get", { account: providerAccount(id) })];
       } catch {
+        out.unanswered.push(id);
         return [id, null];
       }
     }),
@@ -312,17 +396,23 @@ async function readV1(ids) {
     const legacy = await invoke("secret_get", { account: LEGACY_ACCOUNT });
     if (typeof legacy === "string") out.anthropicKey = legacy;
   } catch {
-    /* one unreadable entry, not a failed load */
+    out.legacyUnanswered = true; // one unreadable entry, not a failed load
   }
   return out;
 }
 
 /** Read the pre-v1 blob. Kept for one release: a migration that was interrupted
  *  (or whose readback did not verify) leaves v0 in place on purpose, and the
- *  next launch has to find it. */
+ *  next launch has to find it. null when there is none (or none that parses),
+ *  undefined when the read itself failed. */
 async function readV0() {
+  let raw;
   try {
-    const raw = await invoke("secret_get", { account: V0_ACCOUNT });
+    raw = await invoke("secret_get", { account: V0_ACCOUNT });
+  } catch {
+    return undefined;
+  }
+  try {
     return raw ? normalize(JSON.parse(raw)) : null;
   } catch {
     return null;
@@ -401,21 +491,35 @@ async function readAll() {
   const found = Object.keys(fromV1.providerKeys);
 
   const legacy = await readV0();
+  v0Gone = legacy === null;
   if (legacy) {
     // v1 is the newer store, so it wins per key; v0 fills the gaps left by an
     // interrupted split. Then re-run the split so v0 finally goes away (which
     // rewrites the index itself, so no repair pass is needed here).
-    return splitToV1({
+    const split = await splitToV1({
       providerKeys: { ...legacy.providerKeys, ...fromV1.providerKeys },
       anthropicKey: fromV1.anthropicKey || legacy.anthropicKey || "",
     });
+    // The merge no longer says which entries could not be read: name them,
+    // or this read would count as having seen them (reloadOnce).
+    return { ...split, unobservedIds: fromV1.unanswered, unobservedLegacy: fromV1.legacyUnanswered };
   }
   await repairIndex(idx, found);
   // "Something is stored" is now a question about the ENTRIES, not the index: a
   // readable index says yes even when empty, and entries found without one say
-  // yes as well. Anything else is "nothing readable", and the caller leaves the
-  // cache alone rather than showing the user an empty key list.
-  return idx.state === "ok" || found.length || fromV1.anthropicKey ? fromV1 : null;
+  // yes as well. So does a keychain that answered every read with nothing: no
+  // index, no entry, no v0, and no read that failed. That is a fresh install,
+  // and an empty set is the truth about it, which this window needs as its
+  // baseline (keepUnsaved), whether or not the self-test passed (a keychain
+  // that keeps nothing holds nothing). Not once this window knows of a key
+  // there (a read returned it, or a write of its own landed), though: an empty
+  // answer then contradicts it, and the cache keeps what it has, as it always
+  // did. Anything else is "nothing readable", and the caller leaves the cache
+  // alone rather than showing the user an empty key list.
+  const holdsLanded = Object.keys(persisted.providerKeys).length > 0 || persisted.anthropicKey !== "";
+  const provenEmpty = !holdsLanded && idx.state === "absent"
+    && !fromV1.unanswered.length && !fromV1.legacyUnanswered && legacy === null;
+  return idx.state === "ok" || found.length || fromV1.anthropicKey || provenEmpty ? fromV1 : null;
 }
 
 /** Take a provider (or the legacy key) out of a v0 blob that is still on disk.
@@ -466,6 +570,56 @@ async function pruneV0(removedIds, dropLegacy) {
   }
 }
 
+/** What a read leaves in the cache: the keychain's keys, except where this
+ *  window holds a value the keychain refused or never got (a write that
+ *  failed), which the read cannot have. Dropping that value is how a refused
+ *  key used to vanish: off the screen at the next refresh, out of every new
+ *  shell, and out of plaintext at the next save, with nothing left to put it
+ *  back.
+ *
+ *  Another window's write still wins: when this window has seen what the
+ *  keychain held for that key (observed: a read answered for it, a write of
+ *  its own landed, or a write of its own that failed looked first) and the
+ *  keychain now holds something else, someone else has written it since.
+ *  Where it has not (no read has answered for that key, and it never saved
+ *  it), its own unsaved value stays: the user typed it after the keychain's
+ *  copy was written. A value already overruled (see runOp) goes whatever the
+ *  read holds. A delete that failed is not kept: the key is still in the
+ *  keychain, and showing it again is the truth.
+ *
+ *  The cost, which this cannot avoid without a record of removals shared by
+ *  the windows: a key the keychain refused, held unsaved by two windows and
+ *  removed in one, stays in the other, which keeps showing it and putting its
+ *  plaintext copy back. Dropping it at every refresh instead lost a refused
+ *  key whenever any other window saved anything, which is the commoner case. */
+function keepUnsaved(read) {
+  const next = { providerKeys: { ...read.providerKeys }, anthropicKey: read.anthropicKey };
+  // A saved value needs no case of its own: it is known, and the read either
+  // still holds it or holds another window's newer write, which wins.
+  for (const [id, value] of Object.entries(cache.providerKeys)) {
+    if (overruled.providerKeys.get(id) === value) continue;
+    if (knows(id) && (read.providerKeys[id] || "") !== (lastKnown(id) || "")) continue; // another window has written it since
+    next.providerKeys[id] = value;
+  }
+  if (cache.anthropicKey && overruled.anthropicKey !== cache.anthropicKey
+    && (!knows(null) || read.anthropicKey === lastKnown(null))) next.anthropicKey = cache.anthropicKey;
+  return next;
+}
+
+/** Puts back in `after`, for the entries a read could not read (readV1: their
+ *  read threw), what this window knew of them before the read (`before`). An
+ *  unread entry is not an absent one; taken as absent, a saved key left the
+ *  screen and every new shell, as if another window had removed it, until
+ *  some later read happened to answer for it. (`after` never holds an unread
+ *  entry of its own: the read skipped it.) */
+function keepUnread(got, before, after) {
+  for (const id of got.unanswered || []) {
+    if (before.providerKeys[id] !== undefined) after.providerKeys[id] = before.providerKeys[id];
+  }
+  if (got.legacyUnanswered) after.anthropicKey = before.anthropicKey;
+  return after;
+}
+
 /** One reconciliation pass. Returns false when it declined to reconcile because
  *  a save was in flight, so the caller can try again once the queue drains. */
 async function reloadOnce() {
@@ -495,11 +649,28 @@ async function reloadOnce() {
         // So reconcile after the queue drains instead — see reload.
         return false;
       }
-      cache = normalize(got);
+      const read = normalize(got);
+      cache = keepUnread(got, cache, keepUnsaved(read));
       // Only from what was actually READ. Baselining off the cache instead
       // recorded a FAILED write as persisted (cache runs ahead of the keychain
       // by design), and the retry the next save owed the user never happened.
-      persisted = snapshot(cache);
+      persisted = keepUnread(got, persisted, snapshot(read));
+      readBack = keepUnread(got, readBack, snapshot(read));
+      const wasRead = baselineRead;
+      baselineRead = true;
+      // What this read answered is what this window knows of those keys now,
+      // so what an earlier failed write recorded of them is spent. A key an
+      // earlier read answered for stays seen.
+      const unread = new Set(got.unobservedIds || got.unanswered || []);
+      const legacyUnread = !!(got.unobservedLegacy ?? got.legacyUnanswered);
+      unobserved = {
+        ids: new Set([...unread].filter((id) => !wasRead || unobserved.ids.has(id))),
+        legacy: legacyUnread && (!wasRead || unobserved.legacy),
+      };
+      for (const rec of [lastTried, overruled]) {
+        for (const id of [...rec.providerKeys.keys()]) if (!unread.has(id)) rec.providerKeys.delete(id);
+        if (!legacyUnread) rec.anthropicKey = undefined;
+      }
     }
   } catch {
     /* keychain unavailable — leave cache + keychainOk as-is */
@@ -539,6 +710,20 @@ export function loadSecretKeys() {
   return reload();
 }
 
+// While the launch guard is up, keys App puts on screen count as held: the
+// user can see them, so a save without one of them is a removal.
+function markShown(keys) {
+  if (launching <= 0) return;
+  for (const id of Object.keys(keys.providerKeys)) {
+    launchHeld.ids.add(id);
+    launchDropped.ids.delete(id);
+  }
+  if (keys.anthropicKey) {
+    launchHeld.legacy = true;
+    launchDropped.legacy = false;
+  }
+}
+
 /** Re-read the keychain because ANOTHER WINDOW changed it. The cross-window
  *  storage handler used to overlay its own module cache, which is exactly the
  *  copy that is stale in that moment: window B would keep showing (and then
@@ -546,19 +731,64 @@ export function loadSecretKeys() {
  *  caller must not block a DOM event handler on a keychain round-trip. */
 export async function refreshSecretKeys() {
   const keys = await reload();
-  // App's storage handler puts what a refresh read on screen, so while the
-  // launch guard is up those keys count as held: the user can remove them.
-  if (launching > 0) {
-    for (const id of Object.keys(cache.providerKeys)) {
-      launchHeld.ids.add(id);
-      launchDropped.ids.delete(id);
-    }
-    if (cache.anthropicKey) {
-      launchHeld.legacy = true;
-      launchDropped.legacy = false;
-    }
-  }
+  // App's storage handler puts what a refresh read on screen.
+  markShown(cache);
   return keys;
+}
+
+/** A copy of the cache, for App to show when the launch load failed. Every
+ *  new shell already gets these keys (readUserSt overlays the cache), so
+ *  Models and the menu bar have to show the same ones, or the user is routed
+ *  with keys they can neither see nor remove. The guard stays up after a
+ *  failed load, and these keys count as held under it, so they can be removed. */
+export function showCachedSecretKeys() {
+  markShown(cache);
+  return { providerKeys: { ...cache.providerKeys }, anthropicKey: cache.anthropicKey };
+}
+
+/** Which of these keys the keychain does not hold, as far as this window
+ *  knows: a write it refused (Windows Credential Manager caps a credential at
+ *  2560 bytes) or never got to (an index it could not read). For those, a
+ *  plaintext copy is the only copy there is; for every other key it is a leak.
+ *  A key counts only while this window still holds it with that value, so one
+ *  a later save removed or replaced is not brought back, and not once another
+ *  window's newer write has overruled it (see runOp). Ids only: the caller
+ *  has the values. */
+export function keysNotInKeychain(providerKeys, anthropicKey) {
+  const want = normalize({ providerKeys, anthropicKey });
+  const ids = Object.keys(want.providerKeys).filter(
+    (id) => persisted.providerKeys[id] !== want.providerKeys[id] && cache.providerKeys[id] === want.providerKeys[id]
+      && overruled.providerKeys.get(id) !== want.providerKeys[id],
+  );
+  const legacy = want.anthropicKey !== ""
+    && persisted.anthropicKey !== want.anthropicKey
+    && cache.anthropicKey === want.anthropicKey
+    && overruled.anthropicKey !== want.anthropicKey;
+  return { ids, legacy };
+}
+
+/** Which of these keys the keychain holds with exactly this value, as far as
+ *  this window knows (its reads, and its own writes that landed): a plaintext
+ *  copy of one of them is a leak, whoever wrote it. Ids only. */
+export function keysInKeychain(providerKeys, anthropicKey) {
+  const have = normalize({ providerKeys, anthropicKey });
+  return {
+    ids: Object.keys(have.providerKeys).filter((id) => persisted.providerKeys[id] === have.providerKeys[id]),
+    legacy: have.anthropicKey !== "" && persisted.anthropicKey === have.anthropicKey,
+  };
+}
+
+/** Which of these keys the last read of the keychain returned with exactly
+ *  this value. A write that "succeeded" does not count: a keychain that could
+ *  not be proven to keep what it is given (keychainAvailable() false) may have
+ *  kept nothing, and only a read that returned the key shows it is there.
+ *  Ids only. */
+export function keysReadFromKeychain(providerKeys, anthropicKey) {
+  const have = normalize({ providerKeys, anthropicKey });
+  return {
+    ids: Object.keys(have.providerKeys).filter((id) => readBack.providerKeys[id] === have.providerKeys[id]),
+    legacy: have.anthropicKey !== "" && readBack.anthropicKey === have.anthropicKey,
+  };
 }
 
 // ---------------------------------------------------------------- writes
@@ -567,8 +797,10 @@ export async function refreshSecretKeys() {
  *  changed, which is the whole point: an unrelated user-state save must not
  *  touch the keychain at all. `deletable` is a launch-time save's limit (see
  *  saveSecretKeys): the ids it may delete, and whether it may delete the
- *  standalone key; null means anything. */
-function diffOps(base, next, deletable = null) {
+ *  standalone key; null means anything. `typed` names the keys the save
+ *  changed; any other value it writes is `carried`, held over from a write
+ *  that failed (see runOp), and an overruled one is not written at all. */
+function diffOps(base, next, deletable, typed) {
   const ops = [];
   const ids = new Set([...Object.keys(base.providerKeys), ...Object.keys(next.providerKeys)]);
   for (const id of ids) {
@@ -581,11 +813,15 @@ function diffOps(base, next, deletable = null) {
     if (after === undefined) {
       if (!deletable || deletable.ids.has(id)) ops.push({ kind: "delete", id });
     }
-    else ops.push({ kind: "set", id, value: after });
+    else if (typed.ids.has(id)) ops.push({ kind: "set", id, value: after, carried: false });
+    else if (overruled.providerKeys.get(id) !== after) ops.push({ kind: "set", id, value: after, carried: true });
   }
   if (base.anthropicKey !== next.anthropicKey) {
-    if (next.anthropicKey) ops.push({ kind: "legacy-set", value: next.anthropicKey });
-    else if (!deletable || deletable.legacy) ops.push({ kind: "legacy-delete" });
+    if (!next.anthropicKey) {
+      if (!deletable || deletable.legacy) ops.push({ kind: "legacy-delete" });
+    }
+    else if (typed.legacy) ops.push({ kind: "legacy-set", value: next.anthropicKey, carried: false });
+    else if (overruled.anthropicKey !== next.anthropicKey) ops.push({ kind: "legacy-set", value: next.anthropicKey, carried: true });
   }
   return ops;
 }
@@ -593,32 +829,65 @@ function diffOps(base, next, deletable = null) {
 async function runOp(op) {
   if (op.kind === "set" || op.kind === "legacy-set") {
     const account = op.kind === "set" ? providerAccount(op.id) : LEGACY_ACCOUNT;
+    const id = op.kind === "set" ? op.id : null;
+    // A value the user just typed is their newest, whatever an older one ran into.
+    if (!op.carried) record(overruled, id, undefined);
     // Reconcile per provider before writing. Another window may already have
     // written this exact value, in which case the write is pure risk (it can
     // fail, and a failure is surfaced to the user) for no change.
     let current;
+    let seen; // what the keychain holds ("" for nothing); undefined when the read cannot tell
     try {
       current = await invoke("secret_get", { account });
+      seen = typeof current === "string" && current !== "" ? current : v0Gone ? "" : undefined;
     } catch {
       current = undefined; // unreadable: fall through and write
     }
-    if (current === op.value) return;
-    await invoke("secret_set", { account, secret: op.value });
+    if (current === op.value) {
+      forget(id);
+      return;
+    }
+    // A carried value goes in only over what this window last knew was there.
+    // Anything else was written since, by another window, which may never have
+    // told this one (a save of keys alone fires no storage event): it is the
+    // newer, and this value is overruled. It used to go in over it at the next
+    // save of anything at all. Where the read cannot tell, or the value was
+    // typed here for a key this window has never seen (knows), the write goes
+    // ahead, as it always did.
+    if (op.carried && seen !== undefined && knows(id) && seen !== (lastKnown(id) || "")) {
+      record(overruled, id, op.value);
+      record(lastTried, id, seen); // what the keychain holds now: a value typed after this compares with it
+      return "overruled";
+    }
+    try {
+      await invoke("secret_set", { account, secret: op.value });
+    } catch (err) {
+      // A read that could not tell leaves what an earlier failure saw.
+      if (seen !== undefined) record(lastTried, id, seen);
+      throw err;
+    }
+    forget(id);
     return;
   }
   const account = op.kind === "delete" ? providerAccount(op.id) : LEGACY_ACCOUNT;
+  const id = op.kind === "delete" ? op.id : null;
   // Another window may have deleted this entry already. A delete that finds
   // nothing there has achieved exactly what it was asked to do, and reporting it
   // as a failed write would put the plaintext copy back and tell the user their
   // key could not be saved. Only a READ that succeeds and returns nothing counts
-  // as absent; an unreadable entry falls through to the delete.
+  // as absent; an unreadable entry falls through to the delete. Either way the
+  // key is gone, so what an earlier failed write saw there no longer holds.
   try {
     const current = await invoke("secret_get", { account });
-    if (current === null || current === undefined || current === "") return;
+    if (current === null || current === undefined || current === "") {
+      forget(id);
+      return;
+    }
   } catch {
     /* unreadable: attempt the delete anyway */
   }
   await invoke("secret_delete", { account });
+  forget(id);
 }
 
 function applyOpToBaseline(op) {
@@ -668,6 +937,7 @@ async function applyOps(ops) {
       failed.push(op.kind === "set" || op.kind === "delete" ? op.id : "anthropic");
       return;
     }
+    if (r.value === "overruled") return; // not written, and not a failure: the newer write stands
     applyOpToBaseline(op);
     if (op.kind === "set") added.add(op.id);
     else if (op.kind === "delete") removed.add(op.id);
@@ -749,6 +1019,35 @@ function saveKeys(next, deletable) {
     }
     if (!next.anthropicKey && !deletable.legacy && cache.anthropicKey) next.anthropicKey = cache.anthropicKey;
   }
+  // A key this save changes or removes is no longer what the last read saw, so
+  // that read stops vouching for it (keysReadFromKeychain) until another read
+  // does. Here, when the save is made, because App decides the plaintext copy
+  // in the same tick: a key removed and pasted straight back still counted as
+  // read, so on a keychain that could not be proven its copy was left out, and
+  // when the keychain refused the paste the key was in memory only. The cost
+  // runs the safe way: a key changed and then changed back to the value the
+  // read saw keeps a plaintext copy until the next read, as every key there
+  // did before reads could vouch for any. Such a key is also the one the
+  // user typed (`typed`); any other value this save writes is carried over
+  // from a write that failed (see runOp). A save made while the launch load
+  // runs (its own merge included) that carries a plaintext key App started
+  // with changes keys too, but its user typed none of them here (`typedHere`,
+  // see knows).
+  const typed = { ids: new Set(), legacy: false };
+  for (const id of new Set([...Object.keys(cache.providerKeys), ...Object.keys(next.providerKeys)])) {
+    if (cache.providerKeys[id] === next.providerKeys[id]) continue;
+    delete readBack.providerKeys[id];
+    typed.ids.add(id);
+    if (next.providerKeys[id] === undefined
+      || (deletable && launchPlain.ids.get(id) === next.providerKeys[id])) typedHere.ids.delete(id);
+    else typedHere.ids.add(id);
+  }
+  if (cache.anthropicKey !== next.anthropicKey) {
+    readBack.anthropicKey = "";
+    typed.legacy = true;
+    typedHere.legacy = next.anthropicKey !== ""
+      && !(deletable && launchPlain.legacy === next.anthropicKey);
+  }
   cache = next;
   // Covers the path where a save lands before any load: until the readback
   // proves persistence, keychainAvailable() stays false and the caller keeps its
@@ -762,7 +1061,7 @@ function saveKeys(next, deletable) {
   pendingSaves += 1;
   return queue(async () => {
     try {
-      const ops = diffOps(persisted, next, deletable);
+      const ops = diffOps(persisted, next, deletable, typed);
       if (!ops.length) return; // nothing changed: do not touch the keychain
       await applyOps(ops);
     } finally {
@@ -780,8 +1079,16 @@ export async function migrateAndLoad(legacyProviderKeys, legacyAnthropicKey) {
     launchHeld = { ids: new Set(), legacy: false };
     launchDropped = { ids: new Set(), legacy: false };
   }
-  for (const id of Object.keys(atMount.providerKeys)) launchHeld.ids.add(id);
-  if (atMount.anthropicKey) launchHeld.legacy = true;
+  for (const id of Object.keys(atMount.providerKeys)) {
+    launchHeld.ids.add(id);
+    if (!launchPlain.ids.has(id)) launchPlain.ids.set(id, atMount.providerKeys[id]);
+  }
+  if (atMount.anthropicKey) {
+    launchHeld.legacy = true;
+    if (!launchPlain.legacy) launchPlain.legacy = atMount.anthropicKey;
+    // App's mount effect copies the standalone key into providerKeys.anthropic.
+    if (atMount.providerKeys.anthropic === undefined && !launchPlain.ids.has("anthropic")) launchPlain.ids.set("anthropic", atMount.anthropicKey);
+  }
   launching += 1;
   // No finally: a load that fails leaves the guard up (see `launching`).
   const result = await launchLoad(legacyProviderKeys, legacyAnthropicKey);
