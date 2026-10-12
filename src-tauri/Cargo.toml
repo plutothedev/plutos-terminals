@@ -122,6 +122,12 @@ tauri-plugin-window-state = "2.4.1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
+# Windows toasts for commands::notify, through the WinRT toast API (the same
+# crate tauri-plugin-notification uses on Windows). Windows only: macOS keeps
+# osascript and Linux notify-send, and nothing is exposed to the webview.
+[target.'cfg(windows)'.dependencies]
+tauri-winrt-notification = "0.8"
+
 [dev-dependencies]
 tempfile = "3"
 # A paused clock for tests (#[tokio::test(start_paused = true)]).

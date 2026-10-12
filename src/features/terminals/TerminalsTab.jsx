@@ -64,7 +64,7 @@ import { nextTabId, tabIdAt } from "./tabNav.js";
 import { reconcile, getEntry } from "./paneRegistry.js";
 import { allRenderedPaneIds, isSpecialTab } from "./paneIds.js";
 import { trickleTick } from "./trickle.js";
-import { setProjectIndex, pruneActivities } from "./activityStore.js";
+import { setProjectIndex, pruneActivities, getPaneActivity, subscribeActivities } from "./activityStore.js";
 import { sshAccount } from "./sshAccount.js";
 import { humanizeError } from "./errorText.js";
 
@@ -452,6 +452,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell, addNotebookTab,
     closeTab, closeTabs, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio, equalizePanes, moveTabIntoSplit,
+    setPaneAgentSession,
   } = useWorkspaceTree({ state, persist, toast });
 
   // Closing/detaching a tab unmounts any open remote-file editor (a floating
@@ -654,8 +655,32 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     // (?w=) windows have their own per-window layout; if they pushed too, the two
     // would race on the single shared CompanionState and the phone would flap
     // between / write to the wrong window's terminals (matches the listener gates).
-    if (!isPrimaryWindow()) return;
-    invoke("companion_set_sessions", { sessions: sessionListJson }).catch(() => {});
+    if (!isPrimaryWindow()) return undefined;
+    // Each entry carries its pane's shown status (idle, active, waiting, done:
+    // only those words), so a phone that connects to a session already
+    // waiting on you shows it. Re-sent when a status changes, from the store
+    // directly rather than through React state, so the app does not re-render.
+    // A program can flip a pane's status on every chunk of output; the phone
+    // needs the latest, not every flip, so changes go at most every 250 ms.
+    let last = null;
+    let timer = null;
+    const push = () => {
+      timer = null;
+      let list = [];
+      try { list = JSON.parse(sessionListJson); } catch { /* the memo builds valid JSON */ }
+      const json = JSON.stringify(list.map((s) => ({ ...s, status: getPaneActivity(s.tabId) })));
+      if (json === last) return;
+      last = json;
+      invoke("companion_set_sessions", { sessions: json }).catch(() => {});
+    };
+    push();
+    const unsubscribe = subscribeActivities(() => {
+      if (timer === null) timer = setTimeout(push, 250);
+    });
+    return () => {
+      unsubscribe();
+      if (timer !== null) clearTimeout(timer);
+    };
   }, [sessionListJson]);
 
   // Phone companion: publish the snippet set. Read-only on the phone — it inserts
@@ -1224,7 +1249,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
                 // focused pane or the summary opens empty on any split tab.
                 onSummarize={(tabId) => {
                   const owner = state.panels.flatMap((p) => p.tabs || []).find((t) => t.id === tabId);
-                  setSummary({ text: getTabText(resolveActivePaneId(owner)) });
+                  { const src = resolveActivePaneId(owner); setSummary({ text: getTabText(src), sourceId: src }); }
                 }}
               />
             )}
@@ -1283,6 +1308,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onMoveTab={moveTab}
               onReorderTab={reorderTab}
               onSplitPane={splitPane}
+              onPaneAgentSession={setPaneAgentSession}
               onClosePane={closePane}
               onActivatePane={activatePane}
               onSetPaneRatio={setPaneRatio}

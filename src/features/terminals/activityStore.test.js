@@ -77,3 +77,18 @@ function storeMapSnapshot() {
 function storeRollups() {
   return store.__testGetRollups();
 }
+
+describe("program detail", () => {
+  it("drops a closed pane's program detail with its activity", async () => {
+    const store = await import("./activityStore.js");
+    store.__resetActivityStore();
+    store.setPaneDetail("paneA", { state: "blocked", kind: "permission", app: "claude-code", msg: "Edit?" });
+    store.setPaneDetail("paneB", { state: "working" });
+    expect(store.getPaneDetail("paneA")).toEqual({ state: "blocked", kind: "permission", app: "claude-code", msg: "Edit?" });
+    store.pruneActivities(new Set(["paneB"]));
+    expect(store.getPaneDetail("paneA")).toBeNull();
+    expect(store.getPaneDetail("paneB")).toEqual({ state: "working", kind: undefined, app: undefined, msg: undefined });
+    store.setPaneDetail("paneB", null);
+    expect(store.__testGetDetails()).toEqual({});
+  });
+});

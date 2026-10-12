@@ -2,7 +2,48 @@
 
 ## Unreleased
 
+### Added
+- **Agents report their own status.** A program can now tell the terminal
+  whether it is working, waiting on you, done or failed, and why, through the
+  Program Status Protocol (OSC 7501). Claude Code 2.1.295 and later does
+  this on its own, with nothing to set up, in local and SSH panes alike, and
+  whether you start it from a saved session or type `claude` yourself. The
+  Fleet panel, the Monitor, tab dots, panel borders and the home screen show
+  "needs you" with the agent's own words ("claude-code: Edit 3 files?"), and
+  "failed" when a run ends in an error. Claude's permission dialog still shows
+  "needs you" in older versions, as before.
+- **Claude Code conversations come back after a restart.** A pane that
+  starts `claude` from a saved session's start commands resumes the same
+  conversation when the app restarts, instead of starting a new one under the
+  old scrollback. Nothing is sent to Claude on resume: the session's system
+  prompt is not typed again, and auto-approve waits in that pane until you
+  type there. A duplicated, detached or loaded tab starts a fresh
+  conversation.
+- **Hand a session summary to another agent.** "Summarize session" can now
+  paste the summary into another pane where an agent is running, as a
+  prepared prompt: you see exactly what will be pasted, with secrets masked,
+  and nothing is sent until you press Enter there. A pane waiting on an
+  answer is skipped. Unless the pane is a local one where your shell reports
+  `claude` running, you first tick that the agent there is still running:
+  the app cannot see an agent quit on another machine, or behind an ssh or
+  container session started in the pane.
+- **"Needs you" reaches you.** When an agent waits on you while you are
+  elsewhere, you get a desktop notification (now on Windows too), and a push
+  on your phone if the companion is set up with notifications. Notices name
+  the tab, are paced so a busy agent cannot flood you, and a push never
+  carries an agent's message.
+
 ### Fixed
+- **A crafted notification title could run commands on macOS.** The
+  desktop notification was built as an AppleScript from its text with only
+  double quotes escaped. The text is now passed to the script as data.
+- **Under broadcast typing, a program's query could type into other panes.**
+  The terminal's own answers to a program (device, cursor, color and mode
+  reports) were treated as your typing, so with broadcast on they reached
+  every pane in the group as keystrokes. So did mouse reports, once a
+  full-screen program in one pane turned mouse tracking on. Both now go only
+  to their own pane. The phone companion no longer answers those queries as
+  well as the desktop.
 - **The settings-sync address is checked before any credentials are sent to
   it.** A sync repository set to a plain `http://` address outside your own
   machine or local network would have carried your Git access token, or a

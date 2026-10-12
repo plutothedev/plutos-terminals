@@ -1,7 +1,12 @@
 import { memo, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { listen } from "@backend";
-import { setPaneActivity } from "./activityStore.js";
+import { setPaneActivity, setPaneDetail } from "./activityStore.js";
+import { createPaneAgent } from "./paneAgent.js";
+import { inputKind, watchUserInput } from "./userInput.js";
+import { createQuietTracker } from "./quietTracker.js";
+import { createWriteQueue } from "./ptyWriteQueue.js";
+import { isSessionId, planAgentLaunch } from "./agentLaunch.js";
 import { stripAnsi, detectPendingPrompt } from "./promptDetect.js";
 import { buildScanWindow, evictScanChunks, reconcileCost, resolveModel } from "./costScan.js";
 import { blendedRatePerM } from "./modelRates.js";
@@ -213,6 +218,15 @@ const MIN_ROWS = 10;
 const ACTIVITY_BYTE_THRESHOLD = 500;
 const DONE_TIMEOUT_MS = 5000;
 
+const ESC = String.fromCharCode(27);
+const nowMs = () => Date.now();
+// The tab's label on a registry entry (see paneName in TerminalPane).
+function setPaneLabel(entry, label) {
+  if (entry) entry.paneLabel = label || null;
+}
+// Focus reports xterm sends when the pane gains or loses focus: not typing.
+const FOCUS_REPORTS = [ESC + "[I", ESC + "[O"];
+
 // Scrollback persistence: keep the last ~100KB of PTY output in memory for
 // agent capture / cost scans. Disk persistence is owned by the Rust reader
 // thread (two ~5MB rotation segments); restore replays the last ~256KB tail
@@ -366,6 +380,9 @@ function TerminalPane({
   serial,
   startCommands,
   systemPrompt,
+  agentSession = null, // { cli: "claude", id } the pane's conversation (agentLaunch.js)
+  onAgentSession = null, // (session) => void, keeps it on the workspace tree
+  paneLabel = null, // the tab's label, so a notification names the pane
   xtermTheme,
   tabId,
   projectName,
@@ -437,7 +454,6 @@ function TerminalPane({
   onCostRef.current = onCostUpdate;
   const autoApproveRef = useRef(autoApprove);
   autoApproveRef.current = autoApprove;
-  const lastNotifyAtRef = useRef(0);
 
   // "Away" = this tab isn't the one you're looking at, or the app window isn't
   // focused. Used to gate OS notifications + the done audio cue. Visibility is
@@ -452,8 +468,10 @@ function TerminalPane({
       (typeof document !== "undefined" && document.hasFocus && !document.hasFocus())
     );
   };
-  const notifyOS = (title, body) => {
-    invoke("notify", { title, body }).catch(() => {});
+  // `urgent` (needs you) draws on its own budget in Rust (commands.rs
+  // notify), so finished notices can never crowd it out.
+  const notifyOS = (title, body, urgent = false) => {
+    invoke("notify", { title, body, urgent }).catch(() => {});
   };
   const tabIdRef = useRef(tabId);
   tabIdRef.current = tabId;
@@ -514,39 +532,85 @@ function TerminalPane({
   const costRafRef = useRef(0);
   const stickyRafRef = useRef(0);
 
+  // ── Activity: the heuristics, a program's own report, and what is shown ──
+  // setActivity drives the heuristic machine exactly as before (bytes, the
+  // done timer, the prompt detector). What the app SHOWS, what it answers to
+  // an OSC 7501 probe, and when it notifies are the pane's agent
+  // (paneAgent.js), one per registry entry so every mount's closures share it.
   const setActivity = (next) => {
     if (activityRef.current === next) return;
-    const prev = activityRef.current;
     activityRef.current = next;
-    // Straight into the module-level activity store (P2-T1). The store is
-    // fiber-agnostic, which retires the entry.ui.onActivity indirection this
-    // line used to need for moved panes — and only THIS pane's subscribers
-    // re-render instead of the whole app.
-    try { setPaneActivity(tabIdRef.current, next); } catch {}
-    // v0.1.25: audio cue when an agent transitions from working to done.
-    // Soft Web-Audio-generated tone — no asset to bundle. Only fires when
-    // the tab is NOT currently visible (you don't need a ding for the tab
-    // you're staring at). Respects user gesture requirements: AudioContext
-    // is created on demand and resumed if needed.
-    // "waiting" counts as working-in-progress here: a session that was blocked
-    // on a prompt and then reached done still earns the finished cue.
-    if ((prev === "active" || prev === "waiting") && next === "done" && isAway()) {
-      const pn = liveProjectName();
-      try { playDoneCue(); } catch {}
-      notifyOS("Agent finished ✓", pn ? `${pn} is done` : "A session finished");
-      // Phone companion (Phase 5): push a "finished" alert when no phone is actively
-      // connected (the companion no-ops if its server is off / a phone is viewing /
-      // no push subscription). Primary window only, to avoid duplicate pushes.
-      if (isPrimaryWindow()) {
-        invoke("companion_notify_finish", { label: pn || "session", exit: 0 }).catch(() => {});
-      }
-    }
+    const e = entryRef.current;
+    if (!e) return;
+    e.heuristicActivity = next;
+    agentOf(e).heuristicChanged();
   };
+
+  const agentOf = (e) => {
+    if (e.agent) return e.agent;
+    const paneId = tabIdRef.current;
+    e.agent = createPaneAgent({
+      now: nowMs,
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (t) => clearTimeout(t),
+      microtask: (fn) => queueMicrotask(fn),
+      isLive: () => getEntry(paneId) === e,
+      isAway,
+      // What a notice calls this pane: the label session lists give it (kept
+      // current on the entry by an effect), else its project's name.
+      paneName: () => e.paneLabel || liveProjectName() || "session",
+      heuristic: () => e.heuristicActivity || "idle",
+      // Straight into the module-level stores (P2-T1): fiber-agnostic, and
+      // only this pane's subscribers re-render.
+      publish: (shown, status) => {
+        try { setPaneDetail(paneId, status); } catch { /* the stores must not break the pane */ }
+        try { setPaneActivity(paneId, shown); } catch { /* the stores must not break the pane */ }
+      },
+      write: (data) => {
+        if (e.writeQueue) e.writeQueue.write(data);
+      },
+      notify: notifyOS,
+      // Phone companion: a push when no phone is connected (the companion
+      // no-ops otherwise). Primary window only, to avoid duplicate pushes.
+      push: (label, exit, kind) => {
+        if (isPrimaryWindow()) invoke("companion_notify_finish", { label, exit, kind }).catch(() => {});
+      },
+      cue: () => {
+        try { playDoneCue(); } catch { /* no audio is fine */ }
+      },
+    });
+    e.onDestroy.push(() => e.agent?.dispose());
+    return e.agent;
+  };
+
   const clearDoneTimer = () => {
     if (doneTimerRef.current) {
       clearTimeout(doneTimerRef.current);
       doneTimerRef.current = null;
     }
+  };
+
+  // When the pane's activity starts counting (quietTracker.js): a program
+  // that queries the terminal arms it, output while armed restarts the
+  // quiet wait, and the app typing a system prompt starts it at once. One
+  // per registry entry, like the agent.
+  const trackerOf = (e) => {
+    if (e.quietTracker) return e.quietTracker;
+    const paneId = tabIdRef.current;
+    e.quietTracker = createQuietTracker({
+      now: nowMs,
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (t) => clearTimeout(t),
+      isLive: () => getEntry(paneId) === e,
+      isHeld: () => agentOf(e).held,
+      isOn: () => e.counters.userHasTyped,
+      turnOn: () => {
+        bytesSinceSeenRef.current = 0; // the startup's bytes are not work
+        e.counters.userHasTyped = true;
+      },
+    });
+    e.onDestroy.push(() => e.quietTracker?.dispose());
+    return e.quietTracker;
   };
 
   const appendScrollback = (chunk) => {
@@ -652,18 +716,20 @@ function TerminalPane({
     // destructive tool-use runs. The gate stays exactly here, guarding the
     // ACTION; the state above is deliberately outside it.
     if (!isAway()) return;
-    if (e.ui ? e.ui.isAutoApprove() : autoApproveRef.current) {
+    // A pane that resumed a conversation after a restart is not answered for
+    // until someone types there: that agent picked up where it left off, and
+    // nobody has looked at it since.
+    if (!agentOf(e).held && (e.ui ? e.ui.isAutoApprove() : autoApproveRef.current)) {
       if (now - lastApproveAtRef.current < AUTO_APPROVE_DEBOUNCE_MS) return;
       lastApproveAtRef.current = now;
-      invoke("pty_write", { id: ptyId, data: "1\r" }).catch(() => {});
+      if (e.writeQueue) e.writeQueue.write("1\r");
+      else invoke("pty_write", { id: ptyId, data: "1\r" }).catch(() => {});
       e.counters.recentOut = ""; // don't re-match the same prompt
       setActivity("active"); // answered on your behalf — no longer blocked
-    } else if (now - lastNotifyAtRef.current > 15000) {
-      // Auto-approve off + you're elsewhere → ping that a session needs you.
-      lastNotifyAtRef.current = now;
-      const pn = liveProjectName();
-      notifyOS("Needs your input", pn ? `${pn} is waiting for approval` : "A session is waiting for approval");
     }
+    // Otherwise the needs-you notice comes from the pane's agent
+    // (paneAgent.js), keyed to the shown state, so the prompt detector and a
+    // program's own report share one notice and one pace.
   };
 
   const checkCost = () => {
@@ -810,7 +876,14 @@ function TerminalPane({
         // process produces none), forcing idle here would drop the flag
         // permanently without anything having been answered.
         setActivity(hasPendingPrompt() ? "waiting" : "idle");
+        // Looking also acknowledges a program's finished or failed report.
+        const ent = entryRef.current;
+        if (ent) agentOf(ent).acknowledge();
       }),
+      // This mount's props: the saved conversation is read once, at spawn, and
+      // the writer's identity is stable (TerminalPanel caches it per pane).
+      agentSession: () => agentSession,
+      saveAgentSession: (s) => onAgentSession?.(s),
     };
 
     // Cleanup is park-by-default: detach the host and leave the entry (xterm,
@@ -1057,6 +1130,9 @@ function TerminalPane({
       const buf = term.buffer.active;
       const here = buf.baseY + buf.cursorY;
       if (data === "A" || data.startsWith("A;")) {
+        // A new prompt: whatever a program reported as in flight is over.
+        const ent = entryRef.current;
+        if (ent) agentOf(ent).endInFlight();
         const b = { startLine: here, command: null, endLine: null, exit: 0, el: null, deco: null };
         entry.blocks.current = b;
         blocksRef.current.push(b);
@@ -1129,6 +1205,42 @@ function TerminalPane({
       }
       return true; // handled (don't pass the OSC through to the screen)
     });
+    // Program status (OSC 7501, programStatus.js): a program reports what it is
+    // doing, and probes with `?` to learn whether this terminal listens.
+    // Reports replayed from restored scrollback are last session's and are
+    // ignored, and nothing in a report is ever written back: the only reply is
+    // the fixed support answer (paneAgent.js).
+    term.parser.registerOscHandler(7501, (data) => {
+      try {
+        if (restoringScrollback) return true;
+        const ent = entryRef.current;
+        if (ent) agentOf(ent).report(data);
+      } catch { /* a bad report must never break the terminal */ }
+      return true;
+    });
+    // RIS (ESC c) resets the terminal, and with it every report (spec).
+    term.parser.registerEscHandler({ final: "c" }, () => {
+      const ent = entryRef.current;
+      if (ent && !restoringScrollback) agentOf(ent).reset();
+      return false; // xterm still performs the reset
+    });
+    // Replies the terminal itself writes back (device attributes, status and
+    // cursor reports) are marked as they are produced, so onData sends them
+    // to this pane's own PTY alone: not fanned out by broadcast, not recorded
+    // into a macro, not counted as typing. xterm emits them synchronously from
+    // these sequences' own handlers; a microtask clears a mark that is unused.
+    const markTerminalReply = () => {
+      const ent = entryRef.current;
+      if (ent) {
+        ent.terminalReplyNext = true;
+        queueMicrotask(() => { ent.terminalReplyNext = false; });
+      }
+      return false; // xterm still answers
+    };
+    term.parser.registerCsiHandler({ final: "c" }, (params) => (params.length <= 1 && !(params[0] > 0) ? markTerminalReply() : false));
+    term.parser.registerCsiHandler({ prefix: ">", final: "c" }, () => markTerminalReply());
+    term.parser.registerCsiHandler({ final: "n" }, (params) => (params[0] === 5 || params[0] === 6 ? markTerminalReply() : false));
+
     // Per-session nonce baked into our injected PlutoCmd emit so the handler
     // can reject reports that didn't come from our own hook (audit H1). Set
     // once per entry; survives tab-moves (create-once, on the persistent entry).
@@ -1472,6 +1584,10 @@ function TerminalPane({
         }
         ptyId = id;
         entry.ptyId = id;
+        // Every write to this PTY goes through one ordered queue
+        // (ptyWriteQueue.js), so a probe reply cannot land after the reply
+        // that follows it, and typing cannot overtake itself.
+        entry.writeQueue = createWriteQueue((data) => invoke("pty_write", { id, data }));
         entry.spawnState = "live"; // from here on, unmount parks instead of destroying
         // Registered the moment the PTY exists — BEFORE any later await — so a
         // destroy landing in the listen()/setup windows below still kills the
@@ -1495,12 +1611,16 @@ function TerminalPane({
           // covered local typing alone, leaving MultiExec broadcast, snippet
           // insertion, macro replay, the prompt editor and agent steps to
           // strand the session as "needs you" after they had already answered
-          // it. Every one of those routes through this writer.
+          // it. Every one of those routes through this writer. Each also gives
+          // the program work on a person's behalf, so activity tracking starts
+          // (quietTracker.js); the resume hold stays, since none of them is a
+          // person typing in this pane.
           if (entryLive()) {
             entryRef.current.counters.recentOut = "";
             if (activityRef.current === "waiting") setActivity("active");
+            trackerOf(entry).start();
           }
-          invoke("pty_write", { id: ptyId, data }).catch(() => {});
+          entry.writeQueue.write(data);
         }, visibleRef.current);
         // Publish the live channel id so the phone companion can subscribe to
         // `pty://<id>` and write/resize this session. Cleared by unregisterPty.
@@ -1551,6 +1671,7 @@ function TerminalPane({
 
           // Activity tracking: only count when user isn't watching this tab.
           // Visibility reads go through entry.ui (the current fiber's ref).
+          trackerOf(entry).output();
           if (entry.ui.isVisible()) return;
           bytesSinceSeenRef.current += payload.length;
           // "waiting" outranks "active": the chunk that DRAWS a permission
@@ -1625,6 +1746,7 @@ function TerminalPane({
           // the fleet counts for a session that no longer exists.
           entry.counters.recentOut = ""; // the prompt died with the process
           setActivity("done");
+          agentOf(entry).endInFlight(); // and so did whatever it reported
         });
         // Same late-resolution guard as unlistenData above.
         if (!entryLive()) { try { unlistenExit(); } catch {} return; }
@@ -1645,8 +1767,45 @@ function TerminalPane({
         // timeout, so surface (don't swallow) the failure.
         invoke("pty_ready", { id }).catch((e) => console.warn("pty_ready failed", e));
 
+        // Which onData events are the user's (keys, paste, IME, mouse) and
+        // which are xterm answering a program (device attributes, mode,
+        // cursor, color, window and focus reports). xterm 5.5 fires its
+        // internal onUserInput just before onData for user input only
+        // (CoreService.triggerDataEvent's wasUserInput); every reply comes
+        // without it (userInput.js). Private API, so xtermInput.test.js pins
+        // it, and the CSI markers (markTerminalReply) stand in when it is
+        // missing.
+        const input = watchUserInput(term);
+
         term.onData((data) => {
+          const fromUser = input.take(entry.terminalReplyNext === true);
+          entry.terminalReplyNext = false;
           if (!entryLive() || !ptyId) return;
+          const kind = inputKind(data, fromUser);
+          if (kind === "reply") {
+            // xterm answering a program: this pane's PTY only, after any
+            // pending OSC 7501 support reply, in one write. Not broadcast,
+            // not recorded into a macro, not counted as typing. A program
+            // that queries the terminal arms activity tracking.
+            agentOf(entry).reply(data);
+            trackerOf(entry).arm();
+            return;
+          }
+          if (kind === "click" || kind === "mouse") {
+            // Once a program turns mouse tracking on: the coordinates belong
+            // to this pane alone, and moving or clicking the mouse is not
+            // typing, so it never ends the resume hold. A click can answer a
+            // dialog, though: it drops the matched prompt and ends "waiting",
+            // as an answer typed here does, so auto-approve cannot answer a
+            // dialog that is already gone.
+            if (kind === "click") {
+              entry.counters.recentOut = "";
+              if (activityRef.current === "waiting") setActivity("active");
+            }
+            entry.writeQueue.write(data);
+            return;
+          }
+          if (input.classifies || !FOCUS_REPORTS.includes(data)) agentOf(entry).userInput();
           entry.counters.userHasTyped = true;
           recordInput(tabId, data); // macro recording (no-op unless armed for this tab)
           // Clear the auto-approve match buffer when the user types — they
@@ -1660,7 +1819,7 @@ function TerminalPane({
           if (isBroadcast()) {
             writeBroadcast(data);
           } else {
-            invoke("pty_write", { id: ptyId, data }).catch(() => {});
+            entry.writeQueue.write(data);
           }
         });
 
@@ -1744,14 +1903,38 @@ function TerminalPane({
           }
         }
 
-        if (!skipPackCommands && cmdsAtSpawn.length > 0) {
-          await new Promise(r => setTimeout(r, 600));
-          for (let i = 0; i < cmdsAtSpawn.length; i++) {
-            if (!entryLive() || !ptyId) break;
+        // Claude Code conversations that come back after a restart
+        // (agentLaunch.js). A local pane whose start command launches `claude`
+        // gets a conversation id of the app's choosing; a restored pane resumes
+        // it when Claude still has it. A resumed pane never gets the system
+        // prompt typed (it would arrive as a new message in the old
+        // conversation), and auto-approve waits there until someone types.
+        let cmdsToType = cmdsAtSpawn;
+        let resumed = false;
+        if (!skipPackCommands && !connection && !serial && cmdsAtSpawn.length > 0) {
+          const saved = entry.ui.agentSession ? entry.ui.agentSession() : null;
+          let resumeId = null;
+          if (restored && saved && saved.cli === "claude" && isSessionId(saved.id)) {
             try {
-              await invoke("pty_write", { id: ptyId, data: cmdsAtSpawn[i] + "\r" });
+              if (await invoke("claude_session_exists", { id: saved.id })) resumeId = saved.id;
             } catch {}
-            if (i < cmdsAtSpawn.length - 1) {
+          }
+          if (!entryLive()) return;
+          const plan = planAgentLaunch(cmdsAtSpawn, { resumeId, newId: crypto.randomUUID() });
+          if (plan.session) {
+            cmdsToType = plan.commands;
+            resumed = plan.session.id === resumeId;
+            if (resumed) agentOf(entry).holdForResume();
+            if (entry.ui.saveAgentSession) entry.ui.saveAgentSession(plan.session);
+          }
+        }
+
+        if (!skipPackCommands && cmdsToType.length > 0) {
+          await new Promise(r => setTimeout(r, 600));
+          for (let i = 0; i < cmdsToType.length; i++) {
+            if (!entryLive() || !ptyId) break;
+            entry.writeQueue.write(cmdsToType[i] + "\r");
+            if (i < cmdsToType.length - 1) {
               await new Promise(r => setTimeout(r, 300));
             }
           }
@@ -1891,15 +2074,14 @@ function TerminalPane({
         // then type the system prompt as the first user message. Turns
         // packs from "tab labels" into actual specialized agents.
         const sysPrompt = systemPromptRef.current;
-        if (!skipPackCommands && sysPrompt && typeof sysPrompt === "string" && sysPrompt.trim().length > 0 && entryLive() && ptyId) {
+        if (!skipPackCommands && !resumed && sysPrompt && typeof sysPrompt === "string" && sysPrompt.trim().length > 0 && entryLive() && ptyId) {
           // 2s lets `claude` finish initializing + render its prompt before
           // we paste. If Claude isn't ready yet, the input buffers and gets
           // consumed once the REPL is alive.
           await new Promise(r => setTimeout(r, 2000));
           if (entryLive() && ptyId) {
-            try {
-              await invoke("pty_write", { id: ptyId, data: sysPrompt.trim() + "\r" });
-            } catch {}
+            entry.writeQueue.write(sysPrompt.trim() + "\r");
+            trackerOf(entry).start();
           }
         }
       } catch (err) {
@@ -1938,6 +2120,11 @@ function TerminalPane({
     // respawn). Live cwd comes from OSC 1337 PlutoCwd; the prop only matters
     // at first spawn.
   }, [cwd]);
+
+  // The tab's label on the registry entry, for notifications (paneName).
+  useEffect(() => {
+    setPaneLabel(entryRef.current, paneLabel);
+  }, [paneLabel]);
 
   // Report visibility to the bridge so MultiExec broadcast only targets the
   // terminals the user can actually see (the active tab of each panel).

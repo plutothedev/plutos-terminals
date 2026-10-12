@@ -83,7 +83,7 @@ describe("paneSpawnConfig: what a pane runs", () => {
 
   test("the root leaf runs the tab's own fields", () => {
     expect(paneSpawnConfig(local, "tab-local")).toEqual({
-      cwd: "/home/me", connection: null, serial: null, startCommands: [], systemPrompt: null,
+      cwd: "/home/me", connection: null, serial: null, startCommands: [], systemPrompt: null, agentSession: null,
     });
   });
 

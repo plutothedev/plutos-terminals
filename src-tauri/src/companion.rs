@@ -1201,22 +1201,79 @@ pub fn companion_set_models(
 /// flight. As a sync command its first line took the `inner` mutex on the UI
 /// event loop, and it then reads the OS keychain (`kr_get`, `ensure_vapid`),
 /// which blocks on its own account.
+///
+/// `kind` is "finished" (the default) or "needs_you", for a session waiting on
+/// the user. The push carries only the app's own wording and the pane label,
+/// never a program's message, since a push shows on the lock screen.
 #[tauri::command]
-pub async fn companion_notify_finish(app: tauri::AppHandle, label: String, exit: Option<i64>) {
+pub async fn companion_notify_finish(app: tauri::AppHandle, label: String, exit: Option<i64>, kind: Option<String>) {
+    let kind = PushKind::from_name(kind.as_deref());
     let _ = tauri::async_runtime::spawn_blocking(move || {
         let state = match app.try_state::<CompanionState>() {
             Some(s) => s,
             None => return,
         };
-        notify_finish_blocking(&state, label, exit);
+        notify_finish_blocking(&state, label, exit, kind);
     })
     .await;
+}
+
+/// What a push says.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PushKind {
+    Finished,
+    NeedsYou,
+}
+
+impl PushKind {
+    fn from_name(name: Option<&str>) -> PushKind {
+        if name == Some("needs_you") { PushKind::NeedsYou } else { PushKind::Finished }
+    }
+}
+
+/// How often pushes go out: one session's "finished" at most every 15 s and
+/// its "needs you" at most every 60 s, and no more than 10 pushes a minute in
+/// all. Any program in a pane can flip its status (OSC 7501), so without this
+/// one pane could keep the phone buzzing.
+static PUSH_LIMITS: std::sync::OnceLock<Mutex<(crate::commands::RateLimit, crate::commands::RateLimit)>> =
+    std::sync::OnceLock::new();
+
+fn push_allowed(kind: PushKind, label: &str, now: std::time::Instant) -> bool {
+    let limits = PUSH_LIMITS.get_or_init(|| {
+        Mutex::new((
+            crate::commands::RateLimit::new(Duration::from_secs(15), 4, 10),
+            crate::commands::RateLimit::new(Duration::from_secs(60), 1, 10),
+        ))
+    });
+    let Ok(mut limits) = limits.lock() else { return false };
+    let (finished, needs_you) = &mut *limits;
+    match kind {
+        PushKind::Finished => finished.allow(label, now),
+        PushKind::NeedsYou => needs_you.allow(label, now),
+    }
+}
+
+/// The title and body of a push.
+fn push_text(kind: PushKind, label: &str, exit: Option<i64>) -> (String, String) {
+    let label = crate::commands::notify_text(label, 60);
+    match kind {
+        PushKind::NeedsYou => (format!("⏳ {label}"), "needs you".to_string()),
+        PushKind::Finished => {
+            let ok = exit.map(|e| e == 0).unwrap_or(true);
+            let title = format!("{} {}", if ok { "✓" } else { "✗" }, label);
+            let body = match exit {
+                Some(e) if e != 0 => format!("exited {e}"),
+                _ => "finished".to_string(),
+            };
+            (title, body)
+        }
+    }
 }
 
 /// The blocking body of `companion_notify_finish`. Separate so the command
 /// itself is nothing but the `spawn_blocking` hop, which is what keeps the
 /// keychain reads and the `inner` lock off the UI event loop.
-fn notify_finish_blocking(state: &CompanionState, label: String, exit: Option<i64>) {
+fn notify_finish_blocking(state: &CompanionState, label: String, exit: Option<i64>, kind: PushKind) {
     if state.inner.lock().map(|g| g.is_none()).unwrap_or(true) {
         return; // server not running
     }
@@ -1232,16 +1289,16 @@ fn notify_finish_blocking(state: &CompanionState, label: String, exit: Option<i6
     if subs.is_empty() {
         return;
     }
+    // The pace is checked only for a push that will go out, so a session's
+    // slot is never spent while the server is off or a phone is connected.
+    if !push_allowed(kind, &label, std::time::Instant::now()) {
+        return;
+    }
     let vapid_priv = match ensure_vapid() {
         Ok((priv_b64, _)) => priv_b64,
         Err(_) => return,
     };
-    let ok = exit.map(|e| e == 0).unwrap_or(true);
-    let title = format!("{} {}", if ok { "✓" } else { "✗" }, label);
-    let body = match exit {
-        Some(e) if e != 0 => format!("exited {e}"),
-        _ => "finished".to_string(),
-    };
+    let (title, body) = push_text(kind, &label, exit);
     let payload = serde_json::json!({ "title": title, "body": body })
         .to_string()
         .into_bytes();
@@ -2084,5 +2141,44 @@ mod push_subscription_tests {
         let send = &send[..send.find("\n}\n").unwrap()];
         assert!(send.contains("within(PUSH_SEND_TIMEOUT, client.send(msg))"));
         assert!(send.contains("sub.endpoint = checked_push_endpoint(&sub.endpoint)"));
+    }
+}
+
+#[cfg(test)]
+mod push_kind_tests {
+    use super::{push_allowed, push_text, PushKind};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_push_says_finished_failed_or_needs_you_and_nothing_more() {
+        assert_eq!(push_text(PushKind::Finished, "api", Some(0)), ("✓ api".to_string(), "finished".to_string()));
+        assert_eq!(push_text(PushKind::Finished, "api", Some(2)), ("✗ api".to_string(), "exited 2".to_string()));
+        assert_eq!(push_text(PushKind::NeedsYou, "api", None), ("⏳ api".to_string(), "needs you".to_string()));
+        assert_eq!(push_text(PushKind::NeedsYou, "a\u{202e}pi\u{7}", None).0, "⏳ api");
+        assert_eq!(PushKind::from_name(Some("needs_you")), PushKind::NeedsYou);
+        assert_eq!(PushKind::from_name(Some("anything")), PushKind::Finished);
+        assert_eq!(PushKind::from_name(None), PushKind::Finished);
+    }
+
+    #[test]
+    fn the_pace_is_checked_only_for_a_push_that_will_go_out() {
+        let src = include_str!("companion.rs").replace("\r\n", "\n");
+        let from = &src[src.find("fn notify_finish_blocking(").unwrap()..];
+        let body = &from[..from.find("\n}\n").unwrap()];
+        let subs = body.find("if subs.is_empty()").unwrap();
+        let pace = body.find("if !push_allowed(kind, &label").unwrap();
+        let send = body.find("ensure_vapid()").unwrap();
+        assert!(subs < pace && pace < send);
+    }
+
+    #[test]
+    fn pushes_are_spaced_per_session_and_per_kind() {
+        let t0 = Instant::now() + Duration::from_secs(1000);
+        let label = "push-limit-test-session";
+        assert!(push_allowed(PushKind::NeedsYou, label, t0));
+        assert!(!push_allowed(PushKind::NeedsYou, label, t0 + Duration::from_secs(30)));
+        assert!(push_allowed(PushKind::Finished, label, t0 + Duration::from_secs(30)), "a different kind has its own spacing");
+        assert!(!push_allowed(PushKind::Finished, label, t0 + Duration::from_secs(40)));
+        assert!(push_allowed(PushKind::NeedsYou, label, t0 + Duration::from_secs(61)));
     }
 }

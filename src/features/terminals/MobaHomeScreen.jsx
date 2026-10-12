@@ -75,7 +75,7 @@ export default function MobaHomeScreen({ panelId, tabId, api }) {
                   >
                     <span className="moba-home-session-icon">{icon}</span>
                     <span className="moba-home-session-name">{p.name}</span>
-                    <span className={"moba-home-session-dot" + (a === "active" ? " active" : a === "done" ? " done" : "")} />
+                    <span className={"moba-home-session-dot" + (a === "waiting" ? " waiting" : a === "active" ? " active" : a === "done" ? " done" : "")} />
                   </button>
                 );
               })}

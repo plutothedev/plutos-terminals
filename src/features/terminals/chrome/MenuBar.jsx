@@ -120,7 +120,7 @@ function MenuBar({
         { label: "Workflows panel", action: () => selectRibbon("snippets") },
         { label: "Keystroke macros…", action: () => setMacrosOpen(true) },
         { label: "Ask AI: plain English to command", shortcut: "Ctrl+I", action: () => setAskOpen(true) },
-        { label: "Summarize this session (AI)", action: () => { if (!activePaneId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activePaneId) }); } },
+        { label: "Summarize this session (AI)", action: () => { if (!activePaneId) { toast.error("No active terminal."); return; } setSummary({ text: getTabText(activePaneId), sourceId: activePaneId }); } },
         { label: "Command history search…", shortcut: "Ctrl+R", action: () => setHistoryOpen(true) },
         { label: "Models: pick provider + model…", action: () => setModelsOpen(true) },
         { label: broadcast ? "Turn off broadcast typing" : "Turn on broadcast typing", action: () => toggleBroadcast() },

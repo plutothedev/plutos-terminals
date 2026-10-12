@@ -407,31 +407,214 @@ fn gh_pr_create_sync(path: String) -> Result<String, String> {
 
 // ── OS notification (agent finished / needs input) ────────────────
 //
-// Fired when an agent transitions to done — or pauses for approval — while the
-// app is in the background. macOS uses osascript; Linux notify-send; Windows is
-// best-effort (no-op if neither path matches).
+// ── Desktop notifications ───────────────────────────────────────────────────
+// Fired when an agent finishes, or needs the user, while the app is in the
+// background. The title is always the app's own wording and names the pane;
+// the body can carry a program's own text (an OSC 7501 message), which any
+// program in a pane can write, a remote host over SSH included. So the text
+// travels as data and never as code: on macOS it is the osascript run
+// handler's arguments after `--`, never part of the script (the old version
+// built the script from the text and escaped only `"`, so a crafted title ran
+// shell commands through `do shell script`); notify-send gets `--` and
+// markup-escaped text; Windows uses the notification plugin's toast, which
+// sets the text as text. The text is also cleaned and capped here, and the
+// rate is limited, because a program flipping its status could otherwise
+// start a notification process per report.
+
+/// The same title at most once per NOTIFY_SAME_TITLE_GAP and at most
+/// NOTIFY_SAME_TITLE_PER_MINUTE times a minute (titles name the pane, so one
+/// pane cannot use up the minute), and at most NOTIFY_PER_MINUTE in all.
+/// Urgent notices (needs you) have their own budget, so finished notices can
+/// never crowd one out.
+const NOTIFY_SAME_TITLE_GAP: std::time::Duration = std::time::Duration::from_secs(5);
+const NOTIFY_SAME_TITLE_PER_MINUTE: usize = 2;
+const NOTIFY_PER_MINUTE: usize = 6;
+const NOTIFY_TITLE_CHARS: usize = 80;
+const NOTIFY_BODY_CHARS: usize = 240;
+
+/// A sliding-window limit: at most `per_minute` events in any 60 s, and one
+/// key no closer together than `same_key_gap` and at most
+/// `per_key_per_minute` times in 60 s.
+pub(crate) struct RateLimit {
+    recent: std::collections::VecDeque<std::time::Instant>,
+    by_key: HashMap<String, std::collections::VecDeque<std::time::Instant>>,
+    same_key_gap: std::time::Duration,
+    per_key_per_minute: usize,
+    per_minute: usize,
+}
+
+impl RateLimit {
+    pub(crate) fn new(same_key_gap: std::time::Duration, per_key_per_minute: usize, per_minute: usize) -> Self {
+        RateLimit { recent: Default::default(), by_key: HashMap::new(), same_key_gap, per_key_per_minute, per_minute }
+    }
+
+    pub(crate) fn allow(&mut self, key: &str, now: std::time::Instant) -> bool {
+        let minute = std::time::Duration::from_secs(60);
+        let fresh = |t: &std::time::Instant| now.saturating_duration_since(*t) < minute;
+        while self.recent.front().is_some_and(|t| !fresh(t)) {
+            self.recent.pop_front();
+        }
+        self.by_key.retain(|_, times| {
+            while times.front().is_some_and(|t| !fresh(t)) {
+                times.pop_front();
+            }
+            !times.is_empty()
+        });
+        if self.recent.len() >= self.per_minute {
+            return false;
+        }
+        if let Some(times) = self.by_key.get(key) {
+            let too_soon = times.back().is_some_and(|t| now.saturating_duration_since(*t) < self.same_key_gap);
+            if too_soon || times.len() >= self.per_key_per_minute {
+                return false;
+            }
+        }
+        self.by_key.entry(key.to_string()).or_default().push_back(now);
+        self.recent.push_back(now);
+        true
+    }
+}
+
+/// (ordinary, urgent) budgets.
+static NOTIFY_LIMIT: std::sync::OnceLock<Mutex<(RateLimit, RateLimit)>> = std::sync::OnceLock::new();
+
+/// Whether a notice with this title may go out now, from its budget.
+pub(crate) fn notify_allowed(title: &str, urgent: bool, now: std::time::Instant) -> bool {
+    let budget = || RateLimit::new(NOTIFY_SAME_TITLE_GAP, NOTIFY_SAME_TITLE_PER_MINUTE, NOTIFY_PER_MINUTE);
+    NOTIFY_LIMIT
+        .get_or_init(|| Mutex::new((budget(), budget())))
+        .lock()
+        .map(|mut l| {
+            let (ordinary, urgent_budget) = &mut *l;
+            let limit = if urgent { urgent_budget } else { ordinary };
+            limit.allow(title, now)
+        })
+        .unwrap_or(false)
+}
+/// Held while a notification process runs, so they never pile up.
+static NOTIFY_BUSY: Mutex<()> = Mutex::new(());
+/// How long a notification process may run. Showing one takes well under a
+/// second; a stuck osascript, or a notify-send waiting on D-Bus, is killed
+/// rather than holding NOTIFY_BUSY, and every notice after it, for good.
+#[cfg_attr(windows, allow(dead_code))]
+const NOTIFY_PROCESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Run one notification process, killed and reaped at `timeout`. No pipes:
+/// its output is not wanted, and a helper it leaves behind holding a pipe
+/// would otherwise keep the wait going past the deadline.
+#[cfg_attr(windows, allow(dead_code))]
+fn run_notifier(mut cmd: Command, timeout: std::time::Duration) {
+    use std::process::Stdio;
+    let Ok(mut child) = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else {
+        return;
+    };
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+        }
+    }
+}
+
+/// Text fit to show in a notification: no control characters, no characters
+/// that hide themselves or turn text around, at most `max` characters.
+pub(crate) fn notify_text(s: &str, max: usize) -> String {
+    let hidden = |c: char| {
+        matches!(c as u32,
+            0x061c | 0x00ad | 0x180e | 0x200b..=0x200f | 0x2028..=0x202e | 0x2060..=0x2064
+            | 0x2066..=0x2069 | 0xfeff | 0xfe00..=0xfe0f | 0xe0000..=0xe01ef)
+    };
+    let cleaned: String = s.chars().filter(|c| !c.is_control() && !hidden(*c)).collect();
+    cleaned.trim().chars().take(max).collect()
+}
+
+/// The osascript arguments for one notification: a fixed script that reads
+/// the title and body from its arguments, then `--`, then the text.
+pub(crate) fn osascript_args(title: &str, body: &str) -> Vec<String> {
+    [
+        "-e",
+        "on run argv",
+        "-e",
+        "display notification (item 2 of argv) with title (item 1 of argv)",
+        "-e",
+        "end run",
+        "--",
+        title,
+        body,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// notify-send reads its body as markup (the summary is plain text).
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+pub(crate) fn markup_escaped(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 #[tauri::command]
-pub fn notify(title: String, body: String) -> Result<(), String> {
+pub async fn notify(app: tauri::AppHandle, title: String, body: String, urgent: Option<bool>) -> Result<(), String> {
+    let title = notify_text(&title, NOTIFY_TITLE_CHARS);
+    let body = notify_text(&body, NOTIFY_BODY_CHARS);
+    if !notify_allowed(&title, urgent.unwrap_or(false), std::time::Instant::now()) {
+        return Ok(());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        // One at a time: a second notice waits for the first rather than
+        // starting another process alongside it (or being dropped).
+        let _showing = NOTIFY_BUSY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        show_notification(&app, &title, &body);
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+fn show_notification(app: &tauri::AppHandle, title: &str, body: &str) {
     #[cfg(target_os = "macos")]
     {
-        let t = title.replace('"', "'");
-        let b = body.replace('"', "'");
-        let script = format!("display notification \"{b}\" with title \"{t}\"");
-        let _ = std::process::Command::new("osascript")
-            .args(["-e", &script])
-            .spawn();
+        let _ = app;
+        let mut cmd = Command::new("osascript");
+        cmd.args(osascript_args(title, body));
+        run_notifier(cmd, NOTIFY_PROCESS_TIMEOUT);
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let _ = std::process::Command::new("notify-send")
-            .args([&title, &body])
-            .spawn();
+        let _ = app;
+        let mut cmd = Command::new("notify-send");
+        cmd.args(["--", title, &markup_escaped(body)]);
+        run_notifier(cmd, NOTIFY_PROCESS_TIMEOUT);
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
-        let _ = (&title, &body); // best-effort: native toast needs a module; skip.
+        use tauri_winrt_notification::Toast;
+        let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let app_id = toast_app_id(&app.config().identifier, exe_dir.as_deref())
+            .unwrap_or_else(|| Toast::POWERSHELL_APP_ID.to_string());
+        let _ = Toast::new(&app_id).title(title).text1(body).show();
     }
-    Ok(())
+}
+
+/// The app id a Windows toast is shown under: the app's own identifier, which
+/// the installer registers with its Start-menu shortcut, or None for a build
+/// run straight from `target/debug` or `target/release`, which Windows does
+/// not know (the caller then uses PowerShell's, as tauri-plugin-notification
+/// does).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn toast_app_id(identifier: &str, exe_dir: Option<&std::path::Path>) -> Option<String> {
+    let dev = exe_dir.is_some_and(|d| {
+        let mut parts = d.components().rev().map(|c| c.as_os_str().to_string_lossy().to_lowercase());
+        let last = parts.next();
+        let parent = parts.next();
+        parent.as_deref() == Some("target") && matches!(last.as_deref(), Some("debug") | Some("release"))
+    });
+    (!dev).then(|| identifier.to_string())
 }
 
 // ── Quit the whole app (Exit toolbar button) ──────────────────────
@@ -3369,5 +3552,297 @@ mod git_status_tests {
         fs::create_dir_all(&dir).unwrap();
         assert!(git_branch_status_sync(dir.to_str().unwrap()).is_none());
         assert!(git_branch_status_sync("Z:/definitely/not/a/dir").is_none());
+    }
+}
+
+#[cfg(test)]
+mod notify_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stuck_notification_process_is_killed_at_its_deadline() {
+        let mut stuck = Command::new("sleep");
+        stuck.arg("30");
+        let t0 = Instant::now();
+        run_notifier(stuck, Duration::from_millis(300));
+        assert!(t0.elapsed() < Duration::from_secs(5), "took {:?}", t0.elapsed());
+        assert!(NOTIFY_PROCESS_TIMEOUT <= Duration::from_secs(10));
+        // A helper left behind with the process's output must not hold it.
+        let mut leaves_one = Command::new("sh");
+        leaves_one.args(["-c", "sleep 30 & sleep 30"]);
+        let t0 = Instant::now();
+        run_notifier(leaves_one, Duration::from_millis(300));
+        assert!(t0.elapsed() < Duration::from_secs(5), "took {:?}", t0.elapsed());
+    }
+
+    #[test]
+    fn no_notification_process_waits_without_a_deadline() {
+        let src = include_str!("commands.rs");
+        let show = &src[src.find("fn show_notification(").unwrap()..src.find("fn toast_app_id(").unwrap()];
+        assert!(!show.contains(".output()"), "show_notification must run its process through run_notifier");
+        assert!(show.matches("run_notifier(cmd, NOTIFY_PROCESS_TIMEOUT)").count() == 2);
+    }
+
+    #[test]
+    fn the_rate_limit_spaces_one_title_and_caps_the_minute() {
+        let t0 = Instant::now();
+        let mut l = RateLimit::new(Duration::from_secs(5), 2, 3);
+        assert!(l.allow("Needs you: api", t0));
+        assert!(!l.allow("Needs you: api", t0 + Duration::from_secs(4)), "the same title waits out its gap");
+        assert!(l.allow("Needs you: api", t0 + Duration::from_secs(5)));
+        assert!(l.allow("Agent finished: web", t0 + Duration::from_secs(6)));
+        assert!(!l.allow("Agent finished: db", t0 + Duration::from_secs(7)), "the minute is full");
+        assert!(l.allow("Agent finished: db", t0 + Duration::from_secs(61)), "and frees up a minute later");
+    }
+
+    #[test]
+    fn one_title_cannot_use_up_the_minute() {
+        let t0 = Instant::now();
+        let mut l = RateLimit::new(Duration::from_secs(5), 2, 6);
+        assert!(l.allow("Needs you: flappy", t0));
+        assert!(l.allow("Needs you: flappy", t0 + Duration::from_secs(10)));
+        assert!(!l.allow("Needs you: flappy", t0 + Duration::from_secs(20)), "two a minute per title");
+        assert!(l.allow("Needs you: api", t0 + Duration::from_secs(21)), "another pane still gets through");
+        assert!(l.allow("Needs you: flappy", t0 + Duration::from_secs(61)));
+    }
+
+    #[test]
+    fn the_key_map_stays_bounded() {
+        let t0 = Instant::now();
+        let mut l = RateLimit::new(Duration::from_secs(5), 2, 1000);
+        for i in 0..5000 {
+            l.allow(&format!("k{i}"), t0 + Duration::from_millis(i * 20));
+        }
+        assert!(l.by_key.len() <= 3001, "{}", l.by_key.len());
+    }
+
+    #[test]
+    fn notification_text_is_plain_and_short() {
+        assert_eq!(notify_text("  a\u{1b}[2Jb\u{7}c\n", 80), "a[2Jbc");
+        assert_eq!(notify_text("ok\u{202e}exe.txt\u{200b}", 80), "okexe.txt");
+        assert_eq!(notify_text(&"x".repeat(300), 10), "x".repeat(10));
+        assert_eq!(notify_text("\u{e0041}tag\u{fe0f}", 80), "tag");
+    }
+
+    #[test]
+    fn osascript_gets_the_text_only_as_arguments() {
+        let hostile = "x\" & (do shell script \"echo PWNED\") & \"";
+        let args = osascript_args(hostile, "-body\\");
+        let dashdash = args.iter().position(|a| a == "--").unwrap();
+        assert_eq!(&args[dashdash + 1..], [hostile.to_string(), "-body\\".to_string()]);
+        for a in &args[..dashdash] {
+            assert!(!a.contains("PWNED") && !a.contains("body"), "{a}");
+        }
+        assert_eq!(args[..dashdash].concat(), "-eon run argv-edisplay notification (item 2 of argv) with title (item 1 of argv)-eend run");
+    }
+
+    #[test]
+    fn an_installed_build_toasts_under_its_own_id() {
+        let id = "com.plutothedev.terminals";
+        let installed = std::path::Path::new("/Program Files/Pluto's Terminal");
+        assert_eq!(toast_app_id(id, Some(installed)).as_deref(), Some(id));
+        assert_eq!(toast_app_id(id, Some(std::path::Path::new("/src/app/target/debug"))), None);
+        assert_eq!(toast_app_id(id, Some(std::path::Path::new("/src/app/target/release"))), None);
+        assert_eq!(toast_app_id(id, None).as_deref(), Some(id));
+    }
+
+    #[test]
+    fn urgent_notices_have_their_own_budget() {
+        let t0 = std::time::Instant::now() + Duration::from_secs(3600);
+        for i in 0..6 {
+            assert!(notify_allowed(&format!("Agent finished: budget-test-{i}"), false, t0 + Duration::from_millis(i)));
+        }
+        assert!(!notify_allowed("Agent finished: budget-test-7", false, t0 + Duration::from_millis(7)), "the ordinary minute is full");
+        assert!(notify_allowed("Needs you: budget-test", true, t0 + Duration::from_millis(8)), "needs-you still goes out");
+        assert!(!notify_allowed("Needs you: budget-test", true, t0 + Duration::from_millis(9)), "but spaced like any title");
+    }
+
+    #[test]
+    fn notify_goes_through_the_budget_and_shows_one_at_a_time() {
+        let src = include_str!("commands.rs").replace("\r\n", "\n");
+        let from = &src[src.find("pub async fn notify(").unwrap()..];
+        let body = &from[..from.find("\n}\n").unwrap()];
+        assert!(body.contains("if !notify_allowed(&title, urgent.unwrap_or(false), std::time::Instant::now())"));
+        assert!(body.contains("NOTIFY_BUSY.lock()"));
+        assert!(!body.contains("try_lock"));
+    }
+
+    #[test]
+    fn notify_send_text_is_not_markup() {
+        assert_eq!(markup_escaped("<b>a & b</b>"), "&lt;b&gt;a &amp; b&lt;/b&gt;");
+    }
+
+    #[test]
+    fn notify_never_builds_a_script_from_text() {
+        let src = include_str!("commands.rs").replace("\r\n", "\n");
+        let from = &src[src.find("fn show_notification(").unwrap()..];
+        let body = &from[..from.find("\n}\n").unwrap()];
+        assert!(!body.contains("format!"), "the notification text must stay out of any script");
+        assert!(body.contains("osascript_args(title, body)"));
+        assert!(body.contains("\"--\", title, &markup_escaped(body)"));
+    }
+}
+
+// ── Claude Code conversations ───────────────────────────────────────────────
+
+/// Most project folders looked at for one conversation. Far more than anyone
+/// has; it bounds the scan on a pathological config folder.
+const CLAUDE_PROJECTS_SCAN_CAP: usize = 20_000;
+
+/// Whether `id` is a canonical lowercase UUID, the only form the app ever
+/// gives a conversation (agentLaunch.js `isSessionId` mirrors it).
+pub(crate) fn is_claude_session_id(id: &str) -> bool {
+    id.len() == 36
+        && id.char_indices().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_digit() || ('a'..='f').contains(&c),
+        })
+}
+
+/// Whether Claude Code still holds the conversation `id` under `root` (a
+/// Claude config folder): a regular file `projects/<project>/<id>.jsonl`, one
+/// level down. `claude --resume <id>` finds a conversation in any project when
+/// only one holds it, and the app's ids are fresh UUIDs, so any project will
+/// do. Nothing is opened or read, symlinks are not followed (an entry's own
+/// type is used, which on Windows also leaves junctions alone), and the scan
+/// stops at CLAUDE_PROJECTS_SCAN_CAP folders.
+pub(crate) fn claude_session_exists_in(root: &std::path::Path, id: &str) -> bool {
+    if !is_claude_session_id(id) {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(root.join("projects")) else { return false };
+    let file = format!("{id}.jsonl");
+    for entry in entries.flatten().take(CLAUDE_PROJECTS_SCAN_CAP) {
+        if !entry.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        if fs::symlink_metadata(entry.path().join(&file)).is_ok_and(|m| m.is_file()) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The folders Claude Code keeps its config in, from the app's environment
+/// (`var`): CLAUDE_CONFIG_DIR when set, and `.claude` in the home folder. On
+/// Windows the home folder is USERPROFILE, as Node's os.homedir() reads it,
+/// even when HOME is set (MSYS or Emacs setups).
+pub(crate) fn claude_config_roots(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<PathBuf> {
+    claude_config_roots_on(cfg!(windows), var)
+}
+
+/// claude_config_roots for either kind of system, so both are tested anywhere.
+pub(crate) fn claude_config_roots_on(windows: bool, var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(dir) = var("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
+        roots.push(PathBuf::from(dir));
+    }
+    let home = if windows {
+        var("USERPROFILE").or_else(|| var("HOME"))
+    } else {
+        var("HOME").or_else(|| var("USERPROFILE"))
+    };
+    if let Some(home) = home.filter(|h| !h.is_empty()) {
+        roots.push(PathBuf::from(home).join(".claude"));
+    }
+    roots
+}
+
+/// Whether a restored pane can resume its Claude Code conversation. Looks in
+/// the app's own CLAUDE_CONFIG_DIR when it has one, and in ~/.claude. A shell
+/// that sets CLAUDE_CONFIG_DIR in its startup files is not seen from here
+/// (apps do not read them), in which case this says no and the pane starts a
+/// fresh conversation, which is the safe way to be wrong.
+#[tauri::command]
+pub async fn claude_session_exists(id: String) -> bool {
+    tauri::async_runtime::spawn_blocking(move || {
+        claude_config_roots(|name| std::env::var_os(name)).iter().any(|root| claude_session_exists_in(root, &id))
+    })
+    .await
+    .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod claude_session_tests {
+    use super::*;
+
+    const ID: &str = "0f9b1c2d-3e4f-4a5b-8c6d-7e8f90a1b2c3";
+
+    #[test]
+    fn only_a_canonical_lowercase_uuid_is_an_id() {
+        assert!(is_claude_session_id(ID));
+        assert!(!is_claude_session_id(&ID.to_uppercase()));
+        assert!(!is_claude_session_id("../../etc/passwd"));
+        assert!(!is_claude_session_id(&format!("{ID}.jsonl")));
+        assert!(!is_claude_session_id(&ID.replace('-', "/")));
+        assert!(!is_claude_session_id(""));
+    }
+
+    #[test]
+    fn a_conversation_is_found_in_any_project_and_only_as_a_regular_file() {
+        let root = tempfile::tempdir().unwrap();
+        let projects = root.path().join("projects");
+        fs::create_dir_all(projects.join("-Users-me-api")).unwrap();
+        fs::create_dir_all(projects.join("-Users-me-web")).unwrap();
+        assert!(!claude_session_exists_in(root.path(), ID));
+        fs::write(projects.join("-Users-me-web").join(format!("{ID}.jsonl")), "{}").unwrap();
+        assert!(claude_session_exists_in(root.path(), ID));
+        assert!(!claude_session_exists_in(root.path(), "11111111-2222-4333-8444-555555555555"));
+        assert!(!claude_session_exists_in(root.path(), &ID.to_uppercase()));
+    }
+
+    #[test]
+    fn a_folder_named_like_the_conversation_is_not_one() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("projects").join("p").join(format!("{ID}.jsonl"))).unwrap();
+        assert!(!claude_session_exists_in(root.path(), ID));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_are_not_followed() {
+        let root = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        fs::write(elsewhere.path().join(format!("{ID}.jsonl")), "{}").unwrap();
+        let projects = root.path().join("projects");
+        fs::create_dir_all(projects.join("real")).unwrap();
+        std::os::unix::fs::symlink(elsewhere.path(), projects.join("linked-project")).unwrap();
+        assert!(!claude_session_exists_in(root.path(), ID), "a linked project folder is skipped");
+        std::os::unix::fs::symlink(elsewhere.path().join(format!("{ID}.jsonl")), projects.join("real").join(format!("{ID}.jsonl"))).unwrap();
+        assert!(!claude_session_exists_in(root.path(), ID), "a linked conversation file is not one");
+    }
+
+    #[test]
+    fn claude_keeps_its_config_where_the_environment_says() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| std::ffi::OsString::from(v))
+        };
+        let roots = claude_config_roots(env(&[("CLAUDE_CONFIG_DIR", "/cfg/claude-work"), ("HOME", "/home/me")]));
+        assert_eq!(roots, vec![PathBuf::from("/cfg/claude-work"), PathBuf::from("/home/me/.claude")]);
+        let roots = claude_config_roots(env(&[("CLAUDE_CONFIG_DIR", ""), ("HOME", "/home/me")]));
+        assert_eq!(roots, vec![PathBuf::from("/home/me/.claude")]);
+        let both = claude_config_roots(env(&[("HOME", "/msys/home/me"), ("USERPROFILE", "/Users/me")]));
+        let home = if cfg!(windows) { "/Users/me" } else { "/msys/home/me" };
+        assert_eq!(both, vec![PathBuf::from(home).join(".claude")]);
+        assert!(claude_config_roots(env(&[])).is_empty());
+    }
+
+    #[test]
+    fn windows_reads_userprofile_first_and_everything_else_home() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| std::ffi::OsString::from(v))
+        };
+        let both: &'static [(&'static str, &'static str)] = &[("HOME", "/msys/home/me"), ("USERPROFILE", "/Users/me")];
+        assert_eq!(claude_config_roots_on(true, env(both)), vec![PathBuf::from("/Users/me").join(".claude")]);
+        assert_eq!(claude_config_roots_on(false, env(both)), vec![PathBuf::from("/msys/home/me").join(".claude")]);
+        assert_eq!(claude_config_roots_on(true, env(&[("HOME", "/msys/home/me")])), vec![PathBuf::from("/msys/home/me").join(".claude")]);
+        assert_eq!(claude_config_roots_on(false, env(&[("USERPROFILE", "/Users/me")])), vec![PathBuf::from("/Users/me").join(".claude")]);
+    }
+
+    #[test]
+    fn a_missing_config_folder_is_no() {
+        assert!(!claude_session_exists_in(std::path::Path::new("/nonexistent/claude-config"), ID));
     }
 }

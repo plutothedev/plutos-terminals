@@ -10,6 +10,9 @@ const $ = (id) => document.getElementById(id);
 const status = (t, cls) => { const s = $("status"); s.textContent = t; s.className = cls || ""; };
 
 let ws, rpcId = 0, pending = {}, subs = {}, currentId = null, currentTab = null;
+let replaying = false;          // history is being written into the view
+let replayGen = 0;              // which history write `replaying` belongs to
+let userNext = false;           // xterm flagged the next onData as the user's
 let term, fit;
 let sessions = [];              // [{id, tabId, label, active}] from the desktop
 const sstate = {};              // id -> { dirty, running, exit } activity tracking
@@ -28,7 +31,30 @@ function initTerm() {
     theme: { background: "#0b0d0f", foreground: "#cfd6dd" }, scrollback: 5000 });
   fit = new FitAddon.FitAddon(); term.loadAddon(fit);
   term.open($("term")); fit.fit();
-  term.onData((d) => { if (currentId) rpc("pty_write", { id: currentId, data: d }); });
+  // The desktop answers programs' queries (device attributes, status and
+  // cursor reports, the OSC 7501 support probe); this view only watches.
+  // Answering here as well would race the desktop's reply into the same
+  // program (a program probing for OSC 7501 would read this view's device
+  // attributes first and decide the terminal does not support it).
+  try {
+    term.parser.registerCsiHandler({ final: "c" }, () => true);
+    term.parser.registerCsiHandler({ prefix: ">", final: "c" }, () => true);
+    term.parser.registerCsiHandler({ final: "n" }, () => true);
+    term.parser.registerOscHandler(7501, () => true);
+  } catch {}
+  // Only the user's own input is sent (xterm fires its internal onUserInput
+  // just before onData for keys, paste and IME, never for its replies), and
+  // nothing while history is replayed, which would answer old queries.
+  const userSignal = term._core && term._core.coreService && term._core.coreService.onUserInput;
+  if (typeof userSignal === "function") userSignal(() => { userNext = true; });
+  term.onData((d) => {
+    const classifies = typeof userSignal === "function";
+    const fromUser = classifies ? userNext : true;
+    userNext = false;
+    // With the signal, the user's typing goes through even while history is
+    // written; without it, nothing does, since a reply cannot be told apart.
+    if (currentId && fromUser && (classifies || !replaying)) rpc("pty_write", { id: currentId, data: d });
+  });
   window.addEventListener("resize", () => { try { fit.fit(); sendResize(); } catch {} });
 }
 function sendResize() { if (currentId && term) rpc("pty_resize", { id: currentId, cols: term.cols, rows: term.rows }).catch(() => {}); }
@@ -38,15 +64,38 @@ function sendResize() { if (currentId && term) rpc("pty_resize", { id: currentId
 // is subscribed even while backgrounded, so a long build/test on another tab
 // badges that tab and fires a notification the moment it completes.
 const OSC133 = /\x1b\]133;([A-D])(?:;(\d+))?/g;
+// A program's own status report (OSC 7501): only its state is read here, never
+// its message, and only a state the protocol defines.
+const OSC7501 = /\x1b\]7501;([^\x07\x1b]{0,4096})/g;
+const AGENT_STATE = /(?:^|:)\s*state\s*=\s*(idle|working|done|blocked|error|clear)\s*(?=:|$)/;
 function scanActivity(s, payload) {
   const st = sstate[s.id];
-  let m, finished = false, exit = 0;
+  let m, finished = false, exit = 0, blocked = false, promptAt = -1, reportAt = -1;
   while ((m = OSC133.exec(payload))) {
+    if (m[1] === "A") promptAt = m.index;
     if (m[1] === "C") st.running = true;
     else if (m[1] === "D") { if (st.running) { finished = true; exit = m[2] != null ? +m[2] : 0; } st.running = false; st.exit = m[2] != null ? +m[2] : 0; }
   }
-  if (s.id !== currentId) { st.dirty = true; if (finished) notifyDone(s, exit); }
+  while ((m = OSC7501.exec(payload))) {
+    const sm = AGENT_STATE.exec(m[1]);
+    if (!sm) continue;
+    const next = sm[1] === "clear" ? null : sm[1];
+    if (next === "blocked" && st.agent !== "blocked") blocked = true;
+    st.agent = next;
+    st.reportedAt = Date.now();
+    reportAt = m.index;
+  }
+  // A new prompt after the last report: whatever was in flight is over.
+  if (promptAt > reportAt && st.agent && st.agent !== "done" && st.agent !== "error") { st.agent = null; st.reportedAt = Date.now(); }
+  if (s.id !== currentId) {
+    st.dirty = true;
+    if (finished) notifyDone(s, exit);
+    if (blocked) notifyNeedsYou(s);
+  }
   updateBadge(s.id);
+}
+function notifyNeedsYou(s) {
+  try { if (window.Notification && Notification.permission === "granted") new Notification((s.label || "session") + " needs you", { tag: "pt-wait-" + s.id, body: "Tap to view in Pluto Remote" }); } catch {}
 }
 function notifyDone(s, exit) {
   const title = (exit === 0 ? "✓ " : "✗ ") + (s.label || "session") + " finished" + (exit ? ` (exit ${exit})` : "");
@@ -54,7 +103,9 @@ function notifyDone(s, exit) {
 }
 function badgeFor(id) {
   const st = sstate[id] || {};
-  if (st.running) return { t: "•", c: "#E0A04F" };               // running (amber)
+  if (st.agent === "blocked") return { t: "!", c: "#E0A93C" };    // an agent needs you
+  if (st.agent === "error") return { t: "✗", c: "#E05B5B" };      // an agent failed
+  if (st.running || st.agent === "working") return { t: "•", c: "#E0A04F" }; // running (amber)
   if (st.exit) return { t: "✗", c: "#E05B5B" };                  // last command failed
   if (st.dirty) return { t: "•", c: "var(--cy)" };               // unseen output
   return null;
@@ -72,7 +123,19 @@ async function openSession(s) {
   currentId = s.id; currentTab = s.tabId || s.id;
   if (sstate[s.id]) { sstate[s.id].dirty = false; sstate[s.id].exit = 0; }
   term.reset();
-  try { const sb = await rpc("scrollback_load", { tabId: currentTab }); if (sb) term.write(sb); } catch {}
+  const gen = ++replayGen;
+  try {
+    const sb = await rpc("scrollback_load", { tabId: currentTab });
+    // Another session was opened while this history loaded: it is not this
+    // view's any more.
+    if (gen !== replayGen) return;
+    if (sb) {
+      replaying = true;
+      term.write(sb, () => { if (gen === replayGen) replaying = false; });
+    } else {
+      replaying = false;
+    }
+  } catch { replaying = false; }
   try { fit.fit(); } catch {}
   sendResize();
   for (const id in tabEls) tabEls[id].classList.toggle("active", id === s.id);
@@ -98,13 +161,42 @@ function renderTabs() {
 // Subscribe to EVERY session so backgrounded ones still badge + notify; only
 // the current one is painted into the terminal. Idempotent — skips channels
 // already subscribed (so a refresh only arms the new sessions).
+// The desktop's status for a session when the list was sent, as the state the
+// phone tracks from a program's own reports.
+const STATUS_AS_AGENT = { waiting: "blocked", active: "working", done: "done" };
+function seedStatus(s) {
+  if (!sstate[s.id]) sstate[s.id] = { dirty: false, running: false, exit: 0 };
+  if (Object.prototype.hasOwnProperty.call(STATUS_AS_AGENT, s.status)) sstate[s.id].agent = STATUS_AS_AGENT[s.status];
+  else if (s.status === "idle") sstate[s.id].agent = null;
+  updateBadge(s.id);
+}
 function ensureSubscriptions() {
   for (const s of sessions) {
+    seedStatus(s);
     if (subs["pty://" + s.id]) continue;
-    if (!sstate[s.id]) sstate[s.id] = { dirty: false, running: false, exit: 0 };
     subscribe("pty://" + s.id, (payload) => { if (s.id === currentId) term.write(payload); scanActivity(s, payload); });
   }
 }
+// The desktop's status for each session, re-read while this page is showing:
+// a "waiting" the desktop saw on the screen (not in a program's own report)
+// ends with nothing in the stream to say so.
+const STATUS_REFRESH_MS = 15000;
+async function refreshStatuses() {
+  // Only on a socket that passed auth: a request sent before that (or on a
+  // closed socket) is never answered, and its pending entry would stay.
+  if (document.visibilityState !== "visible" || !socketReady || !ws || ws.readyState !== 1) return;
+  // The desktop's list trails the stream (it paces both), so a report seen
+  // from a little before this request on is newer than the list: keep it.
+  const since = Date.now() - 3000;
+  let list;
+  try { list = await rpc("list_sessions"); } catch { return; }
+  if (!Array.isArray(list)) return;
+  for (const s of list) {
+    if (s && sstate[s.id] && !((sstate[s.id].reportedAt || 0) >= since)) seedStatus(s);
+  }
+}
+setInterval(refreshStatuses, STATUS_REFRESH_MS);
+
 async function loadSessions() {
   let list = []; try { list = (await rpc("list_sessions")) || []; } catch {}
   sessions = Array.isArray(list) ? list : [];
@@ -168,6 +260,7 @@ async function registerPush() {
 }
 
 let backoff = 1000, failsBeforeReady = 0;
+let socketReady = false;        // the current socket passed auth ("ready")
 function connect(token) {
   let readyThisConn = false;
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -175,7 +268,7 @@ function connect(token) {
   ws.onopen = () => ws.send(token);
   ws.onmessage = (e) => {
     let m; try { m = JSON.parse(e.data); } catch { return; }
-    if (m.type === "ready") { readyThisConn = true; backoff = 1000; failsBeforeReady = 0;
+    if (m.type === "ready") { readyThisConn = true; socketReady = true; backoff = 1000; failsBeforeReady = 0;
       $("login").classList.add("hidden"); $("app").classList.remove("hidden");
       if (!term) initTerm(); setTimeout(() => { try { fit.fit(); sendResize(); } catch {} }, 50); onReady(); }
     else if (m.type === "rpc-result") { const p = pending[m.id]; if (p) { delete pending[m.id]; ("err" in m) ? p.reject(m.err) : p.resolve(m.ok); } }
@@ -190,6 +283,7 @@ function connect(token) {
     else if (m.type === "dropped") { if (term) term.write(`\r\n[-- ${m.frames} frames dropped --]\r\n`); }
   };
   ws.onclose = () => {
+    socketReady = false;
     subs = {};
     // A close BEFORE "ready" means auth failed — usually a stale token after the
     // server restarted (restart mints a fresh one). Back off, and after a few

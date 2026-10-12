@@ -7,7 +7,8 @@ import { useState } from "react";
 import { getLayout, leafIds } from "./splitTree";
 import { SBot, SAgents, SLink, SSerial, SWindows, SLocal, SAsk } from "./toolbarIcons.jsx";
 import { tabStatus } from "./hooks/useTabTelemetry.js";
-import { useActivitiesSnapshot } from "./activityStore.js";
+import { useActivitiesSnapshot, useDetailsSnapshot } from "./activityStore.js";
+import { tabDetail, detailLine } from "./fleetDetail.js";
 import "./terminals.css";
 
 function tabCostTokens(tab, tabCosts) {
@@ -30,6 +31,9 @@ export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocu
   // waiting-first sort all need every tab's status; the dashboard mounts only
   // while its ribbon is open.
   const tabActivities = useActivitiesSnapshot();
+  // What programs reported about themselves (OSC 7501): why a row needs you,
+  // and that a finished one failed.
+  const tabDetails = useDetailsSnapshot();
 
   const rows = [];
   let total = 0, totalTokens = 0, working = 0, waiting = 0;
@@ -95,19 +99,26 @@ export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocu
             {rows.length === 0 ? "No sessions yet. Open a tab or start an agent worktree." : "No sessions match this filter."}
           </div>
         ) : (
-          shown.map(({ panel, tab, status, cost, tokens, isActive }) => (
+          shown.map(({ panel, tab, status, cost, tokens, isActive }) => {
+            const detail = tabDetail(tab, tabDetails, tabActivities);
+            const line = detailLine(detail, status);
+            const failed = status === "done" && detail?.failed;
+            return (
             <div
               key={tab.id}
               className={isActive ? "moba-agent-row active" : "moba-agent-row"}
               onClick={() => onFocusTab?.(panel.id, tab.id)}
-              title={tab.worktree ? `worktree: ${tab.worktree.branch}` : tab.label}
+              title={(tab.worktree ? `worktree: ${tab.worktree.branch}` : tab.label) + (line ? `\n${line}` : "")}
             >
               <span
                 className="moba-agent-dot"
                 style={{ background: DOT[status], boxShadow: DOT[status] && status !== "idle" ? `0 0 6px ${DOT[status]}` : "none" }}
               />
               <span className="moba-agent-icon" style={{ display: "inline-flex", alignItems: "center" }}>{tab.worktree ? <SAgents size={11} /> : tab.connection ? <SLink size={11} /> : tab.serial ? <SSerial size={11} /> : tab.rdp ? <SWindows size={11} /> : tab.vnc ? <SLocal size={11} /> : "❯"}</span>
-              <span className="moba-agent-name">{tab.worktree ? tab.worktree.branch : tab.label}</span>
+              <span className="moba-agent-name">
+                {tab.worktree ? tab.worktree.branch : tab.label}
+                {line && <span className="moba-agent-msg"> · {line}</span>}
+              </span>
               {tokens > 0 && <span className="moba-agent-cost" title={`${tokens.toLocaleString()} tokens`} style={{ opacity: 0.7 }}>{fmtTokens(tokens)}t</span>}
               {cost > 0 && <span className="moba-agent-cost">${cost.toFixed(2)}</span>}
               {onSummarize && (
@@ -128,9 +139,10 @@ export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocu
                   diff
                 </button>
               )}
-              <span className="moba-agent-status">{LABEL[status]}</span>
+              <span className="moba-agent-status" style={failed ? { color: "var(--phn-danger, #e5534b)" } : undefined}>{failed ? "failed" : LABEL[status]}</span>
             </div>
-          ))
+            );
+          })
         )}
       </div>
       {(total > 0 || totalTokens > 0) && (

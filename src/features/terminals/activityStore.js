@@ -93,11 +93,71 @@ export function pruneActivities(liveIds) {
       changed = true;
     }
   }
+  let detailsChanged = false;
+  for (const id of [...details.keys()]) {
+    if (!liveIds.has(id)) {
+      details.delete(id);
+      detailsChanged = true;
+    }
+  }
+  if (detailsChanged) {
+    detailVersion++;
+    fire(detailListeners);
+  }
   if (changed) {
     version++;
     for (const set of paneListeners.values()) fire(set);
     notifyAny();
   }
+}
+
+// ── Program detail (OSC 7501) ───────────────────────────────────────────────
+// What a program reported about itself (programStatus.js): its state, the
+// blocked kind, its app name and its message. Kept apart from the activity
+// strings so their consumers and cached snapshots are untouched; the fleet
+// surfaces read it to say WHY a pane needs you, and that it failed.
+
+const details = new Map(); // paneId -> { state, kind?, app?, msg? }
+let detailVersion = 0;
+let detailSnapshot = { version: -1, value: {} };
+const detailListeners = new Set();
+
+function sameDetail(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.state === b.state && a.kind === b.kind && a.app === b.app && a.msg === b.msg;
+}
+
+export function setPaneDetail(paneId, detail) {
+  if (!paneId) return;
+  const prev = details.get(paneId) || null;
+  const next = detail
+    ? { state: detail.state, kind: detail.kind, app: detail.app, msg: detail.msg }
+    : null;
+  if (sameDetail(prev, next)) return;
+  if (next) details.set(paneId, next);
+  else details.delete(paneId);
+  detailVersion++;
+  fire(detailListeners);
+}
+
+export function getPaneDetail(paneId) {
+  return details.get(paneId) || null;
+}
+
+function getDetailSnapshot() {
+  if (detailSnapshot.version !== detailVersion) {
+    detailSnapshot = { version: detailVersion, value: Object.fromEntries(details) };
+  }
+  return detailSnapshot.value;
+}
+
+/// {paneId: detail} for the panes whose program reports, cached per version.
+export function useDetailsSnapshot() {
+  return useSyncExternalStore((cb) => {
+    detailListeners.add(cb);
+    return () => detailListeners.delete(cb);
+  }, getDetailSnapshot);
 }
 
 // ── Imperative reads (used inside version-subscribed renders) ───────────────
@@ -142,6 +202,13 @@ export function useTabActivity(tabId) {
 function subscribeAny(cb) {
   anyListeners.add(cb);
   return () => anyListeners.delete(cb);
+}
+
+/// Called on every activity change, outside React (the phone session list
+/// re-sends itself with each pane's status without re-rendering the app).
+/// Returns the unsubscribe.
+export function subscribeActivities(cb) {
+  return subscribeAny(cb);
 }
 
 function getMapSnapshot() {
@@ -226,4 +293,12 @@ export function __resetActivityStore() {
   anyListeners.clear();
   mapSnapshot = { version: -1, value: {} };
   rollupSnapshot = { version: -1, value: {} };
+  details.clear();
+  detailVersion = 0;
+  detailSnapshot = { version: -1, value: {} };
+  detailListeners.clear();
+}
+
+export function __testGetDetails() {
+  return getDetailSnapshot();
 }

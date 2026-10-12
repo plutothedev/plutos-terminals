@@ -727,6 +727,7 @@
   color: var(--phn-text-active, #e6e6e6);
 }
 .moba-agent-cost { font-size: 10px; color: #5fd75f; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.moba-agent-msg { font-size: 11px; color: var(--phn-text-dim, #888); }
 .moba-agent-status { font-size: 9px; color: var(--phn-text-dim, #888); flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.4px; }
 .moba-agent-diff {
   flex-shrink: 0;
@@ -989,6 +990,7 @@
 .moba-home-session-dot { width: 7px; height: 7px; border-radius: 50%; background: #3c3c3c; flex-shrink: 0; }
 .moba-home-session-dot.active { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
 .moba-home-session-dot.done { background: #34d399; box-shadow: 0 0 6px #34d399; }
+.moba-home-session-dot.waiting { background: #e0a93c; box-shadow: 0 0 0 2px rgba(224, 169, 60, 0.35), 0 0 6px #e0a93c; }
 
 /* ── Collapsed side-panel rail (click to re-expand) ──────────────────── */
 .moba-railcol {

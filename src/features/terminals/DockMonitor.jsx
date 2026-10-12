@@ -5,7 +5,8 @@
 // line. Read-only; no extra polling of its own.
 
 import { ACTIVITY_RANK, tabStatus } from "./hooks/useTabTelemetry.js";
-import { useActivitiesSnapshot } from "./activityStore.js";
+import { useActivitiesSnapshot, useDetailsSnapshot } from "./activityStore.js";
+import { tabDetail, detailLine } from "./fleetDetail.js";
 
 function loadColor(p) {
   return p < 60 ? "#6FB85C" : p < 85 ? "#E0A93C" : "#E0574A";
@@ -32,6 +33,7 @@ export default function DockMonitor({ sysStats, panels }) {
   // Whole-map subscription (P2-T1) — this dock is conditionally mounted, so
   // the blast radius of a flip is one open panel, not the app.
   const activities = useActivitiesSnapshot();
+  const details = useDetailsSnapshot();
   const sessions = [];
   (panels || []).forEach((pan) =>
     (pan.tabs || []).forEach((t) => sessions.push(t))
@@ -93,21 +95,25 @@ export default function DockMonitor({ sysStats, panels }) {
           const kind = s.home ? "home" : s.worktree ? "agent" : s.rdp ? "rdp" : s.vnc ? "vnc" : s.connection ? "ssh" : s.serial ? "serial" : "local";
           // Display verbs (running / finished / idle + "needs you") — the
           // internal state keys (waiting/active/done/idle) stay untouched.
+          const detail = tabDetail(s, details, activities);
+          const line = detailLine(detail, st);
+          const failed = st === "done" && detail?.failed;
           const label =
             st === "waiting" ? "needs you"
               : st === "active" ? "running"
+              : failed ? "failed"
               : st === "done" ? "finished"
               : st;
           return (
             <div
               key={s.id}
               className={`phn-mon-row${st === "waiting" ? " is-waiting" : ""}`}
-              title={st === "waiting" ? `${s.label}: waiting for your approval` : `${s.label}: ${label}`}
+              title={line ? `${s.label}: ${label}. ${line}` : st === "waiting" ? `${s.label}: waiting for your approval` : `${s.label}: ${label}`}
             >
               <span className="dot" style={{ background: DOT[st] || DOT.idle }} />
               <span className="nm">{s.label}</span>
               <span className="kind">{kind}</span>
-              <span className="st" style={st === "waiting" ? { color: DOT.waiting } : undefined}>{label}</span>
+              <span className="st" style={st === "waiting" ? { color: DOT.waiting } : failed ? { color: "var(--phn-danger, #e5534b)" } : undefined}>{label}</span>
             </div>
           );
         })

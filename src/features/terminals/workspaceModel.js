@@ -8,6 +8,7 @@
 
 import { freshId } from "./ids.js";
 import { leafIds } from "./splitTree";
+import { stripAgentSessions } from "./agentLaunch.js";
 
 export function defaultPanel() {
   const tabId = freshId("tab");
@@ -106,7 +107,10 @@ export function cloneWorkspaceFresh(ws) {
     const newPanelId = freshId("panel");
     if (p.id === ws.activePanelId) newActivePanelId = newPanelId;
     let newActiveTabId = null;
-    const tabs = (p.tabs || []).map((t) => {
+    const tabs = (p.tabs || []).map((src) => {
+      // A loaded workspace is a fresh instance: its panes start their own
+      // conversations (agentLaunch.js stripAgentSessions).
+      const t = stripAgentSessions(src);
       const newTabId = freshId("tab");
       if (t.id === p.activeTabId) newActiveTabId = newTabId;
       // Strip `worktree`: a loaded workspace tab is a fresh instance, and a live

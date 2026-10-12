@@ -300,6 +300,7 @@ pub fn run() {
             commands::git_diff,
             commands::gh_pr_create,
             commands::notify,
+            commands::claude_session_exists,
             set_summon_shortcut,
             sysstats::system_stats,
             commands::list_directory,

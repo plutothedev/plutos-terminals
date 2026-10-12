@@ -33,7 +33,7 @@ import { getLayout, leafIds, leaves } from "./splitTree.js";
 // its leaf. These are the one place that rule lives, so what a pane spawns
 // (TerminalPanel), which machine a broadcast keystroke reaches (the broadcast
 // picker) and what the dock tools connect to cannot disagree.
-const SPAWN_FIELDS = ["cwd", "connection", "serial", "startCommands", "systemPrompt"];
+const SPAWN_FIELDS = ["cwd", "connection", "serial", "startCommands", "systemPrompt", "agentSession"];
 
 // The spawn fields of a non-root leaf, for a caller that already holds it.
 export function leafSpawnConfig(leaf) {

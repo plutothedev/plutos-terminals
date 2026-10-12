@@ -18,6 +18,7 @@ import { freshId } from "../ids.js";
 import { defaultPanel, renumberDefaultLabels, removeTabsFromWorkspace } from "../workspaceModel.js";
 import { isSpecialTab } from "../paneIds.js";
 import { paneSpawnConfig } from "../activePane.js";
+import { withPaneAgentSession, stripAgentSessions } from "../agentLaunch.js";
 import { getLayout, leafIds, leaves, splitLeaf, removeLeaf, setRatio, equalizeRatios, mapLeaves } from "../splitTree";
 import { MAX_PANELS } from "../grid";
 import { humanizeError } from "../errorText.js";
@@ -300,7 +301,7 @@ export function useWorkspaceTree({ state, persist, toast }) {
     // notebook tab is bound 1:1 to a file, and two live NotebookViews on one
     // file race on save (last-writer-wins clobber, once the C-4 write path
     // lands). The copy is a plain tab.
-    const copy = { ...src, id: freshId("tab"), worktree: undefined, notebook: undefined, layout: undefined, activePaneId: undefined };
+    const copy = { ...src, id: freshId("tab"), worktree: undefined, notebook: undefined, layout: undefined, activePaneId: undefined, agentSession: undefined };
     // Carry the source tab's transient SSH password (in-memory bridge, keyed by
     // tab id) to the copy — same host/user/config, so the duplicate can spawn
     // without re-prompting for a password the user just typed.
@@ -329,7 +330,9 @@ export function useWorkspaceTree({ state, persist, toast }) {
     if (src.home) { toast.info("Open a session in this tab first, then detach it."); return; }
     const winId = `${Date.now().toString(36)}`.slice(-6);
     const newPanelId = freshId("panel");
-    const tabCopy = { ...src };
+    // A fresh process in the new window: it starts its own conversations
+    // rather than resuming this window's (agentLaunch.js stripAgentSessions).
+    const tabCopy = stripAgentSessions(src);
     const newState = {
       panels: [{ id: newPanelId, tabs: [tabCopy], activeTabId: tabCopy.id }],
       activePanelId: newPanelId,
@@ -634,10 +637,18 @@ export function useWorkspaceTree({ state, persist, toast }) {
     persist({ ...st, panels, activePanelId });
   }, [persist]);
 
+  // A pane's Claude Code conversation (agentLaunch.js), kept as a spawn field
+  // so a restart can resume it. Functional update: a spawn that resolves
+  // after other edits must not write back a stale tree.
+  const setPaneAgentSession = useCallback((paneId, session) => {
+    persist((ts) => withPaneAgentSession(ts, paneId, session));
+  }, [persist]);
+
   return {
     setActivePanel, addPanel, closePanel,
     addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell, addNotebookTab,
     closeTab, closeTabs, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
     panelIdForTab, splitPane, closePane, activatePane, setPaneRatio, equalizePanes, moveTabIntoSplit,
+    setPaneAgentSession,
   };
 }

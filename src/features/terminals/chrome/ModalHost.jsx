@@ -235,6 +235,8 @@ function ModalHost({
         <SessionSummary
           open={!!summary}
           text={summary?.text || ""}
+          sourceId={summary?.sourceId || null}
+          panels={panels}
           onClose={() => setSummary(null)}
         />
       )}

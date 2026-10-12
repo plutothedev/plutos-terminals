@@ -8,7 +8,7 @@ import MobaHomeScreen from "./MobaHomeScreen";
 import NotebookView from "./NotebookView";
 import ShareModal from "./ShareModal.jsx";
 import { getLayout, leafIds, isLeaf } from "./splitTree";
-import { leafSpawnConfig, paneSpawnConfig, resolveActivePaneId } from "./activePane.js";
+import { leafSpawnConfig, paneSessionLabel, paneSpawnConfig, resolveActivePaneId } from "./activePane.js";
 import { SSplitRow, SSplitCol } from "./toolbarIcons.jsx";
 import { dropZone, zoneToSplit, zonePreviewRect } from "./splitDropZones.js";
 import { isSpecialTab } from "./paneIds.js";
@@ -74,8 +74,12 @@ export const SWATCH_CLEAR_GLYPH = "#999";
 // Activity colors mirror Moon Dev: yellow while running, green when finished.
 const DOT_ACTIVE = "#FBBF24";
 const DOT_DONE = "var(--phn-success, #34D399)";
+// Blocked on you: the sidebar's and the Monitor's needs-you amber, with a
+// ring so it reads apart from the running dot by shape as well as color.
+const DOT_WAITING = "#E0A93C";
 const GLOW_ACTIVE = "rgba(251,191,36,0.45)";
 const GLOW_DONE = "rgba(52,211,153,0.55)";
+const GLOW_WAITING = "rgba(224,169,60,0.85)";
 const GLOW_ACTIVE_SHADOW = "0 0 0 1px rgba(251,191,36,0.25), 0 0 10px rgba(251,191,36,0.15)";
 const GLOW_DONE_SHADOW = "0 0 0 1px rgba(52,211,153,0.45), 0 0 12px rgba(52,211,153,0.25)";
 
@@ -247,6 +251,7 @@ function TerminalPanel({
   onReorderTab,
   onSplitDropTab,
   onSplitPane,
+  onPaneAgentSession,
   onClosePane,
   onActivatePane,
   onSetPaneRatio,
@@ -273,6 +278,24 @@ function TerminalPanel({
   // set changes.
   const onTabCostUpdateRef = useRef(onTabCostUpdate);
   onTabCostUpdateRef.current = onTabCostUpdate;
+  // Same permanent-identity rule for the per-pane conversation writers. The
+  // setter is stable (useWorkspaceTree useCallback over persist); should it
+  // ever change, the cache is dropped below and the handlers are rebuilt.
+  const agentHandlersRef = useRef(new Map());
+  const agentSessionHandlerFor = (paneId) => {
+    let h = agentHandlersRef.current.get(paneId);
+    if (!h) {
+      h = (session) => onPaneAgentSession?.(paneId, session);
+      agentHandlersRef.current.set(paneId, h);
+    }
+    return h;
+  };
+  const agentSetterRef = useRef(onPaneAgentSession);
+  useEffect(() => {
+    if (agentSetterRef.current === onPaneAgentSession) return;
+    agentSetterRef.current = onPaneAgentSession;
+    agentHandlersRef.current = new Map();
+  }, [onPaneAgentSession]);
   const costHandlersRef = useRef(new Map());
   const costHandlerFor = (paneId) => {
     let h = costHandlersRef.current.get(paneId);
@@ -296,6 +319,9 @@ function TerminalPanel({
     const live = new Set(leafKey ? leafKey.split(",") : []);
     for (const id of [...costHandlersRef.current.keys()]) {
       if (!live.has(id)) costHandlersRef.current.delete(id);
+    }
+    for (const id of [...agentHandlersRef.current.keys()]) {
+      if (!live.has(id)) agentHandlersRef.current.delete(id);
     }
   }, [leafKey]);
   const panelState = aggregatePanelActivity(panel);
@@ -758,6 +784,8 @@ function TerminalPanel({
   const boxShadow = "none";
   if (isActive && canClosePanel) {
     borderColor = "var(--phn-link, #7c9cf5)";
+  } else if (!isActive && panelState === "waiting") {
+    borderColor = GLOW_WAITING;
   } else if (!isActive && panelState === "active") {
     borderColor = GLOW_ACTIVE;
   } else if (!isActive && panelState === "done") {
@@ -819,6 +847,7 @@ function TerminalPanel({
             const paneCount = leafIds(getLayout(tab)).length;
             const dotBg = tab.color
               ? tab.color
+              : tabState === "waiting" ? DOT_WAITING
               : tabState === "active" ? DOT_ACTIVE
               : tabState === "done" ? DOT_DONE
               : "var(--phn-text-faint, #586068)";
@@ -834,7 +863,7 @@ function TerminalPanel({
                 // Explicit name. Without it the name is computed from the tab's
                 // contents, which would swallow the close button's own label
                 // and announce "Terminal 1 ✕ Close Terminal 1".
-                aria-label={paneCount > 1 ? `${tab.label}, ${paneCount} panes` : tab.label}
+                aria-label={(paneCount > 1 ? `${tab.label}, ${paneCount} panes` : tab.label) + (tabState === "waiting" ? ", needs you" : "")}
                 tabIndex={roving ? 0 : -1}
                 onMouseDown={(e) => { handleTabMouseDown(tab, e); }}
                 onClick={(e) => { e.stopPropagation(); if (!isRenamingThis) h.switchTab(tab.id); }}
@@ -856,7 +885,7 @@ function TerminalPanel({
                     (z-index:-1) paint ABOVE the tab's own box-shadow and hid it. */}
                 <span className="moba-tab-dropbar" aria-hidden="true" />
                 <span
-                  className={tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
+                  className={tabState === "waiting" ? "phn-tab-dot phn-tab-dot-waiting" : tabState === "active" ? "phn-tab-dot phn-tab-dot-active" : tabState === "done" ? "phn-tab-dot phn-tab-dot-done" : "phn-tab-dot"}
                   // Decorative: the tab carries its own aria-label, and this
                   // dot's title is a mouse tooltip, which aria-hidden leaves
                   // working. Contains nothing focusable.
@@ -869,7 +898,9 @@ function TerminalPanel({
                     borderRadius: "50%",
                     background: dotBg,
                     flexShrink: 0,
-                    boxShadow: tabState === "active"
+                    boxShadow: tabState === "waiting"
+                      ? `0 0 0 2px rgba(224,169,60,0.35), 0 0 6px ${DOT_WAITING}`
+                      : tabState === "active"
                       ? `0 0 6px ${DOT_ACTIVE}`
                       : tabState === "done"
                         ? `0 0 7px ${DOT_DONE}`
@@ -1083,6 +1114,9 @@ function TerminalPanel({
                       serial={spawn.serial}
                       startCommands={spawn.startCommands}
                       systemPrompt={spawn.systemPrompt}
+                      agentSession={spawn.agentSession}
+                      onAgentSession={agentSessionHandlerFor(node.id)}
+                      paneLabel={paneSessionLabel(tab, node.id, leafIds(getLayout(tab)).indexOf(node.id), leafIds(getLayout(tab)).length)}
                       xtermTheme={xtermTheme}
                       promptEditor={promptEditor}
                       promptEditorVim={promptEditorVim}
