@@ -34,6 +34,12 @@
   carries an agent's message.
 
 ### Fixed
+- **Copy works on Windows.** Highlight text and press Ctrl+C to copy it. With
+  nothing highlighted, Ctrl+C still stops the running program, as before. Until
+  now Ctrl+C never copied: it always stopped the program, so pressing it to
+  copy out of a Claude Code session interrupted Claude. Right-click now copies when
+  text is highlighted and pastes when it is not (it used to paste every time).
+  Ctrl+Shift+C and Ctrl+Shift+V copy and paste on every platform.
 - **A crafted notification title could run commands on macOS.** The
   desktop notification was built as an AppleScript from its text with only
   double quotes escaped. The text is now passed to the script as data.

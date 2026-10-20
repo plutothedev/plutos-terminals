@@ -64,6 +64,24 @@ function attachCanvasRenderer(entry, t) {
   });
 }
 
+// Copy the terminal's selection to the clipboard and clear it, so the next
+// Ctrl+C is ^C again (Windows Terminal behavior). Copy stays silent: no toast.
+function copySelection(t) {
+  const text = t.getSelection();
+  if (!text) return;
+  try { navigator.clipboard?.writeText(text)?.catch(() => {}); } catch { /* ignore */ }
+  t.clearSelection();
+}
+// Read the clipboard and inject it as a paste. term.paste (not a raw write)
+// so bracketed-paste mode is honored when the running program enabled it —
+// multi-line pastes stay one blob and can't auto-execute in a bracketed app.
+async function pasteInto(t) {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) { t.focus(); t.paste(text); }
+  } catch { /* clipboard unavailable / denied — no-op */ }
+}
+
 // Assistive text insertion (Wispr Flow dictation, screen readers, anything
 // that inserts through the accessibility layer). Measured on the installed
 // v0.7.0 build: a UI Automation ValuePattern.SetValue lands on xterm's helper
@@ -136,6 +154,7 @@ import { readUserSt, readWindowBlob, isPrimaryWindow } from "./storageKeys.js";
 import ErrorExplainer from "./ErrorExplainer.jsx";
 import { recordInput } from "./macros.js";
 import { actionForEvent } from "./keybindings.js";
+import { clipboardKeyAction, rightClickAction } from "./clipboardKeys.js";
 import { buildWelcomeBanner } from "./welcomeBanner.js";
 import { buildNoticeSuffix, buildPosixShellInit, buildPowerShellInit, parsePlutoCmdReport } from "./shellIntegration.js";
 import { resolveEnvFromUserState, shellNotice } from "./spawnEnv.js";
@@ -1008,6 +1027,10 @@ function TerminalPane({
       // fill, ~150MB across 8 packed panes.
       scrollback: 10000,
       allowProposedApi: true,
+      // Right-click is copy-if-selected / paste (onTermContextMenu). xterm's
+      // macOS default selects the word under the cursor first, which would turn
+      // every right-click on a Mac into "copy that word".
+      rightClickSelectsWord: false,
       // Bold text keeps its BASE color + bold weight (2026-08-14): xterm's
       // default remaps bold (1;3X) onto the bright palette slots, whose light
       // pastel values washed the whole welcome banner toward white on
@@ -1054,6 +1077,20 @@ function TerminalPane({
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type === "keydown" && actionForEvent(ev) === "find") {
         entry.ui.setSearchOpen(true); // via the table — this handler outlives the fiber
+        return false;
+      }
+      // Copy / paste keys (clipboardKeys.js). Returning false skips xterm's own
+      // handling but NOT the browser default, so preventDefault here: otherwise
+      // Ctrl+Shift+V also fires the native paste and the text lands twice.
+      const clip = clipboardKeyAction(ev, { hasSelection: term.hasSelection(), isMac: IS_MAC });
+      if (clip === "copy") {
+        ev.preventDefault();
+        copySelection(term);
+        return false;
+      }
+      if (clip === "paste") {
+        ev.preventDefault();
+        pasteInto(term);
         return false;
       }
       // Jump between command blocks (Blocks slice 4): Alt+Up / Alt+Down scrolls the
@@ -2269,20 +2306,13 @@ function TerminalPane({
       setBlockMenu({ block: hit, x: e.clientX, y: e.clientY });
       return;
     }
-    // Anywhere else → PuTTY-style right-click paste into the shell.
+    // Anywhere else → copy the selection if there is one (Windows Terminal
+    // style), otherwise PuTTY-style paste into the shell.
     e.preventDefault();
-    pasteFromClipboard();
-  };
-  // Read the clipboard and inject it as a paste. term.paste (not a raw write)
-  // so bracketed-paste mode is honored when the running program enabled it —
-  // multi-line pastes stay one blob and can't auto-execute in a bracketed app.
-  const pasteFromClipboard = async () => {
     const t = termRef.current;
     if (!t) return;
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) { t.focus(); t.paste(text); }
-    } catch { /* clipboard unavailable / denied — no-op */ }
+    if (rightClickAction({ hasSelection: t.hasSelection() }) === "copy") copySelection(t);
+    else pasteInto(t);
   };
   const copyToClipboard = (t) => { try { navigator.clipboard?.writeText(t); } catch { /* ignore */ } };
 
