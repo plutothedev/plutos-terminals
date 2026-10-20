@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.4: Copy works on Windows; agents report their own status (2026-10-20)
 
 ### Added
 - **Agents report their own status.** A program can now tell the terminal
@@ -81,6 +81,10 @@
   two pieces of the stream (including `\r\n` line endings) is still found.
   Non-streaming replies, including the agent's tool turns, are read only up
   to 4 MB.
+
+### Changed
+- rustls is 0.23.46 and quinn-proto 0.11.19, clearing nine recent advisories
+  in the TLS and QUIC networking libraries the app uses.
 
 ## v0.7.3: SSH and serial tabs fold into splits; API keys stay with their provider (2026-10-06)
 

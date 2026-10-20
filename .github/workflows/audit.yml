@@ -70,6 +70,13 @@ jobs:
       #     0.39.4). XML input is app-authored config, not hostile streams.
       #   RUSTSEC-2026-0235  rkyv OOB read on a malicious archive. Fixed >=0.8.17
       #     but parent-capped. We never deserialize untrusted rkyv archives.
+      #   RUSTSEC-2026-0367 / -0368 / -0369  zip SUID bits + symlink escapes in
+      #     ZipArchive::extract. Fixed >=9.0.0 but tauri-plugin-updater (2.14.0,
+      #     newest) pins zip ^4, Windows-only. Its one extract() call runs on a
+      #     downloaded update whose signature already verified, and only when the
+      #     bytes are a zip: our Windows update is a raw .msi (latest.json), so
+      #     the path is never reached. The `zip` feature can't be dropped: it
+      #     also carries the tar/flate2 the macOS .app.tar.gz update needs.
       - name: cargo audit
         working-directory: src-tauri
         run: >
@@ -78,3 +85,6 @@ jobs:
           --ignore RUSTSEC-2026-0194
           --ignore RUSTSEC-2026-0195
           --ignore RUSTSEC-2026-0235
+          --ignore RUSTSEC-2026-0367
+          --ignore RUSTSEC-2026-0368
+          --ignore RUSTSEC-2026-0369
