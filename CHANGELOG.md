@@ -1,5 +1,58 @@
 # Changelog
 
+## v0.7.5: RDP sign-in works; settings sync over https (2026-10-29)
+
+### Fixed
+- **RDP sign-in with Network Level Authentication works.** CredSSP binds the
+  sign-in to the server's public key, and the client gave it the whole
+  SubjectPublicKeyInfo instead of the certificate's subjectPublicKey, so a
+  server that requires NLA (the Windows default) could never accept it. The
+  trust-on-first-use pin still hashes the whole SPKI, so recorded pins in
+  `rdp-known-hosts.txt` stay valid. Checked against IronRDP's own server
+  (`tools/rdp-test-server/`, for testing by hand): NLA and TLS-only connect,
+  draw and take input; a wrong password and a changed certificate are refused.
+- **Settings sync works with an `https://` repository address.** git2 was built
+  without its https transport, so every https address failed with
+  "unsupported URL protocol". It now uses WinHTTP on Windows, SecureTransport
+  on macOS and OpenSSL on Linux; redirects stay refused and certificates are
+  checked.
+- **A dialog answered from the phone is no longer answered again.** A write
+  from the phone companion now reaches the desktop pane, which drops the
+  matched permission prompt and leaves "needs you", and typing on the phone
+  turns activity tracking on for that pane.
+- **RDP keeps RemoteFX.** The new RDP connector reads "no bitmap settings" as
+  "no codecs", which would have sent Windows servers back to legacy bitmaps;
+  the default codec list is now asked for explicitly. A malformed bitmap that
+  the session drops is followed by a full-redraw request.
+
+### Added
+- **The phone page says why push notifications are off.** A bell button shows
+  when registration fails (not on https, no browser support, permission
+  blocked, no push key, or the desktop refused it) with the reason; tapping it
+  asks for permission inside the tap, which iOS requires, and tries again.
+
+### Security
+- With no token, settings sync answers a server's sign-in challenge with the
+  system's default credentials (on Windows, the signed-in user's identity)
+  only for hosts on the user's own network; a public server is told to use an
+  access token.
+- Phone input never ends the auto-approve resume hold: whether a phone write
+  was typed is the phone's own word.
+- Web Push is done in `webpush.rs` (VAPID, RFC 8292; aes128gcm, RFC 8291/8188)
+  instead of the web-push crate, https only and with no redirects. Same TTL,
+  padding, header format and stored key format as before.
+- RDP moves to ironrdp-connector 0.12 / -session 0.13 / -blocking 0.12 and
+  sspi 0.23; with the Web Push change this removes both copies of
+  crypto-bigint flagged by RUSTSEC-2026-0387. DOMPurify 3.4.17 (three
+  advisories), rustls-webpki 0.103.16, webpki-root-certs and webpki-roots
+  1.0.11, libz-sys 1.1.31.
+- A server redirection during RDP connect is refused by name.
+
+### Known
+- An RDP server that offers only TLS gets a session without NLA, as before.
+- A server-side reactivation (for example after a resolution change on the
+  server) still ends the RDP session.
+
 ## v0.7.4: Copy works on Windows; agents report their own status (2026-10-20)
 
 ### Added
