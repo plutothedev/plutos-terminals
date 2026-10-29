@@ -112,7 +112,7 @@ describe("TerminalPane's agent wiring", () => {
   it("acknowledges on reveal, and ends in-flight reports at a prompt and at exit", () => {
     expect(between("resetActivity: prevUi?.resetActivity", "agentSession: () => agentSession")).toContain("if (ent) agentOf(ent).acknowledge();");
     expect(between('if (data === "A" || data.startsWith("A;")) {', "const b = {")).toContain("if (ent) agentOf(ent).endInFlight();");
-    expect(between("unlistenExit = await listen(", "if (!entryLive()) { try { unlistenExit(); }")).toContain("agentOf(entry).endInFlight();");
+    expect(between("unlistenExit = await listen(", "// Same late-resolution guard as unlistenData above")).toContain("agentOf(entry).endInFlight();");
   });
 
   it("feeds the heuristics to the agent, and disposes it with the pane", () => {
@@ -148,6 +148,32 @@ describe("pane labels", () => {
   });
 });
 
+describe("TerminalPane's phone input", () => {
+  const listener = () => between("unlistenPhone = await listen(`companion-input://$" + "{id}`, (e) => {", "registerDestroyHook(tabId, () => {");
+  it("drops a matched dialog and ends waiting when the phone answers", () => {
+    const l = listener();
+    expect(l).toContain("const fx = phoneInputEffect(e.payload);");
+    expect(l).toContain("if (fx.answers) {" + NL + "            entry.counters.recentOut = \"\";" + NL + "            if (activityRef.current === \"waiting\") setActivity(\"active\");");
+  });
+  it("turns tracking on for the phone's typing and its own writes, and never ends the resume hold", () => {
+    const l = listener();
+    expect(l).toContain("if (fx.typed) entry.counters.userHasTyped = true;");
+    expect(l).toContain("if (fx.started) trackerOf(entry).start();");
+    // `typed` is the phone's own word, so it cannot lift the hold.
+    expect(l).not.toContain("userInput(");
+    expect(l).not.toContain("held");
+    // It never writes, broadcasts or records: the phone already wrote.
+    for (const never of ["writeQueue", "writeBroadcast", "recordInput", "pty_write"]) expect(l).not.toContain(never);
+  });
+  it("detaches with the pane, and at once if the pane died while it attached", () => {
+    const l = listener();
+    expect(l).toContain("if (!entryLive()) { detach(unlistenData); detach(unlistenExit); detach(unlistenPhone); return; }");
+    expect(src).toContain("const detach = (unlisten) => { try { unlisten?.(); } catch { /* already detached */ } };");
+    const hook = between("registerDestroyHook(tabId, () => {" + NL + "          try { unlistenData(); } catch {}", "});");
+    expect(hook).toContain("detach(unlistenPhone);");
+  });
+});
+
 // The phone page is a plain script that boots a socket on load, so its few
 // load-bearing lines are pinned here by source too.
 describe("the phone page", () => {
@@ -155,7 +181,7 @@ describe("the phone page", () => {
   it("sends only the user's own input when xterm can tell, and clears the mark every time", () => {
     expect(app).toContain("if (typeof userSignal === \"function\") userSignal(() => { userNext = true; });");
     expect(app).toContain("const fromUser = classifies ? userNext : true;\n    userNext = false;");
-    expect(app).toContain("if (currentId && fromUser && (classifies || !replaying)) rpc(\"pty_write\"");
+    expect(app).toContain("if (currentId && fromUser && (classifies || !replaying)) rpc(\"pty_write\", { id: currentId, data: d, typed: true });");
   });
   it("drops a history load another session overtook, and only its own write ends the replay", () => {
     const open = app.slice(app.indexOf("async function openSession(s) {"));

@@ -1,6 +1,6 @@
 // (C)
 import { describe, it, expect } from "vitest";
-import { isMouseReport, isMouseClick, inputKind } from "./userInput.js";
+import { isMouseReport, isMouseClick, inputKind, phoneInputEffect } from "./userInput.js";
 
 const E = String.fromCharCode(27);
 
@@ -50,5 +50,32 @@ describe("inputKind", () => {
     expect(inputKind("1", true)).toBe("user");
     expect(inputKind(E + "[A", true)).toBe("user");
     expect(inputKind(E + "[200~text" + E + "[201~", true)).toBe("user");
+  });
+});
+
+describe("phoneInputEffect", () => {
+  const fx = (answers, typed, started) => ({ answers, typed, started });
+  it("counts typing on the phone as typing at the pane", () => {
+    expect(phoneInputEffect({ typed: true, data: "1" })).toEqual(fx(true, true, false));
+    expect(phoneInputEffect({ typed: true, data: E + "[A" })).toEqual(fx(true, true, false));
+    // A paste longer than the event carries comes with no bytes, and its length.
+    expect(phoneInputEffect({ typed: true, data: "", len: 900 })).toEqual(fx(true, true, false));
+  });
+  it("lets a snippet or cd from the phone answer and start tracking, keeping the hold", () => {
+    expect(phoneInputEffect({ typed: false, data: "cd '/tmp'\r" })).toEqual(fx(true, false, true));
+    expect(phoneInputEffect({ data: "ls" })).toEqual(fx(true, false, true));
+    expect(phoneInputEffect({ typed: "yes", data: "ls" })).toEqual(fx(true, false, true));
+  });
+  it("lets a tap answer a dialog without ending the hold, and ignores moves and focus", () => {
+    expect(phoneInputEffect({ typed: true, data: E + "[<0;22;6M" })).toEqual(fx(true, false, false));
+    expect(phoneInputEffect({ typed: true, data: E + "[<35;22;6M" })).toEqual(fx(false, false, false));
+    expect(phoneInputEffect({ typed: true, data: E + "[<64;22;6M" })).toEqual(fx(false, false, false));
+    expect(phoneInputEffect({ typed: true, data: E + "[I" })).toEqual(fx(false, false, false));
+    expect(phoneInputEffect({ typed: true, data: E + "[O" })).toEqual(fx(false, false, false));
+  });
+  it("does nothing for an empty write, which answered nothing", () => {
+    for (const p of [{ typed: true, data: "" }, { typed: false, data: "", len: 0 }, { typed: true, data: "", len: -1 }, undefined, null, "1", 7, { data: 5 }]) {
+      expect(phoneInputEffect(p), JSON.stringify(p)).toEqual(fx(false, false, false));
+    }
   });
 });

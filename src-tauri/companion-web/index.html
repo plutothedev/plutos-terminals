@@ -34,6 +34,8 @@
     .tab .badge { font-size:11px; line-height:1; }
     #status { margin-left:auto; font-size:11px; color:var(--dim); padding-right:4px; }
     #status.ok { color:#6FB85C; } #status.err { color:#E05B5B; }
+    #pushnote { padding:6px 10px; font-size:12px; color:#E05B5B; background:var(--bar);
+      border-bottom:1px solid var(--line); flex-shrink:0; }
     #term { flex:1; min-height:0; padding:6px; }
     #term .xterm { height:100%; }
     /* File browser overlay (Phase 4) */
@@ -94,7 +96,8 @@
 </head>
 <body>
   <div id="app" class="hidden">
-    <div id="bar"><span class="brand">✦ Pluto</span><span id="tabs"></span><span id="snipbtn" class="tab" title="Snippets">📋</span><span id="modelbtn" class="tab" title="Model">✦</span><span id="filesbtn" class="tab" title="Browse files">📁</span><span id="newbtn" class="tab" title="New shell on the desktop">＋</span><span id="status">…</span></div>
+    <div id="bar"><span class="brand">✦ Pluto</span><span id="tabs"></span><span id="snipbtn" class="tab" title="Snippets">📋</span><span id="modelbtn" class="tab" title="Model">✦</span><span id="filesbtn" class="tab" title="Browse files">📁</span><span id="newbtn" class="tab" title="New shell on the desktop">＋</span><span id="pushbtn" class="tab hidden" title="">🔕</span><span id="status">…</span></div>
+    <div id="pushnote" class="hidden" title="Tap to close"></div>
     <div id="term"></div>
     <div id="files" class="hidden">
       <div id="filesbar">

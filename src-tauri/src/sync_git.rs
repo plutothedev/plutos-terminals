@@ -48,6 +48,11 @@ fn callbacks(pat: Option<String>) -> RemoteCallbacks<'static> {
         if allowed.is_ssh_key() {
             return Cred::ssh_key_from_agent(username.unwrap_or("git"));
         }
+        // An ssh:// address with no user in it: libgit2 asks for the user
+        // name first, then for the key above.
+        if allowed.is_username() {
+            return Cred::username(username.unwrap_or("git"));
+        }
         // `url` is the address credentials would travel to (see above): the
         // token, or with none the system's default ones (on Windows libgit2
         // can answer a Negotiate or NTLM challenge with the signed-in user's
@@ -61,9 +66,37 @@ fn callbacks(pat: Option<String>) -> RemoteCallbacks<'static> {
         if let Some(ref token) = pat {
             return Cred::userpass_plaintext(username.unwrap_or("git"), token);
         }
+        // With no token, the system's default credentials only inside the
+        // user's own network (default_credentials_ok): over https on Windows
+        // they are the signed-in user's identity, answered to any server that
+        // asks.
+        if !default_credentials_ok(url) {
+            return Err(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::Http, SYNC_NEEDS_TOKEN));
+        }
         Cred::default()
     });
     cb
+}
+
+/// Whether the system's default credentials may answer `url`'s sign-in
+/// challenge: only a host plain http may carry credentials to
+/// (cleartext_ok_for_sync), this machine or a network the user owns. On
+/// Windows libgit2's https transport (WinHTTP) answers a Negotiate or NTLM
+/// challenge with them, and an NTLM answer can be cracked offline or relayed,
+/// so a public server that asks gets nothing and the user is told to add a
+/// token. Builds without https only ever sent them over plain http, which
+/// repo_url_for_git and the callback already held to the same hosts.
+///
+/// One thing on Windows the app cannot set: WinHTTP opens every session on the
+/// machine's WinHTTP proxy (`netsh winhttp`, direct unless an administrator
+/// set one), and libgit2 has no option to turn that off. https goes through it
+/// as an encrypted tunnel; a plain-http sync to a host on the user's own
+/// network would reach that proxy in the clear, token included.
+fn default_credentials_ok(url: &str) -> bool {
+    reqwest::Url::parse(url.trim())
+        .ok()
+        .and_then(|u| u.host_str().map(cleartext_ok_for_sync))
+        .unwrap_or(false)
 }
 
 /// A repository URL in the one spelling the app hands to libgit2. An http(s)
@@ -76,6 +109,8 @@ fn callbacks(pat: Option<String>) -> RemoteCallbacks<'static> {
 /// refused (cleartext_ok_for_sync), credentials or not: it would carry them,
 /// a token or a user:password in the URL alike, in clear text. Anything else
 /// (ssh, scp-style, file) is left as typed, trimmed.
+/// On Windows a plain-http sync also passes through the machine's WinHTTP
+/// proxy when an administrator set one (see default_credentials_ok).
 fn repo_url_for_git(url: &str) -> Result<String, String> {
     let raw = url.trim();
     let prefix = raw.get(..8).unwrap_or(raw).to_ascii_lowercase();
@@ -122,7 +157,7 @@ fn check_origin(repo: &Repository) -> Result<(), String> {
 /// sentence: git2's Display adds "; class=Http (34)", which reads as noise and
 /// pushes the advice past the length the UI shows in full.
 fn callback_refusal(e: &git2::Error) -> Option<String> {
-    [PLAIN_HTTP_REFUSED, SYNC_URL_UNREADABLE, SYNC_URL_REWRITTEN]
+    [PLAIN_HTTP_REFUSED, SYNC_URL_UNREADABLE, SYNC_URL_REWRITTEN, SYNC_NEEDS_TOKEN]
         .contains(&e.message())
         .then(|| e.message().to_string())
 }
@@ -163,6 +198,8 @@ const PLAIN_HTTP_REFUSED: &str = "Sync refused: plain http to this host could se
 const SYNC_URL_UNREADABLE: &str = "Sync refused: the repository address could not be read as a URL.";
 const SYNC_ORIGIN_CHANGED: &str =
     "Sync refused: the local copy points somewhere the settings do not. Save the repository address in Settings again.";
+const SYNC_NEEDS_TOKEN: &str =
+    "Sync refused: this server asks for a sign-in. Add an access token in Settings.";
 const SYNC_URL_REWRITTEN: &str =
     "Sync refused: your git config rewrites the repository address (insteadOf or pushurl), so the app cannot check where it goes.";
 
@@ -768,12 +805,77 @@ mod tests {
     fn every_refusal_from_inside_the_callback_comes_back_as_its_own_sentence() {
         // The unreadable one is reachable too: a rewrite to a host with an
         // encoded NUL, which libgit2 cuts short and the URL parser refuses.
-        for sentence in [PLAIN_HTTP_REFUSED, SYNC_URL_UNREADABLE, SYNC_URL_REWRITTEN] {
+        for sentence in [PLAIN_HTTP_REFUSED, SYNC_URL_UNREADABLE, SYNC_URL_REWRITTEN, SYNC_NEEDS_TOKEN] {
             let e = git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::Http, sentence);
             assert_eq!(callback_refusal(&e).as_deref(), Some(sentence));
         }
         let other = git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::Http, "unexpected http status code: 500");
         assert_eq!(callback_refusal(&other), None);
+    }
+
+    #[test]
+    fn libgit2_has_its_https_transport() {
+        // Without git2's https feature every https:// sync address failed
+        // with "unsupported URL protocol".
+        assert!(git2::Version::get().https());
+    }
+
+    #[test]
+    fn default_credentials_stay_inside_your_own_network() {
+        for url in [
+            "https://github.com/me/sync.git",
+            "https://gitlab.example.com/me/sync.git",
+            "https://203.0.113.9/sync.git",
+            "https://nas./sync.git",
+            "https://localhost.evil.example/sync.git",
+            "https://[2001:db8::1]/sync.git",
+            "not a url",
+            "",
+        ] {
+            assert!(!default_credentials_ok(url), "{url}");
+        }
+        for url in [
+            "https://localhost/me/sync.git",
+            "https://127.0.0.1:8443/sync.git",
+            "https://192.168.1.20/git/sync.git",
+            "https://10.0.0.5/sync.git",
+            "https://100.101.102.103/sync.git",
+            "https://nas.local/sync.git",
+            "https://nas/sync.git",
+            "https://gitea.lan:3000/me/sync.git",
+            "http://intranet.internal/sync.git",
+        ] {
+            assert!(default_credentials_ok(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn with_no_token_a_public_server_gets_no_default_credentials() {
+        // Pinned by source: a public https server asking for a sign-in is more
+        // than this suite can stand up.
+        let src = include_str!("sync_git.rs").replace("\r\n", "\n");
+        let from = &src[src.find("fn callbacks(").unwrap()..];
+        let body = &from[..from.find("\n}\n").unwrap()];
+        let gate = body.find("if !default_credentials_ok(url) {").expect("the gate");
+        let refusal = body.find("SYNC_NEEDS_TOKEN").expect("the refusal");
+        let default = body.find("Cred::default()").expect("the default credentials");
+        assert!(gate < refusal && refusal < default);
+        assert!(body.find("credentials_refusal(url)").unwrap() < gate);
+    }
+
+    // Needs the internet, so it is run by hand:
+    // cargo test --lib sync_git::tests::fetches_over_https -- --ignored
+    #[test]
+    #[ignore]
+    fn fetches_over_https() {
+        let dir = std::env::temp_dir().join(format!("pluto-sync-https-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let repo = git2::Repository::init(&dir).unwrap();
+        let mut remote = repo.remote("origin", "https://github.com/octocat/Hello-World.git").unwrap();
+        let mut fo = fetch_options(None);
+        remote.fetch(&["refs/heads/master"], Some(&mut fo), None).unwrap();
+        assert!(repo.find_reference("refs/remotes/origin/master").is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -786,6 +888,9 @@ mod tests {
         let body = &from[..from.find("\n}\n").unwrap()];
         assert!(body.contains("if allowed.is_ssh_key() {"));
         assert!(body.contains(r#"return Cred::ssh_key_from_agent(username.unwrap_or("git"));"#));
+        // An ssh:// address with no user gets one, not the token sentence.
+        let user = body.find(r#"return Cred::username(username.unwrap_or("git"));"#).expect("the user name");
+        assert!(user < body.find("credentials_refusal(url)").unwrap());
     }
 
     #[test]

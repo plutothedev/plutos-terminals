@@ -68,3 +68,28 @@ export function inputKind(data, fromUser) {
   if (isMouseReport(data)) return "mouse";
   return "user";
 }
+
+// What a write from the phone companion means for this pane, which never sees
+// it go by (companion.rs sends `companion-input://<id>` once it landed):
+// - answers: it may have answered a dialog, so a matched prompt is dropped and
+//   "waiting" ends. Anything but a mouse move, wheel or focus report.
+// - typed: the phone says a person typed it on its own terminal: activity
+//   tracking turns on, as for typing here. The resume hold stays (the flag is
+//   the phone's word; TerminalPane).
+// - started: the phone put the text there (a snippet, "cd here"), like the
+//   desktop's own snippets: tracking starts.
+// The payload carries the bytes only for a short write; a longer one is a
+// paste, never a mouse report, and `len` gives its length either way. An
+// empty write answered nothing.
+export function phoneInputEffect(payload) {
+  const data = typeof payload?.data === "string" ? payload.data : "";
+  const len = Number.isInteger(payload?.len) ? payload.len : data.length;
+  const typed = payload?.typed === true;
+  const none = { answers: false, typed: false, started: false };
+  if (len <= 0) return none;
+  if (data === ESC + "[I" || data === ESC + "[O") return none;
+  const kind = inputKind(data, true);
+  if (kind === "mouse") return none;
+  if (kind === "click") return { answers: true, typed: false, started: false };
+  return { answers: true, typed, started: !typed };
+}

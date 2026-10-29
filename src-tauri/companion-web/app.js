@@ -53,7 +53,7 @@ function initTerm() {
     userNext = false;
     // With the signal, the user's typing goes through even while history is
     // written; without it, nothing does, since a reply cannot be told apart.
-    if (currentId && fromUser && (classifies || !replaying)) rpc("pty_write", { id: currentId, data: d });
+    if (currentId && fromUser && (classifies || !replaying)) rpc("pty_write", { id: currentId, data: d, typed: true });
   });
   window.addEventListener("resize", () => { try { fit.fit(); sendResize(); } catch {} });
 }
@@ -206,9 +206,10 @@ async function loadSessions() {
 
 async function onReady() {
   status("connected", "ok");
+  resetPush();
   // Learn the desktop shell so "cd here" quotes correctly (PowerShell vs POSIX).
   try { const sh = await rpc("default_shell"); shellKind = /powershell|pwsh/i.test(sh) ? "pwsh" : /cmd(\.exe)?$/i.test(sh) ? "cmd" : "posix"; } catch {}
-  registerPush(); // Phase 5: subscribe for push-when-closed (HTTPS only)
+  registerPush(false); // Phase 5: subscribe for push-when-closed (HTTPS only)
   try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
   await loadSessions();
   if (!sessions.length) { status("no sessions on desktop", "err"); return; }
@@ -235,29 +236,107 @@ async function newSession() {
 // ── Web Push (Phase 5) ──────────────────────────────────────────────────────
 // Over HTTPS (Tailscale Serve fronts TLS), register the service worker and
 // subscribe so the desktop can ping this phone when a command finishes with the
-// tab closed. Best-effort: needs a secure context + the user granting permission.
+// tab closed. Needs a secure context + the user granting permission. When it
+// cannot be set up, the 🔕 button says why, and tapping it tries again: iOS
+// only asks for notification permission from a tap, so the try at connect
+// cannot be the only one. The reason goes on a line of its own under the bar,
+// since the status slot is too narrow on a phone to show it.
 function urlB64ToUint8Array(b64) {
   const pad = "=".repeat((4 - (b64.length % 4)) % 4);
   const s = (b64 + pad).replace(/-/g, "+").replace(/_/g, "/");
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
-async function registerPush() {
+const errText = (e) => String((e && e.message) || e || "unknown error").slice(0, 160);
+// Why push is not on, or null once this phone is registered with the desktop.
+async function setUpPush() {
+  if (location.protocol !== "https:") return "Push needs the https address (Tailscale) of the desktop.";
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !window.Notification) {
+    // iPadOS reports a Mac, which has no touch points.
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+    return ios
+      ? "On iPhone, add this page to the Home Screen and open it from there to get notifications."
+      : "This browser cannot receive push notifications.";
+  }
+  let reg;
+  try { reg = await navigator.serviceWorker.register("/sw.js"); }
+  catch (e) { return "The notification worker did not start: " + errText(e); }
+  // Asked at connect too, as before: Android shows the prompt then, and iOS
+  // ignores a request that did not come from a tap.
+  if (Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch {}
+  }
+  if (Notification.permission === "denied") return "Notifications are blocked for this page in the browser's settings.";
+  if (Notification.permission !== "granted") return "Tap to turn on notifications.";
+  let sub;
   try {
-    if (location.protocol !== "https:") return;           // push needs a secure context
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
-    const reg = await navigator.serviceWorker.register("/sw.js");
-    if (window.Notification && Notification.permission === "default") await Notification.requestPermission();
-    if (!window.Notification || Notification.permission !== "granted") return;
-    let sub = await reg.pushManager.getSubscription();
+    sub = await reg.pushManager.getSubscription();
     if (!sub) {
-      const pubKey = await rpc("vapid_public_key");
-      if (!pubKey) return;
+      let pubKey = null;
+      try { pubKey = await rpc("vapid_public_key"); }
+      catch (e) { return "The desktop has no push key: " + errText(e); }
+      if (!pubKey) return "The desktop has no push key.";
       sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(pubKey) });
     }
-    await rpc("push_subscribe", { subscription: sub.toJSON() });
-    status("push on", "ok");
-  } catch { /* push is best-effort */ }
+  } catch (e) { return "The browser refused the push subscription: " + errText(e); }
+  try { await rpc("push_subscribe", { subscription: sub.toJSON() }); }
+  catch (e) { return "The desktop refused this phone's push registration: " + errText(e); }
+  return null;
 }
+let pushTry = null;             // the registration in flight, so taps cannot stack
+let pushGen = 0;                // which socket a registration belongs to
+let pushTapWait = null;         // taps made during a try, waiting as one
+// A new socket starts clean: a try the last one took down may never settle
+// (its rpc reply is gone), and one that does settle late must not touch the
+// lock or the page.
+function resetPush() { pushGen++; pushTry = null; pushTapWait = null; }
+function registerPush(fromTap) {
+  // A tap during a try waits for it, then tries again itself: that try may
+  // have run before the tap granted permission, and only a tap's own try
+  // shows its reason. Taps made meanwhile share the one retry.
+  if (pushTry) {
+    if (!fromTap) return pushTry;
+    if (!pushTapWait) {
+      const wait = pushTry.then(() => {
+        if (pushTapWait === wait) pushTapWait = null;
+        return registerPush(true);
+      });
+      pushTapWait = wait;
+    }
+    return pushTapWait;
+  }
+  const gen = pushGen;
+  const mine = setUpPush().catch(errText).then((problem) => {
+    if (pushTry === mine) pushTry = null;
+    if (gen !== pushGen) return problem;
+    // Over plain http push cannot work and the phone cannot change that, so
+    // the button (which would crowd a phone's bar for good) stays away.
+    const btn = $("pushbtn");
+    btn.classList.toggle("hidden", !problem || location.protocol !== "https:");
+    btn.title = problem || "";
+    if (!problem) { showPushNote(null); status("push on", "ok"); }
+    else if (fromTap) showPushNote(problem);
+    return problem;
+  });
+  pushTry = mine;
+  return mine;
+}
+// iOS grants the permission only inside the tap itself, so it is asked
+// before anything is awaited (setUpPush awaits the worker first).
+$("pushbtn").onclick = () => {
+  if (!socketReady || !ws || ws.readyState !== 1) return;
+  let asked = null;
+  try { if (window.Notification && Notification.permission === "default") asked = Notification.requestPermission(); } catch {}
+  Promise.resolve(asked).catch(() => {}).then(() => registerPush(true));
+};
+// The note takes height from the terminal, so the terminal is fitted again.
+function showPushNote(text) {
+  const note = $("pushnote");
+  const wasShown = !note.classList.contains("hidden");
+  if (text) note.textContent = text;
+  note.classList.toggle("hidden", !text);
+  if (wasShown !== !!text) { try { fit.fit(); sendResize(); } catch {} }
+}
+$("pushnote").onclick = () => showPushNote(null);
 
 let backoff = 1000, failsBeforeReady = 0;
 let socketReady = false;        // the current socket passed auth ("ready")

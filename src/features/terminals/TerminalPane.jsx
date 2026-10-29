@@ -3,7 +3,7 @@ import { invoke } from "@backend";
 import { listen } from "@backend";
 import { setPaneActivity, setPaneDetail } from "./activityStore.js";
 import { createPaneAgent } from "./paneAgent.js";
-import { inputKind, watchUserInput } from "./userInput.js";
+import { inputKind, phoneInputEffect, watchUserInput } from "./userInput.js";
 import { createQuietTracker } from "./quietTracker.js";
 import { createWriteQueue } from "./ptyWriteQueue.js";
 import { isSessionId, planAgentLaunch } from "./agentLaunch.js";
@@ -1009,6 +1009,7 @@ function TerminalPane({
     // teardown via its dedicated destroy hook + the spawn-catch fast path)
     let restoringScrollback = false; // suppress OSC 133 while replaying old output
     let unlistenExit = null;
+    let unlistenPhone = null;
     const cmdsAtSpawn = Array.isArray(startCommandsRef.current) ? [...startCommandsRef.current] : [];
 
     const term = new Terminal({
@@ -1785,15 +1786,35 @@ function TerminalPane({
           setActivity("done");
           agentOf(entry).endInFlight(); // and so did whatever it reported
         });
-        // Same late-resolution guard as unlistenData above.
-        if (!entryLive()) { try { unlistenExit(); } catch {} return; }
+        // Same late-resolution guard as unlistenData above (both are live).
+        const detach = (unlisten) => { try { unlisten?.(); } catch { /* already detached */ } };
+        if (!entryLive()) { detach(unlistenData); detach(unlistenExit); return; }
 
-        // Both listeners live — detach only on real destroy. LIFO runs this
+        // The phone companion writes to this PTY without this pane seeing it
+        // (companion.rs). That write may have answered a dialog auto-approve
+        // still has matched, and typing there turns activity tracking on
+        // (phoneInputEffect). It never ends the resume hold: whether the
+        // phone's write was typed is the phone's own word, which anyone with
+        // the companion token could forge, so only typing here lifts it.
+        unlistenPhone = await listen(`companion-input://${id}`, (e) => {
+          if (!entryLive()) return;
+          const fx = phoneInputEffect(e.payload);
+          if (fx.answers) {
+            entry.counters.recentOut = "";
+            if (activityRef.current === "waiting") setActivity("active");
+          }
+          if (fx.typed) entry.counters.userHasTyped = true;
+          if (fx.started) trackerOf(entry).start();
+        });
+        if (!entryLive()) { detach(unlistenData); detach(unlistenExit); detach(unlistenPhone); return; }
+
+        // All listeners live — detach only on real destroy. LIFO runs this
         // hook FIRST: stop consuming events, then the spawn hook kills the
         // PTY, then dispose.
         registerDestroyHook(tabId, () => {
           try { unlistenData(); } catch {}
           try { unlistenExit(); } catch {}
+          detach(unlistenPhone);
         });
 
         // Both listeners are live — tell the backend it may begin streaming.

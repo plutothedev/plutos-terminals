@@ -952,8 +952,18 @@ fn dispatch(
             // Sync core — this dispatcher already runs on the blocking pool.
             serde_json::to_value(crate::sysstats::system_stats_sync()).map_err(|e| e.to_string())
         }
-        "pty_write" => crate::pty::pty_write_sync(app.state(), s("id")?, s("data")?)
-            .map(|_| serde_json::Value::Null),
+        "pty_write" => {
+            let (id, data) = (s("id")?, s("data")?);
+            let typed = args.get("typed").and_then(|v| v.as_bool()) == Some(true);
+            crate::pty::pty_write_sync(app.state(), id.clone(), data.clone())?;
+            // Tell the desktop pane, which never sees this write: it may have
+            // answered a dialog auto-approve still has matched. An empty write
+            // answered nothing, so it is not reported.
+            if !data.is_empty() {
+                let _ = app.emit(&format!("companion-input://{id}"), phone_input_payload(&data, typed));
+            }
+            Ok(serde_json::Value::Null)
+        }
         "pty_resize" => {
             let cols = args
                 .get("cols")
@@ -969,6 +979,19 @@ fn dispatch(
         other => Err(format!("unsupported command: {other}")),
     }
 }
+
+/// What a phone write tells the desktop pane (`companion-input://<id>`):
+/// whether a person typed it on the phone's terminal (`typed`, sent by its
+/// onData) or the phone put it there (a snippet, "cd here"), and, for a short
+/// write only, the bytes, so the pane can tell a mouse report from typing. A
+/// longer write is never a mouse report, and a paste stays off the event;
+/// `len` says how long it was either way. Never relayed to phones
+/// (relay_channel_allowed).
+fn phone_input_payload(data: &str, typed: bool) -> serde_json::Value {
+    let short = if data.len() <= PHONE_INPUT_ECHO_MAX { data } else { "" };
+    serde_json::json!({ "typed": typed, "data": short, "len": data.len() })
+}
+const PHONE_INPUT_ECHO_MAX: usize = 64;
 
 /// Start the companion server on `port`. Returns `(port, token)`. Errors if a
 /// server is already running or the bind fails (e.g. port in use).
@@ -1745,6 +1768,31 @@ mod relay_backpressure_tests {
     }
 
     #[test]
+    fn a_phone_write_tells_the_pane_who_wrote_it_and_keeps_a_paste_off_the_event() {
+        use super::phone_input_payload;
+        let click = "\u{1b}[<0;10;5M";
+        assert_eq!(phone_input_payload(click, true), serde_json::json!({ "typed": true, "data": click, "len": click.len() }));
+        assert_eq!(phone_input_payload("ls\r", false), serde_json::json!({ "typed": false, "data": "ls\r", "len": 3 }));
+        let paste = "x".repeat(65);
+        assert_eq!(phone_input_payload(&paste, true), serde_json::json!({ "typed": true, "data": "", "len": 65 }));
+        assert_eq!(phone_input_payload(&"y".repeat(64), true)["data"], "y".repeat(64));
+    }
+
+    #[test]
+    fn a_phone_write_is_reported_to_the_pane_only_once_it_landed() {
+        let src = include_str!("companion.rs").replace("\r\n", "\n");
+        let arm = &src[src.find(r#""pty_write" => {"#).unwrap()..];
+        let arm = &arm[..arm.find("\n        }\n").unwrap()];
+        let write = arm.find("pty_write_sync(app.state(), id.clone(), data.clone())?;").expect("the write");
+        let emit = arm.find(r#"app.emit(&format!("companion-input://{id}"), phone_input_payload(&data, typed));"#).expect("the event");
+        assert!(write < emit);
+        // An empty write answered nothing, so it cannot clear "needs you".
+        let gate = arm.find("if !data.is_empty() {").expect("the empty-write gate");
+        assert!(write < gate && gate < emit);
+        assert!(arm.contains(r#"args.get("typed").and_then(|v| v.as_bool()) == Some(true)"#));
+    }
+
+    #[test]
     fn the_relay_stays_gated_to_pty_channels() {
         use super::relay_channel_allowed;
         assert!(relay_channel_allowed("pty://abc123"));
@@ -1759,6 +1807,8 @@ mod relay_backpressure_tests {
         // allowed scheme is a bypass ("evil://pty://x" would relay evil://).
         assert!(!relay_channel_allowed("evil://pty://x"));
         assert!(!relay_channel_allowed("companion://set-active-model"));
+        // What one phone types is not sent to the others.
+        assert!(!relay_channel_allowed("companion-input://abc123"));
         assert!(!relay_channel_allowed("pty"));
         assert!(!relay_channel_allowed(""));
     }

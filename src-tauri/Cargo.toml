@@ -93,9 +93,12 @@ base64 = "0.22"
 tauri-plugin-global-shortcut = "2"
 # Cloud-sync git transport — moves two opaque encrypted files to/from a
 # user-controlled git repo. Vendored libgit2 + openssl keep the binary
-# self-contained; ssh feature enables SSH-agent auth. Encryption is done in JS;
-# this layer never sees plaintext. See sync_git.rs.
-git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2", "vendored-openssl", "ssh"] }
+# self-contained; ssh feature enables SSH-agent auth. https gives libgit2 its
+# TLS transport (WinHTTP on Windows, SecureTransport on macOS, the vendored
+# OpenSSL on Linux): without it every https:// sync address failed with
+# "unsupported URL protocol", although Settings suggests one. Encryption is
+# done in JS; this layer never sees plaintext. See sync_git.rs.
+git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2", "vendored-openssl", "ssh", "https"] }
 # Model Context Protocol client (official SDK). stdio child-process + streamable
 # HTTP transports for connecting to MCP servers; protocol/handshake handled here.
 rmcp = { version = "1.7", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "client-side-sse"] }
