@@ -534,7 +534,7 @@ mod client_tests {
         let ua = super::UaKeys::parse(&ua, "BTBZMqHH6r4Tts7J_aSIgg").unwrap();
         let err = super::send(&client, "http://127.0.0.1:9/push", &ua, &private, b"{}").await.unwrap_err();
         assert!(err.starts_with("push request failed"), "{err}");
-        let src = include_str!("webpush.rs");
+        let src = include_str!("webpush.rs").replace("\r\n", "\n");
         let body = &src[src.find("pub(crate) fn client()").unwrap()..];
         let body = &body[..body.find("\n}\n").unwrap()];
         assert!(body.contains(".redirect(reqwest::redirect::Policy::none())"));
