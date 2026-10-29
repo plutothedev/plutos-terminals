@@ -23,6 +23,7 @@ pub mod mcp;
 mod sync_git;
 mod vault;
 mod vncclient;
+mod webpush;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};

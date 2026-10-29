@@ -1,0 +1,11 @@
+[package]
+name = "rdpserver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ironrdp-server = { version = "0.13", features = ["helper"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+async-trait = "0.1"
+bytes = "1"

@@ -60,16 +60,20 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 vnc = "0.4"
 # RDP remote-desktop client (IronRDP). Blocking I/O wrapper fits the worker-thread
 # model; native-tls (macOS Security framework) keeps the binary self-contained.
-ironrdp = { version = "0.14", features = ["connector", "session", "graphics", "input", "svc"] }
-ironrdp-blocking = "0.8"
+ironrdp-connector = "0.12"
+ironrdp-session = "0.13"
+ironrdp-graphics = "0.11"
+ironrdp-input = "0.9"
+ironrdp-pdu = "0.11"
+ironrdp-blocking = "0.12"
 native-tls = "0.2"
 # Extract the server's SubjectPublicKeyInfo (SPKI) from its TLS cert for CredSSP.
 x509-cert = { version = "0.2", features = ["pem"] }
-# SHA-256 fingerprints for RDP trust-on-first-use cert pinning (rdp.rs).
-# Already in the tree transitively via p256 — zero new compilation units.
-sha2 = "0.10"
+# SHA-256 fingerprints for RDP trust-on-first-use cert pinning (rdp.rs), and
+# HKDF's hash in webpush.rs. 0.11 matches hkdf 0.13 and p256 0.14.
+sha2 = "0.11"
 # CredSSP NetworkClient trait (matches the version IronRDP uses).
-sspi = "0.18"
+sspi = "0.23"
 
 # Phone/web companion — local HTTP + WebSocket server (Tailscale-reachable) for
 # the remote-control feature. axum (ws) serves the built frontend + the control
@@ -82,12 +86,16 @@ rand = "0.8"
 # Split the WebSocket into independent read/write halves (concurrent RPC replies +
 # event relay) — already pulled transitively, named here so it's a stable dep.
 futures-util = "0.3"
-# Phase 5 (push-when-closed): Web Push with VAPID. hyper-client = tokio-native
-# client (default isahc pulls libcurl — avoid). p256 generates the VAPID EC
-# keypair; base64 (url-safe) encodes the scalar/public point for from_base64 +
-# the browser applicationServerKey. Keys live in the OS keychain (vault.rs).
-web-push = { version = "0.11", default-features = false, features = ["hyper-client"] }
-p256 = "0.13"
+# Phase 5 (push-when-closed): Web Push with VAPID, done in webpush.rs (RFC
+# 8291/8292) since the web-push crate's newest release still pins p256 0.13 and
+# with it crypto-bigint 0.5.5 (RUSTSEC-2026-0387). p256 signs the VAPID token
+# and does the ECDH; hkdf + aes-gcm do the aes128gcm encryption; base64
+# (url-safe) carries keys. Keys live in the OS keychain (vault.rs). All of these
+# versions were already in the tree through sspi 0.23.
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "ecdh", "alloc", "std"] }
+hkdf = "0.13"
+aes-gcm = { version = "0.11", features = ["zeroize"] }
+zeroize = "1"
 base64 = "0.22"
 # Global summon hotkey — show/hide the window from anywhere (Ctrl+Shift+`).
 tauri-plugin-global-shortcut = "2"

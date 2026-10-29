@@ -34,7 +34,6 @@ use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::Router;
-use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use tauri::{Emitter, Listener, Manager};
@@ -251,16 +250,12 @@ fn kr_set(account: &str, val: &str) -> Result<(), String> {
 /// Get-or-generate the VAPID keypair, persisted in the OS keychain (never on
 /// disk plaintext). Returns `(private_b64url, public_b64url)`: the public key is
 /// the uncompressed P-256 point the browser uses as `applicationServerKey`; the
-/// private key is the raw 32-byte scalar `web-push` signs the JWT with.
+/// private key is the raw 32-byte scalar webpush.rs signs the VAPID token with.
 fn ensure_vapid() -> Result<(String, String), String> {
     if let (Some(priv_b64), Some(pub_b64)) = (kr_get("vapid_private"), kr_get("vapid_public")) {
         return Ok((priv_b64, pub_b64));
     }
-    use p256::elliptic_curve::sec1::ToEncodedPoint;
-    let secret = p256::SecretKey::random(&mut rand::rngs::OsRng);
-    let priv_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret.to_bytes());
-    let point = secret.public_key().to_encoded_point(false);
-    let pub_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(point.as_bytes());
+    let (priv_b64, pub_b64) = crate::webpush::generate_vapid();
     kr_set("vapid_private", &priv_b64)?;
     kr_set("vapid_public", &pub_b64)?;
     Ok((priv_b64, pub_b64))
@@ -405,24 +400,22 @@ async fn within<T>(limit: Duration, fut: impl std::future::Future<Output = T>) -
 /// thread). `payload` is the JSON the service worker reads in its `push` event.
 /// Best-effort: errors are logged, not surfaced.
 async fn send_push(sub_json: String, vapid_priv_b64: String, payload: Vec<u8>) {
-    use web_push::WebPushClient as _;
     let result: Result<(), String> = async {
-        let mut sub: web_push::SubscriptionInfo =
-            serde_json::from_str(&sub_json).map_err(|e| e.to_string())?;
+        let sub: serde_json::Value = serde_json::from_str(&sub_json).map_err(|e| e.to_string())?;
+        let field = |path: &[&str]| -> Result<String, String> {
+            path.iter()
+                .try_fold(&sub, |v, k| v.get(k))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .ok_or_else(|| format!("subscription has no {}", path.join(".")))
+        };
         // One stored before endpoints were checked is skipped, not sent, and
         // the sender is handed the spelling that was checked.
-        sub.endpoint = checked_push_endpoint(&sub.endpoint)
+        let endpoint = checked_push_endpoint(&field(&["endpoint"])?)
             .ok_or_else(|| "subscription endpoint is not a browser push service".to_string())?;
-        let mut sig = web_push::VapidSignatureBuilder::from_base64(&vapid_priv_b64, &sub)
-            .map_err(|e| e.to_string())?;
-        sig.add_claim("sub", "mailto:companion@plutos-terminals.local");
-        let signature = sig.build().map_err(|e| e.to_string())?;
-        let mut builder = web_push::WebPushMessageBuilder::new(&sub);
-        builder.set_payload(web_push::ContentEncoding::Aes128Gcm, &payload);
-        builder.set_vapid_signature(signature);
-        let msg = builder.build().map_err(|e| e.to_string())?;
-        let client = web_push::HyperWebPushClient::new();
-        within(PUSH_SEND_TIMEOUT, client.send(msg)).await?.map_err(|e| e.to_string())
+        let ua = crate::webpush::UaKeys::parse(&field(&["keys", "p256dh"])?, &field(&["keys", "auth"])?)?;
+        let client = crate::webpush::client()?;
+        within(PUSH_SEND_TIMEOUT, crate::webpush::send(&client, &endpoint, &ua, &vapid_priv_b64, &payload)).await?
     }
     .await;
     if let Err(e) = result {
@@ -2151,7 +2144,6 @@ mod push_subscription_tests {
     // subscription and a request to wherever it points.
     #[tokio::test]
     async fn send_push_never_contacts_an_endpoint_outside_the_push_services() {
-        use p256::elliptic_curve::sec1::ToEncodedPoint;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let hits = Arc::new(AtomicUsize::new(0));
@@ -2162,18 +2154,18 @@ mod push_subscription_tests {
             }
         });
         let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-        let vapid = p256::SecretKey::random(&mut rand::rngs::OsRng);
-        let browser = p256::SecretKey::random(&mut rand::rngs::OsRng);
+        let (vapid, _) = crate::webpush::generate_vapid();
+        let (_, browser) = crate::webpush::generate_vapid();
         let sub = serde_json::json!({
             "endpoint": format!("http://127.0.0.1:{port}/push/abc"),
             "keys": {
-                "p256dh": b64.encode(browser.public_key().to_encoded_point(false).as_bytes()),
+                "p256dh": browser,
                 "auth": b64.encode([7u8; 16]),
             },
         });
         let sent = tokio::time::timeout(
             Duration::from_secs(5),
-            send_push(sub.to_string(), b64.encode(vapid.to_bytes()), b"{}".to_vec()),
+            send_push(sub.to_string(), vapid, b"{}".to_vec()),
         )
         .await;
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -2189,8 +2181,9 @@ mod push_subscription_tests {
         assert!(store.contains("let subs = with_subscription(stored, incoming)?;"));
         let send = &src[src.find("async fn send_push(").unwrap()..];
         let send = &send[..send.find("\n}\n").unwrap()];
-        assert!(send.contains("within(PUSH_SEND_TIMEOUT, client.send(msg))"));
-        assert!(send.contains("sub.endpoint = checked_push_endpoint(&sub.endpoint)"));
+        assert!(send.contains("within(PUSH_SEND_TIMEOUT, crate::webpush::send(&client, &endpoint, &ua, &vapid_priv_b64, &payload))"));
+        assert!(send.contains("let endpoint = checked_push_endpoint(&field(&[\"endpoint\"])?)"));
+        assert!(send.contains("let client = crate::webpush::client()?;"));
     }
 }
 
