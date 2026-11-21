@@ -70,7 +70,7 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
       (marked || fields[0] || node).focus();
     }
     return () => {
-      if (prev && typeof prev.focus === "function") prev.focus();
+      if (prev && typeof prev.focus === "function") prev.focus({ preventScroll: true });
       // The opener may no longer take focus (disabled while the work it
       // started runs, or unmounted). Keep focus inside the outer dialog then,
       // so its Tab trap still holds, rather than letting it fall to <body>.

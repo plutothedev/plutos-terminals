@@ -16,23 +16,28 @@ export function ConfirmProvider({ children }) {
   const [request, setRequest] = useState(null);
   // request: { id, message, title, confirmLabel, cancelLabel, destructive, resolve }
   const nextId = useRef(0);
-  // The request waiting for an answer, for confirm() and the answer handlers
-  // (state lags a render behind them). A confirm() asked while another is
-  // open replaces it, so it settles the old one with false first: otherwise
-  // that caller's await would never return (a guarded close fired from a
-  // global shortcut while a confirm is up).
+  // The request on screen, for confirm() and the answer handlers (state lags
+  // a render behind them), and the requests waiting behind it, oldest first.
+  // A confirm() asked while one is open (a guarded close or Reset workspace
+  // fired from a global shortcut, which are not gated while a dialog is up)
+  // waits its turn: the open one stays on screen until the user answers it,
+  // then the next one shows. No request is ever answered for the user. The
+  // queue exists because answering the open one false to make room is not
+  // neutral: the recovered-recording loop in TerminalsTab reads false as
+  // "discard", so a shortcut would delete a recording nobody answered for,
+  // and the loop's next confirm would then replace the shortcut's dialog.
   const pendingRef = useRef(null);
+  const queueRef = useRef([]);
   // The element focused when a chain of requests began (asked while none was
-  // open), cleared when the last one closes. The shared Modal hands focus back
-  // per request, so an opener that is disabled or gone when the first answer
-  // swaps dialogs makes the next one record <body>, and the chain would end
-  // there even if the opener can take focus again by then.
+  // open), cleared when the last one closes. A queue drain is one chain. The
+  // shared Modal hands focus back per request, so an opener that is disabled
+  // or gone when the first answer swaps dialogs makes the next one record
+  // <body>, and the chain would end there even if the opener can take focus
+  // again by then.
   const openerRef = useRef(null);
 
   const confirm = useCallback((message, opts = {}) => {
     return new Promise((resolve) => {
-      const replaced = pendingRef.current;
-      if (replaced) replaced.resolve(false);
       // A caller that asks again straight after an answer does so before the
       // close commits (openerRef is cleared only then), so that is still the
       // same chain.
@@ -46,21 +51,25 @@ export function ConfirmProvider({ children }) {
         destructive: !!opts.destructive,
         resolve,
       };
+      if (pendingRef.current) {
+        queueRef.current.push(next);
+        return;
+      }
       pendingRef.current = next;
       setRequest(next);
     });
   }, []);
 
-  // Answers the request on screen. Only that request's answer closes the
-  // dialog: a click on a dialog already replaced by a newer request (before
-  // the re-render) must not close the newer one unanswered.
+  // Answers the request on screen, then shows the next queued one (a fresh
+  // Modal, keyed by id) or closes. A click on a dialog that is no longer the
+  // one showing (a second click landing before the re-render) does nothing:
+  // it must not answer, skip or close the request that took its place.
   const answer = (value) => {
-    if (!request) return;
+    if (!request || pendingRef.current !== request) return;
+    const next = queueRef.current.shift() || null;
+    pendingRef.current = next;
+    setRequest(next);
     request.resolve(value);
-    if (pendingRef.current === request) {
-      pendingRef.current = null;
-      setRequest(null);
-    }
   };
   const onConfirm = () => answer(true);
   const onCancel = () => answer(false);
@@ -75,7 +84,7 @@ export function ConfirmProvider({ children }) {
     openerRef.current = null;
     if (!opener || opener === document.body || !opener.isConnected || opener.disabled) return;
     const active = document.activeElement;
-    if ((active == null || active === document.body) && typeof opener.focus === "function") opener.focus();
+    if ((active == null || active === document.body) && typeof opener.focus === "function") opener.focus({ preventScroll: true });
   }, [request]);
 
   return (
