@@ -148,3 +148,56 @@ test("an inside press does not arm a later backdrop click", () => {
   fireEvent.click(overlay);
   expect(closed).toBe(1);
 });
+
+// v0.7.6 lint fix round 2: focus can sit on the dialog element itself (the
+// fallback when an inner dialog's opener cannot take focus back, or a dialog
+// with nothing focusable in its body). Tab and Shift+Tab from there must stay
+// inside the dialog instead of escaping to the page behind it.
+function Plain() {
+  return (
+    <Modal open title="t" onClose={() => {}}>
+      <button>one</button>
+      <button>two</button>
+    </Modal>
+  );
+}
+
+for (const shiftKey of [false, true]) {
+  test(`${shiftKey ? "Shift+Tab" : "Tab"} from the dialog element itself stays in the dialog`, async () => {
+    render(<Plain />);
+    await act(async () => {});
+    const dialog = screen.getByRole("dialog");
+    act(() => { dialog.focus(); });
+    expect(document.activeElement).toBe(dialog);
+    const notPrevented = fireEvent.keyDown(dialog, { key: "Tab", shiftKey });
+    expect(notPrevented).toBe(false);
+    // The header close button is DOM-first, "two" is last.
+    expect(document.activeElement).toBe(
+      shiftKey ? screen.getByText("two") : screen.getByRole("button", { name: "Close dialog" }),
+    );
+  });
+}
+
+// data-autofocus={false} renders the attribute as "false"; that is not a mark.
+function FalseMark() {
+  return (
+    <Modal open title="t" onClose={() => {}}>
+      <button data-autofocus={false}>notMarked</button>
+      <button data-autofocus>marked</button>
+    </Modal>
+  );
+}
+
+test('data-autofocus="false" does not count as the marked field', async () => {
+  render(<FalseMark />);
+  await act(async () => {});
+  expect(document.activeElement).toBe(screen.getByText("marked"));
+});
+
+// Focus can land on the dialog element; like the other dialog containers
+// (ProjectDialog, TourOverlay, RemoteControlModal) it draws no UA outline.
+test("the dialog element draws no focus outline of its own", () => {
+  render(<Plain />);
+  // outlineStyle: happy-dom serializes the `outline` shorthand as "none none".
+  expect(screen.getByRole("dialog").style.outlineStyle).toBe("none");
+});

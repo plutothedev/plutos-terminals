@@ -4,7 +4,7 @@
 //   const confirm = useConfirm();
 //   if (await confirm("Replace panels?", { destructive: true })) { ... }
 
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useRef, useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 
 const { FG, ACCENT, BORDER, M } = MODAL_COLORS;
@@ -14,11 +14,13 @@ const ConfirmContext = createContext(null);
 
 export function ConfirmProvider({ children }) {
   const [request, setRequest] = useState(null);
-  // request: { message, title, confirmLabel, cancelLabel, destructive, resolve }
+  // request: { id, message, title, confirmLabel, cancelLabel, destructive, resolve }
+  const nextId = useRef(0);
 
   const confirm = useCallback((message, opts = {}) => {
     return new Promise((resolve) => {
       setRequest({
+        id: ++nextId.current,
         message,
         title: opts.title || "Confirm",
         confirmLabel: opts.confirmLabel || "Confirm",
@@ -41,7 +43,16 @@ export function ConfirmProvider({ children }) {
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
-      <Modal open={!!request} title={request?.title || "Confirm"} onClose={onCancel} width={460}>
+      {/* Keyed by request: a caller that awaits one confirm and asks the next
+          straight away (the recovered-recording loop) gets both setRequest
+          calls rendered in one commit, because a real click's microtasks run
+          under the click's priority. Without the key `open` stays true, the
+          Modal's focus effect never re-runs and focus stays on the button just
+          pressed, so the new request's data-autofocus is ignored. With it the
+          old Modal unmounts (its cleanup hands focus back to the original
+          opener) and the new one records that opener and focuses its own
+          default, so the end of the chain still returns to the trigger. */}
+      <Modal key={request ? request.id : "closed"} open={!!request} title={request?.title || "Confirm"} onClose={onCancel} width={460}>
         <div style={{ color: FG, fontSize: 12, lineHeight: 1.7, marginBottom: 20, whiteSpace: "pre-wrap" }}>
           {/* Coerce to string so a non-string message degrades to text instead of
               throwing "Objects are not valid as a React child" and crashing the UI. */}

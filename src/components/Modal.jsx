@@ -65,7 +65,8 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
       // nothing focusable.
       const body = node.querySelector(".phn-modal-body");
       const fields = body ? focusablesIn(body) : [];
-      const marked = fields.find((el) => el.hasAttribute("data-autofocus"));
+      // React renders data-autofocus={false} as the string "false": not a mark.
+      const marked = fields.find((el) => el.hasAttribute("data-autofocus") && el.getAttribute("data-autofocus") !== "false");
       (marked || fields[0] || node).focus();
     }
     return () => {
@@ -89,7 +90,11 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
     if (items.length === 0) { e.preventDefault(); node.focus(); return; }
     const firstEl = items[0];
     const lastEl = items[items.length - 1];
-    if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+    // Focus on the dialog element itself (the fallback when an inner dialog's
+    // opener cannot take focus back): the browser's next or previous stop from
+    // there can be outside the dialog, so pick the end ourselves.
+    if (document.activeElement === node) { e.preventDefault(); (e.shiftKey ? lastEl : firstEl).focus(); }
+    else if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
     else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
   };
 
@@ -118,7 +123,10 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
       <div
         ref={dialogRef}
         className="phn-modal"
-        style={{ width, maxWidth: "calc(100vw - 24px)" }}
+        // outline none, like the other dialog containers (ProjectDialog,
+        // TourOverlay, RemoteControlModal): focus lands on this element only as
+        // a fallback, and a UA ring around the whole dialog marks nothing.
+        style={{ width, maxWidth: "calc(100vw - 24px)", outline: "none" }}
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === "string" ? title : undefined}

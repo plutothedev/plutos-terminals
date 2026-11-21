@@ -56,12 +56,28 @@ export function ToastProvider({ children }) {
   // focused would drop focus to <body>, so its timer pauses while it has focus
   // and resumes with the time it had left on blur.
   const timersRef = useRef(new Map());
+  // Focus hand-back. A toast that is dismissed while it has focus (Enter,
+  // Space, a click, or api.dismiss) would otherwise drop focus to <body>.
+  // returnFocusRef is the element that had focus when focus entered the toast
+  // stack from outside (moving between toasts keeps it); focusedIdRef is the
+  // toast holding focus now.
+  const stackRef = useRef(null);
+  const returnFocusRef = useRef(null);
+  const focusedIdRef = useRef(null);
 
   const dismiss = useCallback((id) => {
     const timer = timersRef.current.get(id);
     if (timer) {
       clearTimeout(timer.handle);
       timersRef.current.delete(id);
+    }
+    if (focusedIdRef.current === id) {
+      // Move focus before the toast leaves the DOM. The timer is already gone,
+      // so the blur this causes cannot re-arm it.
+      focusedIdRef.current = null;
+      const back = returnFocusRef.current;
+      returnFocusRef.current = null;
+      if (back && back.isConnected && typeof back.focus === "function") back.focus();
     }
     setToasts((ts) => ts.filter((t) => t.id !== id));
   }, []);
@@ -88,14 +104,27 @@ export function ToastProvider({ children }) {
     arm(id, timer.remaining);
   }, [arm]);
 
-  // Unmount: no timer outlives the provider.
+  // Unmount: no timer outlives the provider. The cleanup suspends running
+  // timers (keeping the time each had left) instead of forgetting them, and
+  // setup re-arms the suspended ones: StrictMode's dev cycle runs this cleanup
+  // and setup again right after the first mount, and a toast pushed from a
+  // child's mount effect is already armed by then. Clearing the map there left
+  // that toast on screen for good. On a real unmount nothing re-arms.
   useEffect(() => {
     const timers = timersRef.current;
+    for (const [id, timer] of timers) {
+      if (timer.suspended) arm(id, timer.remaining);
+    }
     return () => {
-      for (const timer of timers.values()) clearTimeout(timer.handle);
-      timers.clear();
+      for (const timer of timers.values()) {
+        if (timer.handle == null) continue; // paused by focus: stays paused
+        clearTimeout(timer.handle);
+        timer.handle = null;
+        timer.remaining = Math.max(0, timer.deadline - Date.now());
+        timer.suspended = true;
+      }
     };
-  }, []);
+  }, [arm]);
 
   const push = useCallback((variant, message, opts = {}) => {
     const id = nextId++;
@@ -127,6 +156,7 @@ export function ToastProvider({ children }) {
     <ToastContext.Provider value={api}>
       {children}
       <div
+        ref={stackRef}
         role="status"
         aria-live="polite"
         style={{
@@ -162,8 +192,18 @@ export function ToastProvider({ children }) {
               tabIndex={0}
               title={t.variant === "error" ? "Click to copy" : undefined}
               onClick={activate}
-              onFocus={() => pause(t.id)}
-              onBlur={() => resume(t.id)}
+              onFocus={(e) => {
+                // Record where focus came from only when it enters the stack
+                // from outside; Tab between toasts keeps the first origin.
+                const from = e.relatedTarget;
+                if (!(from && stackRef.current?.contains(from))) returnFocusRef.current = from || null;
+                focusedIdRef.current = t.id;
+                pause(t.id);
+              }}
+              onBlur={() => {
+                if (focusedIdRef.current === t.id) focusedIdRef.current = null;
+                resume(t.id);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
