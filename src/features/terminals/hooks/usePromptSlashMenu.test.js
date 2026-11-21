@@ -60,10 +60,14 @@ describe("usePromptSlashMenu index re-clamp", () => {
   });
 
   it("select keeps its identity across a re-render with unchanged inputs", () => {
+    // A non-empty query: filterPrompts("") returns the input array itself, so
+    // "/" would keep `filtered` stable even without the useMemo. "p" matches
+    // every name in mk(5) and builds a fresh array on each call.
     const five = mk(5);
-    const { result, rerender } = setup(five);
+    const { result, rerender } = setup(five, "/p");
+    expect(result.current.filtered).toHaveLength(5);
     const select1 = result.current.select;
-    rerender({ prompts: five, value: "/" });
+    rerender({ prompts: five, value: "/p" });
     expect(result.current.select).toBe(select1);
   });
 });

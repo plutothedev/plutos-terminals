@@ -8,13 +8,17 @@
 // ref writes moved from the render body into layout effects (v0.7.6 lint
 // cleanup): the handlers here are deliberately taken from the first render
 // and called after a re-render with new state.
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { renderHook, render, act } from "@testing-library/react";
+import { useEffect } from "react";
 
 let secret = null;
 vi.mock("@backend", () => ({
   invoke: (cmd) => (cmd === "secret_get" ? Promise.resolve(secret) : Promise.resolve(null)),
 }));
+// Reset after every test so a failing assertion cannot leak a secret into
+// the next one.
+afterEach(() => { secret = null; });
 
 import { useWorkspaceTree } from "./useWorkspaceTree.js";
 import { useSessionSpawn } from "./useSessionSpawn.js";
@@ -82,7 +86,6 @@ describe("handlers read the latest committed state", () => {
     await act(async () => { quickConnect("me@host"); await Promise.resolve(); await Promise.resolve(); });
     expect(spawnSessionTab).toHaveBeenCalledTimes(1);
     expect(spawnSessionTab.mock.calls[0][0]).toBe("panel_2");
-    secret = null;
   });
 
   it("useProjects: upsertProject writes onto the latest state and project list", () => {
@@ -120,5 +123,31 @@ describe("handlers read the latest committed state", () => {
     expect(spawnSessionTab).toHaveBeenCalledTimes(1);
     expect(spawnSessionTab.mock.calls[0][0]).toBe("panel_2");
     expect(spawnSessionTab.mock.calls[0][1].startCommands).toEqual(["npm run dev"]);
+  });
+
+  // The ref write must be a LAYOUT effect, not a passive one. A child's
+  // passive effects run before its parent's, so if useWorkspaceTree wrote
+  // stateRef in useEffect, a child's useEffect reacting to the new state would
+  // call the handler while the ref still held the previous state.
+  it("useWorkspaceTree: a child's passive effect sees the parent's new state", () => {
+    const persist = vi.fn();
+    function Child({ activePanelId, renameTab }) {
+      useEffect(() => {
+        if (activePanelId === "panel_2") renameTab("tab_c", "renamed");
+      }, [activePanelId, renameTab]);
+      return null;
+    }
+    function Parent({ state }) {
+      const { renameTab } = useWorkspaceTree({ state, persist, toast });
+      return <Child activePanelId={state.activePanelId} renameTab={renameTab} />;
+    }
+    const { rerender } = render(<Parent state={s1} />);
+    expect(persist).not.toHaveBeenCalled();
+    rerender(<Parent state={s2} />);
+    expect(persist).toHaveBeenCalledTimes(1);
+    const next = persist.mock.calls[0][0];
+    expect(next.activePanelId).toBe("panel_2");
+    const p2 = next.panels.find((p) => p.id === "panel_2");
+    expect(p2.tabs.map((t) => [t.id, t.label])).toEqual([["tab_b", "b"], ["tab_c", "renamed"]]);
   });
 });

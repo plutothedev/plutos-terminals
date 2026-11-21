@@ -48,8 +48,10 @@ export function useWorkspaceTree({ state, persist, toast }) {
   // every callback's identity stable (no `state` in the dep arrays).
   // Written in a layout effect, not during render: a render React discards
   // (StrictMode, an interrupted concurrent render) must not leak its state
-  // into the handlers. Layout effects run in the commit, before any event or
-  // passive effect can call a handler, so handlers still see the committed tree.
+  // into the handlers. Handlers read the committed tree for any caller that
+  // runs after the commit (events, passive effects). No child may call these
+  // handlers from a layout effect, a ref callback, or a focus handler fired
+  // during commit: those run before this parent's layout effect.
   const stateRef = useRef(state);
   useLayoutEffect(() => { stateRef.current = state; });
 
