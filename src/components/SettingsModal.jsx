@@ -99,7 +99,7 @@ export default function SettingsModal({ open, st, save, userSt, saveUser, onClos
         hint={
           <>
             All provider API keys (Anthropic, OpenAI, and the rest) and model selection now live in the{" "}
-            <strong>Models</strong> section. Open it from the toolbar's <strong>Models</strong> button or the command palette (Ctrl+K → “Models”).
+            <strong>Models</strong> section. Open it from the toolbar&apos;s <strong>Models</strong> button or the command palette (Ctrl+K → “Models”).
           </>
         }
       />

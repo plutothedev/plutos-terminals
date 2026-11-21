@@ -74,10 +74,20 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
   };
 
   return (
+    // The backdrop is presentation only: its click closes the dialog for the
+    // mouse, and the keyboard path for the same action is Escape (the window
+    // listener above). The Tab trap is bound here rather than on the dialog
+    // element because jsx-a11y treats role="dialog" as non-interactive. The
+    // overlay's only child is the dialog and the overlay itself never takes
+    // focus, so every keydown that reaches this handler came up through this
+    // dialog, exactly as before; nested modals render inside the parent's
+    // body, so the innermost trap still runs first.
     <div
       ref={overlayRef}
       className="phn-modal-overlay"
+      role="presentation"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={onTrapKey}
     >
       <div
         ref={dialogRef}
@@ -87,7 +97,6 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
         aria-modal="true"
         aria-label={typeof title === "string" ? title : undefined}
         tabIndex={-1}
-        onKeyDown={onTrapKey}
       >
         <div className="phn-modal-header">
           <div className="phn-modal-title">{title}</div>

@@ -260,7 +260,12 @@ function checkWiring(src) {
   // branch holds the mirror: reading without the hold lets the boot migrations
   // mirror their defaults over the backup before it is read.
   expect(src).toMatch(/needsBackupRead\(boot\)\s*&&\s*isPrimaryWindow\(\)/);
-  expect(src).toMatch(/mirrorRef\.current\.suspend\(\)/);
+  // The hold is taken inside that branch, on the mirror that becomes mirrorRef
+  // (one initializer builds both, so no ref is touched during render).
+  // App.bootHold.test.jsx pins the same hold on the mounted App.
+  expect(src).toMatch(/if \(needsBackupRead\(boot\)\s*&&\s*isPrimaryWindow\(\)\)\s*\{[^}]*\bmirror\.suspend\(\);[^}]*\}/);
+  expect(src).toMatch(/const mirror = createWorkspaceMirror\(/);
+  expect(src).toMatch(/const mirrorRef = useRef\(boot0\.mirror\);/);
   // The discard mark names one layout now; the old boolean suppressed the read
   // (and therefore the hold) for the whole boot.
   expect(src).not.toMatch(/LAYOUT_WAS_DISCARDED/);
@@ -276,6 +281,10 @@ describe("App.jsx boot wiring", () => {
     // A guard nobody can break is decoration. Mutate the source text in memory
     // (never the file) and prove the assertions above go red.
     expect(() => checkWiring(APP_SRC.replace("await runBootRecovery(", "await noop("))).toThrow();
+  });
+
+  test("the wiring check fails when the boot hold is dropped", () => {
+    expect(() => checkWiring(APP_SRC.replace("mirror.suspend();", ""))).toThrow();
   });
 
   test("the wiring check fails when the discard mark is dropped", () => {

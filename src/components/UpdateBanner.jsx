@@ -134,8 +134,39 @@ const takeIfNewer = (next) => (cur) => {
   return cur;
 };
 
+// The API check's cache (P3-T5, see the effect below). `fresh` means inside the
+// 24h gate, where the check short-circuits on the cached verdict.
+const UPDATE_CACHE_KEY = "plutos-terminals:update-check";
+const UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+function readUpdateCache() {
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(UPDATE_CACHE_KEY) || "null"); } catch { /* unreadable cache: treat as absent, so the check runs */ }
+  const fresh = !!cached && Date.now() - (cached.checkedAt || 0) < UPDATE_CACHE_TTL_MS;
+  return { cached, fresh };
+}
+
+// The offer a fresh cache already holds for this version, or null. Read during
+// render (initial state, and again when currentVersion changes) instead of set
+// from the effect, so the cached banner is there on the first paint.
+function cachedOffer(currentVersion) {
+  const { cached, fresh } = readUpdateCache();
+  if (fresh && cached.tag && isNewer(cached.tag, currentVersion)) {
+    return { tag: cached.tag, url: cached.url || RELEASES_URL };
+  }
+  return null;
+}
+
 export default function UpdateBanner({ currentVersion }) {
-  const [latest, setLatest] = useState(null);
+  const [latest, setLatest] = useState(() => cachedOffer(currentVersion));
+  // A new currentVersion re-reads the cache, merging like every other writer
+  // (the slot may already hold a newer signed offer). Adjusted during render
+  // against the version seen last render.
+  const [seenVersion, setSeenVersion] = useState(currentVersion);
+  if (currentVersion !== seenVersion) {
+    setSeenVersion(currentVersion);
+    const offer = cachedOffer(currentVersion);
+    if (offer) setLatest(takeIfNewer(offer));
+  }
   // Set only when the SIGNED updater has a verified update ready to install in
   // place; null means we can offer a manual download and nothing more.
   const [pluginUpdate, setPluginUpdate] = useState(null);
@@ -156,15 +187,10 @@ export default function UpdateBanner({ currentVersion }) {
     // the same 60/hr unauthenticated budget gist sharing uses. A cached
     // check inside 24h short-circuits entirely; past it, If-None-Match turns
     // an unchanged release into a free 304.
-    const CACHE_KEY = "plutos-terminals:update-check";
-    let cached = null;
-    try { cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); } catch { /* ignore */ }
-    if (cached && Date.now() - (cached.checkedAt || 0) < 24 * 60 * 60 * 1000) {
-      if (cached.tag && isNewer(cached.tag, currentVersion)) {
-        setLatest(takeIfNewer({ tag: cached.tag, url: cached.url || RELEASES_URL }));
-      }
-      return () => { cancelled = true; };
-    }
+    // The fresh-cache verdict was already taken during render (cachedOffer).
+    const CACHE_KEY = UPDATE_CACHE_KEY;
+    const { cached, fresh } = readUpdateCache();
+    if (fresh) return () => { cancelled = true; };
     const headers = { Accept: "application/vnd.github+json" };
     if (cached?.etag) headers["If-None-Match"] = cached.etag;
     fetch(GITHUB_API, { headers })
@@ -296,11 +322,11 @@ export default function UpdateBanner({ currentVersion }) {
         UPDATE AVAILABLE
       </div>
       <div style={{ marginBottom: 10 }}>
-        Pluto's Terminal <strong>{latest.tag}</strong> is out (you're on <code style={{ fontSize: 10 }}>v{currentVersion}</code>).
+        Pluto&apos;s Terminal <strong>{latest.tag}</strong> is out (you&apos;re on <code style={{ fontSize: 10 }}>v{currentVersion}</code>).
       </div>
       {installError && (
         <div style={{ color: ERROR_FG, fontSize: 10, marginBottom: 8, lineHeight: 1.4 }}>
-          Couldn't install automatically: {installError}. Use Download instead.
+          Couldn&apos;t install automatically: {installError}. Use Download instead.
         </div>
       )}
       <div style={{ display: "flex", gap: 8 }}>

@@ -4,7 +4,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 
-const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
+const { FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 
 export default function CommandPalette({ open, commands, onClose }) {
   const [query, setQuery] = useState("");
@@ -25,10 +25,27 @@ export default function CommandPalette({ open, commands, onClose }) {
     );
   }, [commands, query]);
 
-  useEffect(() => {
+  // Each open starts from an empty query at the top row, and the highlight is
+  // clamped whenever the match count changes. Both are adjusted during render
+  // against the value seen last render (React's "storing information from
+  // previous renders" pattern) rather than in an effect, so the stale query or
+  // an out-of-range highlight is never painted for a frame first.
+  const [seenOpen, setSeenOpen] = useState(open);
+  if (open !== seenOpen) {
+    setSeenOpen(open);
     if (open) {
       setQuery("");
       setHighlight(0);
+    }
+  }
+  const [seenCount, setSeenCount] = useState(filtered.length);
+  if (filtered.length !== seenCount) {
+    setSeenCount(filtered.length);
+    setHighlight((h) => Math.min(h, Math.max(0, filtered.length - 1)));
+  }
+
+  useEffect(() => {
+    if (open) {
       // Forget where the pointer was last time this opened, or a replayed
       // pointer event on THIS open reads as movement merely by differing from
       // a stale sample. See onRowPointer.
@@ -36,10 +53,6 @@ export default function CommandPalette({ open, commands, onClose }) {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
-
-  useEffect(() => {
-    setHighlight((h) => Math.min(h, Math.max(0, filtered.length - 1)));
-  }, [filtered.length]);
 
   // A11Y-06. The list box is 360px tall and a row is ~62-68px, so only ~5 of
   // the ~33 commands are on screen; without this the arrow keys move an
@@ -137,7 +150,7 @@ export default function CommandPalette({ open, commands, onClose }) {
       >
         {filtered.length === 0 ? (
           <div style={{ color: FG_DIM, fontSize: 11, padding: "20px 0", textAlign: "center" }}>
-            No matches for "{query}"
+            No matches for &quot;{query}&quot;
           </div>
         ) : (
           filtered.map((cmd, i) => (

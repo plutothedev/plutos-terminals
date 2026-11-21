@@ -12,7 +12,7 @@
 // <ToastProvider>. Then `const toast = useToast(); toast.success("done");`.
 // ToastProvider mounts once at the App root.
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 const ToastContext = createContext(null);
 
@@ -101,43 +101,58 @@ export function ToastProvider({ children }) {
           pointerEvents: "none",
         }}
       >
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className="phn-toast"
-            title={t.variant === "error" ? "Click to copy" : undefined}
-            onClick={() => {
-              if (t.variant === "error") {
-                // Coerced too: writeText() converts its argument to a string, and
-                // that conversion THROWS synchronously on an exotic object, which
-                // ?.catch can't see.
-                navigator.clipboard?.writeText(toastText(t.detail || t.message))?.catch(() => {});
-              }
-              dismiss(t.id);
-            }}
-            style={{
-              pointerEvents: "auto",
-              background: "var(--phn-surface-bg, #181818)",
-              border: `1px solid ${COLORS[t.variant].border}`,
-              borderLeft: `4px solid ${COLORS[t.variant].border}`,
-              borderRadius: 4,
-              padding: "10px 14px",
-              fontFamily: M,
-              fontSize: 11,
-              color: "var(--phn-text-active, #E6E6E6)",
-              maxWidth: 360,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-              cursor: "pointer",
-              lineHeight: 1.5,
-              animation: "plutos-toast-in 180ms ease-out",
-            }}
-          >
-            <span style={{ color: COLORS[t.variant].fg, fontWeight: 600, marginRight: 8 }}>
-              {t.variant === "success" ? "✓" : t.variant === "error" ? "✗" : "ℹ"}
-            </span>
-            {toastText(t.message)}
-          </div>
-        ))}
+        {toasts.map((t) => {
+          const activate = () => {
+            if (t.variant === "error") {
+              // Coerced too: writeText() converts its argument to a string, and
+              // that conversion THROWS synchronously on an exotic object, which
+              // ?.catch can't see.
+              navigator.clipboard?.writeText(toastText(t.detail || t.message))?.catch(() => {});
+            }
+            dismiss(t.id);
+          };
+          // A div with role="button", not a <button>: as a flex item in this
+          // shrink-to-fit column a <button> sizes itself narrower than the div
+          // (measured in Edge: 336px wide against 393px), so the swap would
+          // move every toast. Keyboard users get the same action on Enter/Space.
+          return (
+            <div
+              key={t.id}
+              className="phn-toast"
+              role="button"
+              tabIndex={0}
+              title={t.variant === "error" ? "Click to copy" : undefined}
+              onClick={activate}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  activate();
+                }
+              }}
+              style={{
+                pointerEvents: "auto",
+                background: "var(--phn-surface-bg, #181818)",
+                border: `1px solid ${COLORS[t.variant].border}`,
+                borderLeft: `4px solid ${COLORS[t.variant].border}`,
+                borderRadius: 4,
+                padding: "10px 14px",
+                fontFamily: M,
+                fontSize: 11,
+                color: "var(--phn-text-active, #E6E6E6)",
+                maxWidth: 360,
+                boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+                cursor: "pointer",
+                lineHeight: 1.5,
+                animation: "plutos-toast-in 180ms ease-out",
+              }}
+            >
+              <span style={{ color: COLORS[t.variant].fg, fontWeight: 600, marginRight: 8 }}>
+                {t.variant === "success" ? "✓" : t.variant === "error" ? "✗" : "ℹ"}
+              </span>
+              {toastText(t.message)}
+            </div>
+          );
+        })}
       </div>
       <style>{`
         @keyframes plutos-toast-in {

@@ -16,7 +16,7 @@ import { openExternal } from "../appMeta.js";
 const { FG, FG_ACTIVE, FG_DIM, ACCENT, BORDER, M } = MODAL_COLORS;
 const PLUTO_MAGENTA = "#e08784";
 const GREEN = "#7fbf8a";
-const YELLOW = "#FBBF24";
+const PENDING = { state: "pending", value: null };
 
 const CLAUDE_INSTALL_CMD = "npm install -g @anthropic-ai/claude-code";
 
@@ -24,16 +24,29 @@ export default function SetupChecker({ open, onClose }) {
   const toast = useToast();
   // Each check: pending | found | missing. Keys/models live in the Models
   // section now — this checker only verifies the CLI toolchain is installed.
-  const [nodeStatus, setNodeStatus] = useState({ state: "pending", value: null });
-  const [npmStatus, setNpmStatus] = useState({ state: "pending", value: null });
-  const [claudeStatus, setClaudeStatus] = useState({ state: "pending", value: null });
+  const [nodeStatus, setNodeStatus] = useState(PENDING);
+  const [npmStatus, setNpmStatus] = useState(PENDING);
+  const [claudeStatus, setClaudeStatus] = useState(PENDING);
   const [copied, setCopied] = useState(false);
 
-  const runChecks = useCallback(async () => {
-    setNodeStatus({ state: "pending", value: null });
-    setNpmStatus({ state: "pending", value: null });
-    setClaudeStatus({ state: "pending", value: null });
+  const resetToPending = () => {
+    setNodeStatus(PENDING);
+    setNpmStatus(PENDING);
+    setClaudeStatus(PENDING);
+  };
 
+  // Each open starts from "checking…" on every row. Reset during render
+  // against the open flag seen last render, not in the effect below, so the
+  // previous run's answers are never painted for a frame first.
+  const [seenOpen, setSeenOpen] = useState(open);
+  if (open !== seenOpen) {
+    setSeenOpen(open);
+    if (open) resetToPending();
+  }
+
+  // The probes themselves: every status update lands after an await (an IPC
+  // answer), so the open effect only starts work against the outside world.
+  const probe = useCallback(async () => {
     const checks = [
       ["node", setNodeStatus],
       ["npm", setNpmStatus],
@@ -54,8 +67,13 @@ export default function SetupChecker({ open, onClose }) {
   }, []);
 
   useEffect(() => {
-    if (open) runChecks();
-  }, [open, runChecks]);
+    if (open) probe();
+  }, [open, probe]);
+
+  const runChecks = () => {
+    resetToPending();
+    probe();
+  };
 
   const onCopyClaudeInstall = () => {
     navigator.clipboard.writeText(CLAUDE_INSTALL_CMD).then(() => {
@@ -74,8 +92,8 @@ export default function SetupChecker({ open, onClose }) {
   return (
     <Modal open={open} title="Setup checker" onClose={onClose} width={620}>
       <p style={{ color: FG, fontSize: 12, lineHeight: 1.7, marginBottom: 18 }}>
-        Pluto's Terminal is a terminal app. It expects a few things on your machine.
-        Run through this once and you're set. Re-open anytime from <strong style={{ color: ACCENT }}>Tools → Setup checker</strong>, or Ctrl+K.
+        Pluto&apos;s Terminal is a terminal app. It expects a few things on your machine.
+        Run through this once and you&apos;re set. Re-open anytime from <strong style={{ color: ACCENT }}>Tools → Setup checker</strong>, or Ctrl+K.
       </p>
 
       <Check
@@ -84,7 +102,7 @@ export default function SetupChecker({ open, onClose }) {
         installHint={(
           <>
             Not found. Install from <Link href="https://nodejs.org/">nodejs.org</Link> (LTS).
-            Then close + reopen Pluto's Terminal so the new PATH is picked up, and re-run this check.
+            Then close + reopen Pluto&apos;s Terminal so the new PATH is picked up, and re-run this check.
           </>
         )}
       />
@@ -94,7 +112,7 @@ export default function SetupChecker({ open, onClose }) {
         status={npmStatus}
         installHint={(
           <>
-            npm should install with Node.js. If it's missing, your Node.js install may be incomplete. Reinstall from <Link href="https://nodejs.org/">nodejs.org</Link>.
+            npm should install with Node.js. If it&apos;s missing, your Node.js install may be incomplete. Reinstall from <Link href="https://nodejs.org/">nodejs.org</Link>.
           </>
         )}
       />

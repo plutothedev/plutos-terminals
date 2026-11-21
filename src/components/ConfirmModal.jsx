@@ -7,7 +7,7 @@
 import { createContext, useCallback, useContext, useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 
-const { FG, FG_ACTIVE, ACCENT, BORDER, M } = MODAL_COLORS;
+const { FG, ACCENT, BORDER, M } = MODAL_COLORS;
 const PLUTO_MAGENTA = "#e08784";
 
 const ConfirmContext = createContext(null);
@@ -76,6 +76,11 @@ export function ConfirmProvider({ children }) {
               fontWeight: 600,
               cursor: "pointer",
             }}
+            // Focus moves into the dialog it opens, onto the confirm action; the
+            // shared Modal skips its own first-field pick when a child already
+            // holds focus. Replacing this with a ref + effect would run after
+            // Modal's effect and change which element Modal restores on close.
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
             autoFocus
           >
             {request?.confirmLabel || "Confirm"}

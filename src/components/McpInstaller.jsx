@@ -17,6 +17,7 @@ const MCPS = [
     id: "filesystem",
     name: "Filesystem",
     description: "Read + write files in a specific root directory. Lets Claude inspect / edit project files directly.",
+    // eslint-disable-next-line no-template-curly-in-string -- literal ${PWD} placeholder, swapped for a user-picked directory in onInstall; a template literal would expand it
     command: 'claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem ${PWD}',
     docs: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
     notes: "On install you'll be asked to pick the directory to expose. Restrict scope: Claude inherits read+write to whatever directory you choose.",
@@ -114,10 +115,12 @@ export default function McpInstaller({ open, onClose }) {
     // A ${PWD} placeholder (the filesystem MCP root) must be an explicit,
     // user-chosen directory — never silently expanded to $HOME, which would grant
     // Claude read+write across the whole home tree (.ssh, .aws, .env, …). Prompt.
+    // eslint-disable-next-line no-template-curly-in-string -- literal ${PWD} placeholder, swapped for a user-picked directory in onInstall; a template literal would expand it
     if (argv.includes("${PWD}")) {
       let dir = null;
       try { dir = await invoke("pick_directory"); } catch { dir = null; }
       if (!dir) { toast.info("Install cancelled. Pick the directory to expose."); return; }
+      // eslint-disable-next-line no-template-curly-in-string -- literal ${PWD} placeholder, swapped for a user-picked directory in onInstall; a template literal would expand it
       argv = argv.map((a) => (a === "${PWD}" ? dir : a));
     }
     setInstallState((s) => ({ ...s, [mcp.id]: "installing" }));
@@ -433,6 +436,7 @@ export default function McpInstaller({ open, onClose }) {
         </p>
         <input
           type="password"
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
           autoFocus
           value={secretValue}
           onChange={(e) => setSecretValue(e.target.value)}

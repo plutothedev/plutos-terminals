@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { APP_VERSION, DISCORD_URL, openExternal } from "./appMeta.js";
 import TerminalsTab from "./features/terminals/TerminalsTab.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
@@ -244,31 +244,37 @@ function AppInner() {
   // silently living with an empty workspace (audit C2, widened by R-C2-1).
   // Secondary (?w=) windows are ephemeral, never write the backup, and must not
   // restore the primary's layout into themselves.
-  const bootReadRef = useRef(null);
+  //
   // The durable store.json mirror of this window's blob. It lives in a ref so
-  // the []-dep flushNow can reach it without re-minting, and it is created here,
-  // above the boot read, because that read has to suspend it before anything
-  // else can write. While the recovery below is still reading the backup the
-  // mirror is held: otherwise the unconditional boot migrations (OLED skin, moba
-  // layout) each fire a save() on the empty fallback and flushNow mirrors those
-  // defaults over store.json ~200 ms later, destroying the backup before it is
-  // read and then "recovering" the file it just overwrote. workspaceMirror.js
-  // owns the rest (secret stripping, and deferring a held write instead of
-  // dropping it).
-  const mirrorRef = useRef(null);
-  if (mirrorRef.current == null) {
-    mirrorRef.current = createWorkspaceMirror((data) => {
+  // the []-dep flushNow can reach it without re-minting, and it is created in
+  // the same one-time initializer as the boot read, because that read has to
+  // suspend it before anything else can write. While the recovery below is
+  // still reading the backup the mirror is held: otherwise the unconditional
+  // boot migrations (OLED skin, moba layout) each fire a save() on the empty
+  // fallback and flushNow mirrors those defaults over store.json ~200 ms later,
+  // destroying the backup before it is read and then "recovering" the file it
+  // just overwrote. workspaceMirror.js owns the rest (secret stripping, and
+  // deferring a held write instead of dropping it).
+  //
+  // One initializer returns all three (mirror, boot read, first state) so no
+  // ref is touched during render, and so the mirror that gets kept is always
+  // the one this boot read suspended, even when StrictMode runs the
+  // initializer twice and keeps one result. App.bootHold.test.jsx pins the hold.
+  const [boot0] = useState(() => {
+    const mirror = createWorkspaceMirror((data) => {
       invoke("write_store", { data }).catch(() => {});
     });
-  }
-  const [st, setSt] = useState(() => {
     const boot = parseWorkspace(localStorage.getItem(STORAGE_KEY));
+    let read = null;
     if (needsBackupRead(boot) && isPrimaryWindow()) {
-      bootReadRef.current = boot;
-      mirrorRef.current.suspend();
+      read = boot;
+      mirror.suspend();
     }
-    return boot.state;
+    return { mirror, read, state: boot.state };
   });
+  const bootReadRef = useRef(boot0.read);
+  const mirrorRef = useRef(boot0.mirror);
+  const [st, setSt] = useState(boot0.state);
 
   // Shared user-level state. Synchronous one-time migration on first run
   // of v0.1.21+: if userState is empty but window-state has the user-level
@@ -292,13 +298,21 @@ function AppInner() {
     }
     return us;
   });
+  // The latest userSt for callbacks that must not re-mint (save, saveUser, the
+  // sync engine). Declared here, before `save` reads it, so it is a known ref
+  // at every use; saveUser and the two setUserSt paths below keep it current.
+  const userStRef = useRef(userSt);
   const [unlocked, setUnlocked] = useState(isUnlockedThisSession);
 
   // Toast held in a ref so the stable ([]-dep) flushNow can reach it without
   // re-minting on every render.
   const toast = useToast();
   const toastRef = useRef(toast);
-  toastRef.current = toast;
+  // Latest-value write in a layout effect, not in render: flushNow (a timer
+  // and pagehide handler) is the only reader.
+  useLayoutEffect(() => {
+    toastRef.current = toast;
+  });
   const quotaWarnedRef = useRef(false);
 
   // writeUserState is module-scope (it predates the component and runs from the
@@ -461,10 +475,10 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Same object-or-updater contract as `save` (see above). userStRef is also
-  // refreshed by the two non-saveUser setUserSt paths (keychain migration,
-  // cross-window storage sync) so functional updates never see a stale base.
-  const userStRef = useRef(userSt);
+  // Same object-or-updater contract as `save` (see above). userStRef (declared
+  // with userSt, above) is also refreshed by the two non-saveUser setUserSt
+  // paths (keychain migration, cross-window storage sync) so functional updates
+  // never see a stale base.
   const saveUser = useCallback((next) => {
     const prev = userStRef.current;
     const resolved = typeof next === "function" ? next(prev) : withLiveKeys(prev, next);
@@ -810,7 +824,7 @@ function Welcome({ discordUrl, onContinue }) {
         <div style={{ display: "flex", alignItems: "center", gap: "var(--phn-sp-2)", marginBottom: "var(--phn-sp-2)" }}>
           <span style={{ color: "var(--phn-link)", fontSize: 26, lineHeight: 1 }}>⬢</span>
           <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--phn-text-active)" }}>
-            Pluto's Terminal
+            Pluto&apos;s Terminal
           </span>
         </div>
         <div style={{ color: "var(--phn-text-dim)", fontSize: "var(--phn-fs-base)", marginBottom: "var(--phn-sp-6)" }}>
@@ -863,10 +877,10 @@ function Welcome({ discordUrl, onContinue }) {
         </div>
 
         <div style={{ color: "var(--phn-text-dim)", fontSize: "var(--phn-fs-xs)", lineHeight: "var(--phn-lh)", marginBottom: "var(--phn-sp-5)" }}>
-          First time? You'll also need <strong style={{ color: "var(--phn-text-fg)" }}>Node.js</strong> + the{" "}
+          First time? You&apos;ll also need <strong style={{ color: "var(--phn-text-fg)" }}>Node.js</strong> + the{" "}
           <strong style={{ color: "var(--phn-text-fg)" }}>Claude Code CLI</strong> for{" "}
           <code style={{ background: "var(--phn-surface-bg)", padding: "1px 5px", borderRadius: "var(--phn-r-sm)", fontFamily: "var(--phn-mono-font)", fontSize: "var(--phn-fs-2xs)" }}>claude</code>{" "}
-          to run in a tab. The header's <strong style={{ color: "var(--phn-text-fg)" }}>setup</strong> has a guided checklist.
+          to run in a tab. The header&apos;s <strong style={{ color: "var(--phn-text-fg)" }}>setup</strong> has a guided checklist.
         </div>
 
         <div style={{ color: "var(--phn-text-faint)", fontSize: "var(--phn-fs-2xs)", fontFamily: "var(--phn-mono-font)" }}>
