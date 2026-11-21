@@ -5,7 +5,7 @@
 // fix. The provider call runs in Rust (llm_complete) so the key never hits a
 // browser request. Reads provider config straight from localStorage (same
 // pattern TerminalPane uses for env injection).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { noModelMessage, resolveActiveLLM } from "./providers.js";
 import { llmStream } from "./llmStream.js";
 import { readUserSt } from "./storageKeys.js";
@@ -33,54 +33,74 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
   const [loading, setLoading] = useState(true);
   const [modelLabel, setModelLabel] = useState("");
   const ranFor = useRef(null);
+  // The block key the component is showing now, written at commit (layout
+  // effect) so a delta or final answer from an earlier block's stream is
+  // dropped from the moment the new block is on screen, not only once that
+  // stream's effect cleanup has run (passive effects run after paint).
+  const keyRef = useRef(null);
+  const blockKey = block ? block.key : null;
 
   // A new failed block starts a fresh explanation. The reset (and the
   // no-model message) is state adjusted during render, keyed on block.key, so
   // the effect below only starts the stream and sets state from its callbacks.
-  const [seenKey, setSeenKey] = useState(null);
-  if (block && block.key !== seenKey) {
-    setSeenKey(block.key);
+  // The model is resolved here, once per block, and the effect streams with
+  // that same one, so the stream can never use a different model from the one
+  // the header names. Every branch clears the previous answer: a kept answer
+  // would keep offering "Run fix" with the previous block's command.
+  const [run, setRun] = useState({ key: null, llm: null, prompt: "" });
+  if (block && block.key !== run.key) {
     const llmState = readUserSt();
     const llm = resolveActiveLLM(llmState);
+    setRun({
+      key: block.key,
+      llm,
+      prompt:
+        `Exit code: ${block.exitCode}\n\n--- terminal (command + output) ---\n` +
+        block.text.slice(-3500),
+    });
+    setAnswer("");
     if (!llm) {
       setLoading(false);
       setError(noModelMessage(llmState));
+      setModelLabel("");
     } else {
       setModelLabel(llm.model);
-      setLoading(true); setError(null); setAnswer("");
+      setLoading(true); setError(null);
     }
   }
 
+  useLayoutEffect(() => { keyRef.current = blockKey; });
+
   useEffect(() => {
-    if (!block) return;
-    if (ranFor.current === block.key) return; // one call per failed block
-    ranFor.current = block.key;
-    const llm = resolveActiveLLM(readUserSt());
+    if (blockKey === null || run.key !== blockKey) return;
+    if (ranFor.current === blockKey) return; // one call per failed block
+    ranFor.current = blockKey;
+    const { llm, prompt } = run;
     if (!llm) return; // the no-model message was set during render above
-    const prompt =
-      `Exit code: ${block.exitCode}\n\n--- terminal (command + output) ---\n` +
-      block.text.slice(-3500);
     // Staleness guard + stream cancel (P3-T2): a since-dismissed block (or a
     // switch to a different failed block) cancels the stream — Rust drops the
     // connection so the provider stops generating — and mutes late deltas.
+    // Each callback carries this stream's block key and is dropped once that
+    // key is no longer the one on screen (keyRef), even before cleanup runs.
     let cancelled = false;
+    const live = () => !cancelled && keyRef.current === blockKey;
     const { promise, cancel } = llmStream(
       {
         kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
         model: llm.model, system: SYSTEM, prompt,
       },
       (piece) => {
-        if (cancelled) return;
+        if (!live()) return;
         setLoading(false);
         setAnswer((cur) => cur + piece);
       }
     );
     promise
-      .then((t) => { if (!cancelled && typeof t === "string" && t) setAnswer(t.trim()); })
-      .catch((e) => { if (!cancelled) setError(humanizeError(e).message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((t) => { if (live() && typeof t === "string" && t) setAnswer(t.trim()); })
+      .catch((e) => { if (live()) setError(humanizeError(e).message); })
+      .finally(() => { if (live()) setLoading(false); });
     return () => { cancelled = true; cancel(); };
-  }, [block]);
+  }, [blockKey, run]);
 
   if (!block) return null;
 

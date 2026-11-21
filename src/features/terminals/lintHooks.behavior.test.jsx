@@ -6,6 +6,7 @@
 // would fail if the reset stopped happening on the transition it guards.
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, cleanup, waitFor, act, fireEvent } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 
 const { invokeMock, readUserStMock, llmStreamMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -28,6 +29,22 @@ import AskBar from "./AskBar.jsx";
 import KeybindingsSection from "./KeybindingsSection.jsx";
 import SharingSection from "./SharingSection.jsx";
 import LockScreen from "./LockScreen.jsx";
+import SessionSummary from "./SessionSummary.jsx";
+import AgentDashboard from "./AgentDashboard.jsx";
+
+const MODEL = {
+  activeModel: { providerId: "anthropic", model: "claude-test" },
+  providerKeys: { anthropic: "sk-test" },
+};
+
+// Runs `fire` from a layout effect. Rendered as a later sibling, its layout
+// effect runs after the component under test has committed and before any
+// passive effect (where a stream's cleanup lives): the window in which a late
+// stream delta can land in the real app, since passive effects run after paint.
+function LateDelta({ fire }) {
+  useLayoutEffect(() => { fire?.(); }, [fire]);
+  return null;
+}
 
 beforeEach(() => {
   invokeMock.mockReset();
@@ -92,7 +109,10 @@ describe("ErrorExplainer", () => {
   test("with no model configured it shows the no-model message and never streams", () => {
     const { container } = render(<ErrorExplainer block={block("k1")} onClose={() => {}} onRun={() => {}} />);
     expect(llmStreamMock).not.toHaveBeenCalled();
-    expect(container.textContent.toLowerCase()).toMatch(/model|key/);
+    // Exact text: the loading line ("Asking the model…") would also match a
+    // loose /model/ pattern, so the old assertion passed with this branch broken.
+    expect(container.textContent).toContain("No model configured. Open the Models picker (toolbar) first.");
+    expect(container.textContent).not.toContain("Asking");
   });
 
   test("streams once per block key, and again for a new key", () => {
@@ -108,6 +128,229 @@ describe("ErrorExplainer", () => {
     expect(llmStreamMock).toHaveBeenCalledTimes(1);
     rerender(<ErrorExplainer block={block("k2")} {...props} />);
     expect(llmStreamMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a new block object with the same key keeps the running stream", () => {
+    readUserStMock.mockReturnValue(MODEL);
+    const cancel = vi.fn();
+    llmStreamMock.mockReturnValue({ promise: new Promise(() => {}), cancel });
+    const props = { onClose: () => {}, onRun: () => {} };
+    const { rerender } = render(<ErrorExplainer block={block("k1")} {...props} />);
+    rerender(<ErrorExplainer block={{ ...block("k1") }} {...props} />);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(llmStreamMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("resolves the model once per block: the stream uses the model the header shows", () => {
+    // Render read claude-a; a second readUserSt() in the effect would see claude-b.
+    readUserStMock
+      .mockReturnValueOnce({ ...MODEL, activeModel: { providerId: "anthropic", model: "claude-a" } })
+      .mockReturnValue({ ...MODEL, activeModel: { providerId: "anthropic", model: "claude-b" } });
+    llmStreamMock.mockReturnValue({ promise: new Promise(() => {}), cancel: () => {} });
+    const { container } = render(<ErrorExplainer block={block("k1")} onClose={() => {}} onRun={() => {}} />);
+    expect(container.textContent).toContain("via claude-a");
+    expect(llmStreamMock).toHaveBeenCalledTimes(1);
+    expect(llmStreamMock.mock.calls[0][0].model).toBe("claude-a");
+  });
+
+  test("a delta from the previous block that lands after the key changed is dropped", () => {
+    readUserStMock.mockReturnValue(MODEL);
+    llmStreamMock.mockImplementation(() => ({ promise: new Promise(() => {}), cancel: () => {} }));
+    const props = { onClose: () => {}, onRun: () => {} };
+    const { container, rerender } = render(
+      <>
+        <ErrorExplainer block={block("k1")} {...props} />
+        <LateDelta />
+      </>
+    );
+    const k1Token = llmStreamMock.mock.calls[0][1];
+    // k1's delta arrives after the k2 commit but before passive effects (where
+    // the old stream's cleanup runs): a sibling's layout effect is that moment.
+    rerender(
+      <>
+        <ErrorExplainer block={block("k2")} {...props} />
+        <LateDelta fire={() => k1Token("STALE k1 text")} />
+      </>
+    );
+    expect(container.textContent).not.toContain("STALE");
+    expect(container.textContent).toContain("Asking claude-test…");
+    const k2Token = llmStreamMock.mock.calls[1][1];
+    act(() => { k2Token("fresh k2 text"); });
+    expect(container.textContent).toContain("fresh k2 text");
+  });
+
+  test("after the model is removed, a new failed block offers no Run fix from the previous answer", async () => {
+    // BEHAVIOUR CHANGE (v0.7.6 fix round 1): the no-model branch kept the old
+    // answer, so the header still offered the PREVIOUS block's fix command.
+    readUserStMock.mockReturnValue(MODEL);
+    llmStreamMock.mockReturnValue({
+      promise: Promise.resolve("Missing deps.\n```bash\nnpm ci\n```"),
+      cancel: () => {},
+    });
+    const onRun = vi.fn();
+    const { findByText, queryByText, container, rerender } = render(
+      <ErrorExplainer block={block("k1")} onClose={() => {}} onRun={onRun} />
+    );
+    expect(await findByText("Run fix ▶")).toBeTruthy();
+    readUserStMock.mockReturnValue({});
+    rerender(<ErrorExplainer block={block("k2")} onClose={() => {}} onRun={onRun} />);
+    expect(container.textContent).toContain("No model configured. Open the Models picker (toolbar) first.");
+    expect(queryByText("Run fix ▶")).toBeNull();
+    expect(queryByText("Copy")).toBeNull();
+    expect(container.textContent).not.toContain("via claude-test");
+  });
+});
+
+describe("SessionSummary", () => {
+  const props = { sourceId: null, panels: [], onClose: () => {} };
+  const body = () => document.body.textContent;
+
+  test("mounted open with a model, it streams once", () => {
+    readUserStMock.mockReturnValue(MODEL);
+    llmStreamMock.mockReturnValue({ promise: new Promise(() => {}), cancel: () => {} });
+    render(<SessionSummary open text="make: ok" {...props} />);
+    expect(llmStreamMock).toHaveBeenCalledTimes(1);
+    expect(llmStreamMock.mock.calls[0][0].prompt).toContain("make: ok");
+    expect(body()).toContain("Reading the terminal and summarizing…");
+  });
+
+  test("a text change while open cancels the old stream and starts exactly one new one", () => {
+    readUserStMock.mockReturnValue(MODEL);
+    const cancelA = vi.fn();
+    const cancelB = vi.fn();
+    llmStreamMock
+      .mockReturnValueOnce({ promise: new Promise(() => {}), cancel: cancelA })
+      .mockReturnValueOnce({ promise: new Promise(() => {}), cancel: cancelB });
+    const { rerender } = render(<SessionSummary open text="A output" {...props} />);
+    rerender(<SessionSummary open text="B output" {...props} />);
+    expect(cancelA).toHaveBeenCalledTimes(1);
+    expect(cancelB).not.toHaveBeenCalled();
+    expect(llmStreamMock).toHaveBeenCalledTimes(2);
+    expect(llmStreamMock.mock.calls[1][0].prompt).toContain("B output");
+  });
+
+  test("empty text shows the empty message and never streams", () => {
+    readUserStMock.mockReturnValue(MODEL);
+    render(<SessionSummary open text={"  \n "} {...props} />);
+    expect(body()).toContain("Nothing in this terminal to summarize yet.");
+    expect(body()).not.toContain("Reading the terminal");
+    expect(llmStreamMock).not.toHaveBeenCalled();
+  });
+
+  test("no model shows the no-model message and never streams", () => {
+    render(<SessionSummary open text="make: ok" {...props} />);
+    expect(body()).toContain("No model configured. Open the Models picker (toolbar) first.");
+    expect(body()).not.toContain("Reading the terminal");
+    expect(llmStreamMock).not.toHaveBeenCalled();
+  });
+
+  test("resolves the model once per text: the stream uses the model the header shows", () => {
+    readUserStMock
+      .mockReturnValueOnce({ ...MODEL, activeModel: { providerId: "anthropic", model: "claude-a" } })
+      .mockReturnValue({ ...MODEL, activeModel: { providerId: "anthropic", model: "claude-b" } });
+    llmStreamMock.mockReturnValue({ promise: new Promise(() => {}), cancel: () => {} });
+    render(<SessionSummary open text="make: ok" {...props} />);
+    expect(body()).toContain("via claude-a");
+    expect(llmStreamMock).toHaveBeenCalledTimes(1);
+    expect(llmStreamMock.mock.calls[0][0].model).toBe("claude-a");
+  });
+
+  test("a delta from the previous text that lands after the text changed is dropped", () => {
+    readUserStMock.mockReturnValue(MODEL);
+    llmStreamMock.mockImplementation(() => ({ promise: new Promise(() => {}), cancel: () => {} }));
+    const { rerender } = render(
+      <>
+        <SessionSummary open text="A output" {...props} />
+        <LateDelta />
+      </>
+    );
+    const aToken = llmStreamMock.mock.calls[0][1];
+    rerender(
+      <>
+        <SessionSummary open text="B output" {...props} />
+        <LateDelta fire={() => aToken("STALE summary of A")} />
+      </>
+    );
+    expect(body()).not.toContain("STALE");
+    expect(body()).toContain("Reading the terminal and summarizing…");
+    const bToken = llmStreamMock.mock.calls[1][1];
+    act(() => { bToken("summary of B"); });
+    expect(body()).toContain("summary of B");
+  });
+
+  test("after the model is removed, new text offers no Copy of the previous summary", async () => {
+    // BEHAVIOUR CHANGE (v0.7.6 fix round 1): the no-model and empty branches
+    // kept the old answer, so Copy and Hand off still offered the old summary.
+    readUserStMock.mockReturnValue(MODEL);
+    llmStreamMock.mockReturnValue({ promise: Promise.resolve("Summary of A."), cancel: () => {} });
+    const { findByText, queryByText, rerender } = render(<SessionSummary open text="A output" {...props} />);
+    expect(await findByText("Copy")).toBeTruthy();
+    readUserStMock.mockReturnValue({});
+    rerender(<SessionSummary open text="B output" {...props} />);
+    expect(body()).toContain("No model configured. Open the Models picker (toolbar) first.");
+    expect(queryByText("Copy")).toBeNull();
+    expect(body()).not.toContain("Summary of A.");
+    expect(body()).not.toContain("via claude-test");
+  });
+
+  test("emptied text offers no Copy of the previous summary", async () => {
+    readUserStMock.mockReturnValue(MODEL);
+    llmStreamMock.mockReturnValue({ promise: Promise.resolve("Summary of A."), cancel: () => {} });
+    const { findByText, queryByText, rerender } = render(<SessionSummary open text="A output" {...props} />);
+    expect(await findByText("Copy")).toBeTruthy();
+    rerender(<SessionSummary open text="" {...props} />);
+    expect(body()).toContain("Nothing in this terminal to summarize yet.");
+    expect(queryByText("Copy")).toBeNull();
+  });
+});
+
+describe("AgentDashboard", () => {
+  const panels = [{
+    id: "p1",
+    activeTabId: "t1",
+    tabs: [{ id: "t1", label: "build", worktree: { branch: "feat-x", path: "/w" } }],
+  }];
+
+  function mount() {
+    const spies = { onFocusTab: vi.fn(), onSummarize: vi.fn(), onReviewDiff: vi.fn() };
+    const utils = render(<AgentDashboard panels={panels} activePanelId="p1" tabCosts={{}} {...spies} />);
+    return { ...utils, ...spies };
+  }
+
+  test("the row is not itself a button; the name area is a real button that focuses the tab", () => {
+    const { container, getByRole, onFocusTab } = mount();
+    const row = container.querySelector(".moba-agent-row");
+    expect(row.getAttribute("role")).toBe("presentation"); // was "button" around two buttons
+    expect(row.hasAttribute("tabindex")).toBe(false);
+    const name = getByRole("button", { name: /feat-x/ });
+    expect(name.tagName).toBe("BUTTON");
+    expect(name.getAttribute("type")).toBe("button");
+    expect(name.contains(row.querySelector(".moba-agent-dot"))).toBe(true);
+    expect(name.contains(row.querySelector(".moba-agent-icon"))).toBe(true);
+    // Keyboard: a focused native button turns Enter (and Space) into a click,
+    // which happy-dom does not synthesise; the click is that activation.
+    name.focus();
+    expect(document.activeElement).toBe(name);
+    fireEvent.keyDown(name, { key: "Enter" });
+    fireEvent.click(name);
+    expect(onFocusTab).toHaveBeenCalledTimes(1);
+    expect(onFocusTab).toHaveBeenCalledWith("p1", "t1");
+  });
+
+  test("a mouse click anywhere on the row still focuses the tab", () => {
+    const { container, onFocusTab } = mount();
+    fireEvent.click(container.querySelector(".moba-agent-status"));
+    expect(onFocusTab).toHaveBeenCalledTimes(1);
+    expect(onFocusTab).toHaveBeenCalledWith("p1", "t1");
+  });
+
+  test("Summarize and diff still work and do not focus the tab", () => {
+    const { getByTitle, onFocusTab, onSummarize, onReviewDiff } = mount();
+    fireEvent.click(getByTitle("AI-summarize this session"));
+    expect(onSummarize).toHaveBeenCalledWith("t1");
+    fireEvent.click(getByTitle("Review diff + open PR for feat-x"));
+    expect(onReviewDiff).toHaveBeenCalledWith(panels[0].tabs[0].worktree);
+    expect(onFocusTab).not.toHaveBeenCalled();
   });
 });
 
@@ -156,6 +399,25 @@ describe("SharingSection", () => {
     const { findByText } = render(<SharingSection />);
     expect(await findByText("Using gh CLI")).toBeTruthy();
     expect(invokeMock).toHaveBeenCalledWith("gist_auth_available");
+  });
+
+  test("a slow mount lookup that resolves after a save's refresh does not overwrite it", async () => {
+    let resolveMount = null;
+    invokeMock.mockImplementation((cmd) => {
+      if (cmd === "gist_auth_available") {
+        if (!resolveMount) return new Promise((r) => { resolveMount = r; });
+        return Promise.resolve({ source: "pat" });
+      }
+      return Promise.resolve(); // secret_set
+    });
+    const { container, findByText, getByText } = render(<SharingSection />);
+    expect(getByText("Checking…")).toBeTruthy();
+    fireEvent.change(container.querySelector("input[type=password]"), { target: { value: "ghp_test" } });
+    fireEvent.click(getByText("Save token"));
+    expect(await findByText("Using saved token")).toBeTruthy();
+    // The mount lookup started first, so its answer is older than the refresh.
+    await act(async () => { resolveMount({ source: "none" }); });
+    expect(getByText("Using saved token")).toBeTruthy();
   });
 });
 

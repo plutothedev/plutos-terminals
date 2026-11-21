@@ -1,7 +1,7 @@
 // (C)
 // Master-password unlock screen. Shown by App before the terminal grid when a
 // master password is set and this launch hasn't been unlocked yet.
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { verifyPassword, markUnlocked } from "./masterPassword.js";
 import { SLock } from "./toolbarIcons.jsx";
 
@@ -10,7 +10,8 @@ export default function LockScreen({ expectedHash, onUnlock }) {
   const [error, setError] = useState(false);
   const inputRef = useRef(null);
   // Focus moves into the lock input when the screen appears (was autoFocus).
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  // A layout effect focuses at commit, before paint, as autoFocus did.
+  useLayoutEffect(() => { inputRef.current?.focus(); }, []);
 
   const tryUnlock = async () => {
     if (await verifyPassword(pw, expectedHash)) { markUnlocked(); onUnlock(); }

@@ -129,7 +129,7 @@ export async function syncNow() {
   } catch (e) {
     status(classifyError(e));
   } finally {
-    // eslint-disable-next-line require-atomic-updates -- false positive: `busy` is a single-flight flag set synchronously before the first await and written only here (constant false, not derived from the pre-await read).
+    // eslint-disable-next-line require-atomic-updates -- false positive: `busy` is a single-flight flag, cleared only here; set only at the synchronous entry (line ~90), before the first await (a constant, not derived from the pre-await read).
     busy = false;
     if (pendingResync) {
       pendingResync = false;

@@ -8,7 +8,19 @@ import {
   cancelMacroRecording,
   recordInput,
   isMacroRecording,
+  previewMacro,
 } from "./macros.js";
+
+describe("previewMacro", () => {
+  const ch = (n) => String.fromCharCode(n);
+  it("shows CR, Tab and every ESC as symbols and other C0 controls as a dot", () => {
+    const raw = "ls" + ch(13) + ch(9) + ch(27) + "[1m" + ch(27) + "[0m" + ch(1) + ch(0) + "x";
+    expect(previewMacro(raw)).toBe("ls⏎⇥␛[1m␛[0m··x");
+  });
+  it("truncates to max with an ellipsis", () => {
+    expect(previewMacro("abcdef", 3)).toBe("abc…");
+  });
+});
 
 afterEach(() => cancelMacroRecording());
 

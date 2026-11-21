@@ -25,6 +25,16 @@ const fmtTokens = (t) => (t >= 1000 ? `${(t / 1000).toFixed(1)}k` : `${t}`);
 const DOT = { waiting: "#E0A93C", active: "#FBBF24", done: "#34D399", idle: "#5a5a5a" };
 const LABEL = { waiting: "needs you", active: "running", done: "finished", idle: "idle" };
 
+// The row's dot, icon and name as one real button (the keyboard path to the
+// tab). Button chrome reset; it takes the row's flex slot the name span had
+// (flex: 1, min-width: 0 so the name still ellipsizes) and lays its three
+// children out with the row's own gap, so the row looks as it did.
+const NAME_BUTTON = {
+  background: "none", border: 0, padding: 0, margin: 0,
+  font: "inherit", color: "inherit", textAlign: "inherit", cursor: "inherit",
+  display: "flex", alignItems: "center", gap: 7, flex: 1, minWidth: 0,
+};
+
 export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocusTab, onReviewDiff, onSummarize }) {
   const [filter, setFilter] = useState("all"); // all | waiting | active | done
   // Whole-map subscription (P2-T1): header counts, filter pills and the
@@ -107,25 +117,30 @@ export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocu
             <div
               key={tab.id}
               className={isActive ? "moba-agent-row active" : "moba-agent-row"}
-              role="button"
-              tabIndex={0}
+              // Mouse convenience only: a click anywhere on the row focuses the
+              // tab. The keyboard path is the name button below, so the row is
+              // not itself interactive and the Summarize/diff buttons are not
+              // nested inside another control. role="presentation" says exactly
+              // that (a div has no semantics to remove).
+              role="presentation"
               onClick={() => onFocusTab?.(panel.id, tab.id)}
-              onKeyDown={(e) => {
-                // Only the row itself: Enter/Space on the nested Summarize button must reach that button.
-                if (e.target !== e.currentTarget) return;
-                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onFocusTab?.(panel.id, tab.id); }
-              }}
               title={(tab.worktree ? `worktree: ${tab.worktree.branch}` : tab.label) + (line ? `\n${line}` : "")}
             >
-              <span
-                className="moba-agent-dot"
-                style={{ background: DOT[status], boxShadow: DOT[status] && status !== "idle" ? `0 0 6px ${DOT[status]}` : "none" }}
-              />
-              <span className="moba-agent-icon" style={{ display: "inline-flex", alignItems: "center" }}>{tab.worktree ? <SAgents size={11} /> : tab.connection ? <SLink size={11} /> : tab.serial ? <SSerial size={11} /> : tab.rdp ? <SWindows size={11} /> : tab.vnc ? <SLocal size={11} /> : "❯"}</span>
-              <span className="moba-agent-name">
-                {tab.worktree ? tab.worktree.branch : tab.label}
-                {line && <span className="moba-agent-msg"> · {line}</span>}
-              </span>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onFocusTab?.(panel.id, tab.id); }}
+                style={NAME_BUTTON}
+              >
+                <span
+                  className="moba-agent-dot"
+                  style={{ background: DOT[status], boxShadow: DOT[status] && status !== "idle" ? `0 0 6px ${DOT[status]}` : "none" }}
+                />
+                <span className="moba-agent-icon" style={{ display: "inline-flex", alignItems: "center" }}>{tab.worktree ? <SAgents size={11} /> : tab.connection ? <SLink size={11} /> : tab.serial ? <SSerial size={11} /> : tab.rdp ? <SWindows size={11} /> : tab.vnc ? <SLocal size={11} /> : "❯"}</span>
+                <span className="moba-agent-name">
+                  {tab.worktree ? tab.worktree.branch : tab.label}
+                  {line && <span className="moba-agent-msg"> · {line}</span>}
+                </span>
+              </button>
               {tokens > 0 && <span className="moba-agent-cost" title={`${tokens.toLocaleString()} tokens`} style={{ opacity: 0.7 }}>{fmtTokens(tokens)}t</span>}
               {cost > 0 && <span className="moba-agent-cost">${cost.toFixed(2)}</span>}
               {onSummarize && (

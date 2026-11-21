@@ -78,8 +78,7 @@ export function previewMacro(data, max = 48) {
   const s = (data || "")
     .replace(/\r/g, "⏎")
     .replace(/\t/g, "⇥")
-    // eslint-disable-next-line no-control-regex -- previewing raw macro bytes: ESC must be matched to show it as a symbol.
-    .replace(/\x1b/g, "␛")
+    .replaceAll("\x1b", "␛")
     // eslint-disable-next-line no-control-regex -- remaining C0 control chars are replaced with a visible dot.
     .replace(/[\x00-\x1f]/g, "·");
   return s.length > max ? s.slice(0, max) + "…" : s;

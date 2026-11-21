@@ -127,6 +127,25 @@ describe("BroadcastGroupModal targets panes, not tabs", () => {
     expect(onApply.mock.calls[0][0].sort()).toEqual(["tab1", "tab1-p2", "tab9"]);
   });
 
+  it("seeds the selection from `current`, and follows a new `current` while open", () => {
+    // The seed is adjusted during render (v0.7.6 lint cleanup), not in an effect.
+    const props = {
+      open: true,
+      panels: [{ id: "p1", tabs: [splitTab("tab1", "shell")] }],
+      liveTabIds: ["tab1", "tab1-p2"],
+      onClose: () => {},
+      onApply: () => {},
+      onUseAllVisible: () => {},
+    };
+    const { rerender } = render(<BroadcastGroupModal {...props} current={["tab1-p2"]} />);
+    expect(rows().map((r) => r.checked)).toEqual([false, true]);
+    expect(screen.getByText("1 selected")).toBeTruthy();
+    rerender(<BroadcastGroupModal {...props} current={["tab1"]} />);
+    expect(rows().map((r) => r.checked)).toEqual([true, false]);
+    rerender(<BroadcastGroupModal {...props} current={["tab1", "tab1-p2"]} />);
+    expect(rows().map((r) => r.checked)).toEqual([true, true]);
+  });
+
   it("says so plainly when nothing is live", () => {
     mount({ panels: [{ id: "p1", tabs: [{ id: "tab1", label: "shell" }] }], liveTabIds: [] });
     expect(rows()).toHaveLength(0);

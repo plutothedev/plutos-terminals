@@ -3,7 +3,7 @@
 // LLM and shows a concise summary (what happened, key results, anything that
 // errored, suggested next step). Same Rust llm_complete path as ErrorExplainer
 // (the key never hits a browser request).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
 import { noModelMessage, resolveActiveLLM } from "./providers.js";
@@ -62,44 +62,58 @@ export default function SessionSummary({ open, text, sourceId = null, panels = [
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modelLabel, setModelLabel] = useState("");
-  const ran = useRef(false);
+  // The run on screen now (see `run` below), written at commit (layout
+  // effect) so a delta or final answer from an earlier text's stream is
+  // dropped from the moment the new text is on screen, not only once that
+  // stream's effect cleanup has run (passive effects run after paint).
+  const keyRef = useRef(null);
 
   // Per-open / per-text reset, adjusted during render (not set synchronously
   // in the effect): closing clears the answer and handoff; opening decides the
-  // empty / no-model messages or starts the loading state. `seen` starts as
-  // closed so a modal mounted open resets on its first render too.
-  const [seen, setSeen] = useState({ open: false, text: undefined });
-  if (seen.open !== open || seen.text !== text) {
-    setSeen({ open, text });
+  // empty / no-model messages or starts the loading state. The model is
+  // resolved here, once per open/text, and the effect streams with that same
+  // one, so the stream can never use a different model from the one the header
+  // names. Every open branch clears the previous answer: a kept answer would
+  // keep offering Copy and Hand off for the previous text's summary. `run`
+  // starts as closed so a modal mounted open resets on its first render too;
+  // its identity is the stream key (a new object exactly when open/text change).
+  const [run, setRun] = useState({ open: false, text: undefined, llm: null, body: "" });
+  if (run.open !== open || run.text !== text) {
+    const body = open ? (text || "").trim() : "";
     if (!open) {
+      setRun({ open, text, llm: null, body });
       setAnswer(""); setError(null); setTarget(""); setSent("");
-    } else if (!(text || "").trim()) {
+    } else if (!body) {
+      setRun({ open, text, llm: null, body });
+      setAnswer(""); setModelLabel("");
       setLoading(false); setError("Nothing in this terminal to summarize yet.");
     } else {
       const llmState = readUserSt();
       const llm = resolveActiveLLM(llmState);
-      if (!llm) { setLoading(false); setError(noModelMessage(llmState)); }
-      else { setModelLabel(llm.model); setLoading(true); setError(null); setAnswer(""); }
+      setRun({ open, text, llm, body });
+      setAnswer("");
+      if (!llm) { setModelLabel(""); setLoading(false); setError(noModelMessage(llmState)); }
+      else { setModelLabel(llm.model); setLoading(true); setError(null); }
     }
   }
 
+  useLayoutEffect(() => { keyRef.current = run; });
+
   useEffect(() => {
-    if (!open) { ran.current = false; return; }
-    if (ran.current) return;
-    ran.current = true;
-    const body = (text || "").trim();
-    if (!body) return; // the empty message was set during render above
-    const llm = resolveActiveLLM(readUserSt());
-    if (!llm) return; // so was the no-model message
+    // Closed, empty or no model: the message was set during render above.
+    if (!run.open || !run.body || !run.llm) return;
+    const { llm, body } = run;
     // Streaming (P3-T2): deltas render as they arrive — the spinner clears on
-    // the first token. Cleanup CANCELS the stream AND resets the ran-guard so
-    // StrictMode's dev double-mount re-runs cleanly instead of dead-modaling
-    // (plan audit M3); a real close also stops provider-side generation.
-    // `cancelled` guards every continuation (stream audit W1): summarizing tab
-    // B while A still streams re-runs this effect on the SAME mounted modal —
-    // without the guard, A's cancelled promise still resolves with partial
-    // text and clobbers B's answer (llm_stream returns Ok on cancel, not Err).
+    // the first token. Cleanup CANCELS the stream, so StrictMode's dev
+    // double-mount starts a fresh one instead of dead-modaling (plan audit M3);
+    // a real close also stops provider-side generation. `live()` guards every
+    // continuation (stream audit W1): summarizing tab B while A still streams
+    // re-runs this effect on the SAME mounted modal, and A's cancelled promise
+    // still resolves with partial text (llm_stream returns Ok on cancel, not
+    // Err). It checks both this stream's own cancel flag and that its run is
+    // still the one on screen (keyRef), which holds even before cleanup runs.
     let cancelled = false;
+    const live = () => !cancelled && keyRef.current === run;
     const { promise, cancel } = llmStream(
       {
         kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
@@ -107,21 +121,20 @@ export default function SessionSummary({ open, text, sourceId = null, panels = [
         prompt: `--- recent terminal output ---\n${body}`,
       },
       (piece) => {
-        if (cancelled) return;
+        if (!live()) return;
         setLoading(false);
         setAnswer((cur) => cur + piece);
       }
     );
     promise
-      .then((t) => { if (!cancelled && typeof t === "string" && t) setAnswer(t.trim()); })
-      .catch((e) => { if (!cancelled) setError(humanizeError(e).message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((t) => { if (live() && typeof t === "string" && t) setAnswer(t.trim()); })
+      .catch((e) => { if (live()) setError(humanizeError(e).message); })
+      .finally(() => { if (live()) setLoading(false); });
     return () => {
       cancelled = true;
       cancel();
-      ran.current = false;
     };
-  }, [open, text]);
+  }, [run]);
 
   return (
     <Modal open={open} title="Summarize session" onClose={onClose} width={620}>

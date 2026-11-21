@@ -5,7 +5,7 @@
 // sync-git-pat:v0 the cloud-sync feature uses, and never into userSt. If the gh
 // CLI is already authed, no token is needed here (gh wins). Mirrors SyncSection's
 // PAT field: a masked input, a status line, and a clear button.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { Button, Input, Field } from "../../components/ui.jsx";
 import { useToast } from "../../components/Toast.jsx";
@@ -28,23 +28,29 @@ export default function SharingSection() {
   const [source, setSource] = useState(null); // "gh" | "pat" | "none" | null (still checking)
   const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(async () => {
+  // One lookup path for the mount check and the refresh after save/clear. Each
+  // call takes a number and only the latest one may set the status, so a slow
+  // mount lookup cannot overwrite the fresher answer a save just produced.
+  // `isAlive` lets the mount effect drop an answer that lands after unmount.
+  const lookupSeq = useRef(0);
+  const refresh = useCallback(async (isAlive = () => true) => {
+    const seq = ++lookupSeq.current;
+    let next;
     try {
       const auth = await invoke("gist_auth_available");
-      setSource(auth?.source || "none");
+      next = auth?.source || "none";
     } catch {
-      setSource("none");
+      next = "none";
     }
+    if (seq === lookupSeq.current && isAlive()) setSource(next);
   }, []);
 
-  // Initial lookup: state is set from the promise callbacks only.
+  // Initial lookup: state is set after the await only.
   useEffect(() => {
     let alive = true;
-    invoke("gist_auth_available")
-      .then((auth) => { if (alive) setSource(auth?.source || "none"); })
-      .catch(() => { if (alive) setSource("none"); });
+    refresh(() => alive);
     return () => { alive = false; };
-  }, []);
+  }, [refresh]);
 
   const saveToken = async () => {
     const secret = pat.trim();
