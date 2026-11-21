@@ -1048,7 +1048,12 @@ function TerminalPane({
             // Not ignorable: a failed open leaves this re-attached pane blank
             // (or without dictation), with no other trace. Logged, not
             // rethrown, so one pane's renderer cannot break the observer.
-            console.warn("[TerminalPane] terminal open on re-attach failed", err);
+            // Once per entry: refitOnly runs on every resize and reveal, and
+            // a persistently failing open would otherwise warn on each one.
+            if (!entry.reattachWarned) {
+              entry.reattachWarned = true;
+              console.warn("[TerminalPane] terminal open on re-attach failed", err);
+            }
           }
         }
         try { entry.fit?.fit(); } catch { /* fit throws while the renderer is not ready; the next resize or reveal refits */ }
