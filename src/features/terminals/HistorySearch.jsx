@@ -5,7 +5,7 @@
 // mod+Enter (Ctrl on Win/Linux, ⌘ on mac) runs it immediately. Plain Ctrl+R is
 // left to the shell's own reverse-i-search (this opens on the app's History
 // binding, Ctrl/⌘+R via the collapsed-mod dispatcher).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input } from "../../components/ui.jsx";
 import { modCombo } from "./keybindings.js";
@@ -27,6 +27,8 @@ function HistoryBody({ history, onClose, onInsert, onRun }) {
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
   const listRef = useRef(null);
+  const uid = useId();
+  const optionId = (i) => `${uid}-opt-${i}`;
 
   useEffect(() => {
     const t = setTimeout(() => inputRef.current?.focus(), 30);
@@ -63,14 +65,20 @@ function HistoryBody({ history, onClose, onInsert, onRun }) {
 
   return (
     <>
+      {/* Focus never leaves the filter field: the arrow keys move the active
+          option and aria-activedescendant tells assistive tech which one it is
+          (the listbox pattern for a filter box), so the rows take no focus and
+          need no key handler of their own. */}
       <Input
         ref={inputRef}
         value={q}
         onChange={onQueryChange}
         onKeyDown={onKeyDown}
+        aria-controls={`${uid}-list`}
+        aria-activedescendant={items.length ? optionId(cur) : undefined}
         placeholder="Type to filter your command history…"
       />
-      <div ref={listRef} role="listbox" aria-label="Command history" style={{ marginTop: "var(--phn-sp-3)", maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+      <div ref={listRef} id={`${uid}-list`} role="listbox" aria-label="Command history" style={{ marginTop: "var(--phn-sp-3)", maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
         {items.length === 0 ? (
           <div style={{ color: DIM, fontSize: "var(--phn-fs-sm)", padding: "var(--phn-sp-3) var(--phn-sp-1)" }}>
             {history && history.length
@@ -79,19 +87,21 @@ function HistoryBody({ history, onClose, onInsert, onRun }) {
           </div>
         ) : (
           items.map((cmd, i) => (
+            // Mouse path only: the keyboard path for the same action is the
+            // filter field's arrows + Enter, with this row as its
+            // aria-activedescendant. The row never takes focus, so a key
+            // handler here would be dead code.
+            // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- keyboard selection lives on the filter input (aria-activedescendant points at this option); the option is never focused
             <div
               key={`${cmd}\u0000${i}`}
+              id={optionId(i)}
               data-idx={i}
-              // Selection and Enter are driven from the filter input above
-              // (arrow keys); the row's own key handler covers a row that took
-              // focus by click. tabIndex -1 keeps 100s of rows out of the Tab order.
               role="option"
               aria-selected={i === cur}
+              // -1: an option must be focusable for jsx-a11y, but it is never
+              // in the Tab order (focus stays on the filter field).
               tabIndex={-1}
               onClick={() => choose(cmd, false)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(cmd, e.metaKey || e.ctrlKey); }
-              }}
               onMouseEnter={() => setSel(i)}
               title={`Enter = insert · ${modCombo("Enter")} = run`}
               style={{

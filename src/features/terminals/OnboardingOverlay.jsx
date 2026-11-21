@@ -3,7 +3,7 @@
 // "Skip" at any step or "Got it" on the final step. The dismissal flag persists
 // to st.terminalsOnboarded so it never reappears.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { SLocal, SPalette, SBook, SKeyboard } from "./toolbarIcons.jsx";
 import { modCombo, formatCombo } from "./keybindings.js";
 
@@ -89,6 +89,10 @@ const kbdStyle = {
 
 export default function OnboardingOverlay({ onDismiss }) {
   const [step, setStep] = useState(0);
+  // Whether the current press began on the backdrop itself: a text-selection
+  // drag that starts in the card and is released over the backdrop fires its
+  // click on the overlay, and must not dismiss the tour (same rule as Modal.jsx).
+  const downOnBackdrop = useRef(false);
   const current = STEPS[step];
   const isLast = step === STEPS.length - 1;
 
@@ -114,7 +118,12 @@ export default function OnboardingOverlay({ onDismiss }) {
         padding: 12,
         backdropFilter: "blur(3px)",
       }}
-      onClick={(e) => { if (e.target === e.currentTarget) onDismiss(); }}
+      onMouseDown={(e) => { downOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        const close = downOnBackdrop.current && e.target === e.currentTarget;
+        downOnBackdrop.current = false;
+        if (close) onDismiss();
+      }}
       onKeyDown={(e) => { if (e.key === "Escape") onDismiss(); }}
       tabIndex={-1}
     >
@@ -207,7 +216,7 @@ export default function OnboardingOverlay({ onDismiss }) {
                 fontWeight: 600,
                 cursor: "pointer",
               }}
-              // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- not inside Modal.jsx: the tour opens itself on first boot (no opener to hand focus back to), so autofocus puts keyboard users on Next
               autoFocus
             >
               {isLast ? "Got it" : "Next →"}

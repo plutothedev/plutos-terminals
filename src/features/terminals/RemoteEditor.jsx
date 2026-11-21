@@ -74,6 +74,10 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
   const [loading, setLoading] = useState(!!(sessionId && path));
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  // The save mutex. `saving` drives the UI; this ref is what save() checks, so
+  // a second Ctrl+S during a slow write is refused even before the re-render
+  // that would show "Saving…" has committed.
+  const savingRef = useRef(false);
   const textRef = useRef("");
   // Latest buffer for save(), written after every commit and read from handlers.
   useLayoutEffect(() => { textRef.current = text; });
@@ -92,11 +96,12 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
 
   // Publish dirtiness to the module registry so tab-close paths (which unmount
   // this editor without hitting its own onClose guard) can confirm first (audit
-  // C4). Gated on `open`: after a discard-close the buffer stays dirty until the
-  // next file loads, and path flips to undefined — without the open gate that
-  // left a phantom "<session>:undefined" key marked forever, spuriously
-  // confirming EVERY later tab-close app-wide (review regression). Keyed by
-  // session+path; cleared when closed/clean and on unmount.
+  // C4). Keyed by session+path; cleared when the buffer is clean and when this
+  // session unmounts. This component only exists while the editor is open (the
+  // outer RemoteEditor returns null when closed), so a discard-close unmounts it
+  // and the cleanup clears the key: no phantom "<session>:undefined" entry can
+  // be left marked to confirm every later tab-close app-wide (the regression
+  // the old `open` gate guarded against).
   useEffect(() => {
     const key = `${sessionId}:${path}`;
     if (dirty) markRemoteEditDirty(key);
@@ -104,30 +109,43 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
     return () => clearRemoteEditDirty(key);
   }, [dirty, sessionId, path]);
 
-  const save = async () => {
-    if (saving || !sessionId || !path) return;
+  // A promise chain rather than async/await: the mutex is taken here and
+  // released in the chain's finally, the only two writers of savingRef.
+  const save = () => {
+    if (savingRef.current || !sessionId || !path) return undefined;
+    savingRef.current = true;
     setSaving(true);
-    // Snapshot the buffer at call time; re-reading textRef AFTER the await would
-    // mark keystrokes typed during a slow save as already-saved and lose them.
+    // Snapshot the buffer at call time; re-reading textRef after the write
+    // would mark keystrokes typed during a slow save as already-saved and lose
+    // them.
     const snapshot = textRef.current;
-    try {
-      await invoke("sftp_write_file", { id: sessionId, path, content: snapshot });
-      setOrig(snapshot);
-      toast.success(`Saved ${name}`);
-    } catch (e) {
-      toast.error(humanizeError(e, "Save failed"));
-    } finally {
-      setSaving(false);
-    }
+    // new Promise(...) so a synchronous throw from invoke is still caught below.
+    return new Promise((resolve) => resolve(invoke("sftp_write_file", { id: sessionId, path, content: snapshot })))
+      .then(() => {
+        setOrig(snapshot);
+        toast.success(`Saved ${name}`);
+      })
+      .catch((e) => {
+        toast.error(humanizeError(e, "Save failed"));
+      })
+      .finally(() => {
+        savingRef.current = false;
+        setSaving(false);
+      });
   };
+  // Latest save() for the window key listener, which is registered once per
+  // session: the listener reads this ref instead of a closure from the render
+  // that registered it.
+  const saveRef = useRef(save);
+  useLayoutEffect(() => { saveRef.current = save; });
 
   useEffect(() => {
     const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveRef.current(); }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [name, sessionId, path]); // eslint-disable-line
+  }, []);
 
   // Never discard unsaved edits silently (audit C4): Escape / backdrop / ✕ all
   // route through Modal's onClose, so gate it behind a confirm when dirty.

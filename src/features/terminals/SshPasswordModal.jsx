@@ -10,7 +10,10 @@ export default function SshPasswordModal({ open, host, user, onSubmit, onCancel 
   if (!open) return null;
   return (
     <Modal open={open} title="SSH password" onClose={onCancel} width={420}>
-      <SshPasswordBody host={host} user={user} onSubmit={onSubmit} onCancel={onCancel} />
+      {/* Keyed on the target: if the prompt switches to another host while
+          open, the field remounts empty, so a password typed for host A is
+          never sent to host B. */}
+      <SshPasswordBody key={`${user}@${host}`} host={host} user={user} onSubmit={onSubmit} onCancel={onCancel} />
     </Modal>
   );
 }

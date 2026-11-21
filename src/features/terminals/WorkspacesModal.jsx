@@ -33,8 +33,9 @@ function WorkspacesBody({ workspaces, onClose, onSave, onLoad, onDelete }) {
     <>
       <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
         <Input
-          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
-          autoFocus
+          // Initial focus via Modal (see Modal.jsx): autoFocus would run before
+          // Modal records the opener, so closing would drop focus on <body>.
+          data-autofocus
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") save(); }}

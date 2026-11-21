@@ -358,7 +358,7 @@ export default function SnippetsDrawer({
                 </label>
                 <input
                   className="phn-sidebar-search"
-                  // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the fill form it just opened
+                  // eslint-disable-next-line jsx-a11y/no-autofocus -- an inline form in the drawer, not inside Modal.jsx: picking a snippet that needs values opens it, and focus moves to its first field
                   autoFocus={i === 0}
                   value={vals[v] || ""}
                   onChange={(e) => setVals({ ...vals, [v]: e.target.value })}
@@ -394,7 +394,10 @@ export default function SnippetsDrawer({
             <div
               key={s.id}
               className="phn-snippet-item"
-              style={{ position: "relative" }}
+              // The row's 7px 10px inset lives on the insert button instead, so
+              // the button fills the whole row and a click anywhere in it inserts
+              // (the row keeps its border, radius and hover from the class).
+              style={{ position: "relative", padding: 0 }}
             >
               {/* The row's insert action is a real button (keyboard reachable);
                   the delete control is a sibling button, not nested inside it. */}
@@ -402,7 +405,7 @@ export default function SnippetsDrawer({
                 type="button"
                 onClick={() => handlePick(s)}
                 title={`Insert into active terminal: ${s.command}`}
-                style={{ background: "none", border: 0, padding: 0, font: "inherit", color: "inherit", textAlign: "inherit", cursor: "inherit", display: "block", width: "100%" }}
+                style={{ background: "none", border: 0, padding: "7px 10px", boxSizing: "border-box", font: "inherit", color: "inherit", textAlign: "inherit", cursor: "inherit", display: "block", width: "100%" }}
               >
                 <div className="phn-snippet-name">{s.name}</div>
                 {s.description && <div style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", margin: "1px 0" }}>{s.description}</div>}

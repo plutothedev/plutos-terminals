@@ -4,7 +4,7 @@
 // session). Breadcrumb + Name/Size/Mod columns + colored type icons, matching
 // the remote SFTP dock. Double-click a folder to enter; "cd⇢" sends
 // `cd <dir>` to the active terminal; clicking a file inserts its path.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { IconHome, IconUp, IconRefresh, IconReveal, IconCd } from "./icons.jsx";
 import { SFolder } from "./toolbarIcons.jsx";
@@ -85,6 +85,29 @@ export function activateOnKey(fn) {
       fn();
     }
   };
+}
+
+// Keyboard focus across a navigation. Enter on a folder (or on a crumb that the
+// new listing drops) unmounts the element holding focus, which would leave the
+// keyboard user on <body>. `byKey(fn)` wraps a keyboard action: once the next
+// listing has settled (`settled` true, `version` changed), focus moves to the
+// first focusable control in a row, else to the list itself (tabIndex -1).
+// Mouse navigation is left alone, and so is a focus that survived (a crumb
+// that is still on screen). Shared with the remote (SFTP) dock.
+export function useRefocusAfterKeyNav(listRef, settled, version) {
+  const pending = useRef(false);
+  useEffect(() => {
+    if (!settled || !pending.current) return;
+    pending.current = false;
+    const root = listRef.current;
+    if (!root) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    // First focusable inside a row (not the "Show more" notice above them).
+    const first = root.querySelector('.phn-sftp-row [tabindex="0"], .phn-sftp-row button:not([disabled])');
+    (first || root).focus();
+  }, [settled, version, listRef]);
+  return useCallback((fn) => () => { pending.current = true; fn(); }, []);
 }
 
 // Parent dir, separator-agnostic (Windows paths use "\", POSIX use "/").
@@ -180,6 +203,9 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
 
   useEffect(() => { load(null); }, [load]); // home dir on mount
 
+  const listRef = useRef(null);
+  const byKey = useRefocusAfterKeyNav(listRef, !loading, entries);
+
   // Breadcrumb, separator-agnostic. On Windows, list_directory returns
   // canonicalized paths (possibly a "\\?\" verbatim prefix + backslashes);
   // strip the prefix and split on either separator so the crumb works on both.
@@ -218,13 +244,13 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
 
       {cwd && (
         <div className="phn-sftp-pathbar phn-sftp-crumb" title={cwd}>
-          {!isWin && <span className="seg" role="button" tabIndex={0} onClick={() => list("/")} onKeyDown={activateOnKey(() => list("/"))}>/</span>}
+          {!isWin && <span className="seg" role="button" tabIndex={0} onClick={() => list("/")} onKeyDown={activateOnKey(byKey(() => list("/")))}>/</span>}
           {segs.map((seg, i) => {
             const path = crumbPath(i);
             return (
               <span key={path} className="crumb-part">
                 <span className="sl">›</span>
-                <span className="seg" role="button" tabIndex={0} onClick={() => list(path)} onKeyDown={activateOnKey(() => list(path))}>{seg}</span>
+                <span className="seg" role="button" tabIndex={0} onClick={() => list(path)} onKeyDown={activateOnKey(byKey(() => list(path)))}>{seg}</span>
               </span>
             );
           })}
@@ -239,7 +265,7 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
         </div>
       )}
 
-      <div className="phn-snippets-list">
+      <div className="phn-snippets-list" ref={listRef} tabIndex={-1}>
         {!error && !loading && notice && (
           <div className="phn-snippets-empty" style={{ color: "#FBBF24" }}>
             {notice}
@@ -283,7 +309,7 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
                 role="button"
                 tabIndex={0}
                 onClick={() => (e.is_dir ? list(e.path) : onSendToTerminal?.(`${shQuote(e.path)} `))}
-                onKeyDown={activateOnKey(() => (e.is_dir ? list(e.path) : onSendToTerminal?.(`${shQuote(e.path)} `)))}
+                onKeyDown={activateOnKey(e.is_dir ? byKey(() => list(e.path)) : () => onSendToTerminal?.(`${shQuote(e.path)} `))}
                 title={e.is_dir ? e.name : `${e.name}: click to insert path`}
               >
                 {e.name}

@@ -8,7 +8,7 @@
 // prompt, preferences that were kept across a close are still kept, and the
 // keyboard paths that replaced click-only targets work.
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@backend", () => ({
@@ -118,11 +118,28 @@ describe("HistorySearch", () => {
     expect(screen.getAllByRole("option")).toHaveLength(3);
   });
 
-  test("a row has its own keyboard path (Enter inserts it)", () => {
+  test("the filter field points aria-activedescendant at the active option, following the arrow keys", () => {
     const onInsert = vi.fn();
     render(<HistorySearch open history={history} onClose={() => {}} onInsert={onInsert} onRun={() => {}} />);
-    fireEvent.keyDown(screen.getAllByRole("option")[2], { key: "Enter" });
-    expect(onInsert).toHaveBeenCalledWith("ls -la");
+    const input = screen.getByPlaceholderText(/Type to filter/);
+    const listbox = screen.getByRole("listbox");
+    expect(input.getAttribute("aria-controls")).toBe(listbox.id);
+    const active = () => document.getElementById(input.getAttribute("aria-activedescendant"));
+    expect(active().textContent).toContain("git status");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(active().textContent).toContain("ls -la");
+    expect(active().getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(active().textContent).toContain("git log");
+    // A filter with no match leaves nothing to point at.
+    fireEvent.change(input, { target: { value: "zzz" } });
+    expect(input.hasAttribute("aria-activedescendant")).toBe(false);
+    // Rows are mouse targets only; the keyboard path is the field.
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onInsert).toHaveBeenCalledWith("git log");
   });
 });
 
@@ -132,11 +149,14 @@ describe("RemoteControlModal", () => {
     const onClose = vi.fn();
     const { container } = render(<RemoteControlModal open onClose={onClose} />);
     await waitFor(() => expect(screen.getByAltText("pairing QR").getAttribute("src")).toContain("http://x:1"));
+    fireEvent.mouseDown(screen.getByText("Remote control"));
     fireEvent.click(screen.getByText("Remote control"));
     expect(onClose).not.toHaveBeenCalled();
+    fireEvent.mouseDown(container.firstChild);
     fireEvent.click(container.firstChild);
     expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.keyDown(window, { key: "Escape" });
+    // Focus is in the card, so Escape typed there reaches the dialog.
+    fireEvent.keyDown(document.activeElement, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
@@ -185,18 +205,23 @@ describe("RdpConnectModal", () => {
 });
 
 describe("NetToolsModal", () => {
-  test("seeds the host, resets output on reopen, keeps the chosen tool and ports", () => {
+  test("seeds the host; a reopen re-seeds it and starts with empty output and the default tool", async () => {
+    invokeMock.mockImplementation(async (cmd) => (cmd === "net_dns" ? ["10.1.2.3"] : undefined));
     const props = { initialHost: "box.local", onClose: () => {} };
     const { rerender } = render(<NetToolsModal open {...props} />);
     const host = () => screen.getByPlaceholderText(/host or IP/);
     expect(host().value).toBe("box.local");
-    fireEvent.click(screen.getByText("Port scan"));
-    fireEvent.change(screen.getByPlaceholderText(/ports, e.g./), { target: { value: "1-10" } });
+    fireEvent.click(screen.getByText("DNS lookup"));
     fireEvent.change(host(), { target: { value: "other" } });
+    fireEvent.keyDown(host(), { key: "Enter" });
+    await waitFor(() => expect(document.body.textContent).toContain("10.1.2.3"));
     rerender(<NetToolsModal open={false} {...props} />);
     rerender(<NetToolsModal open {...props} />);
     expect(host().value).toBe("box.local");
-    expect(screen.getByPlaceholderText(/ports, e.g./).value).toBe("1-10");
+    expect(document.body.textContent).not.toContain("10.1.2.3");
+    expect(document.body.textContent).toContain("Pick a tool, enter a host, and hit run.");
+    // The tool is per-open too (ModalHost mounts this only while open).
+    expect(screen.queryByPlaceholderText(/ports, e.g./)).toBeNull();
   });
 });
 
@@ -284,7 +309,7 @@ describe("SftpBrowser keyboard access", () => {
 });
 
 describe("RemoteEditor", () => {
-  test("loads the file, and a different file mounts a fresh buffer instead of keeping the old text", async () => {
+  test("loads the file, and a different file loads that file's text", async () => {
     invokeMock.mockImplementation(async (cmd, args) => (cmd === "sftp_read_file" ? `body of ${args.path}` : undefined));
     const { rerender } = render(wrap(<RemoteEditor open sessionId="s" path="/a" name="a" onClose={() => {}} />));
     await waitFor(() => expect(document.body.textContent + [...document.querySelectorAll("textarea")].map((t) => t.value).join()).toContain("body of /a"));
@@ -301,7 +326,7 @@ describe("RemoteEditor", () => {
 });
 
 describe("NotebookView", () => {
-  test("loads its notebook, and a different name loads fresh content (remount, not a stale buffer)", async () => {
+  test("loads its notebook, and a different name loads that notebook's content", async () => {
     const { rerender } = render(wrap(<NotebookView name="one.md" tabId="t1" visible={false} paneTitles={{}} />));
     await waitFor(() => expect(document.body.textContent).toContain("content of one.md"));
     rerender(wrap(<NotebookView name="two.md" tabId="t1" visible={false} paneTitles={{}} />));
@@ -340,6 +365,3 @@ describe("ProjectDialog", () => {
     expect(screen.getByDisplayValue("22")).toBeTruthy();
   });
 });
-
-// Keeps act imported for environments where fake timers are added later.
-void act;

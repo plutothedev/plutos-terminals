@@ -22,19 +22,19 @@ const ACCENT = "var(--phn-link, #7c9cf5)";
 const DIM = "var(--phn-text-dim, #888)";
 
 export default function MacrosModal({ open, onClose, onReplay, canReplay, activePaneId }) {
-  // The name being typed for an in-progress recording survives a close/reopen.
-  const [name, setName] = useState("");
-  // Modal renders nothing while closed, so the body mounts fresh on every open
-  // and reloads the saved macros through its lazy state initializer.
+  // Modal renders nothing while closed (and ModalHost mounts this only while
+  // open), so the body mounts fresh on every open and reloads the saved macros
+  // through its lazy state initializer.
   return (
     <Modal open={open} title="Keystroke macros" onClose={onClose} width={580}>
-      <MacrosBody name={name} setName={setName} onReplay={onReplay} canReplay={canReplay} activePaneId={activePaneId} />
+      <MacrosBody onReplay={onReplay} canReplay={canReplay} activePaneId={activePaneId} />
     </Modal>
   );
 }
 
-function MacrosBody({ name, setName, onReplay, canReplay, activePaneId }) {
+function MacrosBody({ onReplay, canReplay, activePaneId }) {
   const toast = useToast();
+  const [name, setName] = useState("");
   const [macros, setMacros] = useState(loadMacros);
   const [recording, setRecording] = useState(isMacroRecording());
 

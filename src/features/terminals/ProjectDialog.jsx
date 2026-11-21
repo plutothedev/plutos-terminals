@@ -1,5 +1,5 @@
 // (C)
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { SLocal, SSsh, SWindows, SMouse } from "./toolbarIcons.jsx";
 
@@ -63,9 +63,14 @@ function sessionType(initial) {
 // Form state is seeded from `initial` by lazy initializers and the form is only
 // mounted while the dialog is open, so every open starts from `initial` (the
 // old reset-on-open effect set a dozen states synchronously after mount).
+//
+// Keyed on the session being edited, so switching straight from one session to
+// another while the dialog is open remounts the form from the new `initial`
+// instead of carrying the first session's typed fields into the second.
 export default function ProjectDialog(props) {
   if (!props.open) return null;
-  return <ProjectDialogForm {...props} />;
+  const { initial } = props;
+  return <ProjectDialogForm key={initial?.id ?? `new:${initial?.type ?? ""}`} {...props} />;
 }
 
 function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
@@ -101,9 +106,24 @@ function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
   // these fields no accessible name: a screen-reader user stepping through Add
   // session heard a run of anonymous edit boxes, and clicking the word "HOST"
   // did not focus Host. useId rather than literal ids so a second dialog in a
-  // second window cannot collide. Declared above the `if (!open)` early return
-  // so the hook order is unconditional (invariant 7).
+  // second window cannot collide.
   const uid = useId();
+
+  // Dialog contract shared with Modal.jsx: focus moves into the dialog on open
+  // (its first field), returns to the opener on close, Escape closes, and a
+  // backdrop click closes only when the press also began on the backdrop (a
+  // text-selection drag released over the backdrop must not close it).
+  const dialogRef = useRef(null);
+  const downOnBackdrop = useRef(false);
+  useEffect(() => {
+    const prev = document.activeElement;
+    const node = dialogRef.current;
+    if (node && !node.contains(document.activeElement)) {
+      const first = node.querySelector("input:not([disabled]),textarea:not([disabled]),select:not([disabled])");
+      (first || node).focus();
+    }
+    return () => { if (prev && typeof prev.focus === "function") prev.focus(); };
+  }, []);
 
 
   const browse = async () => {
@@ -259,12 +279,25 @@ function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
         justifyContent: "center",
         padding: 12,
       }}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+      onMouseDown={(e) => { downOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        const close = downOnBackdrop.current && e.target === e.currentTarget;
+        downOnBackdrop.current = false;
+        if (close) onClose();
       }}
+      // Escape is the keyboard path to close. On the backdrop (as in Modal.jsx)
+      // because jsx-a11y treats role="dialog" as non-interactive; the backdrop
+      // never takes focus, so every keydown here came up through the dialog.
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`${uid}-title`}
+        tabIndex={-1}
         style={{
+          outline: "none",
           background: BG,
           border: `1px solid ${BORDER}`,
           borderRadius: 6,
@@ -279,7 +312,7 @@ function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
           padding: 16,
         }}
       >
-        <div style={{ fontSize: 13, color: FG_ACTIVE, marginBottom: 14, letterSpacing: 0.5 }}>
+        <div id={`${uid}-title`} style={{ fontSize: 13, color: FG_ACTIVE, marginBottom: 14, letterSpacing: 0.5 }}>
           {initial ? "EDIT SESSION" : "ADD SESSION"}
         </div>
 

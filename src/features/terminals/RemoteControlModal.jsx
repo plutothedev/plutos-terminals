@@ -3,7 +3,7 @@
 // show the QR + link + token to pair a phone over the tailnet. See companion.rs
 // + docs/phone-companion-design.md.
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { invoke } from "@backend";
 import QRCode from "qrcode";
 import { SPhone } from "./toolbarIcons.jsx";
@@ -123,14 +123,23 @@ export default function RemoteControlModal({ open, onClose }) {
   }, [qrUrl]);
   const qrData = qrUrl && qr.url === qrUrl ? qr.data : "";
 
-  // Escape closes: the backdrop click below is mouse-only, so this is its
-  // keyboard path (this modal predates Modal.jsx, which handles Escape itself).
+  // Focus moves into the card when it opens and back to the opener when it
+  // closes (the same contract as Modal.jsx). Escape is handled on the overlay
+  // below, so it only reaches this dialog from inside the card: an Escape typed
+  // into vim or xterm behind the dialog is not this dialog's to take.
+  const cardRef = useRef(null);
+  // Whether the current press began on the backdrop itself. A text-selection
+  // drag that starts in the card and is released over the backdrop fires its
+  // click on the overlay (the common ancestor), so the click alone cannot tell
+  // it from a real backdrop click (same rule as Modal.jsx).
+  const downOnBackdrop = useRef(false);
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    const prev = document.activeElement;
+    const node = cardRef.current;
+    if (node && !node.contains(document.activeElement)) node.focus();
+    return () => { if (prev && typeof prev.focus === "function") prev.focus(); };
+  }, [open]);
 
   const start = async () => {
     setBusy(true); setErr("");
@@ -148,12 +157,26 @@ export default function RemoteControlModal({ open, onClose }) {
 
   if (!open) return null;
   return (
-    <div role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }} style={overlay}>
+    // The backdrop click is the mouse path to close; Escape is the keyboard
+    // path. The key handler sits on the overlay (as in Modal.jsx) because
+    // jsx-a11y treats role="dialog" as non-interactive; the overlay never takes
+    // focus itself, so every keydown reaching it came up through the card.
+    <div
+      role="presentation"
+      onMouseDown={(e) => { downOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        const close = downOnBackdrop.current && e.target === e.currentTarget;
+        downOnBackdrop.current = false;
+        if (close) onClose?.();
+      }}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose?.(); }}
+      style={overlay}
+    >
       {/* This modal predates Modal.jsx and never picked up its dialog
           semantics. role + accessible name are free; aria-modal is NOT set on
           purpose, because it promises assistive tech that focus is trapped here
           and this component has no trap (residual: move it onto Modal.jsx). */}
-      <div style={card} role="dialog" aria-labelledby="phn-remote-control-title">
+      <div ref={cardRef} tabIndex={-1} style={{ ...card, outline: "none" }} role="dialog" aria-labelledby="phn-remote-control-title">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <h2 id="phn-remote-control-title" style={{ margin: 0, fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}><SPhone size={15} /> Remote control</h2>
           {/* Accessible name would otherwise be the glyph "✕": for a <button>,

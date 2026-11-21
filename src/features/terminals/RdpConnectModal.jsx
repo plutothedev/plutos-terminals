@@ -1,7 +1,7 @@
 // (C)
 // RDP connection prompt. Password is handed to the RDP tab transiently via
 // ptyBridge (never persisted); username/host/port/domain ride on the tab.
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 
 const field = {
@@ -21,7 +21,10 @@ export default function RdpConnectModal({ open, onConnect, onClose, initial = nu
   if (!open) return null;
   return (
     <Modal open={open} title={title || "RDP connection"} onClose={onClose} width={460}>
-      <RdpConnectBody onConnect={onConnect} onClose={onClose} initial={initial} lockConnection={lockConnection} onSaveSession={onSaveSession} />
+      {/* Keyed on the target: a switch from one saved session to another (or
+          to Quick connect) while open remounts the form, so a password typed
+          for one host can never be sent to another. */}
+      <RdpConnectBody key={initial ? `${initial.host}:${initial.port}` : "quick"} onConnect={onConnect} onClose={onClose} initial={initial} lockConnection={lockConnection} onSaveSession={onSaveSession} />
     </Modal>
   );
 }
@@ -35,17 +38,15 @@ function RdpConnectBody({ onConnect, onClose, initial, lockConnection, onSaveSes
   const [username, setUsername] = useState(initial?.username || "");
   const [domain, setDomain] = useState(initial?.domain || "");
   const [password, setPassword] = useState("");
-  const hostRef = useRef(null);
   // A11Y-10. Every caption here was a bare <label> sitting NEXT to its input,
   // related only by pixels: a screen reader announced five anonymous "edit"
   // fields in a row, and clicking the word "Host" did not focus Host. useId
   // rather than literal ids so a second instance can never collide.
   const uid = useId();
 
-  useEffect(() => {
-    const t = setTimeout(() => (lockConnection ? null : hostRef.current?.focus()), 30);
-    return () => clearTimeout(t);
-  }, [lockConnection]);
+  // Initial focus is Modal's (data-autofocus below): Host for a new
+  // connection; for a saved-session launch, where everything but the password
+  // is locked, the password field.
 
   // For a saved-session launch we only need the password; host/username are locked.
   const canConnect = lockConnection ? host.trim().length > 0 : (host.trim().length > 0 && username.trim().length > 0);
@@ -70,7 +71,7 @@ function RdpConnectBody({ onConnect, onClose, initial, lockConnection, onSaveSes
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
             <label style={label} htmlFor={`${uid}-host`}>Host</label>
-            <input id={`${uid}-host`} ref={hostRef} style={field} value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" spellCheck={false} readOnly={lockConnection} />
+            <input id={`${uid}-host`} data-autofocus={lockConnection ? undefined : true} style={field} value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" spellCheck={false} readOnly={lockConnection} />
           </div>
           <div style={{ width: 96 }}>
             <label style={label} htmlFor={`${uid}-port`}>Port</label>
@@ -91,6 +92,7 @@ function RdpConnectBody({ onConnect, onClose, initial, lockConnection, onSaveSes
           <label style={label} htmlFor={`${uid}-password`}>Password</label>
           <input
             id={`${uid}-password`}
+            data-autofocus={lockConnection ? true : undefined}
             style={field}
             type="password"
             value={password}

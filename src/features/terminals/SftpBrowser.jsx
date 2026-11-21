@@ -3,13 +3,13 @@
 // active SSH tab — the parent (TerminalsTab) calls sftp_connect and passes the
 // session id. Navigate dirs, download/upload, mkdir, rename, delete. Transfers
 // run entirely in Rust (rfd dialogs pick local paths); this UI only drives them.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { useToast } from "../../components/Toast.jsx";
 import { PaneBoundary } from "../../components/ErrorBoundary.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { usePrompt } from "../../components/PromptModal.jsx";
-import { FileIcon, activateOnKey } from "./LocalFileBrowser.jsx";
+import { FileIcon, activateOnKey, useRefocusAfterKeyNav } from "./LocalFileBrowser.jsx";
 import { IconHome, IconUp, IconRefresh, IconUpload, IconNewFolder } from "./icons.jsx";
 import { SFolder, STrash } from "./toolbarIcons.jsx";
 import RemoteEditor from "./RemoteEditor.jsx";
@@ -132,6 +132,10 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
     return () => { alive = false; };
   }, [open, docked, sessionId, list]);
 
+  // Keyboard focus survives a navigation (see useRefocusAfterKeyNav).
+  const listRef = useRef(null);
+  const byKey = useRefocusAfterKeyNav(listRef, !loading, entries);
+
   const refresh = useCallback(() => {
     if (!cwd) return;
     invalidateListing(cwd);
@@ -239,13 +243,13 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
 
       {sessionId && cwd && (
         <div className="phn-sftp-pathbar phn-sftp-crumb" title={cwd}>
-          <span className="seg" role="button" tabIndex={0} onClick={() => list("/")} onKeyDown={activateOnKey(() => list("/"))}>/</span>
+          <span className="seg" role="button" tabIndex={0} onClick={() => list("/")} onKeyDown={activateOnKey(byKey(() => list("/")))}>/</span>
           {cwd.split("/").filter(Boolean).map((seg, i, arr) => {
             const path = "/" + arr.slice(0, i + 1).join("/");
             return (
               <span key={path} className="crumb-part">
                 <span className="sl">›</span>
-                <span className="seg" role="button" tabIndex={0} onClick={() => list(path)} onKeyDown={activateOnKey(() => list(path))}>{seg}</span>
+                <span className="seg" role="button" tabIndex={0} onClick={() => list(path)} onKeyDown={activateOnKey(byKey(() => list(path)))}>{seg}</span>
               </span>
             );
           })}
@@ -260,7 +264,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
         </div>
       )}
 
-      <div className="phn-snippets-list">
+      <div className="phn-snippets-list" ref={listRef} tabIndex={-1}>
         {!sessionId && !connecting && !error ? (
           <div className="phn-snippets-empty">Open an SSH session and its files will show here.</div>
         ) : connecting ? (
@@ -288,7 +292,7 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
                 role={e.is_dir ? "button" : undefined}
                 tabIndex={e.is_dir ? 0 : undefined}
                 onClick={() => e.is_dir && list(e.path)}
-                onKeyDown={e.is_dir ? activateOnKey(() => list(e.path)) : undefined}
+                onKeyDown={e.is_dir ? activateOnKey(byKey(() => list(e.path))) : undefined}
                 title={e.is_dir ? e.name : `${e.name}: double-click to edit`}
               >
                 {e.name}

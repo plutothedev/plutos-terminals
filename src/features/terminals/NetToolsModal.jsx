@@ -18,21 +18,20 @@ const TOOLS = [
 ];
 
 export default function NetToolsModal({ open, initialHost, onClose }) {
-  // The chosen tool and the port list outlive a close (they are preferences,
-  // not per-run state); host and output are per-open and live in the body.
-  const [tool, setTool] = useState("ping");
-  const [ports, setPorts] = useState("22,80,443,3389,8080,5432,3306,6379");
-  // Modal renders nothing while closed, so the body mounts fresh on every open
-  // and seeds the host from the active SSH session. Keyed on initialHost so a
-  // change while open re-seeds exactly as the old effect did.
+  // Modal renders nothing while closed (and ModalHost mounts this only while
+  // open), so the body mounts fresh on every open: host seeded from the active
+  // SSH session, empty output, default tool and port list. Keyed on
+  // initialHost so a change while open re-seeds the host.
   return (
     <Modal open={open} title="Network tools" onClose={onClose} width={620}>
-      <NetToolsBody key={initialHost || ""} initialHost={initialHost} tool={tool} setTool={setTool} ports={ports} setPorts={setPorts} />
+      <NetToolsBody key={initialHost || ""} initialHost={initialHost} />
     </Modal>
   );
 }
 
-function NetToolsBody({ initialHost, tool, setTool, ports, setPorts }) {
+function NetToolsBody({ initialHost }) {
+  const [tool, setTool] = useState("ping");
+  const [ports, setPorts] = useState("22,80,443,3389,8080,5432,3306,6379");
   const [host, setHost] = useState(initialHost || "");
   const [out, setOut] = useState("");
   const [busy, setBusy] = useState(false);
@@ -86,8 +85,10 @@ function NetToolsBody({ initialHost, tool, setTool, ports, setPorts }) {
       <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
         <Input
           mono
-          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
-          autoFocus
+          // Modal gives this field the initial focus (not autoFocus, which
+          // would make Modal record it, not the opener, as the place to
+          // restore focus to on close).
+          data-autofocus
           value={host}
           onChange={(e) => setHost(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") run(); }}
