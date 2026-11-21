@@ -110,6 +110,11 @@ fn alive(pid: u32) -> bool {
 }
 
 fn kill(pid: u32) {
+    // Only a pid still running: Windows reuses pids quickly, and the tests call
+    // this after the process may already be gone.
+    if !alive(pid) {
+        return;
+    }
     #[cfg(windows)]
     let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).output();
     #[cfg(unix)]

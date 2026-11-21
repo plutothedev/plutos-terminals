@@ -25,7 +25,7 @@ if (pidFileAt > 0) writeFileSync(process.argv[pidFileAt + 1], String(process.pid
 // On unix it stays in the server's process group, the group the app made.
 const spawnAt = process.argv.indexOf("--spawn-child");
 if (spawnAt > 0) {
-  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 120000)"], {
     detached: process.platform === "win32",
     stdio: "ignore",
   });
@@ -34,7 +34,8 @@ if (spawnAt > 0) {
 }
 // --ignore-eof: keep running after stdin closes (a hung server that the
 // app's close does not end), so only a kill ends it.
-if (process.argv.includes("--ignore-eof")) setInterval(() => {}, 1 << 30);
+// Capped at 2 minutes so a failed test can never leave it running for days.
+if (process.argv.includes("--ignore-eof")) setTimeout(() => {}, 120000);
 function send(o) { process.stdout.write(JSON.stringify(o) + "\n"); }
 rl.on("line", (line) => {
   let msg; try { msg = JSON.parse(line); } catch { return; }

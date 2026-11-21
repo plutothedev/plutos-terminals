@@ -9,5 +9,6 @@ import { writeFileSync } from "node:fs";
 
 writeFileSync(process.argv[2], String(process.pid));
 // Stays up on its own, as a real server would after its stdin closed: only a
-// kill of the whole process tree ends it.
-setInterval(() => {}, 1 << 30);
+// kill of the whole process tree ends it. Capped at 2 minutes so a test that
+// fails before its own cleanup never leaves it running.
+setTimeout(() => {}, 120000);
