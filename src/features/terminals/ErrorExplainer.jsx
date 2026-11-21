@@ -81,6 +81,10 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
     // key is no longer the one on screen (keyRef), even before cleanup runs.
     let cancelled = false;
     const live = () => !cancelled && keyRef.current === blockKey;
+    // This stream's own text: an effect re-run (StrictMode, Fast Refresh)
+    // starts a fresh stream that replaces what an earlier one showed, rather
+    // than appending to it.
+    let text = "";
     const { promise, cancel } = llmStream(
       {
         kind: llm.kind, baseUrl: llm.baseUrl, apiKey: llm.apiKey,
@@ -88,8 +92,9 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
       },
       (piece) => {
         if (!live()) return;
+        text += piece;
         setLoading(false);
-        setAnswer((cur) => cur + piece);
+        setAnswer(text);
       }
     );
     promise
