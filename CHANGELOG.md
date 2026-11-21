@@ -17,8 +17,15 @@
   exited is dropped with its cached tool list and reconnected on next use, one
   connect per server at a time. rmcp 3.11's response cache (whole pages, stale
   pages served on error) is off. Stdio servers run in a Job Object (a process
-  group on unix) with kill-on-drop, so a server behind `cmd /c` or `uvx` dies
-  with its launcher.
+  group on unix) without kill-on-close: a server that does not exit after its
+  stdin closes, or whose handshake times out, is killed with its whole tree
+  (so the real server behind `cmd /c` or `uvx` no longer survives); one that
+  exits by itself leaves what it launched running, and app quit kills
+  nothing. Stdio servers start with CREATE_NO_WINDOW (release builds used to
+  open a console window per console-subsystem server). A settings edit, a
+  remove or a reconnect discards an in-flight connect or tool listing (a
+  per-server generation), so a connection built from the old settings cannot
+  come back.
 - **tauri-plugin-updater 2.14.1 (zip 9) and Tauri 2.12.7** (wry 0.57, tao
   0.37, webview2-com 0.39): RUSTSEC-2026-0429, -0545, -0548 and the
   -0367/-0368/-0369 set `audit.yml` used to ignore. The updater's default
@@ -36,7 +43,17 @@
   stays open if it fails; a second Ctrl+S during a slow save sends one write.
 - Confirmations queue instead of replacing each other, so a shortcut's
   confirm during the recording-recovery prompt can no longer discard a
-  recording; a close for a tab that is already gone does nothing.
+  recording; a close for a tab that is already gone does nothing. ConfirmModal
+  answers null when dismissed (Escape, close button, backdrop) and false only
+  from Cancel; the recovery prompt keeps the recording on a dismissal
+  (recordingRecovery.js). In-flight recordings get a file name of their own
+  (they were named after the pane, so the next recording there truncated one
+  kept for the next launch).
+- MCP calls carry the epoch of the connection their tool was listed from; a
+  call to a server that restarted since is refused, so Agent Mode's approval
+  never relies on another process's annotations.
+- Held shortcuts no longer repeat actions (navigation still auto-repeats);
+  tab close, quit and Reset workspace are single-flight.
 - Password forms are keyed on their target (RDP: saved session id; SSH: tab
   id), so a typed password cannot carry to another session.
 - Saving an edit to a session removed elsewhere saves it as new (with a toast)
@@ -59,7 +76,8 @@
   controls, the session dialog (labelled, with a Tab trap).
 
 ### Static analysis: every job gates
-- eslint 230 errors / 55 warnings to 0 / 0 (react-hooks, jsx-a11y), with
+- eslint 230 errors / 55 warnings at v0.7.5 (279 / 56 at the 2026-08-21
+  baseline) to 0 / 0 (react-hooks, jsx-a11y), with
   `--max-warnings 0`; each remaining suppression carries its reason inline.
 - knip 0 (`knip.jsonc` declares the real entry points; themes.js and 22 dead
   exports removed; `@lezer/highlight` listed).
