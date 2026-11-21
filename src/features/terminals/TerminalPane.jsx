@@ -1,4 +1,4 @@
-import { memo, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { memo, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { listen } from "@backend";
 import { setPaneActivity, setPaneDetail } from "./activityStore.js";
@@ -22,14 +22,23 @@ import { SearchAddon } from "@xterm/addon-search";
 // never-opened branch) share this loader; the per-entry `imageAddonDone` latch
 // is checked-and-set synchronously inside .then, so even overlapping loads
 // can't double-loadAddon one terminal.
-let ImageAddonCls = null;
-async function loadImageAddonCls() {
-  if (!ImageAddonCls) {
-    try {
-      ImageAddonCls = (await import("@xterm/addon-image")).ImageAddon;
-    } catch { /* leave null — terminals just render without inline images */ }
+//
+// One shared import promise, not a cached class: two panes opening in the same
+// frame used to start two imports and both write the module variable after
+// their await. The promise is dropped again when the import fails (or yields no
+// class), so a later pane retries, as the null-class cache used to.
+let imageAddonLoad = null;
+function loadImageAddonCls() {
+  if (!imageAddonLoad) {
+    imageAddonLoad = import("@xterm/addon-image")
+      .then((m) => m.ImageAddon || null)
+      .catch(() => null) // terminals just render without inline images
+      .then((Cls) => {
+        if (!Cls) imageAddonLoad = null;
+        return Cls;
+      });
   }
-  return ImageAddonCls;
+  return imageAddonLoad;
 }
 function attachImageAddon(entry, t) {
   loadImageAddonCls().then((Cls) => {
@@ -47,13 +56,19 @@ function attachImageAddon(entry, t) {
 // load/attach failure we silently stay on DOM. Latched once per terminal.
 // NEEDS-PLUTO-PACKAGED-VERIFICATION on Windows + Linux before this ships.
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent || "");
-let CanvasAddonCls = null;
-async function loadCanvasAddonCls() {
-  if (!CanvasAddonCls) {
-    try { CanvasAddonCls = (await import("@xterm/addon-canvas")).CanvasAddon; }
-    catch { /* leave null — fall back to the DOM renderer */ }
+// Same shared-promise loader as the image addon above.
+let canvasAddonLoad = null;
+function loadCanvasAddonCls() {
+  if (!canvasAddonLoad) {
+    canvasAddonLoad = import("@xterm/addon-canvas")
+      .then((m) => m.CanvasAddon || null)
+      .catch(() => null) // fall back to the DOM renderer
+      .then((Cls) => {
+        if (!Cls) canvasAddonLoad = null;
+        return Cls;
+      });
   }
-  return CanvasAddonCls;
+  return canvasAddonLoad;
 }
 function attachCanvasRenderer(entry, t) {
   if (IS_MAC) return; // DOM renderer on macOS (WKWebView blank-glyph)
@@ -230,6 +245,18 @@ function playDoneCue() {
 
 const MIN_COLS = 40;
 const MIN_ROWS = 10;
+
+// The small glyph buttons (find bar arrows, failed-command dismiss) were
+// clickable spans; as real buttons they take the keyboard for free. This strips
+// the UA button look so each one renders exactly as the span did. `font`
+// first, so a later fontSize in the same style object wins.
+const GLYPH_BUTTON_RESET = {
+  font: "inherit",
+  background: "none",
+  border: 0,
+  margin: 0,
+  textAlign: "inherit",
+};
 
 // Activity state machine constants (per Moon Dev): only fire dots when the
 // user isn't already watching, and only after they've actually typed at least
@@ -421,8 +448,9 @@ function TerminalPane({
   const [altScreen, setAltScreen] = useState(false);
   const [shellCwd, setShellCwd] = useState(cwd || null); // live cwd from OSC 1337 PlutoCwd
   const [peRect, setPeRect] = useState({ top: 0, left: 0, width: 0, height: 0 });
+  // Latest-value prop refs (this one and the ones below) are written by the
+  // one layout effect after the last of them, never during render.
   const peEnabledRef = useRef(promptEditor);
-  peEnabledRef.current = promptEditor;
   const captureRef = useRef(null);   // latest prompt-capture fn for the OSC handler
   const settleTimerRef = useRef(null);
   // Find-in-terminal (Cmd/Ctrl+F) overlay state.
@@ -443,11 +471,8 @@ function TerminalPane({
   const [explainBlock, setExplainBlock] = useState(null); // explainer popover target
   const [shareTarget, setShareTarget] = useState(null); // { kind, title, rawText, dateStamp } | null — open share preview (Stream D)
   const startCommandsRef = useRef(startCommands);
-  startCommandsRef.current = startCommands;
   const systemPromptRef = useRef(systemPrompt);
-  systemPromptRef.current = systemPrompt;
   const xtermThemeRef = useRef(xtermTheme);
-  xtermThemeRef.current = xtermTheme;
 
   // Activity tracking refs. (The user-has-typed gate lives at
   // entry.counters.userHasTyped — it must survive pane moves.)
@@ -461,18 +486,14 @@ function TerminalPane({
   const bannerRedrawTimerRef = useRef(null);
   const doneTimerRef = useRef(null);
   const visibleRef = useRef(visible);
-  visibleRef.current = visible;
   // Whether this pane is the focused one within its tab (relevant when the tab
   // is split into multiple panes). Gates autofocus-on-show so siblings don't
   // fight over focus. Read via ref so the visibility effect needn't re-run.
   const activeRef = useRef(active);
-  activeRef.current = active;
 
   // Live-prop refs so we don't have to re-run the spawn effect on prop change.
   const onCostRef = useRef(onCostUpdate);
-  onCostRef.current = onCostUpdate;
   const autoApproveRef = useRef(autoApprove);
-  autoApproveRef.current = autoApprove;
 
   // "Away" = this tab isn't the one you're looking at, or the app window isn't
   // focused. Used to gate OS notifications + the done audio cue. Visibility is
@@ -493,9 +514,30 @@ function TerminalPane({
     invoke("notify", { title, body, urgent }).catch(() => {});
   };
   const tabIdRef = useRef(tabId);
-  tabIdRef.current = tabId;
   const projectNameRef = useRef(projectName);
-  projectNameRef.current = projectName;
+
+  // The latest committed props, for the refs above. A layout effect, not a
+  // render-time write: React may render without committing, and a write from a
+  // render that is thrown away would leak into the handlers. No deps array, so
+  // it runs after every commit; it is the first layout effect in this
+  // component, and no child is handed a function that reads these refs in its
+  // own mount effect, so nothing reads one between a commit and this write.
+  // Every reader runs later than that: xterm and Tauri event callbacks,
+  // timers, rAF, the passive effects below (the main effect's re-attach path,
+  // the spawn IIFE, the reveal and window-focus effects), and effect cleanups.
+  // Before this, the same values were written in the render body.
+  useLayoutEffect(() => {
+    peEnabledRef.current = promptEditor;
+    startCommandsRef.current = startCommands;
+    systemPromptRef.current = systemPrompt;
+    xtermThemeRef.current = xtermTheme;
+    visibleRef.current = visible;
+    activeRef.current = active;
+    onCostRef.current = onCostUpdate;
+    autoApproveRef.current = autoApprove;
+    tabIdRef.current = tabId;
+    projectNameRef.current = projectName;
+  });
 
   // Registry entry for this pane id (paneRegistry.js). Set by the main effect
   // on every mount and left pointing at the entry afterwards, so the
@@ -805,13 +847,33 @@ function TerminalPane({
     // strand the estimate at whatever it read when /cost first landed.
     e.counters.lastCost = next;
     if (next.cost !== prev.cost || next.tokens !== prev.tokens) {
-      try { (e.ui?.onCost ?? onCostRef.current)?.(next); } catch {}
+      try { (e.ui?.onCost ?? onCostRef.current)?.(next); } catch { /* a parent's cost handler must never break the PTY stream */ }
     }
   };
+
+  // The props the main effect below reads, as of the latest commit. The
+  // effect copies them ONCE, at the top of each run, into locals of the same
+  // names, so its body (and every create-once closure it registers, including
+  // the deferred spawn) sees exactly what it saw when it closed over the props
+  // directly: the values of the render that ran it. Listing them as deps
+  // instead would re-run the effect, and with it the park + re-attach, every
+  // time one of them changes identity: an edited session, and the pane's own
+  // agentSession save in the middle of its shell setup (a never-spawned pane would
+  // even be destroyed and rebuilt by the cleanup). A live read
+  // (latestRef.current inside a closure) would NOT be the same: a pane mounted
+  // hidden would spawn with a later prop's transport.
+  // TerminalPane.lifecycle.test.jsx pins both halves.
+  const latestRef = useRef(null);
+  useLayoutEffect(() => {
+    latestRef.current = { connection, serial, agentSession, onAgentSession };
+  });
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    // Snapshot for this run (see latestRef). These shadow the props of the
+    // same names on purpose.
+    const { connection, serial, agentSession, onAgentSession } = latestRef.current;
 
     // ── Registry attach (B1): the entry owns the xterm + PTY; this mount is a
     // slot. First mount creates everything; a re-attach (pane moved between
@@ -980,7 +1042,7 @@ function TerminalPane({
             attachAssistiveInput(entry, t, tabId);
           } catch { /* ignore */ }
         }
-        try { entry.fit?.fit(); } catch {}
+        try { entry.fit?.fit(); } catch { /* fit throws while the renderer is not ready; the next resize or reveal refits */ }
       };
       const vis = new IntersectionObserver((entries) => {
         if (entries.some((en) => en.isIntersecting)) refitOnly();
@@ -991,13 +1053,13 @@ function TerminalPane({
       // One-shot restore: refit to the new slot, repaint, refocus-if-active
       // (mirrors the visibility effect's show path).
       if (container.clientWidth && container.clientHeight) {
-        try { entry.fit?.fit(); } catch {}
+        try { entry.fit?.fit(); } catch { /* fit throws while the renderer is not ready; the next resize or reveal refits */ }
       }
       try {
         if (entry.term?.element) entry.term.refresh(0, entry.term.rows - 1);
-      } catch {}
+      } catch { /* repaint is cosmetic; a renderer torn down meanwhile is harmless */ }
       if (activeRef.current && visibleRef.current) {
-        try { entry.term?.focus(); } catch {}
+        try { entry.term?.focus(); } catch { /* focus is best effort; the terminal may not be open yet */ }
       }
       return paneCleanup(vis, ro);
     }
@@ -1064,14 +1126,14 @@ function TerminalPane({
     // Destroy hooks run LIFO — dispose is registered FIRST so it runs LAST
     // (after the listener-detach and pty-kill hooks registered further down).
     registerDestroyHook(tabId, () => {
-      try { term.dispose(); } catch {}
+      try { term.dispose(); } catch { /* best effort: a half-built or already disposed terminal must not stop the other destroy hooks */ }
     });
     // Transcript tail: the transcript buffer + flush belong to THIS mount's
     // fiber (deliberately not migrated to the entry), but after a move the
     // later fibers' cleanups flush their own — empty — buffers. This hook
     // flushes the owning fiber's tail on real destroy (close/lock/crash).
     registerDestroyHook(tabId, () => {
-      try { flushTranscript(); } catch {}
+      try { flushTranscript(); } catch { /* best effort: a failed tail flush must not stop the other destroy hooks */ }
     });
     // The "find" shortcut opens the find overlay (intercepted before the PTY).
     // Combo is user-remappable; read it live from the shared keybinding cache.
@@ -1372,7 +1434,7 @@ function TerminalPane({
     // "wonky prompt on tab switch" bug. Skipping 0-size keeps hidden tabs intact.
     const safeFit = () => {
       if (!alive || !opened || !container.clientWidth || !container.clientHeight) return;
-      try { fit.fit(); } catch {}
+      try { fit.fit(); } catch { /* fit throws while the renderer is not ready; the next resize or reveal refits */ }
     };
     const openIfVisible = () => {
       if (opened || !alive || !container.clientWidth || !container.clientHeight) return;
@@ -1417,7 +1479,7 @@ function TerminalPane({
           t.clearTextureAtlas();
           entry.fit?.fit();
           if (t.element) t.refresh(0, t.rows - 1);
-        } catch {}
+        } catch { /* best effort: the atlas rebuild is cosmetic; a terminal disposed meanwhile is harmless */ }
       }).catch(() => {});
     }
 
@@ -1435,7 +1497,7 @@ function TerminalPane({
           term.writeln("\x1b[90m─── scrollback restored ───\x1b[0m");
           return true;
         }
-      } catch {}
+      } catch { /* no saved scrollback, or unreadable: the pane starts fresh */ }
       return false;
     };
 
@@ -1677,7 +1739,7 @@ function TerminalPane({
             return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd().slice(-8000);
           } catch { return ""; }
         });
-        try { setTabDims(tabId, term.cols, term.rows); } catch {}
+        try { setTabDims(tabId, term.cols, term.rows); } catch { /* the bridge's dims are advisory (status bar, phone); never block the spawn */ }
 
         // Everything a live PTY chunk feeds: xterm, the recorder, the analysis
         // buffers, and activity tracking. Factored out of the listener so the
@@ -1771,7 +1833,7 @@ function TerminalPane({
         // hooks already ran (and saw unlistenData undefined) — detach
         // immediately or it leaks. (The PTY itself was killed by the destroy
         // hook registered at spawn.)
-        if (!entryLive()) { try { unlistenData(); } catch {} return; }
+        if (!entryLive()) { try { unlistenData(); } catch { /* already detached */ } return; }
 
         unlistenExit = await listen(`pty-exit://${id}`, () => {
           if (!entryLive()) return;
@@ -1812,8 +1874,8 @@ function TerminalPane({
         // hook FIRST: stop consuming events, then the spawn hook kills the
         // PTY, then dispose.
         registerDestroyHook(tabId, () => {
-          try { unlistenData(); } catch {}
-          try { unlistenExit(); } catch {}
+          try { unlistenData(); } catch { /* already detached */ }
+          try { unlistenExit(); } catch { /* already detached */ }
           detach(unlistenPhone);
         });
 
@@ -1948,7 +2010,7 @@ function TerminalPane({
             try {
               const v = await invoke("check_command_version", { name: "claude" });
               claudeAvailable = !!v;
-            } catch {}
+            } catch { /* a failed probe counts as not installed: the notice below says how to fix it */ }
             if (!claudeAvailable && entryLive()) {
               term.writeln("");
               term.writeln("\x1b[33m[pluto's terminals]\x1b[0m \x1b[31mClaude CLI not found on PATH.\x1b[0m");
@@ -1975,7 +2037,7 @@ function TerminalPane({
           if (restored && saved && saved.cli === "claude" && isSessionId(saved.id)) {
             try {
               if (await invoke("claude_session_exists", { id: saved.id })) resumeId = saved.id;
-            } catch {}
+            } catch { /* cannot tell whether Claude still has it: start a new conversation instead */ }
           }
           if (!entryLive()) return;
           const plan = planAgentLaunch(cmdsAtSpawn, { resumeId, newId: crypto.randomUUID() });
@@ -2069,9 +2131,9 @@ function TerminalPane({
             // identical to the old inline PowerShell equivalents.
             const { psEnc, psPrompt, psHist, psComplete } = buildPowerShellInit(entry.oscNonce);
             if (entryLive() && ptyId) {
-              try { await invoke("pty_write", { id: ptyId, data: `${psEnc}; ${psPrompt}` + "\r" }); } catch {}
-              try { await invoke("pty_write", { id: ptyId, data: psHist + "\r" }); } catch {}
-              try { await invoke("pty_write", { id: ptyId, data: psComplete + "\r" }); } catch {}
+              try { await invoke("pty_write", { id: ptyId, data: `${psEnc}; ${psPrompt}` + "\r" }); } catch { /* best effort: a dead PTY drops this setup line; the conceal timer still releases the pane */ }
+              try { await invoke("pty_write", { id: ptyId, data: psHist + "\r" }); } catch { /* best effort: a dead PTY drops this setup line; the conceal timer still releases the pane */ }
+              try { await invoke("pty_write", { id: ptyId, data: psComplete + "\r" }); } catch { /* best effort: a dead PTY drops this setup line; the conceal timer still releases the pane */ }
               // Fresh tab: clear + welcome box. Restored tab: scrollback was replayed,
               // so a scrollback-PRESERVING clear (ESC[2J, not Clear-Host) hides the
               // echoed setup without wiping the history.
@@ -2090,7 +2152,7 @@ function TerminalPane({
                 } catch { /* no file → just clear */ }
               }
               winDisplay += buildNoticeSuffix(modelNotice, true);
-              try { await invoke("pty_write", { id: ptyId, data: winDisplay + "\r" }); } catch {}
+              try { await invoke("pty_write", { id: ptyId, data: winDisplay + "\r" }); } catch { /* best effort: a dead PTY drops this setup line; the conceal timer still releases the pane */ }
             }
           } else {
             // Same marker idea as the PowerShell path: the echoed source only
@@ -2109,9 +2171,9 @@ function TerminalPane({
             }
             display += buildNoticeSuffix(modelNotice, false);
             if (entryLive() && ptyId) {
-              try { await invoke("pty_write", { id: ptyId, data: promptSetup + "\r" }); } catch {}
-              try { await invoke("pty_write", { id: ptyId, data: cmdCapture + "\r" }); } catch {}
-              try { await invoke("pty_write", { id: ptyId, data: display + "\r" }); } catch {}
+              try { await invoke("pty_write", { id: ptyId, data: promptSetup + "\r" }); } catch { /* best effort: a dead PTY drops this setup line; the conceal timer still releases the pane */ }
+              try { await invoke("pty_write", { id: ptyId, data: cmdCapture + "\r" }); } catch { /* best effort: a dead PTY drops this setup line; the conceal timer still releases the pane */ }
+              try { await invoke("pty_write", { id: ptyId, data: display + "\r" }); } catch { /* best effort: a dead PTY drops this setup line; the conceal timer still releases the pane */ }
             }
           }
           // Arm banner re-render on resize, but only for a plain local shell with
@@ -2165,8 +2227,10 @@ function TerminalPane({
     // At-boot-visible (and every user-opened) pane spawns immediately — the
     // stagger only defers panes nobody is looking at. `active` implies
     // `visible` (TerminalPanel passes active={tabVisible && paneActive}), so
-    // `visible` alone is the full immediate set.
-    if (visible) entry.startSpawn();
+    // `visible` alone is the full immediate set. Read through visibleRef,
+    // which the layout effect above set to this commit's `visible`, so it is
+    // the same value the prop held when this effect closed over it.
+    if (visibleRef.current) entry.startSpawn();
 
     const ro = new ResizeObserver(safeFit);
     ro.observe(container);
@@ -2176,8 +2240,21 @@ function TerminalPane({
     return paneCleanup(vis, ro);
     // [cwd] dep: a cwd-prop change re-runs this effect → park + re-attach (no
     // respawn). Live cwd comes from OSC 1337 PlutoCwd; the prop only matters
-    // at first spawn.
-  }, [cwd]);
+    // at first spawn. [tabId] dep: the registry key. TerminalPanel keys each
+    // pane's wrapper by `pane-${node.id}` and passes tabId={node.id}, so it
+    // never changes for a mounted pane and this dep never fires; it is listed
+    // because the effect really does depend on it.
+    // The props it reads come through latestRef (above). What the rule still
+    // reports is six helpers from this component's body: agentOf, setActivity,
+    // trackerOf, appendTranscript, flushTranscript, checkAutoApprove. They are
+    // new functions on every render, but each reads, directly or through the
+    // other body helpers it calls, only this fiber's refs (the same objects
+    // on every render) and module state, so the copy this
+    // run closed over behaves exactly like the latest one. Listing them would
+    // park + re-attach the pane on every render; routing them through a ref
+    // trips react-hooks/immutability on this effect's own entryRef write.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the six helpers above are per-render function identities over this fiber's stable refs; as deps they would re-run this PTY-owning effect on every render
+  }, [cwd, tabId]);
 
   // The tab's label on the registry entry, for notifications (paneName).
   useEffect(() => {
@@ -2203,14 +2280,20 @@ function TerminalPane({
     if (reset) {
       reset();
     } else {
+      // Only reached when the main effect found no container, so it never set
+      // entryRef or entry.ui (it sets both together). With no entry,
+      // setActivity("idle") does exactly this one write and returns, so the
+      // write is inlined: calling the helper here would make it a dep of this
+      // reveal effect, which would then refit, steal focus and reset activity
+      // on every render.
       clearDoneTimer();
       bytesSinceSeenRef.current = 0;
-      setActivity("idle");
+      activityRef.current = "idle";
     }
     const t = setTimeout(() => {
       const el = containerRef.current;
       if (el && el.clientWidth && el.clientHeight) {
-        try { fitRef.current?.fit(); } catch {}
+        try { fitRef.current?.fit(); } catch { /* fit throws while the renderer is not ready; the next resize or reveal refits */ }
       }
       // Only the active pane of a (possibly split) tab steals focus on show,
       // and only when the tab strip is not being driven from the keyboard.
@@ -2220,7 +2303,7 @@ function TerminalPane({
       // keyboard switch and the NEXT arrow key went into the live PTY. See
       // tabStripFocus.js, which holds the measurement and the reasoning.
       if (activeRef.current && shouldPaneTakeFocus()) {
-        try { termRef.current?.focus(); } catch {}
+        try { termRef.current?.focus(); } catch { /* focus is best effort; the terminal may not be open yet */ }
       }
     }, 30);
     return () => clearTimeout(t);
@@ -2279,7 +2362,7 @@ function TerminalPane({
 
   useEffect(() => {
     if (!termRef.current || !xtermTheme) return;
-    try { termRef.current.options.theme = xtermTheme; } catch {}
+    try { termRef.current.options.theme = xtermTheme; } catch { /* a disposed terminal cannot take a theme; the next pane gets it at construction */ }
   }, [xtermTheme]);
 
   // Find-in-terminal helpers (Cmd/Ctrl+F). SearchAddon highlights matches with
@@ -2336,6 +2419,25 @@ function TerminalPane({
     else pasteInto(t);
   };
   const copyToClipboard = (t) => { try { navigator.clipboard?.writeText(t); } catch { /* ignore */ } };
+  // The block menu's rows are plain data, and this runs the clicked one. The
+  // rows used to carry their own closures, and handing an array of closures
+  // that read termRef (through blockText) to .map during render is what the
+  // refs rule cannot tell apart from calling them; nothing here ever ran
+  // during render. Each action still reads the buffer at click time.
+  const runBlockAction = (action, block) => {
+    if (action === "copy-command") copyToClipboard(blockText(block, "command"));
+    else if (action === "copy-output") copyToClipboard(blockText(block, "output"));
+    else if (action === "copy-both") copyToClipboard(blockText(block, "both"));
+    else if (action === "rerun") { if (block.command) writeToTab(tabId, block.command + "\r"); }
+    else if (action === "share") {
+      setShareTarget({
+        kind: "block",
+        title: block.command || "block",
+        rawText: blockText(block, "both"), // re-reads the buffer NOW, before the menu closes
+        dateStamp: todayDate(),            // stamp the share filename's date at click time
+      });
+    }
+  };
 
   // ── App-owned prompt editor wiring ──────────────────────────────────────────
   const showEditor = promptEditor && active && atPrompt && !altScreen;
@@ -2365,7 +2467,12 @@ function TerminalPane({
     setPeRect((prev) => (samePromptRect(prev, rect) ? prev : rect));
     setAtPrompt(true);
   };
-  captureRef.current = capturePrompt;
+  // Written after commit, like the prop refs above. Its only readers are the
+  // prompt-settle timer (entry.ui.capturePrompt, 70 ms after an OSC 133 "A")
+  // and the reposition rAF below, both of which run after a commit.
+  useLayoutEffect(() => {
+    captureRef.current = capturePrompt;
+  });
 
   const sendToPty = (data) => { if (isBroadcast()) writeBroadcast(data); else writeToTab(tabId, data); };
   const submitPrompt = (text) => {
@@ -2420,7 +2527,6 @@ function TerminalPane({
       d1?.dispose?.();
       d2?.dispose?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showEditor]);
 
   return (
@@ -2468,7 +2574,9 @@ function TerminalPane({
       )}
       {blockMenu && (
         <>
-          <div onMouseDown={() => setBlockMenu(null)} onContextMenu={(e) => { e.preventDefault(); setBlockMenu(null); }}
+          {/* Click-away catcher behind the block menu: a mouse-only dismiss
+              surface with nothing to announce, hence presentation. */}
+          <div role="presentation" onMouseDown={() => setBlockMenu(null)} onContextMenu={(e) => { e.preventDefault(); setBlockMenu(null); }}
             style={{ position: "fixed", inset: 0, zIndex: 60 }} />
           <div style={{
             position: "fixed", zIndex: 61,
@@ -2482,18 +2590,13 @@ function TerminalPane({
               {blockMenu.block.exit ? `✗ exit ${blockMenu.block.exit} · ` : "✓ "}{blockMenu.block.command || "(command)"}
             </div>
             {[
-              { label: "Copy command", on: () => copyToClipboard(blockText(blockMenu.block, "command")), dis: !blockMenu.block.command },
-              { label: "Copy output", on: () => copyToClipboard(blockText(blockMenu.block, "output")) },
-              { label: "Copy command + output", on: () => copyToClipboard(blockText(blockMenu.block, "both")) },
-              { label: "Re-run command", on: () => blockMenu.block.command && writeToTab(tabId, blockMenu.block.command + "\r"), dis: !blockMenu.block.command },
-              { label: "Share block…", on: () => setShareTarget({
-                  kind: "block",
-                  title: blockMenu.block.command || "block",
-                  rawText: blockText(blockMenu.block, "both"), // re-reads the buffer NOW, before the menu closes
-                  dateStamp: todayDate(),                      // stamp the share filename's date at click time
-                }) },
+              { label: "Copy command", action: "copy-command", dis: !blockMenu.block.command },
+              { label: "Copy output", action: "copy-output" },
+              { label: "Copy command + output", action: "copy-both" },
+              { label: "Re-run command", action: "rerun", dis: !blockMenu.block.command },
+              { label: "Share block…", action: "share" },
             ].map((it, i) => (
-              <button key={i} disabled={it.dis} onClick={() => { it.on(); setBlockMenu(null); }}
+              <button key={i} disabled={it.dis} onClick={() => { runBlockAction(it.action, blockMenu.block); setBlockMenu(null); }}
                 style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none",
                   color: it.dis ? "#5a626b" : "var(--phn-text-fg, #cfd6dd)", padding: "7px 10px", borderRadius: 5,
                   cursor: it.dis ? "default" : "pointer", fontSize: 12 }}
@@ -2517,6 +2620,7 @@ function TerminalPane({
           }}
         >
           <input
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the find bar the user just opened with the find shortcut; without it the query would be typed into the shell
             autoFocus
             value={searchQuery}
             onChange={(e) => { setSearchQuery(e.target.value); runSearch(e.target.value, "incremental"); }}
@@ -2535,15 +2639,17 @@ function TerminalPane({
             }}
           />
           {["↑", "↓", "✕"].map((g, i) => (
-            <span
+            <button
+              type="button"
               key={g}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => (i === 0 ? runSearch(searchQuery, "prev") : i === 1 ? runSearch(searchQuery, "next") : closeSearch())}
               title={i === 0 ? "Previous (Shift+Enter)" : i === 1 ? "Next (Enter)" : "Close (Esc)"}
-              style={{ cursor: "pointer", color: "var(--phn-text-fg, #d4d4d4)", padding: "2px 5px", fontSize: 12, borderRadius: 3, userSelect: "none" }}
+              aria-label={i === 0 ? "Previous match" : i === 1 ? "Next match" : "Close find"}
+              style={{ ...GLYPH_BUTTON_RESET, cursor: "pointer", color: "var(--phn-text-fg, #d4d4d4)", padding: "2px 5px", fontSize: 12, borderRadius: 3, userSelect: "none" }}
             >
               {g}
-            </span>
+            </button>
           ))}
         </div>
       )}
@@ -2570,13 +2676,15 @@ function TerminalPane({
           >
             Explain
           </button>
-          <span
+          <button
+            type="button"
             onClick={() => setFailedBlock(null)}
             title="Dismiss"
-            style={{ cursor: "pointer", color: "var(--phn-text-dim, #888)", padding: "2px 5px", fontSize: 12, userSelect: "none" }}
+            aria-label="Dismiss"
+            style={{ ...GLYPH_BUTTON_RESET, cursor: "pointer", color: "var(--phn-text-dim, #888)", padding: "2px 5px", fontSize: 12, userSelect: "none" }}
           >
             ✕
-          </span>
+          </button>
         </div>
       )}
       <ErrorExplainer

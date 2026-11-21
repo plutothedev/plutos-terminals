@@ -169,7 +169,7 @@ describe("TerminalPane's phone input", () => {
     const l = listener();
     expect(l).toContain("if (!entryLive()) { detach(unlistenData); detach(unlistenExit); detach(unlistenPhone); return; }");
     expect(src).toContain("const detach = (unlisten) => { try { unlisten?.(); } catch { /* already detached */ } };");
-    const hook = between("registerDestroyHook(tabId, () => {" + NL + "          try { unlistenData(); } catch {}", "});");
+    const hook = between("registerDestroyHook(tabId, () => {" + NL + "          try { unlistenData(); } catch { /* already detached */ }", "});");
     expect(hook).toContain("detach(unlistenPhone);");
   });
 });
