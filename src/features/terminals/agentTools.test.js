@@ -1,7 +1,7 @@
 import { test, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { buildTools, needsApproval, isDangerousCommand, RUN_COMMAND_TOOL, mcpResultToContent, toolResultText } from "./agentTools.js";
+import { buildTools, needsApproval, isDangerousCommand, RUN_COMMAND_TOOL, mcpResultToContent, toolResultText, mcpCallArgs } from "./agentTools.js";
 
 test("buildTools includes the built-in run_command + mcp tools with meta", () => {
   const { tools, meta } = buildTools([
@@ -145,4 +145,26 @@ test("AgentMode's shell branch uses toolResultText, not the raw slice(-3000) pat
   const src = readFileSync(fileURLToPath(new URL("./AgentMode.jsx", import.meta.url)), "utf8");
   expect(src).not.toContain(".slice(-3000)");
   expect(src).toContain("toolResultText(");
+});
+
+// v0.7.6 audit: approval is decided from a listing's annotations once per run,
+// and the backend reconnects a server that exited or timed out. Each listed
+// tool carries the epoch of the connection that listed it; the call hands it
+// back so the backend refuses a call that would run on a different process.
+test("buildTools keeps each MCP tool's listing epoch in its meta", () => {
+  const { meta } = buildTools([
+    { server: "fs", name: "read_file", read_only: true, destructive: false, epoch: 7 },
+  ]);
+  expect(meta["fs.read_file"].epoch).toBe(7);
+});
+
+test("mcpCallArgs sends the listing epoch with the call", () => {
+  const { meta } = buildTools([
+    { server: "fs", name: "write_file", read_only: false, destructive: true, epoch: 42 },
+  ]);
+  expect(mcpCallArgs(meta["fs.write_file"], { path: "a" })).toEqual({
+    server: "fs", tool: "write_file", args: { path: "a" }, epoch: 42,
+  });
+  // No args from the model: an empty object, as before.
+  expect(mcpCallArgs(meta["fs.write_file"], undefined).args).toEqual({});
 });

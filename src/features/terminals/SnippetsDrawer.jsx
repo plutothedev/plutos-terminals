@@ -407,9 +407,11 @@ export default function SnippetsDrawer({
                 title={`Insert into active terminal: ${s.command}`}
                 style={{ background: "none", border: 0, padding: "7px 10px", boxSizing: "border-box", font: "inherit", color: "inherit", textAlign: "inherit", cursor: "inherit", display: "block", width: "100%" }}
               >
-                <div className="phn-snippet-name">{s.name}</div>
-                {s.description && <div style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", margin: "1px 0" }}>{s.description}</div>}
-                <div className="phn-snippet-command">{s.command}</div>
+                {/* Spans, not divs: a button holds phrasing content only.
+                    display:block keeps the same stacked layout. */}
+                <span className="phn-snippet-name" style={{ display: "block" }}>{s.name}</span>
+                {s.description && <span style={{ display: "block", fontSize: 10.5, color: "var(--phn-text-dim, #888)", margin: "1px 0" }}>{s.description}</span>}
+                <span className="phn-snippet-command" style={{ display: "block" }}>{s.command}</span>
               </button>
               {editable && (
                 <button

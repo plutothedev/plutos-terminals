@@ -176,6 +176,25 @@ export function setResolved(userKb) {
   _resolved = resolveBindings(userKb);
   return _resolved;
 }
+// Actions a held key may keep firing: pure navigation, where holding the key
+// to keep moving is the point and each run only moves focus.
+const REPEATABLE_FNS = new Set(["switchTabRel", "focusPane"]);
+
+// The global dispatcher's decision for a keydown (TerminalsTab's capture-phase
+// handler): null when it is not a shortcut (no non-Shift modifier, or the
+// combo is unbound), else { action, run }. A hit is always swallowed by the
+// caller; `run` is false for a held key's auto-repeat, because confirms queue
+// FIFO and each repeat of Ctrl+Shift+W (or of the palette that leads to
+// Reset workspace) would stack another identical dialog (v0.7.6 audit).
+export function globalShortcutFor(e, byCombo) {
+  if (!e || !(e.ctrlKey || e.metaKey || e.altKey)) return null;
+  const combo = comboFromEvent(e);
+  const actionId = combo ? byCombo.get(combo) : null;
+  const action = actionId ? KEY_ACTIONS.find((a) => a.id === actionId) : null;
+  if (!action) return null;
+  return { action, run: !e.repeat || REPEATABLE_FNS.has(action.fn) };
+}
+
 // actionId currently bound to a live KeyboardEvent, or null.
 export function actionForEvent(e) {
   const combo = comboFromEvent(e);

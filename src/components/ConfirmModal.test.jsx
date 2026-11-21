@@ -304,3 +304,61 @@ test("a chain whose opener was disabled mid-chain and enabled again ends on the 
   for (const call of spy.mock.calls) expect(call[0]).toEqual({ preventScroll: true });
   spy.mockRestore();
 });
+
+// v0.7.6 audit: dismissing the dialog (Escape, the header close button, a
+// backdrop click) is not the same answer as its Cancel button. The recovered-
+// recording prompt labels Cancel "Discard", so a dismissal that answered
+// false deleted the recording. A dismissal answers null; only the Cancel
+// button answers false. Every other caller reads any falsy answer as "no".
+// Returns { p }, not p: an async function returning the answer's promise
+// would wait for the answer itself.
+async function openOne(opts) {
+  render(<ConfirmProvider><Grab /></ConfirmProvider>);
+  let p;
+  await act(async () => { p = confirmFn("keep it?", opts); });
+  return { p };
+}
+
+test("the Cancel button answers false", async () => {
+  const { p } = await openOne({ cancelLabel: "Discard" });
+  await act(async () => { fireEvent.click(screen.getByText("Discard")); });
+  expect(await p).toBe(false);
+});
+
+test("Escape answers null, not false", async () => {
+  const { p } = await openOne({ cancelLabel: "Discard" });
+  await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
+  expect(await p).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("the header close button answers null", async () => {
+  const { p } = await openOne({ cancelLabel: "Discard" });
+  await act(async () => { fireEvent.click(screen.getByLabelText("Close dialog")); });
+  expect(await p).toBeNull();
+});
+
+test("a backdrop click answers null", async () => {
+  const { p } = await openOne({ cancelLabel: "Discard" });
+  const overlay = document.querySelector(".phn-modal-overlay");
+  await act(async () => {
+    fireEvent.mouseDown(overlay);
+    fireEvent.click(overlay);
+  });
+  expect(await p).toBeNull();
+});
+
+test("a dismissal still hands the queue on in order", async () => {
+  render(<ConfirmProvider><Grab /></ConfirmProvider>);
+  let first, second;
+  await act(async () => { first = confirmFn("first?"); });
+  await act(async () => { second = confirmFn("second?"); });
+  await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
+  expect(await first).toBeNull();
+  expect(screen.getByText("second?")).toBeTruthy();
+  expect(await settledOf(second)).toBe("pending");
+  await act(async () => { fireEvent.click(screen.getByText("Cancel")); });
+  expect(await second).toBe(false);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+

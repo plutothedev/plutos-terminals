@@ -38,16 +38,26 @@ export const RUN_COMMAND_TOOL = {
 };
 
 /** Build the LLM tools array + an annotation/routing meta map from MCP tools.
- *  mcpTools: [{ server, name, description, schema, read_only, destructive }]. */
+ *  mcpTools: [{ server, name, description, schema, read_only, destructive, epoch }].
+ *  `epoch` names the backend connection that listed the tool; see mcpCallArgs. */
 export function buildTools(mcpTools) {
   const tools = [RUN_COMMAND_TOOL];
   const meta = { run_command: { kind: "shell" } };
   for (const t of mcpTools || []) {
     const name = `${t.server}.${t.name}`;
     tools.push({ name, description: t.description || "", input_schema: t.schema || { type: "object" } });
-    meta[name] = { kind: "mcp", server: t.server, tool: t.name, read_only: !!t.read_only, destructive: !!t.destructive };
+    meta[name] = { kind: "mcp", server: t.server, tool: t.name, read_only: !!t.read_only, destructive: !!t.destructive, epoch: t.epoch };
   }
   return { tools, meta };
+}
+
+/** The mcp_call_tool arguments for a call to the MCP tool `m` (a meta entry).
+ *  Approval is decided from the tool's listed annotations once per run, while
+ *  the backend reconnects a server that exited or timed out; the listing epoch
+ *  goes with the call so the backend refuses one that would run on a process
+ *  whose annotations were never read. */
+export function mcpCallArgs(m, args) {
+  return { server: m.server, tool: m.tool, args: args || {}, epoch: m.epoch };
 }
 
 /** Does this tool call require manual approval? auto-run OFF → always. auto-run ON

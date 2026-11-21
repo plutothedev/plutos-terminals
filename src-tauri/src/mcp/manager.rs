@@ -315,11 +315,39 @@ async fn keep_listing(
     Some(tools)
 }
 
+/// `epoch` is the epoch the tool was listed under (`Tool::epoch`). The agent
+/// decides approval from a listing's read_only / destructive annotations once
+/// per run, and lock_live_conn reconnects a server that exited or timed out,
+/// so without the check a call approved against one process could run on a
+/// new one whose annotations were never read. None skips the check.
 #[tauri::command]
-pub async fn mcp_call_tool(app: tauri::AppHandle, server: String, tool: String, args: Value) -> Result<Value, String> {
-    let (guard, _) = lock_live_conn(&app, &server).await?; // per-server lock held only for this call
-    let out = guard.call_tool(&tool, args).await;
-    drop_if_unusable(&server, guard).await;
+pub async fn mcp_call_tool(
+    app: tauri::AppHandle,
+    server: String,
+    tool: String,
+    args: Value,
+    epoch: Option<u64>,
+) -> Result<Value, String> {
+    call_tool_checked(&server, &tool, args, epoch, || connect_from_config(&app, &server)).await
+}
+
+/// `mcp_call_tool` with the connect as a parameter: the test seam.
+async fn call_tool_checked<F, Fut>(id: &str, tool: &str, args: Value, epoch: Option<u64>, connect: F) -> Result<Value, String>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<McpConn, String>>,
+{
+    let (guard, _) = lock_live_conn_with(id, connect).await?; // per-server lock held only for this call
+    if let Some(listed) = epoch {
+        if guard.epoch() != listed {
+            // The connection is fine (it is the new one): keep it, and the
+            // next listing reads its tools and annotations.
+            drop(guard);
+            return Err(format!("{id} restarted since its tools were listed; run again so they are re-read"));
+        }
+    }
+    let out = guard.call_tool(tool, args).await;
+    drop_if_unusable(id, guard).await;
     out
 }
 
@@ -419,7 +447,8 @@ mod timeout_eviction_tests {
     // tests/mcp_mock.rs does). Every test uses its own server id: the maps
     // are process-wide and the tests run at once.
     use super::{
-        connect_or_reuse, conns, drop_if_unusable, forget, keep_listing, lock_live_conn_with, ticket, tool_cache,
+        call_tool_checked, connect_or_reuse, conns, drop_if_unusable, forget, keep_listing, lock_live_conn_with, ticket,
+        tool_cache,
     };
     use crate::mcp::client::McpConn;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -691,5 +720,84 @@ mod timeout_eviction_tests {
         for o in &out[1..] {
             assert_eq!(o.as_ref().unwrap_err(), "attempt 1 failed");
         }
+    }
+    // The approval gate vs a silent reconnect. The agent lists tools (and
+    // decides approval from their annotations) once per run; a call names the
+    // epoch of the connection that listed the tool, and a call that would run
+    // on a different connection is refused without being sent.
+
+    /// A connector for call_tool_checked that counts its connects.
+    fn counting(id: &'static str, flag: Option<&'static str>, connects: Arc<AtomicUsize>) -> impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<McpConn, String>> + Send>> {
+        move || {
+            let connects = connects.clone();
+            Box::pin(async move {
+                connects.fetch_add(1, Ordering::SeqCst);
+                Ok(spawn_mock(id, flag).await)
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_call_listed_against_a_replaced_process_is_refused() {
+        // The run listed "echo" on the first process, then that process
+        // exited. The next call reconnects to a new process whose tools and
+        // annotations nobody has read: it must not run there.
+        let old = mock("epoch-replaced", Some("--exit-on-call")).await;
+        let listed = old.lock().await.list_tools_within(ANSWERS).await.expect("list");
+        let listed_epoch = listed[0].epoch;
+        assert_eq!(listed_epoch, old.lock().await.epoch(), "a listed tool carries its connection's epoch");
+        call(&old, "epoch-replaced", ANSWERS).await; // the server exits on it
+        assert!(!conns().lock().await.contains_key("epoch-replaced"));
+        let connects = Arc::new(AtomicUsize::new(0));
+        let out = call_tool_checked(
+            "epoch-replaced",
+            "echo",
+            serde_json::json!({ "x": 1 }),
+            Some(listed_epoch),
+            counting("epoch-replaced", Some("--exit-on-call"), connects.clone()),
+        )
+        .await;
+        assert_eq!(connects.load(Ordering::SeqCst), 1, "the reconnect did not happen");
+        let e = out.expect_err("a call approved against the old process ran on the new one");
+        assert_eq!(e, "epoch-replaced restarted since its tools were listed; run again so they are re-read");
+        // Not sent: the new mock exits on any call, so a sent call would have
+        // left its connection unusable and out of the map.
+        let kept = conns().lock().await.get("epoch-replaced").cloned().expect("the new connection was dropped");
+        let kept = kept.lock().await;
+        assert!(!kept.unusable(), "the call was sent to the new process");
+        assert_ne!(kept.epoch(), listed_epoch);
+        drop(kept);
+        forget(Some("epoch-replaced")).await;
+    }
+
+    #[tokio::test]
+    async fn a_call_on_the_connection_that_listed_it_runs() {
+        let conn = mock("epoch-same", None).await;
+        let epoch = conn.lock().await.epoch();
+        let connects = Arc::new(AtomicUsize::new(0));
+        let out = call_tool_checked("epoch-same", "echo", serde_json::json!({ "x": 1 }), Some(epoch), counting("epoch-same", None, connects.clone()))
+            .await
+            .expect("a call on the listing connection was refused");
+        assert!(out.to_string().contains("\\\"x\\\":1"), "{out}");
+        assert_eq!(connects.load(Ordering::SeqCst), 0, "it reconnected instead of using the live connection");
+        forget(Some("epoch-same")).await;
+    }
+
+    #[tokio::test]
+    async fn a_call_without_an_epoch_runs() {
+        let _conn = mock("epoch-none", None).await;
+        let connects = Arc::new(AtomicUsize::new(0));
+        let out = call_tool_checked("epoch-none", "echo", serde_json::json!({ "y": 2 }), None, counting("epoch-none", None, connects.clone()))
+            .await
+            .expect("a call with no epoch was refused");
+        assert!(out.to_string().contains("\\\"y\\\":2"), "{out}");
+        forget(Some("epoch-none")).await;
+    }
+
+    #[tokio::test]
+    async fn every_connection_gets_its_own_epoch() {
+        let a = spawn_mock("epoch-unique", None).await;
+        let b = spawn_mock("epoch-unique", None).await;
+        assert_ne!(a.epoch(), b.epoch());
     }
 }

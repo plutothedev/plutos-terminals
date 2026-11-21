@@ -8,7 +8,7 @@
 //                 (unannotated tools are treated as destructive unless the server
 //                  explicitly marked them read-only — fail safe).
 use std::collections::{BTreeMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use rmcp::model::{CallToolRequestParams, PaginatedRequestParams, Tool as RmcpTool};
@@ -139,7 +139,17 @@ pub struct Tool {
     pub schema: serde_json::Value,
     pub read_only: bool,
     pub destructive: bool,
+    /// The epoch of the connection that listed this tool (see
+    /// `McpConn::epoch`). The agent hands it back with a call, so a call
+    /// whose approval was decided from these annotations is refused if the
+    /// server has been reconnected (possibly to a different process with
+    /// different annotations) since.
+    pub epoch: u64,
 }
+
+/// Source of connection epochs: unique per connection for the life of the
+/// process, never reused, so two connections to one server never share one.
+static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 
 /// A live connection to a single MCP server. Holds the running rmcp client; the
 /// server stays connected until this is dropped.
@@ -155,6 +165,10 @@ pub struct McpConn {
     /// that exited, a session that ended). Every later request would fail the
     /// same way, so manager.rs drops it like a timed-out one.
     closed: AtomicBool,
+    /// Unique to this connection (NEXT_EPOCH). Every tool it lists carries
+    /// it, and manager.rs refuses a call that names an epoch other than the
+    /// live connection's.
+    epoch: u64,
 }
 
 /// Counts the bytes a value serializes to without keeping them.
@@ -329,7 +343,18 @@ impl McpConn {
         // (old read_only / destructive flags at the approval gate) and hide a
         // server's error behind a stale page.
         client.set_response_cache_config(ClientCacheConfig::disabled()).await;
-        McpConn { server_id, client, timed_out: AtomicBool::new(false), closed: AtomicBool::new(false) }
+        McpConn {
+            server_id,
+            client,
+            timed_out: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+            epoch: NEXT_EPOCH.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+
+    /// This connection's epoch (see the `epoch` field).
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     /// Whether a list or call on this connection has run out of time (see the
@@ -483,6 +508,7 @@ impl McpConn {
             schema,
             read_only,
             destructive,
+            epoch: self.epoch,
         }
     }
 }

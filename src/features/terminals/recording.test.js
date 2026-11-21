@@ -5,7 +5,7 @@ import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 const invoke = vi.fn(() => Promise.resolve());
 vi.mock("@backend", () => ({ invoke: (...a) => invoke(...a) }));
 
-import { startRecording, pushOutput, stopRecording, isRecording, pruneRecordings, activeTabIds } from "./recording.js";
+import { startRecording, pushOutput, stopRecording, isRecording, pruneRecordings, activeTabIds, inflightName } from "./recording.js";
 import { allPaneTargets } from "./activePane.js";
 import { allRenderedPaneIds } from "./paneIds.js";
 import { splitLeaf, getLayout } from "./splitTree.js";
@@ -24,7 +24,7 @@ describe("recording disk checkpoint (audit C5)", () => {
     // header seed: reset:true
     const seed = invoke.mock.calls.find((c) => c[0] === "recording_checkpoint" && c[1].reset === true);
     expect(seed).toBeTruthy();
-    expect(seed[1].name).toBe("rec-tabX");
+    expect(seed[1].name).toMatch(/^rec-tabX-[a-z0-9]+$/);
 
     invoke.mockClear();
     pushOutput("tabX", "hello");
@@ -102,3 +102,42 @@ describe("pruneRecordings takes the PANE set (audit FE-1)", () => {
     expect(isRecording("pane-gone")).toBe(false);
   });
 });
+
+// A recording kept on disk (Save cancelled, or its recovery prompt dismissed)
+// waits for the next launch under its inflight name. A new recording in the
+// same pane (pane ids persist across launches) seeds its file with reset:true,
+// which truncated that kept recording when the name came from the pane id
+// alone. Each recording gets its own name.
+describe("inflight names are per recording, not per pane (v0.7.6 audit)", () => {
+  const seedName = () => invoke.mock.calls.find((c) => c[0] === "recording_checkpoint" && c[1].reset === true)[1].name;
+
+  test("a second recording in the same pane never truncates the first one's file", () => {
+    startRecording("paneR");
+    const first = seedName();
+    stopRecording("paneR"); // Save cancelled: the file is kept
+    invoke.mockClear();
+    startRecording("paneR");
+    const second = seedName();
+    expect(second).not.toBe(first);
+    stopRecording("paneR");
+  });
+
+  test("inflightName names the live recording's file, and the tail flush goes there", () => {
+    expect(inflightName("paneF")).toBeNull();
+    startRecording("paneF");
+    const name = seedName();
+    expect(inflightName("paneF")).toBe(name);
+    pushOutput("paneF", "x");
+    invoke.mockClear();
+    stopRecording("paneF");
+    expect(invoke.mock.calls.find((c) => c[0] === "recording_checkpoint")[1].name).toBe(name);
+    expect(inflightName("paneF")).toBeNull();
+  });
+
+  test("names stay inside the backend's [A-Za-z0-9_-] gate", () => {
+    startRecording("pane:weird/id");
+    expect(seedName()).toMatch(/^[A-Za-z0-9_-]+$/);
+    stopRecording("pane:weird/id");
+  });
+});
+

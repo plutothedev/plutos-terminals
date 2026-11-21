@@ -3,6 +3,12 @@
 //
 //   const confirm = useConfirm();
 //   if (await confirm("Replace panels?", { destructive: true })) { ... }
+//
+// Answers: true from the Confirm button, false from the Cancel button, and
+// null when the dialog is dismissed (Escape, the header close button, a
+// backdrop click). Read any falsy answer as "no". A caller whose Cancel button
+// does something (the recovered-recording prompt's "Discard") checks for
+// `false` exactly, so a dismissal leaves things as they were.
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
@@ -73,6 +79,9 @@ export function ConfirmProvider({ children }) {
   };
   const onConfirm = () => answer(true);
   const onCancel = () => answer(false);
+  // Escape, the header ✕ and a backdrop click: not the Cancel button's answer
+  // (see the header note). Ignores the click event Modal's ✕ passes.
+  const onDismiss = () => answer(null);
 
   // The chain's last request has closed. This runs after the Modal's own
   // cleanup has handed focus back; if that left focus on <body> (the opener
@@ -99,7 +108,7 @@ export function ConfirmProvider({ children }) {
           old Modal unmounts (its cleanup hands focus back to the original
           opener) and the new one records that opener and focuses its own
           default, so the end of the chain still returns to the trigger. */}
-      <Modal key={request ? request.id : "closed"} open={!!request} title={request?.title || "Confirm"} onClose={onCancel} width={460}>
+      <Modal key={request ? request.id : "closed"} open={!!request} title={request?.title || "Confirm"} onClose={onDismiss} width={460}>
         <div style={{ color: FG, fontSize: 12, lineHeight: 1.7, marginBottom: 20, whiteSpace: "pre-wrap" }}>
           {/* Coerce to string so a non-string message degrades to text instead of
               throwing "Objects are not valid as a React child" and crashing the UI. */}

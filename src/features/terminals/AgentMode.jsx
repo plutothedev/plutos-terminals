@@ -15,7 +15,7 @@ import { noModelMessage, resolveActiveLLM } from "./providers.js";
 import { readUserSt } from "./storageKeys.js";
 import { runAndCapture } from "./ptyBridge.js";
 import { toolTurn } from "./llmTools.js";
-import { buildTools, needsApproval, isDangerousCommand, mcpResultToContent, toolResultText } from "./agentTools.js";
+import { buildTools, needsApproval, isDangerousCommand, mcpResultToContent, mcpCallArgs, toolResultText } from "./agentTools.js";
 import { runAgentLoop } from "./agentLoop.js";
 import { collectProjectContext, partitionRuleFiles, buildSafeContextBlock } from "./agentContext.js";
 import { useSavedPrompts } from "./hooks/useSavedPrompts.js";
@@ -143,7 +143,9 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
         }
         return { content: toolResultText(result?.output), isError: false };
       }
-      const out = await invoke("mcp_call_tool", { server: m.server, tool: m.tool, args: call.args || {} });
+      // The listing epoch rides along: a server reconnected since the listing
+      // this run's approvals were decided from refuses the call (mcpCallArgs).
+      const out = await invoke("mcp_call_tool", mcpCallArgs(m, call.args));
       const isErr = !!(out && out.isError);
       // Feed back only the text parts, not the whole stringified CallToolResult
       // (token bloat + prompt-injection surface). See mcpResultToContent. MCP

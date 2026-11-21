@@ -339,6 +339,20 @@ describe("SnippetsDrawer row", () => {
     fireEvent.click(btn);
     expect(onInsert).toHaveBeenCalledWith("echo hi");
   });
+
+  // v0.7.6 audit: a <button> may hold phrasing content only, so the row's
+  // name / description / command lines are block spans, not divs.
+  test("the insert button holds no div, and its lines still stack as blocks", () => {
+    render(<SnippetsDrawer open onClose={() => {}} onInsert={() => {}} snippets={[{ id: "a", name: "Say hi", description: "greets", command: "echo hi" }]} onSnippetsChange={() => {}} />);
+    const btn = screen.getByTitle("Insert into active terminal: echo hi");
+    expect(btn.querySelector("div")).toBeNull();
+    const lines = [btn.querySelector(".phn-snippet-name"), screen.getByText("greets"), btn.querySelector(".phn-snippet-command")];
+    for (const el of lines) {
+      expect(el.tagName).toBe("SPAN");
+      expect(el.style.display).toBe("block");
+    }
+    expect(screen.getByText("greets").style.margin).toBe("1px 0px");
+  });
 });
 
 // ── Item 9 + backdrop: ProjectDialog dialog contract ───────────────────────

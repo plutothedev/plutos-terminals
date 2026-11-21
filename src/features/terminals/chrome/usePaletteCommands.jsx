@@ -10,7 +10,8 @@
 // widened by three): 27 tracked dependencies, of which 25 arrive as named
 // fields on the single `args` object (the dep array lists the destructured
 // locals) and 2 (toast and confirm) are context values read via
-// useToast()/useConfirm() HERE. The useState setters (all from TerminalsTab's
+// useToast()/useConfirm() HERE. (`flights`, the Reset workspace single-flight
+// Set from this hook's own lazy useState, is listed too: stable, so harmless.) The useState setters (all from TerminalsTab's
 // useState / useSimpleModals) are listed too since the 2026-11-20 lint pass:
 // they are stable, so listing them changes nothing at runtime and keeps the
 // list honest. state/persist DO cross into this hook (the
@@ -21,7 +22,7 @@
 // text buffer, audit FE-1) and `switchTab` / `switchTabRel` (the tab-switch
 // commands, audit A11Y-05, which found the palette's 30-odd entries could
 // switch PANELS but never TABS).
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { invoke } from "@backend";
 import { MAX_PANELS } from "../grid";
 import { defaultState } from "../workspaceModel.js";
@@ -34,10 +35,16 @@ import {
 import { useToast } from "../../../components/Toast.jsx";
 import { useConfirm } from "../../../components/ConfirmModal.jsx";
 import { humanizeError } from "../errorText.js";
+import { runExclusive } from "../singleFlight.js";
 
 export function usePaletteCommands(args) {
   const toast = useToast();
   const confirm = useConfirm();
+  // Single-flight for Reset workspace (runExclusive): confirms queue, so
+  // picking it again while its confirm is open would stack a second identical
+  // dialog. One Set for the hook's life (lazy useState): stable, so listing it
+  // in the deps changes nothing.
+  const [flights] = useState(() => new Set());
   const {
     // dep-array fields (reactive values + hook useCallbacks)
     scOf, addTab, addPanel, canAddPanel, splitPane, equalizePanes, closePane, importSshConfig,
@@ -123,7 +130,7 @@ export function usePaletteCommands(args) {
       icon: <SReset size={14} />,
       label: "Reset workspace",
       hint: "Clear all panels and tabs. Keeps your API keys, theme, and sessions.",
-      action: async () => {
+      action: () => runExclusive(flights, "reset-workspace", async () => {
         const ok = await confirm(
           "Reset workspace? Closes every panel and tab. Keeps your API keys, theme, and sessions. The app reloads to a single empty panel.",
           { title: "Reset workspace?", confirmLabel: "Reset", destructive: true }
@@ -134,7 +141,7 @@ export function usePaletteCommands(args) {
         // wait can be long); spreading the render-time `state` could undo
         // whatever changed meanwhile.
         persist((prev) => ({ ...(prev || {}), panels: fresh.panels, activePanelId: fresh.activePanelId }));
-      },
+      }),
     },
     // Tab switching (audit A11Y-05). The palette had ~33 commands and none of
     // them moved between TABS, only between panels, so with the strip being
@@ -171,7 +178,7 @@ export function usePaletteCommands(args) {
     switchTab, switchTabRel,
     activeTabId, activePaneId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
-    stopAndSaveRecording, startRecordingActive, toast, confirm,
+    stopAndSaveRecording, startRecordingActive, toast, confirm, flights,
     persist, state, setActivePanel,
     // useState setters from TerminalsTab / useSimpleModals: stable, so listing
     // them never changes the array's identity.

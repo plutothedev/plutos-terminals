@@ -2,6 +2,7 @@
 //
 // API: startRecording(paneId, { width, height, label })
 //      stopRecording(paneId) → returns the .cast file contents (asciinema v2)
+//      inflightName(paneId)  → the live recording's crash-net file name
 //      isRecording(paneId)   → boolean
 //      pushOutput(paneId, data) → record an "o" (output) event
 //      activeTabIds()       → list of currently-recording pane ids
@@ -19,7 +20,8 @@
 // well as the in-memory events, so a crash / force-kill / cancelled Save loses
 // at most the last unflushed tail instead of the whole session. The in-memory
 // buffer is still the source for the Save dialog; the disk copy is the crash
-// net, discarded once a Save succeeds (finalizeRecording) and surfaced on next
+// net, discarded once a Save succeeds (inflightName, then
+// discardInflightRecording) and surfaced on next
 // launch if orphaned (listInflight).
 //
 // Reference: https://docs.asciinema.org/manual/asciicast/v2/
@@ -29,11 +31,17 @@ import { invoke } from "@backend";
 const recordings = new Map(); // paneId → { startTs, width, height, label, events: [], bytes, capped, pending: [], flushTimer }
 const listeners = new Set();
 
-// Disk-safe stem for a pane id (matches the Rust transcript_name_valid gate:
-// [A-Za-z0-9_-] only). "rec-" prefix keeps it non-empty and clear of reserved
-// device names.
-function recName(paneId) {
-  return "rec-" + String(paneId).replace(/[^A-Za-z0-9_-]/g, "_");
+// Disk-safe inflight file stem for a NEW recording in a pane (matches the Rust
+// transcript_name_valid gate: [A-Za-z0-9_-] only). "rec-" prefix keeps it
+// non-empty and clear of reserved device names. Unique per recording, not per
+// pane: a recording kept on disk (Save cancelled, recovery prompt dismissed)
+// waits for the next launch under this name, pane ids persist across
+// launches, and a new recording seeds its file with reset:true, so a name
+// derived from the pane alone truncated the kept one (v0.7.6 audit).
+let recSeq = 0;
+function newRecName(paneId) {
+  recSeq += 1;
+  return "rec-" + String(paneId).replace(/[^A-Za-z0-9_-]/g, "_") + "-" + Date.now().toString(36) + recSeq.toString(36);
 }
 
 const FLUSH_MS = 2000;
@@ -52,7 +60,7 @@ async function flushCheckpoint(paneId) {
   const chunk = rec.pending.join("");
   rec.pending = [];
   try {
-    await invoke("recording_checkpoint", { name: recName(paneId), chunk, reset: false });
+    await invoke("recording_checkpoint", { name: rec.name, chunk, reset: false });
   } catch { /* best-effort crash net — the in-memory buffer is still authoritative */ }
 }
 
@@ -86,6 +94,7 @@ export function startRecording(paneId, opts = {}) {
   if (!paneId) return false;
   if (recordings.has(paneId)) return false; // already recording
   const rec = {
+    name: newRecName(paneId),
     startTs: performance.now(),
     width: opts.width || 80,
     height: opts.height || 24,
@@ -98,7 +107,7 @@ export function startRecording(paneId, opts = {}) {
   recordings.set(paneId, rec);
   // Seed the inflight file with the header (reset:true truncates any stale
   // orphan under the same name).
-  invoke("recording_checkpoint", { name: recName(paneId), chunk: castHeaderLine(rec) + "\n", reset: true })
+  invoke("recording_checkpoint", { name: rec.name, chunk: castHeaderLine(rec) + "\n", reset: true })
     .catch(() => {});
   notify();
   return true;
@@ -114,17 +123,20 @@ export function stopRecording(paneId) {
   if (rec.pending.length) {
     const chunk = rec.pending.join("");
     rec.pending = [];
-    invoke("recording_checkpoint", { name: recName(paneId), chunk, reset: false }).catch(() => {});
+    invoke("recording_checkpoint", { name: rec.name, chunk, reset: false }).catch(() => {});
   }
   recordings.delete(paneId);
   notify();
   return formatCast(rec);
 }
 
-// Discard the inflight crash-net file after a Save succeeds. Left in place on a
-// cancelled/failed Save so the session stays recoverable.
-export function finalizeRecording(paneId) {
-  return invoke("recording_discard", { name: recName(paneId) }).catch(() => {});
+// The inflight file name of the pane's live recording, or null. Read it before
+// stopRecording and pass it to discardInflightRecording once a Save succeeds;
+// it is left in place on a cancelled/failed Save so the session stays
+// recoverable. Captured per recording rather than looked up by pane after the
+// Save dialog, so it can only ever name the recording that was saved.
+export function inflightName(paneId) {
+  return recordings.get(paneId)?.name ?? null;
 }
 
 // Launch recovery: inflight files left by a crash/kill (audit C5).
@@ -208,7 +220,7 @@ export function pruneRecordings(livePaneIds) {
     if (rec.pending.length) {
       const chunk = rec.pending.join("");
       rec.pending = [];
-      invoke("recording_checkpoint", { name: recName(paneId), chunk, reset: false }).catch(() => {});
+      invoke("recording_checkpoint", { name: rec.name, chunk, reset: false }).catch(() => {});
     }
     recordings.delete(paneId); // deleting the current entry mid-iteration is safe on a Map
     dropped = true;

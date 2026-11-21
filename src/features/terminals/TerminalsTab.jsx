@@ -22,7 +22,8 @@ import DockMonitor from "./DockMonitor";
 import { useToast } from "../../components/Toast.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 
-import { KEY_ACTIONS, comboFromEvent, resolveBindings, setResolved, isCapturing, formatCombo } from "./keybindings.js";
+import { globalShortcutFor, resolveBindings, setResolved, isCapturing, formatCombo } from "./keybindings.js";
+import { runExclusive } from "./singleFlight.js";
 import { gridDims, MAX_PANELS } from "./grid";
 import { useSystemStats, useShellName, useRecordingState, useRegistryListener, useWindowTitle } from "./hooks/independentEffects.js";
 import TourOverlay from "./tour/TourOverlay.jsx";
@@ -55,6 +56,7 @@ import { isPrimaryWindow } from "./storageKeys.js";
 import { keysSettled } from "./secretVault.js";
 import { useOsDark } from "./hooks/useOsDark.js";
 import * as recording from "./recording.js";
+import { recoverInflightRecordings } from "./recordingRecovery.js";
 import { hasUnsavedRemoteEdits } from "./remoteEditDirty.js";
 import { writeToTab, writeBroadcast, getTabText, getPtyId } from "./ptyBridge.js";
 import { getLayout, leafIds } from "./splitTree.js";
@@ -339,26 +341,17 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       // Stand down while the guided tour owns the keyboard — shortcuts would
       // open modals invisibly UNDER the tour overlay (see tour state block).
       if (tourOpenRef.current) return;
-      // Only act on combos with a non-Shift modifier — never swallow plain
-      // typing in the terminal.
-      if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
+      // Look the pressed combo up in the user-resolved map. Only combos with a
+      // non-Shift modifier count, so plain typing in the terminal is never
+      // swallowed. (Find-in-terminal resolves to "find", which has no global
+      // fn — it falls through to xterm's own handler in TerminalPane, where
+      // the active pane is known.) A held key's auto-repeat is swallowed but
+      // not run (globalShortcutFor): confirms queue, so each repeat stacked
+      // another identical dialog.
+      const hit = globalShortcutFor(e, bindingsRef.current.byCombo);
       const fns = shortcutsRef.current;
-      let handled = false;
-
-      // Look the pressed combo up in the user-resolved map. (Find-in-terminal
-      // resolves to "find", which has no global fn — it falls through to
-      // xterm's own handler in TerminalPane, where the active pane is known.)
-      const combo = comboFromEvent(e);
-      const actionId = combo ? bindingsRef.current.byCombo.get(combo) : null;
-      if (actionId) {
-        const action = KEY_ACTIONS.find((a) => a.id === actionId);
-        if (action && fns[action.fn]) {
-          fns[action.fn](action.arg);
-          handled = true;
-        }
-      }
-
-      if (handled) {
+      if (hit && fns[hit.action.fn]) {
+        if (hit.run) fns[hit.action.fn](hit.action.arg);
         e.preventDefault();
         e.stopPropagation();
       }
@@ -471,9 +464,15 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       { title: "Discard changes?", confirmLabel: "Discard", destructive: true }
     );
   }, [confirm]);
-  const guardedCloseTab = useCallback(async (panelId, tabId) => {
+  // Single-flight (runExclusive): confirms queue, so a second request while
+  // this one's confirm is still open (the tab's ✕ clicked twice, the shortcut
+  // pressed again) would stack the same question behind it. Per tab: closing
+  // another tab meanwhile still asks. One Set for the component's life (lazy
+  // useState), so re-created callbacks share it.
+  const [flights] = useState(() => new Set());
+  const guardedCloseTab = useCallback((panelId, tabId) => runExclusive(flights, `close-tab:${tabId}`, async () => {
     if (await confirmDiscardIfDirty()) closeTab(panelId, tabId);
-  }, [closeTab, confirmDiscardIfDirty]);
+  }), [flights, closeTab, confirmDiscardIfDirty]);
   const guardedCloseOtherTabs = useCallback(async (...args) => {
     if (await confirmDiscardIfDirty()) closeOtherTabs(...args);
   }, [closeOtherTabs, confirmDiscardIfDirty]);
@@ -810,7 +809,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // "Exit" toolbar button — truly quit (kills every PTY). Needs the quit_app
   // backend command; falls back to hiding the window if it isn't available.
-  const exitApp = useCallback(async () => {
+  // Single-flight like guardedCloseTab: a second Exit while its confirm is
+  // open is ignored rather than queueing a second "Quit?".
+  const exitApp = useCallback(() => runExclusive(flights, "exit-app", async () => {
     // confirm(message: string, opts) — message MUST be a string; passing an
     // object rendered it as a raw JSX child and crashed the whole UI into the
     // ErrorBoundary. Keys are confirmLabel/destructive (not confirmText/danger).
@@ -821,7 +822,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     if (!ok) return;
     try { await invoke("quit_app"); }
     catch { try { const { getCurrentWindow } = await import("@tauri-apps/api/window"); getCurrentWindow().close(); } catch { /* ignore */ } }
-  }, [confirm]);
+  }), [flights, confirm]);
 
   // Write raw data into the active terminal (or all visible, in broadcast mode).
   // Used by the file browser ("cd here", insert path) and snippets.
@@ -908,6 +909,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       toast.error("This terminal isn't being recorded.");
       return;
     }
+    // The crash-net file of THIS recording, named before the stop drops it.
+    const inflight = recording.inflightName(activePaneId);
     const cast = recording.stopRecording(activePaneId);
     if (!cast) {
       toast.error("Recording was empty, nothing to save.");
@@ -925,7 +928,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       });
       if (path) {
         toast.success(`Saved recording to ${path}`);
-        recording.finalizeRecording(activePaneId); // drop the crash-net copy
+        if (inflight) recording.discardInflightRecording(inflight); // drop the crash-net copy
       } else {
         // Save canceled: the inflight crash-net copy is KEPT (audit C5) and
         // offered on next launch, instead of being lost.
@@ -941,40 +944,32 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // (audit C5): offer each inflight .cast for save or discard. Gated on
   // onboarded so it never collides with first-run modals; inflight is empty in
   // the normal case, so this stays silent unless a real interruption happened.
+  // The answer handling lives in recordingRecovery.js: only the Discard button
+  // deletes, a dismissed prompt keeps the recording for next launch.
   const recoveryRanRef = useRef(false);
   useEffect(() => {
     if (userSt?.terminalsOnboarded !== true) return;
     if (recoveryRanRef.current) return; // StrictMode double-invoke guard
     recoveryRanRef.current = true;
     let cancelled = false;
-    (async () => {
-      const names = await recording.listInflightRecordings();
-      if (cancelled || !Array.isArray(names) || names.length === 0) return;
-      for (const name of names) {
-        if (cancelled) return;
-        const ok = await confirm(
-          `An interrupted recording ("${name}") was recovered. Save it now? Cancel discards it.`,
-          { title: "Recovered recording", confirmLabel: "Save", cancelLabel: "Discard" }
-        );
-        if (!ok) { recording.discardInflightRecording(name); continue; }
-        const cast = await recording.readInflightRecording(name);
-        if (!cast) { recording.discardInflightRecording(name); continue; }
-        try {
-          const path = await invoke("save_text_to_file", {
-            suggestedName: `${name}.cast`,
-            extension: "cast",
-            extensionLabel: "Asciinema cast file (.cast)",
-            contents: cast,
-          });
-          if (path) {
-            toast.success(`Saved recovered recording to ${path}`);
-            recording.discardInflightRecording(name);
-          } // save canceled → keep it for next launch
-        } catch (e) {
-          toast.error(humanizeError(e, "Save failed"));
-        }
-      }
-    })();
+    recoverInflightRecordings({
+      // Named members, not the namespace: knip tracks use per member.
+      recording: {
+        listInflightRecordings: recording.listInflightRecordings,
+        readInflightRecording: recording.readInflightRecording,
+        discardInflightRecording: recording.discardInflightRecording,
+      },
+      confirm,
+      toast,
+      isCancelled: () => cancelled,
+      describeError: (e) => humanizeError(e, "Save failed"),
+      saveFile: (name, cast) => invoke("save_text_to_file", {
+        suggestedName: `${name}.cast`,
+        extension: "cast",
+        extensionLabel: "Asciinema cast file (.cast)",
+        contents: cast,
+      }),
+    });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
