@@ -18,17 +18,20 @@
     // (PreToolUse and PostToolUse hooks).
     ".claude/hooks/*.mjs",
 
-    // Packaged-app smoke test, run by hand: `node scripts/smoke-packaged.mjs`.
-    "scripts/smoke-packaged.mjs",
+    // Node scripts run by hand, e.g. the packaged-app smoke test
+    // `node scripts/smoke-packaged.mjs` (the rest of scripts/ is .bat/.cmd/.py,
+    // which knip does not read).
+    "scripts/*.mjs",
 
     // Phone companion page, compiled into the Rust binary with include_str!
     // in src-tauri/src/companion.rs and served by the companion HTTP server.
     // vendor/ holds the xterm + addon-fit bundles that page loads.
     "src-tauri/companion-web/**/*.js",
 
-    // Mock MCP server spawned by the cargo tests (src-tauri/tests/mcp_mock.rs
-    // and the test module in src-tauri/src/mcp/manager.rs).
-    "src-tauri/tests/fixtures/mock_mcp_server.mjs"
+    // Node fixtures spawned by the cargo tests: the mock MCP server
+    // (src-tauri/tests/mcp_mock.rs and the test module in
+    // src-tauri/src/mcp/manager.rs) and the helpers those tests launch.
+    "src-tauri/tests/fixtures/*.mjs"
   ],
   "ignoreBinaries": [
     // Called by .claude/hooks/cargo-fmt.mjs through execFileSync. It ships
