@@ -12,10 +12,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use rmcp::model::{CallToolRequestParams, PaginatedRequestParams, Tool as RmcpTool};
-use rmcp::service::{RoleClient, RunningService};
+use rmcp::service::{RoleClient, RunningService, ServiceError};
+use rmcp::ClientCacheConfig;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
 use rmcp::ServiceExt;
+use process_wrap::tokio::CommandWrap;
 
 /// The HTTP client rmcp's streamable transport talks through. rmcp's own
 /// default (`from_config`) is reqwest 0.13 with reqwest's default redirects,
@@ -86,6 +88,16 @@ pub const MCP_MAX_TOOL_PAGES: usize = 50;
 /// and schema go to the model on every agent turn, so a list anywhere near
 /// this is already unusable; the cap only stops a list growing without end.
 pub const MCP_MAX_TOOLS: usize = 5000;
+/// The most tool text one server may advertise across every page: name,
+/// description and serialized input schema, summed over its tools. The page
+/// and tool caps count items, and one page may be 16 MiB
+/// (MCP_MAX_RESPONSE_BYTES), so without this a listing could still hold
+/// hundreds of MiB. 8 MiB is already far past any model's context.
+pub const MCP_MAX_TOOLS_BYTES: usize = 8 * 1024 * 1024;
+/// The longest nextCursor followed. Cursors are opaque tokens, usually tens of
+/// bytes; every one sent is kept for the loop check, so without a cap a
+/// listing could hold MCP_MAX_TOOL_PAGES cursors of 16 MiB each.
+pub const MCP_MAX_CURSOR_BYTES: usize = 1024;
 /// From spawning the process or opening the connection to the end of the
 /// initialize handshake. A server that answers at all answers initialize in
 /// well under a second; 30 s leaves room for a cold `npx` or `uvx` start that
@@ -139,6 +151,31 @@ pub struct McpConn {
     /// request still open), so manager.rs drops the connection and the next
     /// use reconnects instead of queueing behind it.
     timed_out: AtomicBool,
+    /// Set once a list or call found the transport closed (a stdio server
+    /// that exited, a session that ended). Every later request would fail the
+    /// same way, so manager.rs drops it like a timed-out one.
+    closed: AtomicBool,
+}
+
+/// Counts the bytes a value serializes to without keeping them.
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 = self.0.saturating_add(buf.len());
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// What one tool costs against MCP_MAX_TOOLS_BYTES: its name, description and
+/// serialized input schema, the text that goes to the model on every turn.
+fn tool_bytes(t: &RmcpTool) -> usize {
+    let mut schema = ByteCount(0);
+    let _ = serde_json::to_writer(&mut schema, &*t.input_schema);
+    t.name.len().saturating_add(t.description.as_ref().map_or(0, |d| d.len())).saturating_add(schema.0)
 }
 
 impl McpConn {
@@ -167,15 +204,30 @@ impl McpConn {
         for (k, v) in env {
             cmd.env(k, v);
         }
+        // On a timeout the serve future, and the transport it owns, is dropped,
+        // and so is a connection manager.rs evicts: rmcp's ChildWithCleanup
+        // kills the child on drop. The child is often only a launcher (npx,
+        // uvx, `cmd /c`) with the real server as ITS child, which a kill of the
+        // direct child leaves running. So the whole tree is wrapped: a Job
+        // Object on Windows (KillOnDrop makes it kill-on-close), a process
+        // group on unix (the kill is sent to the group).
+        // Creation flags are unchanged from a plain Command: JobObject adds
+        // only a temporary CREATE_SUSPENDED and resumes the child once it is
+        // in the job, and nothing here sets CREATE_NO_WINDOW (neither did the
+        // plain Command, nor rmcp).
+        let mut cmd = CommandWrap::from(cmd);
+        #[cfg(windows)]
+        cmd.wrap(process_wrap::tokio::JobObject);
+        #[cfg(unix)]
+        cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
+        cmd.wrap(process_wrap::tokio::KillOnDrop);
         let transport = TokioChildProcess::new(cmd).map_err(|e| format!("spawn {command}: {e}"))?;
-        // On a timeout the serve future, and the transport it owns, is dropped:
-        // rmcp's ChildWithCleanup kills the child on drop.
         let what = format!("mcp stdio handshake ({server_id})");
         let client = tokio::time::timeout(limit, ().serve(transport))
             .await
             .map_err(|_| timeout_error(&what, limit))?
             .map_err(|e| format!("{what}: {e}"))?;
-        Ok(McpConn::new(server_id, client))
+        Ok(McpConn::new(server_id, client).await)
     }
 
     /// Connect to a streamable-HTTP MCP server, optionally with a bearer token.
@@ -223,17 +275,43 @@ impl McpConn {
             .await
             .map_err(|_| timeout_error(&what, limit))?
             .map_err(|e| format!("{what}: {e}"))?;
-        Ok(McpConn::new(server_id, client))
+        Ok(McpConn::new(server_id, client).await)
     }
 
-    fn new(server_id: String, client: RunningService<RoleClient, ()>) -> McpConn {
-        McpConn { server_id, client, timed_out: AtomicBool::new(false) }
+    /// Wrap a client that finished its handshake. Both connect paths end
+    /// here, so the response cache is turned off for every connection.
+    async fn new(server_id: String, client: RunningService<RoleClient, ()>) -> McpConn {
+        // rmcp 3.11 caches list results by default (ClientCacheConfig::default:
+        // on, 512 entries, up to 24 h by the server's ttlMs) and, on an error,
+        // serves the expired page instead (serve_stale_on_error). The app keeps
+        // its own tool cache in manager.rs with explicit invalidation; a second
+        // one underneath would hand a reconnect or a refresh an old tool list
+        // (old read_only / destructive flags at the approval gate) and hide a
+        // server's error behind a stale page.
+        client.set_response_cache_config(ClientCacheConfig::disabled()).await;
+        McpConn { server_id, client, timed_out: AtomicBool::new(false), closed: AtomicBool::new(false) }
     }
 
     /// Whether a list or call on this connection has run out of time (see the
     /// `timed_out` field).
     pub fn timed_out(&self) -> bool {
         self.timed_out.load(Ordering::Relaxed)
+    }
+
+    /// Whether this connection must not be used again: a list or call ran out
+    /// of time, or the transport is closed (the server exited or the session
+    /// ended). manager.rs drops such a connection and reconnects.
+    pub fn unusable(&self) -> bool {
+        self.timed_out() || self.closed.load(Ordering::Relaxed) || self.client.is_transport_closed()
+    }
+
+    /// The error text for an rmcp request error; a closed transport also
+    /// marks the connection (see `closed`).
+    fn service_error(&self, what: &str, e: ServiceError) -> String {
+        if matches!(e, ServiceError::TransportClosed) {
+            self.closed.store(true, Ordering::Relaxed);
+        }
+        format!("{what}: {e}")
     }
 
     /// Run `op` under `limit`; on expiry, mark the connection and name the bound.
@@ -268,6 +346,7 @@ impl McpConn {
     /// never its `list_all_tools` (no page cap, see MCP_MAX_TOOL_PAGES).
     async fn list_pages(&self, what: &str) -> Result<Vec<Tool>, String> {
         let mut tools = Vec::new();
+        let mut bytes: usize = 0;
         let mut sent: HashSet<String> = HashSet::new();
         let mut cursor: Option<String> = None;
         for _ in 0..MCP_MAX_TOOL_PAGES {
@@ -275,18 +354,32 @@ impl McpConn {
                 .client
                 .list_tools(Some(PaginatedRequestParams::default().with_cursor(cursor.take())))
                 .await
-                .map_err(|e| format!("{what}: {e}"))?;
+                .map_err(|e| self.service_error(what, e))?;
             if tools.len() + page.tools.len() > MCP_MAX_TOOLS {
                 return Err(format!(
                     "{what}: the server lists more than MCP_MAX_TOOLS ({MCP_MAX_TOOLS}) tools; refused"
                 ));
             }
+            bytes = page.tools.iter().map(tool_bytes).fold(bytes, usize::saturating_add);
+            if bytes > MCP_MAX_TOOLS_BYTES {
+                return Err(format!(
+                    "{what}: the server's tool names, descriptions and schemas pass MCP_MAX_TOOLS_BYTES ({MCP_MAX_TOOLS_BYTES} bytes); refused"
+                ));
+            }
             tools.extend(page.tools.into_iter().map(|t| self.map_tool(t)));
+            // The cursor itself is the server's text and is never echoed.
             match page.next_cursor {
+                // An empty cursor ends the listing too: JS clients loop
+                // `while (cursor)`, so servers send "" to mean the last page.
                 None => return Ok(tools),
+                Some(next) if next.is_empty() => return Ok(tools),
+                Some(next) if next.len() > MCP_MAX_CURSOR_BYTES => {
+                    return Err(format!(
+                        "{what}: the server sent a page cursor longer than MCP_MAX_CURSOR_BYTES ({MCP_MAX_CURSOR_BYTES} bytes); refused"
+                    ));
+                }
                 // A cursor already asked for would serve a page already seen,
                 // and again after it: a loop, refused before it is sent twice.
-                // The cursor itself is the server's text and is not echoed.
                 Some(next) if !sent.insert(next.clone()) => {
                     return Err(format!("{what}: the server repeated a page cursor (a pagination loop); refused"));
                 }
@@ -323,7 +416,7 @@ impl McpConn {
         let what = format!("call_tool {name} ({})", self.server_id);
         // Dropping rmcp's call future on expiry sends notifications/cancelled
         // for the request (rmcp's send_request_cancel_on_drop).
-        let call = async { self.client.call_tool(params).await.map_err(|e| format!("{what}: {e}")) };
+        let call = async { self.client.call_tool(params).await.map_err(|e| self.service_error(&what, e)) };
         let result = self.bounded(&what, limit, call).await?;
         serde_json::to_value(result).map_err(|e| format!("serialize call result: {e}"))
     }

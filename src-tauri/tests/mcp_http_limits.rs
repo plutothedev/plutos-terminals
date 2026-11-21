@@ -188,9 +188,13 @@ async fn fake_server(script: Script) -> (String, Arc<Mutex<Seen>>) {
                         write_reply(&mut sock, how, &reply.to_string()).await;
                     }
                     "tools/list" => {
-                        let reply = serde_json::json!({
-                            "jsonrpc": "2.0", "id": id, "result": list(cursor.as_deref())
-                        });
+                        // A list fn answers a JSON-RPC error by returning
+                        // { "__error": {...} } in place of a result.
+                        let result = list(cursor.as_deref());
+                        let reply = match result.get("__error") {
+                            Some(err) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": err }),
+                            None => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                        };
                         write_reply(&mut sock, Reply::Json, &reply.to_string()).await;
                     }
                     "tools/call" => {
@@ -362,7 +366,7 @@ async fn a_failed_call_still_says_is_error() {
 
 // ---- Pagination (M1) ------------------------------------------------------
 
-use app_lib::mcp::client::{MCP_MAX_TOOLS, MCP_MAX_TOOL_PAGES};
+use app_lib::mcp::client::{MCP_MAX_CURSOR_BYTES, MCP_MAX_TOOLS, MCP_MAX_TOOLS_BYTES, MCP_MAX_TOOL_PAGES};
 
 fn lists(seen: &Arc<Mutex<Seen>>) -> usize {
     seen.lock().unwrap().methods.iter().filter(|m| *m == "tools/list").count()
@@ -464,6 +468,165 @@ async fn three_pages_list_every_tool_fail_safe() {
     assert_eq!(g.cursors, [None, Some("p2".to_string()), Some("p3".to_string())]);
 }
 
+#[tokio::test]
+async fn exactly_the_tool_cap_is_accepted() {
+    fn full(_: Option<&str>) -> serde_json::Value {
+        let tools: Vec<_> = (0..MCP_MAX_TOOLS)
+            .map(|i| serde_json::json!({ "name": format!("t{i}"), "inputSchema": { "type": "object" } }))
+            .collect();
+        serde_json::json!({ "tools": tools })
+    }
+    let (r, _) = connect_script(Script { list: full, ..Script::new(Reply::Json, 0) }).await;
+    let tools = list_guarded(&r.expect("connect")).await.expect("exactly MCP_MAX_TOOLS tools");
+    assert_eq!(tools.len(), MCP_MAX_TOOLS);
+}
+
+#[tokio::test]
+async fn one_tool_past_the_cap_is_refused() {
+    fn over(_: Option<&str>) -> serde_json::Value {
+        let tools: Vec<_> = (0..=MCP_MAX_TOOLS)
+            .map(|i| serde_json::json!({ "name": format!("t{i}"), "inputSchema": { "type": "object" } }))
+            .collect();
+        serde_json::json!({ "tools": tools })
+    }
+    let (r, _) = connect_script(Script { list: over, ..Script::new(Reply::Json, 0) }).await;
+    let e = list_guarded(&r.expect("connect")).await.expect_err("MCP_MAX_TOOLS + 1 tools were accepted");
+    assert!(e.contains("MCP_MAX_TOOLS"), "{e}");
+}
+
+/// 5 MiB: two of these pass the byte budget, one does not.
+const HEAVY: usize = 5 * 1024 * 1024;
+
+#[tokio::test]
+async fn tool_text_past_the_byte_budget_is_refused() {
+    // Two tools on two pages, each page well under the 16 MiB reply limit:
+    // a 5 MiB description, then a 5 MiB input schema. Few pages and few
+    // tools, but 10 MiB of text for the model; both parts must count.
+    fn heavy(cursor: Option<&str>) -> serde_json::Value {
+        match cursor {
+            None => serde_json::json!({
+                "tools": [{ "name": "a", "description": "d".repeat(HEAVY), "inputSchema": { "type": "object" } }],
+                "nextCursor": "p2"
+            }),
+            Some(_) => serde_json::json!({
+                "tools": [{ "name": "b", "inputSchema": { "type": "object", "description": "s".repeat(HEAVY) } }]
+            }),
+        }
+    }
+    const { assert!(2 * HEAVY > MCP_MAX_TOOLS_BYTES && HEAVY < MCP_MAX_TOOLS_BYTES) };
+    let (r, seen) = connect_script(Script { list: heavy, ..Script::new(Reply::Json, 0) }).await;
+    let e = list_guarded(&r.expect("connect")).await.expect_err("10 MiB of tool text was accepted");
+    assert!(e.contains("MCP_MAX_TOOLS_BYTES"), "{e}");
+    assert_eq!(lists(&seen), 2, "pages requested");
+}
+
+#[tokio::test]
+async fn tool_text_under_the_byte_budget_is_accepted() {
+    fn one_heavy(_: Option<&str>) -> serde_json::Value {
+        serde_json::json!({
+            "tools": [{ "name": "a", "description": "d".repeat(HEAVY), "inputSchema": { "type": "object" } }]
+        })
+    }
+    let (r, _) = connect_script(Script { list: one_heavy, ..Script::new(Reply::Json, 0) }).await;
+    let tools = list_guarded(&r.expect("connect")).await.expect("5 MiB of tool text");
+    assert_eq!(tools[0].description.len(), HEAVY);
+}
+
+#[tokio::test]
+async fn a_cursor_past_the_length_cap_is_refused_unsent() {
+    fn long(cursor: Option<&str>) -> serde_json::Value {
+        match cursor {
+            None => serde_json::json!({
+                "tools": [{ "name": "t", "inputSchema": { "type": "object" } }],
+                "nextCursor": "c".repeat(MCP_MAX_CURSOR_BYTES + 1)
+            }),
+            Some(_) => serde_json::json!({ "tools": [] }),
+        }
+    }
+    let (r, seen) = connect_script(Script { list: long, ..Script::new(Reply::Json, 0) }).await;
+    let e = list_guarded(&r.expect("connect")).await.expect_err("an over-long cursor was followed");
+    assert!(e.contains("MCP_MAX_CURSOR_BYTES"), "{e}");
+    assert!(!e.contains("cccc"), "the cursor text was echoed: {e}");
+    assert_eq!(lists(&seen), 1, "pages requested");
+}
+
+#[tokio::test]
+async fn a_cursor_at_the_length_cap_is_followed() {
+    fn at_cap(cursor: Option<&str>) -> serde_json::Value {
+        match cursor {
+            None => serde_json::json!({
+                "tools": [{ "name": "t1", "inputSchema": { "type": "object" } }],
+                "nextCursor": "c".repeat(MCP_MAX_CURSOR_BYTES)
+            }),
+            Some(_) => serde_json::json!({ "tools": [{ "name": "t2", "inputSchema": { "type": "object" } }] }),
+        }
+    }
+    let (r, seen) = connect_script(Script { list: at_cap, ..Script::new(Reply::Json, 0) }).await;
+    let tools = list_guarded(&r.expect("connect")).await.expect("a cursor at the cap");
+    assert_eq!(tools.len(), 2);
+    assert_eq!(lists(&seen), 2, "pages requested");
+}
+
+#[tokio::test]
+async fn an_empty_next_cursor_ends_the_listing() {
+    // JS clients loop `while (cursor)`, so "" means no more pages.
+    fn empty(_: Option<&str>) -> serde_json::Value {
+        serde_json::json!({
+            "tools": [{ "name": "t", "inputSchema": { "type": "object" } }],
+            "nextCursor": ""
+        })
+    }
+    let (r, seen) = connect_script(Script { list: empty, ..Script::new(Reply::Json, 0) }).await;
+    let tools = list_guarded(&r.expect("connect")).await.expect("an empty cursor ends the list");
+    assert_eq!(tools.len(), 1);
+    assert_eq!(lists(&seen), 1, "pages requested");
+}
+
+// ---- rmcp's response cache (off) -----------------------------------------
+
+#[tokio::test]
+async fn a_list_the_server_marked_cacheable_is_still_reread() {
+    // The server says its first page stays fresh for a minute, then changes
+    // its tools. rmcp 3.11 caches the page by default; the app must not, so the
+    // agent's next listing sees the server's real tools.
+    fn changing(_: Option<&str>) -> serde_json::Value {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        if N.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            serde_json::json!({ "tools": [{ "name": "old", "inputSchema": { "type": "object" } }],
+                                "ttlMs": 60_000, "cacheScope": "public" })
+        } else {
+            serde_json::json!({ "tools": [{ "name": "new", "inputSchema": { "type": "object" } }] })
+        }
+    }
+    let (r, seen) = connect_script(Script { list: changing, ..Script::new(Reply::Json, 0) }).await;
+    let conn = r.expect("connect");
+    assert_eq!(list_guarded(&conn).await.expect("first")[0].name, "old");
+    let second = list_guarded(&conn).await.expect("second");
+    assert_eq!(second[0].name, "new", "a cached page was served");
+    assert_eq!(lists(&seen), 2, "pages requested");
+}
+
+#[tokio::test]
+async fn a_list_that_fails_is_an_error_not_a_stale_page() {
+    // The first page carries a 1 ms ttl; the second listing gets an error.
+    // rmcp's serve_stale_on_error would hand back the expired first page.
+    fn fails_second(_: Option<&str>) -> serde_json::Value {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        if N.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            serde_json::json!({ "tools": [{ "name": "old", "inputSchema": { "type": "object" } }], "ttlMs": 1 })
+        } else {
+            serde_json::json!({ "__error": { "code": -32603, "message": "listing broke" } })
+        }
+    }
+    let (r, seen) = connect_script(Script { list: fails_second, ..Script::new(Reply::Json, 0) }).await;
+    let conn = r.expect("connect");
+    list_guarded(&conn).await.expect("first");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let e = list_guarded(&conn).await.expect_err("a stale page was served in place of the error");
+    assert!(e.contains("listing broke"), "{e}");
+    assert_eq!(lists(&seen), 2, "pages requested");
+}
+
 // ---- Timeouts (M2) --------------------------------------------------------
 
 /// The short bound the seams are driven with, and the most a test waits.
@@ -485,6 +648,9 @@ async fn a_tools_call_the_server_never_answers_times_out() {
     assert!(took >= SHORT && took < SHORT + Duration::from_secs(3), "took {took:?}");
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(calls(&seen), 1, "tools/call sent more than once");
+    // The server is told the request is abandoned (rmcp's cancel-on-drop).
+    let methods = seen.lock().unwrap().methods.clone();
+    assert!(methods.iter().any(|m| m == "notifications/cancelled"), "{methods:?}");
     // manager.rs reads this to drop the connection instead of reusing it.
     assert!(conn.timed_out(), "a timed-out call must mark its connection");
 }
