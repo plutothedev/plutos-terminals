@@ -1,5 +1,73 @@
 # Changelog
 
+## v0.7.6: security updates, safer MCP servers, every static check gating (2026-11-21)
+
+### Security
+- **MCP over HTTP: reply size limits (RUSTSEC-2026-0462).** rmcp 1.7 read a
+  streamable-HTTP response of any size into memory. rmcp 3.11 with the limits
+  set by name in `mcp/client.rs`: 16 MiB per JSON reply and per SSE event,
+  64 KiB of an error body. `tests/mcp_http_limits.rs` drives a hostile local
+  server (oversized replies with a length, chunked, and as one SSE event were
+  accepted on 1.7 and are refused now).
+- **MCP: no hostile server can hang or grow the app.** Tool listings follow
+  cursors through the app's own loop (50 pages, 5,000 tools, 8 MiB of tool
+  text, 1 KiB per cursor, a repeated cursor refused; an empty cursor ends the
+  list). Timeouts: 30 s handshake, 60 s listing, 10 min tool call, HTTP idle
+  gap equal to the call bound. A connection that timed out or whose server
+  exited is dropped with its cached tool list and reconnected on next use, one
+  connect per server at a time. rmcp 3.11's response cache (whole pages, stale
+  pages served on error) is off. Stdio servers run in a Job Object (a process
+  group on unix) with kill-on-drop, so a server behind `cmd /c` or `uvx` dies
+  with its launcher.
+- **tauri-plugin-updater 2.14.1 (zip 9) and Tauri 2.12.7** (wry 0.57, tao
+  0.37, webview2-com 0.39): RUSTSEC-2026-0429, -0545, -0548 and the
+  -0367/-0368/-0369 set `audit.yml` used to ignore. The updater's default
+  features are off and `rustls-tls` + `zip` named, keeping 2.11's new
+  `system-proxy` default off the reqwest the MCP client shares.
+- libz-sys 1.1.33 (RUSTSEC-2026-0544) and quinn-udp 0.5.16
+  (RUSTSEC-2026-0538).
+- **SSH key generation (macOS/Linux):** the askpass helper lives in a fresh
+  random 0700 folder created exclusively, not a guessable path in the shared
+  temp folder.
+
+### Fixed
+- Remote editor: Ctrl+S during load or after a read error no longer writes an
+  empty file over the remote one; closing during an in-flight save waits and
+  stays open if it fails; a second Ctrl+S during a slow save sends one write.
+- Confirmations queue instead of replacing each other, so a shortcut's
+  confirm during the recording-recovery prompt can no longer discard a
+  recording; a close for a tab that is already gone does nothing.
+- Password forms are keyed on their target (RDP: saved session id; SSH: tab
+  id), so a typed password cannot carry to another session.
+- Saving an edit to a session removed elsewhere saves it as new (with a toast)
+  instead of dropping it; the Servers-button preset opens as an Add.
+- Explain error clears its answer when the model or block changes (no stale
+  "Run fix" command) and survives an effect re-run; Summarize drops the old
+  paste target; streams ignore deltas from a previous block.
+- Modal: focus returns to the opener (`data-autofocus` replaces `autoFocus`
+  inside dialogs), destructive confirms open on Cancel, Tab stays inside from
+  the dialog itself, and a drag released on the backdrop no longer closes it
+  (also in the pairing dialog, the session dialog and the tour).
+- Zooming a pane focuses its terminal; hover controls no longer keep invisible
+  focus after a click; the "finished" shake has a timer per project.
+- Pairing dialog: Escape closes it, including after Start/Stop; its QR is tied
+  to the address it encodes.
+- Toasts pause while focused (also across alt-tab) and return focus on
+  dismiss.
+- Keyboard access: session rows, folders, local/SFTP browsers (focus follows
+  keyboard navigation), history search (aria-activedescendant), toasts, pane
+  controls, the session dialog (labelled, with a Tab trap).
+
+### Static analysis: every job gates
+- eslint 230 errors / 55 warnings to 0 / 0 (react-hooks, jsx-a11y), with
+  `--max-warnings 0`; each remaining suppression carries its reason inline.
+- knip 0 (`knip.jsonc` declares the real entry points; themes.js and 22 dead
+  exports removed; `@lezer/highlight` listed).
+- clippy `-D warnings` on Windows and macOS (toolchain pinned), semgrep 0
+  findings (engine pinned; `.specify` excluded, 30 s rule timeout).
+- knip and semgrep versions pinned; cargo-deny/cargo-audit installs fail
+  loudly. Dependabot waits 7 days before proposing an update.
+
 ## v0.7.5: RDP sign-in works; settings sync over https (2026-10-29)
 
 ### Fixed
