@@ -1,5 +1,5 @@
 // (C)
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { invoke } from "@backend";
 import { SLocal, SSsh, SWindows, SMouse } from "./toolbarIcons.jsx";
 
@@ -45,8 +45,8 @@ const labelStyle = {
 // Pulls the basename out of a Windows or POSIX path.
 function basename(p) {
   if (!p) return "";
-  const stripped = p.replace(/[\/\\]+$/, "");
-  const m = stripped.match(/[^\/\\]+$/);
+  const stripped = p.replace(/[/\\]+$/, "");
+  const m = stripped.match(/[^/\\]+$/);
   return m ? m[0] : stripped;
 }
 
@@ -60,29 +60,41 @@ function sessionType(initial) {
 
 // One session = a saved connection. Local sessions spawn a shell at `path`;
 // SSH sessions (preview — backend lands in a later phase) connect to a host.
-export default function ProjectDialog({ open, initial, existingFolders = [], onSave, onClose }) {
-  const [type, setType] = useState("local");
-  const [name, setName] = useState("");
-  const [nameTouched, setNameTouched] = useState(false);
-  const [folder, setFolder] = useState("");
-  const [tagsText, setTagsText] = useState("");
-  const [startCommandsText, setStartCommandsText] = useState("");
+// Form state is seeded from `initial` by lazy initializers and the form is only
+// mounted while the dialog is open, so every open starts from `initial` (the
+// old reset-on-open effect set a dozen states synchronously after mount).
+export default function ProjectDialog(props) {
+  if (!props.open) return null;
+  return <ProjectDialogForm {...props} />;
+}
+
+function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
+  const t0 = sessionType(initial);
+  const c0 = initial?.connection || {};
+  const r0 = initial?.rdp || {};
+  const v0 = initial?.vnc || {};
+  const [type, setType] = useState(t0);
+  const [name, setName] = useState(initial?.name || "");
+  const [nameTouched, setNameTouched] = useState(!!initial?.name);
+  const [folder, setFolder] = useState(initial?.folder || "");
+  const [tagsText, setTagsText] = useState((initial?.tags || []).join(", "));
+  const [startCommandsText, setStartCommandsText] = useState((initial?.startCommands || []).join("\n"));
 
   // Local
-  const [path, setPath] = useState("");
-  const [autoApprove, setAutoApprove] = useState(false);
+  const [path, setPath] = useState(initial?.path || "");
+  const [autoApprove, setAutoApprove] = useState(!!initial?.autoApprove);
   const [picking, setPicking] = useState(false);
 
-  // SSH
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("22");
-  const [user, setUser] = useState("");
-  const [authMethod, setAuthMethod] = useState("password");
-  const [keyPath, setKeyPath] = useState("");
+  // SSH (RDP and VNC reuse host/port; RDP also user + domain)
+  const [host, setHost] = useState((t0 === "rdp" ? r0.host : t0 === "vnc" ? v0.host : c0.host) || "");
+  const portSrc = t0 === "rdp" ? r0.port : t0 === "vnc" ? v0.port : c0.port;
+  const [port, setPort] = useState(portSrc != null ? String(portSrc) : t0 === "rdp" ? "3389" : t0 === "vnc" ? "5900" : "22");
+  const [user, setUser] = useState((t0 === "rdp" ? r0.username : t0 === "vnc" ? "" : c0.user) || "");
+  const [authMethod, setAuthMethod] = useState(c0.auth?.method || "password");
+  const [keyPath, setKeyPath] = useState(c0.auth?.keyPath || "");
 
-  // RDP-only extra field (RDP reuses host/port/user; domain is optional). VNC
-  // reuses host/port only.
-  const [domain, setDomain] = useState("");
+  // RDP-only extra field (domain is optional).
+  const [domain, setDomain] = useState(t0 === "rdp" ? r0.domain || "" : "");
 
   // A11Y-10, the last 11 of the finding's 25 sites. Every caption below was a
   // <label> carrying no htmlFor and wrapping no control, so the platform gave
@@ -93,44 +105,6 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
   // so the hook order is unconditional (invariant 7).
   const uid = useId();
 
-  useEffect(() => {
-    if (!open) return;
-    const t = sessionType(initial);
-    setType(t);
-    setName(initial?.name || "");
-    setNameTouched(!!initial?.name);
-    setFolder(initial?.folder || "");
-    setTagsText((initial?.tags || []).join(", "));
-    setStartCommandsText((initial?.startCommands || []).join("\n"));
-
-    setPath(initial?.path || "");
-    setAutoApprove(!!initial?.autoApprove);
-    setPicking(false);
-
-    const c = initial?.connection || {};
-    const r = initial?.rdp || {};
-    const v = initial?.vnc || {};
-    if (t === "rdp") {
-      setHost(r.host || "");
-      setPort(r.port != null ? String(r.port) : "3389");
-      setUser(r.username || "");
-      setDomain(r.domain || "");
-    } else if (t === "vnc") {
-      setHost(v.host || "");
-      setPort(v.port != null ? String(v.port) : "5900");
-      setUser("");
-      setDomain("");
-    } else {
-      setHost(c.host || "");
-      setPort(c.port != null ? String(c.port) : "22");
-      setUser(c.user || "");
-      setDomain("");
-    }
-    setAuthMethod(c.auth?.method || "password");
-    setKeyPath(c.auth?.keyPath || "");
-  }, [open, initial]);
-
-  if (!open) return null;
 
   const browse = async () => {
     setPicking(true);
@@ -274,6 +248,7 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
 
   return (
     <div
+      role="presentation"
       style={{
         position: "fixed",
         inset: 0,
@@ -563,13 +538,14 @@ export default function ProjectDialog({ open, initial, existingFolders = [], onS
               <input
                 type="checkbox"
                 checked={autoApprove}
+                aria-labelledby={`${uid}-auto-approve`}
                 onChange={(e) => setAutoApprove(e.target.checked)}
                 style={{ marginTop: 2, accentColor: ACCENT }}
               />
               <span style={{ flex: 1 }}>
-                <div style={{ color: FG, fontSize: 12, marginBottom: 2 }}>Auto-approve permission prompts</div>
+                <div id={`${uid}-auto-approve`} style={{ color: FG, fontSize: 12, marginBottom: 2 }}>Auto-approve permission prompts</div>
                 <div style={{ color: FG_DIM, fontSize: 10, lineHeight: 1.4 }}>
-                  When this session's tab is in the background and Claude pauses for a tool-use confirmation, Pluto's Terminal sends &quot;1&quot; (Yes) automatically.
+                  When this session&apos;s tab is in the background and Claude pauses for a tool-use confirmation, Pluto&apos;s Terminal sends &quot;1&quot; (Yes) automatically.
                   Throttled to once every 3s. Disable if you want to review every action.
                 </div>
               </span>

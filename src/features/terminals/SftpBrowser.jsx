@@ -9,7 +9,7 @@ import { useToast } from "../../components/Toast.jsx";
 import { PaneBoundary } from "../../components/ErrorBoundary.jsx";
 import { useConfirm } from "../../components/ConfirmModal.jsx";
 import { usePrompt } from "../../components/PromptModal.jsx";
-import { FileIcon } from "./LocalFileBrowser.jsx";
+import { FileIcon, activateOnKey } from "./LocalFileBrowser.jsx";
 import { IconHome, IconUp, IconRefresh, IconUpload, IconNewFolder } from "./icons.jsx";
 import { SFolder, STrash } from "./toolbarIcons.jsx";
 import RemoteEditor from "./RemoteEditor.jsx";
@@ -239,13 +239,13 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
 
       {sessionId && cwd && (
         <div className="phn-sftp-pathbar phn-sftp-crumb" title={cwd}>
-          <span className="seg" onClick={() => list("/")}>/</span>
+          <span className="seg" role="button" tabIndex={0} onClick={() => list("/")} onKeyDown={activateOnKey(() => list("/"))}>/</span>
           {cwd.split("/").filter(Boolean).map((seg, i, arr) => {
             const path = "/" + arr.slice(0, i + 1).join("/");
             return (
               <span key={path} className="crumb-part">
                 <span className="sl">›</span>
-                <span className="seg" onClick={() => list(path)}>{seg}</span>
+                <span className="seg" role="button" tabIndex={0} onClick={() => list(path)} onKeyDown={activateOnKey(() => list(path))}>{seg}</span>
               </span>
             );
           })}
@@ -283,7 +283,12 @@ export default function SftpBrowser({ open, connecting, error, sessionId, onClos
               <span className="glyph"><FileIcon e={e} /></span>
               <span
                 className={e.is_dir ? "name dir" : "name"}
+                // Only folders act on a single click (files open from the edit
+                // button or a double-click), so only folders are keyboard targets.
+                role={e.is_dir ? "button" : undefined}
+                tabIndex={e.is_dir ? 0 : undefined}
                 onClick={() => e.is_dir && list(e.path)}
+                onKeyDown={e.is_dir ? activateOnKey(() => list(e.path)) : undefined}
                 title={e.is_dir ? e.name : `${e.name}: double-click to edit`}
               >
                 {e.name}

@@ -30,7 +30,7 @@
 // block at that index still has the same `code`; on mismatch we DISCARD the
 // write (a "block changed during run" note) rather than misattribute. No silent
 // misattribution either way.
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { noteWrite, readNotebook } from "./notebookIo.js";
 import { parseBlocks, writeOutput, setFrontmatterTarget, runnableKind, runnableLines } from "./notebookModel.js";
 import { runAndCapture, getLiveTabIds, subscribeRegistry, getRegistryVersion } from "./ptyBridge.js";
@@ -135,7 +135,15 @@ const DIM = "var(--phn-text-faint, #586068)";
 const FG = "var(--phn-text-active, #E6E6E6)";
 const MONO = "'JetBrains Mono', Menlo, Monaco, monospace";
 
-export default function NotebookView({ name, tabId, visible, paneTitles }) {
+// Keyed on `name` so opening a different notebook in the same view remounts it
+// with fresh state (loading, no run status, no content) instead of an effect
+// resetting five states synchronously on every name change. The old instance's
+// unmount cleanup flushes its dirty content to ITS name first.
+export default function NotebookView(props) {
+  return <NotebookViewInner key={props.name} {...props} />;
+}
+
+function NotebookViewInner({ name, tabId, visible, paneTitles }) {
   const toast = useToast();
 
   const [content, setContent] = useState(null); // null = loading
@@ -166,16 +174,23 @@ export default function NotebookView({ name, tabId, visible, paneTitles }) {
   const fmTargetRef = useRef(null); // frontmatter targetPane read at load
   const saveRef = useRef(() => {});
 
-  nameRef.current = name;
-
   const dirty = content != null && content !== savedContent;
-  dirtyRef.current = dirty;
+  // Latest-value refs for the async writers and the unmount flush: written after
+  // every commit (never during render), read only from handlers and effects.
+  useLayoutEffect(() => {
+    nameRef.current = name;
+    dirtyRef.current = dirty;
+  });
 
   const parsed = useMemo(() => parseBlocks(content || ""), [content]);
 
   // Live PTY panes, refreshed on pane spawn/close (registry channel — the
   // dims channel would re-derive this on every resize for nothing; P2-T5).
   const bridgeV = useSyncExternalStore(subscribeRegistry, getRegistryVersion);
+  // bridgeV is a deliberate cache-buster: getLiveTabIds() reads a module-level
+  // registry Map the hook cannot see into, and the registry version is the only
+  // signal that it changed. Dropping it would freeze the live-pane list.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- version counter that invalidates a read of external mutable state
   const liveIds = useMemo(() => getLiveTabIds(), [bridgeV]);
   const targetLive = !!targetId && liveIds.includes(targetId);
 
@@ -227,6 +242,7 @@ export default function NotebookView({ name, tabId, visible, paneTitles }) {
     setSaving(true);
     try {
       await noteWrite(name, snapshot);
+      // eslint-disable-next-line require-atomic-updates -- savingRef is a mutex: no other save runs across this await, and snapshot is exactly what was written
       savedRef.current = snapshot;
       setSavedContent(snapshot);
     } catch (e) {
@@ -237,11 +253,12 @@ export default function NotebookView({ name, tabId, visible, paneTitles }) {
       // Ctrl+S). Only the busy-skip branch above re-arms.
       toast.error(humanizeError(e, "Notebook save failed"));
     } finally {
+      // eslint-disable-next-line require-atomic-updates -- releasing the mutex taken above; nothing else writes savingRef while it is held
       savingRef.current = false;
       setSaving(false);
     }
   }, [name, toast, scheduleAutosave]);
-  saveRef.current = save;
+  useLayoutEffect(() => { saveRef.current = save; });
 
   // Single funnel for every content mutation (editor edits, output write-back,
   // frontmatter target change): keep contentRef in lockstep and (re)arm autosave.
@@ -255,11 +272,7 @@ export default function NotebookView({ name, tabId, visible, paneTitles }) {
   // ── Load on mount / name change ───────────────────────────────────────────
   useEffect(() => {
     let alive = true;
-    setLoaded(false);
-    setLoadError(false);
-    setRunStatus({});
-    setContent(null);
-    contentRef.current = null;
+    // (Initial state is already "loading"; a different name remounts this view.)
     // readNotebook (not a bare invoke) waits for any in-flight write to the SAME
     // name to land before reading — so a close->reopen of one notebook loads the
     // closing view's final content, never a pre-edit snapshot.
@@ -425,6 +438,7 @@ export default function NotebookView({ name, tabId, visible, paneTitles }) {
       await runOne(blockIndex);
     } finally {
       if (mountedRef.current) {
+        // eslint-disable-next-line require-atomic-updates -- releasing the run mutex taken above; nothing else writes runningRef while it is held
         runningRef.current = false;
         setRunning(false);
       }

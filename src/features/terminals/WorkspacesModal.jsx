@@ -5,26 +5,35 @@
 // so open sessions close and the saved ones re-open fresh (TerminalPane's
 // unmount kills the old PTYs; mount spawns the new ones). Persisted in user
 // state so workspaces survive restarts and are shared across windows.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input } from "../../components/ui.jsx";
 
 const DIM = "var(--phn-text-dim, #888)";
 
 export default function WorkspacesModal({ open, workspaces, onClose, onSave, onLoad, onDelete }) {
+  // Modal renders nothing while closed, so the body mounts fresh on every open:
+  // an empty name and no pending load confirmation, without a reset effect.
+  return (
+    <Modal open={open} title="Workspaces: save / restore layouts" onClose={onClose} width={560}>
+      <WorkspacesBody workspaces={workspaces} onClose={onClose} onSave={onSave} onLoad={onLoad} onDelete={onDelete} />
+    </Modal>
+  );
+}
+
+function WorkspacesBody({ workspaces, onClose, onSave, onLoad, onDelete }) {
   const [name, setName] = useState("");
   const [confirmLoad, setConfirmLoad] = useState(null); // name awaiting load confirmation
-
-  useEffect(() => { if (open) { setName(""); setConfirmLoad(null); } }, [open]);
 
   const list = Array.isArray(workspaces) ? workspaces : [];
   const save = () => { const n = name.trim(); if (!n) return; onSave(n); setName(""); };
   const tabCount = (ws) => (ws.panels || []).reduce((n, p) => n + (p.tabs ? p.tabs.length : 0), 0);
 
   return (
-    <Modal open={open} title="Workspaces: save / restore layouts" onClose={onClose} width={560}>
+    <>
       <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
         <Input
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -70,7 +79,7 @@ export default function WorkspacesModal({ open, workspaces, onClose, onSave, onL
         Captures your panels, tabs and splits (working dirs + start commands). Loading one{" "}
         <strong>replaces</strong> the current layout: open sessions close and the saved ones re-open fresh.
       </p>
-    </Modal>
+    </>
   );
 }
 

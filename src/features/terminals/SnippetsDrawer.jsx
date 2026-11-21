@@ -64,6 +64,10 @@ export const DEFAULT_SNIPPETS = [
   { id: "disk", name: "Disk usage", command: "du -sh * | sort -h", description: "Folder sizes, sorted" },
 ];
 
+// Stable empty list so the prompts useMemo below does not recompute every
+// render when the parent passes no prompts.
+const NO_PROMPTS = [];
+
 function freshSnippetId() {
   return `snip_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -99,7 +103,7 @@ export default function SnippetsDrawer({
 }) {
   const editable = typeof onSnippetsChange === "function";
   const items = Array.isArray(snippets) ? snippets : DEFAULT_SNIPPETS;
-  const promptItems = Array.isArray(prompts) ? prompts : [];
+  const promptItems = Array.isArray(prompts) ? prompts : NO_PROMPTS;
   const promptsEditable = typeof onAddPrompt === "function";
 
   const [query, setQuery] = useState("");
@@ -354,6 +358,7 @@ export default function SnippetsDrawer({
                 </label>
                 <input
                   className="phn-sidebar-search"
+                  // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the fill form it just opened
                   autoFocus={i === 0}
                   value={vals[v] || ""}
                   onChange={(e) => setVals({ ...vals, [v]: e.target.value })}
@@ -389,24 +394,34 @@ export default function SnippetsDrawer({
             <div
               key={s.id}
               className="phn-snippet-item"
-              onClick={() => handlePick(s)}
-              title={`Insert into active terminal: ${s.command}`}
               style={{ position: "relative" }}
             >
-              <div className="phn-snippet-name">{s.name}</div>
-              {s.description && <div style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", margin: "1px 0" }}>{s.description}</div>}
-              <div className="phn-snippet-command">{s.command}</div>
+              {/* The row's insert action is a real button (keyboard reachable);
+                  the delete control is a sibling button, not nested inside it. */}
+              <button
+                type="button"
+                onClick={() => handlePick(s)}
+                title={`Insert into active terminal: ${s.command}`}
+                style={{ background: "none", border: 0, padding: 0, font: "inherit", color: "inherit", textAlign: "inherit", cursor: "inherit", display: "block", width: "100%" }}
+              >
+                <div className="phn-snippet-name">{s.name}</div>
+                {s.description && <div style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", margin: "1px 0" }}>{s.description}</div>}
+                <div className="phn-snippet-command">{s.command}</div>
+              </button>
               {editable && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeSnippet(s.id);
-                  }}
+                <button
+                  type="button"
+                  onClick={() => removeSnippet(s.id)}
                   title="Delete workflow"
+                  aria-label={`Delete workflow ${s.name}`}
                   style={{
                     position: "absolute",
                     top: 6,
                     right: 8,
+                    background: "none",
+                    border: 0,
+                    padding: 0,
+                    font: "inherit",
                     color: "var(--phn-text-dim, #888)",
                     fontSize: 12,
                     lineHeight: 1,
@@ -420,7 +435,7 @@ export default function SnippetsDrawer({
                   }}
                 >
                   ✕
-                </span>
+                </button>
               )}
             </div>
           ))
@@ -510,16 +525,19 @@ export default function SnippetsDrawer({
                 <div style={{ fontSize: 10, color: "var(--phn-text-dim, #888)", marginTop: 2 }}>{p.tags.join(", ")}</div>
               )}
               {promptsEditable && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemovePrompt?.(p.id);
-                  }}
+                <button
+                  type="button"
+                  onClick={() => onRemovePrompt?.(p.id)}
                   title="Delete prompt"
+                  aria-label={`Delete prompt ${p.name || "(untitled)"}`}
                   style={{
                     position: "absolute",
                     top: 6,
                     right: 8,
+                    background: "none",
+                    border: 0,
+                    padding: 0,
+                    font: "inherit",
                     color: "var(--phn-text-dim, #888)",
                     fontSize: 12,
                     lineHeight: 1,
@@ -533,7 +551,7 @@ export default function SnippetsDrawer({
                   }}
                 >
                   ✕
-                </span>
+                </button>
               )}
             </div>
           ))

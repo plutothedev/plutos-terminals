@@ -4,7 +4,7 @@
 // Monaco is loaded DYNAMICALLY on first open (never at app startup) so its heavy
 // bundle + web workers can't blank the app if they misbehave in the webview;
 // if the dynamic load fails we fall back to a plain textarea. Cmd/Ctrl+S saves.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
@@ -27,17 +27,8 @@ function languageForFile(name = "") {
 }
 
 export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
-  const toast = useToast();
-  const confirm = useConfirm();
-  const [text, setText] = useState("");
-  const [orig, setOrig] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [saving, setSaving] = useState(false);
   const [Editor, setEditor] = useState(null);   // Monaco component once loaded
   const [monacoFailed, setMonacoFailed] = useState(false);
-  const textRef = useRef("");
-  textRef.current = text;
 
   // Lazy-load Monaco the first time the editor opens; fall back to a textarea.
   useEffect(() => {
@@ -55,16 +46,47 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
     return () => { alive = false; };
   }, [open, Editor, monacoFailed]);
 
+  // One editing session per (session, file): keyed so opening another file, or
+  // reopening after a close, mounts a fresh buffer (empty text, loading state)
+  // instead of an effect resetting four states on every change. Monaco itself
+  // stays loaded here, across sessions.
+  if (!open) return null;
+  return (
+    <RemoteEditorSession
+      key={`${sessionId}:${path}`}
+      sessionId={sessionId}
+      path={path}
+      name={name}
+      onClose={onClose}
+      Editor={Editor}
+      monacoFailed={monacoFailed}
+    />
+  );
+}
+
+function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFailed }) {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [text, setText] = useState("");
+  const [orig, setOrig] = useState("");
+  // Starts true when there is something to fetch, so the first paint is already
+  // the loading state and the fetch effect below sets no state synchronously.
+  const [loading, setLoading] = useState(!!(sessionId && path));
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const textRef = useRef("");
+  // Latest buffer for save(), written after every commit and read from handlers.
+  useLayoutEffect(() => { textRef.current = text; });
+
   useEffect(() => {
-    if (!open || !sessionId || !path) return;
+    if (!sessionId || !path) return;
     let alive = true;
-    setLoading(true); setError(null); setText(""); setOrig("");
     invoke("sftp_read_file", { id: sessionId, path })
       .then((c) => { if (alive) { const s = typeof c === "string" ? c : ""; setText(s); setOrig(s); } })
       .catch((e) => { if (alive) setError(humanizeError(e, "Couldn't open the file").message); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [open, sessionId, path]);
+  }, [sessionId, path]);
 
   const dirty = text !== orig;
 
@@ -77,10 +99,10 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
   // session+path; cleared when closed/clean and on unmount.
   useEffect(() => {
     const key = `${sessionId}:${path}`;
-    if (open && dirty) markRemoteEditDirty(key);
+    if (dirty) markRemoteEditDirty(key);
     else clearRemoteEditDirty(key);
     return () => clearRemoteEditDirty(key);
-  }, [open, dirty, sessionId, path]);
+  }, [dirty, sessionId, path]);
 
   const save = async () => {
     if (saving || !sessionId || !path) return;
@@ -100,13 +122,12 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
   };
 
   useEffect(() => {
-    if (!open) return;
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [open, name, sessionId, path]); // eslint-disable-line
+  }, [name, sessionId, path]); // eslint-disable-line
 
   // Never discard unsaved edits silently (audit C4): Escape / backdrop / ✕ all
   // route through Modal's onClose, so gate it behind a confirm when dirty.
@@ -121,12 +142,10 @@ export default function RemoteEditor({ open, sessionId, path, name, onClose }) {
     onClose();
   };
 
-  if (!open) return null;
-
   const useMonaco = Editor && !monacoFailed;
 
   return (
-    <Modal open={open} title={`${dirty ? "● " : ""}${name}`} onClose={requestClose} width={860}>
+    <Modal open title={`${dirty ? "● " : ""}${name}`} onClose={requestClose} width={860}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 10.5, color: "var(--phn-text-dim, #888)", fontFamily: "'MesloLGS NF', monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={path}>{path}</span>
         <button

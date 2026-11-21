@@ -22,12 +22,22 @@ const ACCENT = "var(--phn-link, #7c9cf5)";
 const DIM = "var(--phn-text-dim, #888)";
 
 export default function MacrosModal({ open, onClose, onReplay, canReplay, activePaneId }) {
-  const toast = useToast();
-  const [macros, setMacros] = useState([]);
-  const [recording, setRecording] = useState(isMacroRecording());
+  // The name being typed for an in-progress recording survives a close/reopen.
   const [name, setName] = useState("");
+  // Modal renders nothing while closed, so the body mounts fresh on every open
+  // and reloads the saved macros through its lazy state initializer.
+  return (
+    <Modal open={open} title="Keystroke macros" onClose={onClose} width={580}>
+      <MacrosBody name={name} setName={setName} onReplay={onReplay} canReplay={canReplay} activePaneId={activePaneId} />
+    </Modal>
+  );
+}
 
-  useEffect(() => { if (open) setMacros(loadMacros()); }, [open]);
+function MacrosBody({ name, setName, onReplay, canReplay, activePaneId }) {
+  const toast = useToast();
+  const [macros, setMacros] = useState(loadMacros);
+  const [recording, setRecording] = useState(isMacroRecording());
+
   useEffect(() => onMacroStateChange(setRecording), []);
 
   const persist = (list) => { setMacros(list); saveMacros(list); };
@@ -56,7 +66,7 @@ export default function MacrosModal({ open, onClose, onReplay, canReplay, active
   };
 
   return (
-    <Modal open={open} title="Keystroke macros" onClose={onClose} width={580}>
+    <>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", borderRadius: 6, border: `1px solid ${recording ? "#ff6b6b" : "var(--phn-surface-border, #2a2a2a)"}`, background: "var(--phn-page-bg, #1c1c1c)" }}>
         {recording ? (
           <>
@@ -82,12 +92,12 @@ export default function MacrosModal({ open, onClose, onReplay, canReplay, active
               <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--phn-text-fg, #d4d4d4)" }}>{m.name}</span>
               <span style={{ flex: 1, fontFamily: "'MesloLGS NF', monospace", fontSize: 10.5, color: DIM, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{previewMacro(m.data)}</span>
               <button onClick={() => replay(m)} style={ghostBtn} title="Send to the active terminal">▶ Replay</button>
-              <span onClick={() => remove(m.id)} title="Delete" style={{ cursor: "pointer", color: DIM, padding: "2px 5px", display: "inline-flex", alignItems: "center" }}><STrash size={12} /></span>
+              <button type="button" onClick={() => remove(m.id)} title="Delete" aria-label={`Delete macro ${m.name}`} style={{ background: "none", border: 0, font: "inherit", cursor: "pointer", color: DIM, padding: "2px 5px", display: "inline-flex", alignItems: "center" }}><STrash size={12} /></button>
             </div>
           ))
         )}
       </div>
-    </Modal>
+    </>
   );
 }
 

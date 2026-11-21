@@ -101,7 +101,7 @@ export default function RdpView({ host, port, username, domain, tabId, visible }
     const { x, y } = toFb(e);
     invoke("rdp_pointer", { id: idRef.current, x, y, button, down }).catch(() => {});
   };
-  const onKey = (down) => (e) => {
+  const sendKey = (e, down) => {
     const sc = SCAN[e.code];
     if (sc == null || !idRef.current) return;
     e.preventDefault();
@@ -109,15 +109,23 @@ export default function RdpView({ host, port, username, domain, tabId, visible }
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the remote-desktop canvas wrapper is the input surface: it forwards pointer and key events to the remote session (see the role comment below)
     <div
       ref={wrapRef}
+      // The remote-desktop surface IS the keyboard target: it takes focus when
+      // the tab shows and forwards raw key events to the remote session, so it
+      // must stay focusable. role="application" tells assistive tech to pass
+      // keys through instead of intercepting them.
+      role="application"
+      aria-label="Remote desktop (RDP)"
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- must be focusable to receive the remote session's keyboard input
       tabIndex={0}
       style={{ width: "100%", height: "100%", overflow: "auto", background: "#000", position: "relative", outline: "none" }}
       onMouseMove={(e) => ptr(e, null, false)}
       onMouseDown={(e) => ptr(e, e.button, true)}
       onMouseUp={(e) => ptr(e, e.button, false)}
-      onKeyDown={onKey(true)}
-      onKeyUp={onKey(false)}
+      onKeyDown={(e) => sendKey(e, true)}
+      onKeyUp={(e) => sendKey(e, false)}
       onContextMenu={(e) => e.preventDefault()}
     >
       {status && (

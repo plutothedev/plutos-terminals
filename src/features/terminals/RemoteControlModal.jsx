@@ -3,7 +3,7 @@
 // show the QR + link + token to pair a phone over the tailnet. See companion.rs
 // + docs/phone-companion-design.md.
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { invoke } from "@backend";
 import QRCode from "qrcode";
 import { SPhone } from "./toolbarIcons.jsx";
@@ -95,22 +95,42 @@ function Field({ label, value, mono, onCopy }) {
 
 export default function RemoteControlModal({ open, onClose }) {
   const [info, setInfo] = useState(null); // { running, url, token, port, host }
-  const [qr, setQr] = useState("");
+  // The QR is stored with the url it encodes so a stale code (from an earlier
+  // server run) is never shown for a new url while the new one renders.
+  const [qr, setQr] = useState({ url: "", data: "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const refresh = useCallback(async () => {
-    try { setInfo(await invoke("companion_status")); } catch (e) { setErr(humanizeError(e).message); }
-  }, []);
-
-  useEffect(() => { if (open) { setErr(""); refresh(); } }, [open, refresh]);
-
+  // The error text is cleared on close (cleanup), not on open: it is only
+  // rendered while open, so a re-open still starts clean.
   useEffect(() => {
-    if (info?.running && info.url) {
-      QRCode.toDataURL(info.url, { margin: 1, width: 220, color: { dark: "#0b0d0f", light: "#ffffff" } })
-        .then(setQr).catch(() => setQr(""));
-    } else setQr("");
-  }, [info]);
+    if (!open) return undefined;
+    let cancelled = false;
+    invoke("companion_status")
+      .then((r) => { if (!cancelled) setInfo(r); })
+      .catch((e) => { if (!cancelled) setErr(humanizeError(e).message); });
+    return () => { cancelled = true; setErr(""); };
+  }, [open]);
+
+  const qrUrl = info?.running && info.url ? info.url : "";
+  useEffect(() => {
+    if (!qrUrl) return undefined;
+    let cancelled = false;
+    QRCode.toDataURL(qrUrl, { margin: 1, width: 220, color: { dark: "#0b0d0f", light: "#ffffff" } })
+      .then((data) => { if (!cancelled) setQr({ url: qrUrl, data }); })
+      .catch(() => { if (!cancelled) setQr({ url: qrUrl, data: "" }); });
+    return () => { cancelled = true; };
+  }, [qrUrl]);
+  const qrData = qrUrl && qr.url === qrUrl ? qr.data : "";
+
+  // Escape closes: the backdrop click below is mouse-only, so this is its
+  // keyboard path (this modal predates Modal.jsx, which handles Escape itself).
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   const start = async () => {
     setBusy(true); setErr("");
@@ -128,12 +148,12 @@ export default function RemoteControlModal({ open, onClose }) {
 
   if (!open) return null;
   return (
-    <div onClick={onClose} style={overlay}>
+    <div role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }} style={overlay}>
       {/* This modal predates Modal.jsx and never picked up its dialog
           semantics. role + accessible name are free; aria-modal is NOT set on
           purpose, because it promises assistive tech that focus is trapped here
           and this component has no trap (residual: move it onto Modal.jsx). */}
-      <div onClick={(e) => e.stopPropagation()} style={card} role="dialog" aria-labelledby="phn-remote-control-title">
+      <div style={card} role="dialog" aria-labelledby="phn-remote-control-title">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <h2 id="phn-remote-control-title" style={{ margin: 0, fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}><SPhone size={15} /> Remote control</h2>
           {/* Accessible name would otherwise be the glyph "✕": for a <button>,
@@ -149,11 +169,11 @@ export default function RemoteControlModal({ open, onClose }) {
         ) : (
           <>
             <p style={p}>On your phone (same tailnet), scan the QR or open the link:</p>
-            {qr && <div style={{ textAlign: "center", marginBottom: 12 }}><img src={qr} alt="pairing QR" width={200} height={200} style={{ borderRadius: 8 }} /></div>}
+            {qrData && <div style={{ textAlign: "center", marginBottom: 12 }}><img src={qrData} alt="pairing QR" width={200} height={200} style={{ borderRadius: 8 }} /></div>}
             <Field label="Link" value={info.url} onCopy={() => copy(info.url)} />
             <Field label="Access token" value={info.token} mono onCopy={() => copy(info.token)} />
             <div style={{ fontSize: 11, color: "var(--phn-text-faint, #6b7480)", margin: "6px 0 12px" }}>Serving on {info.host}:{info.port} · reachable over your tailnet.</div>
-            <div style={warn}>⚠ Anyone with this link can run commands in your terminals. Stop the server when you're done. Restarting issues a fresh token.</div>
+            <div style={warn}>⚠ Anyone with this link can run commands in your terminals. Stop the server when you&apos;re done. Restarting issues a fresh token.</div>
             <button onClick={stop} disabled={busy} style={dangerBtn}>{busy ? "Stopping…" : "Stop server"}</button>
           </>
         )}

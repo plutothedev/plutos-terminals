@@ -9,7 +9,7 @@
 // scheme (Task D-3), and `title` is header/display text only. The gist POST is
 // reachable ONLY from the explicit Share button below — there is no auto-share.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { invoke } from "@backend";
 import Modal, { MODAL_COLORS } from "../../components/Modal.jsx";
 import { useToast } from "../../components/Toast.jsx";
@@ -29,22 +29,34 @@ function secretNameCounts(hits) {
   return [...counts.entries()].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name));
 }
 
-// `userSt` is accepted for the shared-modal contract (the sibling D-5 "My shares"
-// list reads userSt.shareHistory through this same prop channel). D-4's own
-// success path appends via the functional saveUser(prev) form below, which is
-// race-safe and needs no snapshot, so userSt is not read here.
-export default function ShareModal({ open, kind, title, rawText, dateStamp, onClose, saveUser, userSt }) {
+// A caller may still pass `userSt` (the sibling D-5 "My shares" list reads
+// userSt.shareHistory through the same prop channel); it is not read here.
+// D-4's success path appends via the functional saveUser(prev) form below,
+// which is race-safe and needs no snapshot.
+//
+// Modal renders nothing while closed, so the body below mounts fresh on every
+// open: a prior "public" choice / in-flight flag / auth notice never carries
+// into the next share, whether the modal is conditionally mounted (D-4) or kept
+// mounted with a toggling `open` (D-5). That replaces an effect that reset
+// three states synchronously on open.
+export default function ShareModal({ open, kind, title, rawText, dateStamp, onClose, saveUser }) {
+  return (
+    <Modal
+      open={open}
+      title={`Share ${kind === "transcript" ? "transcript" : "block"}`}
+      onClose={onClose}
+      width={620}
+    >
+      <ShareBody kind={kind} title={title} rawText={rawText} dateStamp={dateStamp} onClose={onClose} saveUser={saveUser} />
+    </Modal>
+  );
+}
+
+function ShareBody({ kind, title, rawText, dateStamp, onClose, saveUser }) {
   const toast = useToast();
   const [isPublic, setIsPublic] = useState(false); // default: SECRET / unlisted ("public" is a reserved word in strict-mode JS)
   const [submitting, setSubmitting] = useState(false);
   const [needsAuth, setNeedsAuth] = useState(false);
-
-  // Reset per-open so a prior "public" choice / in-flight flag / auth notice
-  // never carries into the next share. Correct whether the modal is
-  // conditionally mounted (D-4) or kept mounted with a toggling `open` (D-5).
-  useEffect(() => {
-    if (open) { setIsPublic(false); setSubmitting(false); setNeedsAuth(false); }
-  }, [open]);
 
   // LOAD-BEARING: compute ONCE per open. The exact `masked` rendered below is
   // the exact `masked` uploaded — never re-derived, never rawText, never title.
@@ -97,12 +109,7 @@ export default function ShareModal({ open, kind, title, rawText, dateStamp, onCl
   const primaryBg = submitting ? "var(--phn-surface-border, #2b2b2b)" : ACCENT;
 
   return (
-    <Modal
-      open={open}
-      title={`Share ${kind === "transcript" ? "transcript" : "block"}`}
-      onClose={onClose}
-      width={620}
-    >
+    <>
       {/* Display-only: what's being shared (the block command / tab label). Never uploaded. */}
       <div style={{ color: FG_DIM, fontSize: 11, marginBottom: 12, fontFamily: M, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {title ? `Sharing: ${title}` : "Sharing"}
@@ -154,7 +161,7 @@ export default function ShareModal({ open, kind, title, rawText, dateStamp, onCl
           Public
         </label>
         <div style={{ color: FG_DIM, fontSize: 10.5, lineHeight: 1.5, marginTop: 6 }}>
-          Secret gists aren't private. Anyone with the link can view them until you revoke.
+          Secret gists aren&apos;t private. Anyone with the link can view them until you revoke.
         </div>
       </div>
 
@@ -191,6 +198,6 @@ export default function ShareModal({ open, kind, title, rawText, dateStamp, onCl
           {btnLabel}
         </button>
       </div>
-    </Modal>
+    </>
   );
 }

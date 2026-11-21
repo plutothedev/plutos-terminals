@@ -6,7 +6,7 @@
 // input origin; only mounted when the feature is on AND the pane is at a prompt
 // (not running a command, not in a full-screen app). See the design spec.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { EditorView, keymap, ViewPlugin, Decoration, WidgetType } from "@codemirror/view";
 import { insertNewlineAndIndent } from "@codemirror/commands";
@@ -16,13 +16,18 @@ import { autocompletion, completionKeymap, startCompletion, acceptCompletion, co
 // Vim adapter is dynamic (P4-T1): ~35kB gz that only vim-mode users need.
 // Loaded on demand; the compartment starts empty and reconfigures when the
 // module lands (the [vimMode] effect below owns both directions).
-let vimFn = null;
-async function loadVim() {
-  if (!vimFn) {
-    const mod = await import("@replit/codemirror-vim");
-    vimFn = mod.vim;
+// The in-flight/settled import is memoized as a promise (not a value assigned
+// after an await), so concurrent callers share one load; a failed load clears
+// the memo so the next toggle retries.
+let vimPromise = null;
+function loadVim() {
+  if (!vimPromise) {
+    vimPromise = import("@replit/codemirror-vim").then((mod) => mod.vim).catch((e) => {
+      vimPromise = null;
+      throw e;
+    });
   }
-  return vimFn;
+  return vimPromise;
 }
 import { tags as t } from "@lezer/highlight";
 import { invoke } from "@backend";
@@ -196,14 +201,19 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
   const themeComp = useRef(new Compartment());
   const vimComp = useRef(new Compartment());
   const cwdRef = useRef(cwd);
-  cwdRef.current = cwd;
   const vimRef = useRef(vimMode);
-  vimRef.current = vimMode;
   // History navigation state (snapshotted when the editor is shown).
   const histRef = useRef({ list: [], pos: -1, draft: "" });
   // Latest callbacks, read by the stable keymap without re-creating the view.
   const cbRef = useRef({});
-  cbRef.current = { onSubmit, onEscape, onCtrlC, onClear };
+  // Latest-value refs, written after every commit (not during render) and read
+  // only from the keymap, the completion source and effects. Layout effects run
+  // before the passive effects below, so those always see this render's values.
+  useLayoutEffect(() => {
+    cwdRef.current = cwd;
+    vimRef.current = vimMode;
+    cbRef.current = { onSubmit, onEscape, onCtrlC, onClear };
+  });
 
   const setDoc = (text) => {
     const v = viewRef.current;
@@ -319,6 +329,7 @@ export default function PromptEditor({ visible, top, left, width, height, theme,
     <div
       ref={hostRef}
       data-prompt-editor
+      role="presentation"
       style={{
         position: "absolute",
         top: `${top}px`,

@@ -42,7 +42,7 @@ const STEPS = [
     body: (FG, ACCENT) => (
       <>
         <p style={{ marginBottom: 12 }}>
-          <strong style={{ color: ACCENT }}>Workflows</strong> are saved, parameterized commands. Open the Workflows panel from the toolbar and click one to run it (Warp workflow YAML imports directly). <strong style={{ color: ACCENT }}>Fleet</strong> sits next to it: every session's state (running / finished / needs you) in one list.
+          <strong style={{ color: ACCENT }}>Workflows</strong> are saved, parameterized commands. Open the Workflows panel from the toolbar and click one to run it (Warp workflow YAML imports directly). <strong style={{ color: ACCENT }}>Fleet</strong> sits next to it: every session&apos;s state (running / finished / needs you) in one list.
         </p>
         <p style={{ marginBottom: 12 }}>
           <strong style={{ color: ACCENT }}>Ask AI</strong> ({modCombo("I")}) turns plain English into a shell command you review before it runs; <strong style={{ color: ACCENT }}>Agent Mode</strong> ({formatCombo("Ctrl+Shift+A")}) takes a goal and runs the commands itself, asking before anything risky. The right dock adds files (SFTP), an AI assistant, and a live CPU/MEM/DISK monitor.
@@ -102,6 +102,7 @@ export default function OnboardingOverlay({ onDismiss }) {
 
   return (
     <div
+      role="presentation"
       style={{
         position: "absolute",
         inset: 0,
@@ -206,6 +207,7 @@ export default function OnboardingOverlay({ onDismiss }) {
                 fontWeight: 600,
                 cursor: "pointer",
               }}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
               autoFocus
             >
               {isLast ? "Got it" : "Next →"}

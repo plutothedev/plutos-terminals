@@ -18,10 +18,22 @@ const field = {
 const label = { fontSize: 10, letterSpacing: 0.5, color: "var(--phn-text-dim, #888)", marginBottom: 4, display: "block", textTransform: "uppercase" };
 
 export default function RdpConnectModal({ open, onConnect, onClose, initial = null, lockConnection = false, title, onSaveSession }) {
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("3389");
-  const [username, setUsername] = useState("");
-  const [domain, setDomain] = useState("");
+  if (!open) return null;
+  return (
+    <Modal open={open} title={title || "RDP connection"} onClose={onClose} width={460}>
+      <RdpConnectBody onConnect={onConnect} onClose={onClose} initial={initial} lockConnection={lockConnection} onSaveSession={onSaveSession} />
+    </Modal>
+  );
+}
+
+// Mounted fresh on every open, so the form starts from `initial` (a saved
+// session being launched, locked) or blank, and the typed password is dropped
+// with the component when the dialog closes.
+function RdpConnectBody({ onConnect, onClose, initial, lockConnection, onSaveSession }) {
+  const [host, setHost] = useState(initial?.host || "");
+  const [port, setPort] = useState(initial?.port != null ? String(initial.port) : "3389");
+  const [username, setUsername] = useState(initial?.username || "");
+  const [domain, setDomain] = useState(initial?.domain || "");
   const [password, setPassword] = useState("");
   const hostRef = useRef(null);
   // A11Y-10. Every caption here was a bare <label> sitting NEXT to its input,
@@ -31,19 +43,9 @@ export default function RdpConnectModal({ open, onConnect, onClose, initial = nu
   const uid = useId();
 
   useEffect(() => {
-    if (open) {
-      // Pre-fill (and lock) from a saved session when launching; else blank.
-      setHost(initial?.host || "");
-      setPort(initial?.port != null ? String(initial.port) : "3389");
-      setUsername(initial?.username || "");
-      setDomain(initial?.domain || "");
-      setPassword("");
-      const t = setTimeout(() => (lockConnection ? null : hostRef.current?.focus()), 30);
-      return () => clearTimeout(t);
-    }
-  }, [open, initial, lockConnection]);
-
-  if (!open) return null;
+    const t = setTimeout(() => (lockConnection ? null : hostRef.current?.focus()), 30);
+    return () => clearTimeout(t);
+  }, [lockConnection]);
 
   // For a saved-session launch we only need the password; host/username are locked.
   const canConnect = lockConnection ? host.trim().length > 0 : (host.trim().length > 0 && username.trim().length > 0);
@@ -63,7 +65,7 @@ export default function RdpConnectModal({ open, onConnect, onClose, initial = nu
   };
 
   return (
-    <Modal open={open} title={title || "RDP connection"} onClose={onClose} width={460}>
+    <>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
@@ -100,7 +102,7 @@ export default function RdpConnectModal({ open, onConnect, onClose, initial = nu
           />
         </div>
         <div style={{ fontSize: 11, color: "var(--phn-text-dim, #888)", lineHeight: 1.5 }}>
-          Connects with NLA (CredSSP). Uses the host's TLS cert (self-signed accepted). The password is used only for this connection and is never saved.
+          Connects with NLA (CredSSP). Uses the host&apos;s TLS cert (self-signed accepted). The password is used only for this connection and is never saved.
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <div>
@@ -136,6 +138,6 @@ export default function RdpConnectModal({ open, onConnect, onClose, initial = nu
           </div>
         </div>
       </div>
-    </Modal>
+    </>
   );
 }

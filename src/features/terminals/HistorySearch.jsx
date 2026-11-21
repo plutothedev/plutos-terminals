@@ -13,14 +13,25 @@ import { modCombo } from "./keybindings.js";
 const DIM = "var(--phn-text-dim, #888)";
 
 export default function HistorySearch({ open, history, onClose, onInsert, onRun }) {
+  // Modal renders nothing while closed, so the body below mounts fresh on every
+  // open: the query and selection reset by remounting, not by an effect.
+  return (
+    <Modal open={open} title="Command history: search & re-run" onClose={onClose} width={660}>
+      <HistoryBody history={history} onClose={onClose} onInsert={onInsert} onRun={onRun} />
+    </Modal>
+  );
+}
+
+function HistoryBody({ history, onClose, onInsert, onRun }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
   useEffect(() => {
-    if (open) { setQ(""); setSel(0); setTimeout(() => inputRef.current?.focus(), 30); }
-  }, [open]);
+    const t = setTimeout(() => inputRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, []);
 
   const items = useMemo(() => {
     const list = Array.isArray(history) ? history : [];
@@ -29,7 +40,9 @@ export default function HistorySearch({ open, history, onClose, onInsert, onRun 
     return list.filter((c) => c.toLowerCase().includes(needle));
   }, [history, q]);
 
-  useEffect(() => { setSel(0); }, [q]);
+  // Typing resets the selection to the first match (done in the handler that
+  // changes the query, not in an effect).
+  const onQueryChange = (e) => { setQ(e.target.value); setSel(0); };
   const cur = Math.min(sel, Math.max(0, items.length - 1));
 
   useEffect(() => {
@@ -49,15 +62,15 @@ export default function HistorySearch({ open, history, onClose, onInsert, onRun 
   };
 
   return (
-    <Modal open={open} title="Command history: search & re-run" onClose={onClose} width={660}>
+    <>
       <Input
         ref={inputRef}
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={onQueryChange}
         onKeyDown={onKeyDown}
         placeholder="Type to filter your command history…"
       />
-      <div ref={listRef} style={{ marginTop: "var(--phn-sp-3)", maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+      <div ref={listRef} role="listbox" aria-label="Command history" style={{ marginTop: "var(--phn-sp-3)", maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
         {items.length === 0 ? (
           <div style={{ color: DIM, fontSize: "var(--phn-fs-sm)", padding: "var(--phn-sp-3) var(--phn-sp-1)" }}>
             {history && history.length
@@ -69,7 +82,16 @@ export default function HistorySearch({ open, history, onClose, onInsert, onRun 
             <div
               key={`${cmd}\u0000${i}`}
               data-idx={i}
+              // Selection and Enter are driven from the filter input above
+              // (arrow keys); the row's own key handler covers a row that took
+              // focus by click. tabIndex -1 keeps 100s of rows out of the Tab order.
+              role="option"
+              aria-selected={i === cur}
+              tabIndex={-1}
               onClick={() => choose(cmd, false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(cmd, e.metaKey || e.ctrlKey); }
+              }}
               onMouseEnter={() => setSel(i)}
               title={`Enter = insert · ${modCombo("Enter")} = run`}
               style={{
@@ -92,8 +114,8 @@ export default function HistorySearch({ open, history, onClose, onInsert, onRun 
       </div>
       <p style={{ fontSize: "var(--phn-fs-2xs)", color: DIM, marginTop: "var(--phn-sp-3)", lineHeight: "var(--phn-lh)" }}>
         <strong>↑/↓</strong> select · <strong>Enter</strong> insert on the prompt (edit first) ·
-        <strong> {modCombo("Enter")}</strong> run now · <strong>Esc</strong> close. Plain <strong>Ctrl+R</strong> still runs the shell's reverse-search.
+        <strong> {modCombo("Enter")}</strong> run now · <strong>Esc</strong> close. Plain <strong>Ctrl+R</strong> still runs the shell&apos;s reverse-search.
       </p>
-    </Modal>
+    </>
   );
 }

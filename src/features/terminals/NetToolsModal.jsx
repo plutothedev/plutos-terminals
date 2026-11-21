@@ -3,7 +3,7 @@
 // DNS lookup against a host. Each runs in Rust (see netools.rs) — ping/tracert
 // shell out to the OS tools; port scan + DNS are pure Rust. Output is shown
 // raw/monospace. Host is validated backend-side, so no injection risk.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Chip } from "../../components/ui.jsx";
@@ -18,16 +18,24 @@ const TOOLS = [
 ];
 
 export default function NetToolsModal({ open, initialHost, onClose }) {
+  // The chosen tool and the port list outlive a close (they are preferences,
+  // not per-run state); host and output are per-open and live in the body.
   const [tool, setTool] = useState("ping");
-  const [host, setHost] = useState("");
   const [ports, setPorts] = useState("22,80,443,3389,8080,5432,3306,6379");
+  // Modal renders nothing while closed, so the body mounts fresh on every open
+  // and seeds the host from the active SSH session. Keyed on initialHost so a
+  // change while open re-seeds exactly as the old effect did.
+  return (
+    <Modal open={open} title="Network tools" onClose={onClose} width={620}>
+      <NetToolsBody key={initialHost || ""} initialHost={initialHost} tool={tool} setTool={setTool} ports={ports} setPorts={setPorts} />
+    </Modal>
+  );
+}
+
+function NetToolsBody({ initialHost, tool, setTool, ports, setPorts }) {
+  const [host, setHost] = useState(initialHost || "");
   const [out, setOut] = useState("");
   const [busy, setBusy] = useState(false);
-
-  // Seed the host from the active SSH session each time the modal opens.
-  useEffect(() => {
-    if (open) { setHost(initialHost || ""); setOut(""); }
-  }, [open, initialHost]);
 
   const run = async () => {
     const h = host.trim();
@@ -61,7 +69,7 @@ export default function NetToolsModal({ open, initialHost, onClose }) {
   };
 
   return (
-    <Modal open={open} title="Network tools" onClose={onClose} width={620}>
+    <>
       <div style={{ display: "flex", gap: "var(--phn-sp-1)", marginBottom: "var(--phn-sp-3)" }}>
         {TOOLS.map((t) => (
           <Chip
@@ -78,6 +86,7 @@ export default function NetToolsModal({ open, initialHost, onClose }) {
       <div style={{ display: "flex", gap: "var(--phn-sp-2)" }}>
         <Input
           mono
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
           autoFocus
           value={host}
           onChange={(e) => setHost(e.target.value)}
@@ -113,6 +122,6 @@ export default function NetToolsModal({ open, initialHost, onClose }) {
       >
         {out || <span style={{ color: DIM }}>Pick a tool, enter a host, and hit run.</span>}
       </pre>
-    </Modal>
+    </>
   );
 }

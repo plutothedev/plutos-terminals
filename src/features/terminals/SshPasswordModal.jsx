@@ -7,22 +7,27 @@ import { useEffect, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 
 export default function SshPasswordModal({ open, host, user, onSubmit, onCancel }) {
+  if (!open) return null;
+  return (
+    <Modal open={open} title="SSH password" onClose={onCancel} width={420}>
+      <SshPasswordBody host={host} user={user} onSubmit={onSubmit} onCancel={onCancel} />
+    </Modal>
+  );
+}
+
+// The password lives only in this body's state. It mounts fresh on every open
+// (empty field, remember off) and unmounts on close, so the typed password never
+// outlives the prompt in component state, and it is never logged or stored here.
+function SshPasswordBody({ host, user, onSubmit, onCancel }) {
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const inputRef = useRef(null);
 
-  // Clear the field whenever the modal opens, and focus it. Never keep a
-  // password in component state once the modal closes.
+  // Focus the field once the dialog is up.
   useEffect(() => {
-    if (open) {
-      setPassword("");
-      setRemember(false);
-      const t = setTimeout(() => inputRef.current?.focus(), 30);
-      return () => clearTimeout(t);
-    }
-  }, [open]);
-
-  if (!open) return null;
+    const t = setTimeout(() => inputRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, []);
 
   const submit = () => {
     onSubmit?.(password, remember);
@@ -30,7 +35,7 @@ export default function SshPasswordModal({ open, host, user, onSubmit, onCancel 
   };
 
   return (
-    <Modal open={open} title="SSH password" onClose={onCancel} width={420}>
+    <>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 12, color: "var(--phn-text-fg, #b4b8c0)", lineHeight: 1.5 }}>
           Connecting to{" "}
@@ -70,7 +75,7 @@ export default function SshPasswordModal({ open, host, user, onSubmit, onCancel 
             onChange={(e) => setRemember(e.target.checked)}
             style={{ cursor: "pointer" }}
           />
-          Remember in this device's keychain (skip this prompt next time)
+          Remember in this device&apos;s keychain (skip this prompt next time)
         </label>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button
@@ -105,6 +110,6 @@ export default function SshPasswordModal({ open, host, user, onSubmit, onCancel 
           </button>
         </div>
       </div>
-    </Modal>
+    </>
   );
 }

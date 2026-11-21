@@ -76,6 +76,17 @@ export function fmtMtime(sec) {
   return `${Math.floor(d / 86400 / 365)}y`;
 }
 
+// Keyboard path for a click target that is not a native button: Enter or Space
+// activates it, like the click does. Shared with the remote (SFTP) dock.
+export function activateOnKey(fn) {
+  return (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      fn();
+    }
+  };
+}
+
 // Parent dir, separator-agnostic (Windows paths use "\", POSIX use "/").
 function parentPath(p) {
   const t = p.replace(/[/\\]+$/, "");
@@ -131,7 +142,9 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
   const [cwd, setCwd] = useState(null);
   const [entries, setEntries] = useState([]);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
+  // Starts true: the mount effect below fetches the home folder, so the first
+  // paint is already the "Loading" state and the effect sets no state of its own.
+  const [loading, setLoading] = useState(true);
   // The backend caps very large listings and reports it as a third tuple
   // element. Surfacing it matters: the cap breaks out of the read loop BEFORE
   // the sort, so a truncated listing renders looking neatly alphabetical and
@@ -142,23 +155,30 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
   // walking into a huge directory never inherits a previous page's cap.
   const [limit, setLimit] = useState(DISPLAY_MAX);
 
-  const list = useCallback(async (path) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [resolved, items, wasTruncated] = await invoke("list_directory", { path: path ?? null });
+  // The fetch itself. Sets state only after the await, so the mount effect can
+  // call it without a synchronous setState in the effect body.
+  const load = useCallback((path) => new Promise((resolve) => resolve(invoke("list_directory", { path: path ?? null })))
+    .then(([resolved, items, wasTruncated]) => {
       setCwd(resolved);
       setEntries(Array.isArray(items) ? items : []);
       setTruncated(wasTruncated === true);
       setLimit(DISPLAY_MAX);
-    } catch (e) {
+    })
+    .catch((e) => {
       setError(humanizeError(e).message);
-    } finally {
+    })
+    .finally(() => {
       setLoading(false);
-    }
-  }, []);
+    }), []);
 
-  useEffect(() => { list(null); }, [list]); // home dir on mount
+  // Navigation entry point: flip to the loading state, then fetch.
+  const list = useCallback((path) => {
+    setLoading(true);
+    setError(null);
+    return load(path);
+  }, [load]);
+
+  useEffect(() => { load(null); }, [load]); // home dir on mount
 
   // Breadcrumb, separator-agnostic. On Windows, list_directory returns
   // canonicalized paths (possibly a "\\?\" verbatim prefix + backslashes);
@@ -198,13 +218,13 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
 
       {cwd && (
         <div className="phn-sftp-pathbar phn-sftp-crumb" title={cwd}>
-          {!isWin && <span className="seg" onClick={() => list("/")}>/</span>}
+          {!isWin && <span className="seg" role="button" tabIndex={0} onClick={() => list("/")} onKeyDown={activateOnKey(() => list("/"))}>/</span>}
           {segs.map((seg, i) => {
             const path = crumbPath(i);
             return (
               <span key={path} className="crumb-part">
                 <span className="sl">›</span>
-                <span className="seg" onClick={() => list(path)}>{seg}</span>
+                <span className="seg" role="button" tabIndex={0} onClick={() => list(path)} onKeyDown={activateOnKey(() => list(path))}>{seg}</span>
               </span>
             );
           })}
@@ -260,7 +280,10 @@ export default function LocalFileBrowser({ onSendToTerminal }) {
               <span className="glyph"><FileIcon e={e} /></span>
               <span
                 className={e.is_dir ? "name dir" : "name"}
+                role="button"
+                tabIndex={0}
                 onClick={() => (e.is_dir ? list(e.path) : onSendToTerminal?.(`${shQuote(e.path)} `))}
+                onKeyDown={activateOnKey(() => (e.is_dir ? list(e.path) : onSendToTerminal?.(`${shQuote(e.path)} `)))}
                 title={e.is_dir ? e.name : `${e.name}: click to insert path`}
               >
                 {e.name}
