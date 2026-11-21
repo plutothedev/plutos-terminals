@@ -275,14 +275,27 @@ const ASKPASS_SCRIPT: &str = "#!/bin/sh\nprintf '%s' \"$PT_KEY_PASSPHRASE\"\n";
 /// created new; nobody else can reach either.
 #[cfg(not(target_os = "windows"))]
 fn write_askpass_script(base: &std::path::Path) -> Result<AskpassScript, String> {
-    use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-    for _ in 0..8 {
-        let dir = base.join(format!(
+    write_askpass_script_named(base, || {
+        format!(
             ".pt-askpass-{:016x}{:016x}",
             rand::random::<u64>(),
             rand::random::<u64>()
-        ));
+        )
+    })
+}
+
+/// `write_askpass_script` with the directory-name source passed in, so a test
+/// can hand out a name it has already planted a symlink at and check that the
+/// taken name is skipped (never followed or reused) and the next one is used.
+#[cfg(not(target_os = "windows"))]
+fn write_askpass_script_named(
+    base: &std::path::Path,
+    mut next_name: impl FnMut() -> String,
+) -> Result<AskpassScript, String> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    for _ in 0..8 {
+        let dir = base.join(next_name());
         match fs::DirBuilder::new().mode(0o700).create(&dir) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -300,7 +313,12 @@ fn write_askpass_script(base: &std::path::Path) -> Result<AskpassScript, String>
         f.write_all(ASKPASS_SCRIPT.as_bytes())
             .map_err(|e| format!("askpass helper: {e}"))?;
         // Closed before ssh-keygen executes it: Linux refuses to exec a file
-        // that is still open for writing (ETXTBSY).
+        // that is still open for writing (ETXTBSY). This narrows the window
+        // rather than closing it: another thread forking while `f` is open hands
+        // the child a copy of the fd (O_CLOEXEC drops it only once that child
+        // execs), which can briefly keep the file open for writing. ssh-keygen
+        // only execs the helper much later, after it has been spawned and has
+        // generated the key, so that window is long gone in practice.
         drop(f);
         // The umask may have narrowed the create mode; the owner needs rwx.
         fs::set_permissions(&guard.script, fs::Permissions::from_mode(0o700))
@@ -449,6 +467,35 @@ mod askpass_tests {
         drop(a);
         drop(b);
         assert!(!dir_a.exists() && !dir_b.exists(), "the guard removes the directory");
+    }
+
+    #[test]
+    fn askpass_skips_a_planted_symlink_and_never_writes_through_it() {
+        let base = tempfile::tempdir().unwrap();
+        let victim = tempfile::tempdir().unwrap();
+        fs::write(victim.path().join("keep"), b"untouched").unwrap();
+        let victim_mode = fs::metadata(victim.path()).unwrap().permissions().mode();
+        // Someone got to the first candidate name first and planted a link there.
+        let planted = base.path().join(".pt-askpass-planted");
+        std::os::unix::fs::symlink(victim.path(), &planted).unwrap();
+        let mut names = [".pt-askpass-planted", ".pt-askpass-second"].into_iter();
+        let h = write_askpass_script_named(base.path(), || names.next().unwrap().to_string()).unwrap();
+        assert_eq!(h.dir, base.path().join(".pt-askpass-second"), "the taken name is skipped, not reused");
+        let dir_meta = fs::symlink_metadata(&h.dir).unwrap();
+        assert!(dir_meta.is_dir() && !dir_meta.file_type().is_symlink());
+        assert_eq!(dir_meta.permissions().mode() & 0o777, 0o700, "only the owner can enter");
+        assert_eq!(fs::read_to_string(&h.script).unwrap(), ASKPASS_SCRIPT);
+        // The link still points where it did, and nothing went through it.
+        assert!(fs::symlink_metadata(&planted).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_link(&planted).unwrap(), victim.path().to_path_buf());
+        let inside: Vec<_> = fs::read_dir(victim.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(inside, [std::ffi::OsString::from("keep")]);
+        assert_eq!(fs::read(victim.path().join("keep")).unwrap(), b"untouched");
+        assert_eq!(fs::metadata(victim.path()).unwrap().permissions().mode(), victim_mode);
+        drop(h);
+        // The guard removes only its own directory, never the planted link.
+        assert!(fs::symlink_metadata(&planted).unwrap().file_type().is_symlink());
+        assert!(victim.path().join("keep").exists());
     }
 
     #[test]
