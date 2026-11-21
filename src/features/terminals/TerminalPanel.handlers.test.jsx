@@ -11,10 +11,13 @@
 // 2. The per-pane hover controls (split right / split down / zoom / close) are
 //    role="button" with Enter/Space activation, and still do what a click does.
 // Fix round 1 (review of bd9eebc): a click on a hover control leaves focus
-// where it was; the zoom control is a Tab stop while the pane is zoomed (the
-// only keyboard path to un-zoom); a pane leaving the leaf set drops its cached
-// handler.
+// where it was; a pane leaving the leaf set drops its cached handler.
+// Fix round 2: zoom state is owned by TerminalsTab (hooks/usePaneZoom.js) and
+// comes in as zoomedPaneId / onSetPaneZoom; every hover control is tabIndex -1
+// (xterm keeps Tab, so none is reachable by it), and zoom's keyboard path is
+// the palette (paneZoom.test.jsx).
 import { describe, test, expect, afterEach, vi } from "vitest";
+import { useState } from "react";
 import { render, fireEvent, cleanup, screen } from "@testing-library/react";
 
 const { paneProps } = vi.hoisted(() => ({ paneProps: new Map() }));
@@ -58,6 +61,13 @@ const splitTab = {
 };
 const panelOf = (tabs) => ({ id: "panel_1", activeTabId: tabs[0].id, tabs });
 const last = (id) => paneProps.get(id).at(-1);
+// TerminalsTab owns zoom (usePaneZoom); this stands in for it with the same
+// two props, so the hover control's zoom round-trips through the parent.
+function ZoomHost(props) {
+  const [zoomed, setZoomed] = useState({});
+  const onSetPaneZoom = (panelId, paneId) => setZoomed((prev) => ({ ...prev, [panelId]: paneId }));
+  return <TerminalPanel {...props} zoomedPaneId={zoomed[props.panel.id] ?? null} onSetPaneZoom={onSetPaneZoom} />;
+}
 
 afterEach(() => { cleanup(); paneProps.clear(); });
 
@@ -143,7 +153,7 @@ describe("per-pane hover controls", () => {
   test("a click on zoom puts keyboard focus in the zoomed pane's terminal, never a pane it covers", () => {
     // Zooming pane 2 while pane 1's shell has focus used to leave focus (and
     // every keystroke, Enter included) in pane 1, now hidden behind pane 2.
-    render(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={noop} onSplitPane={noop} onClosePane={noop} />);
+    render(<ZoomHost {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={noop} onSplitPane={noop} onClosePane={noop} />);
     const pane2 = document.querySelector('[data-pane-id="p2"]');
     const zoomCtl = () => [...pane2.querySelectorAll(".phn-pane-ctl")].find((c) => /zoom/i.test(c.title));
     screen.getByLabelText("terminal t1").focus();
@@ -158,24 +168,22 @@ describe("per-pane hover controls", () => {
     expect(document.activeElement).toBe(screen.getByLabelText("terminal p2"));
   });
 
-  test("the zoom control is a Tab stop only while its pane is zoomed, so un-zoom has a keyboard path", () => {
-    render(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={noop} onSplitPane={noop} onClosePane={noop} />);
+  test("zoom state comes from the parent: the control writes it there and every control stays out of the Tab order", () => {
+    // xterm keeps Tab, so a Tab stop on the (zoomed, visible) control was never
+    // reachable; the keyboard path is the palette, through the same state.
+    const onSetPaneZoom = vi.fn();
+    const { rerender } = render(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={noop} onSplitPane={noop} onClosePane={noop} onSetPaneZoom={onSetPaneZoom} />);
     const pane2 = () => document.querySelector('[data-pane-id="p2"]');
     const zoomCtl = () => [...pane2().querySelectorAll(".phn-pane-ctl")].find((c) => /zoom/i.test(c.title));
-    expect(zoomCtl().getAttribute("tabindex")).toBe("-1"); // hidden until hover: no invisible stop
     fireEvent.click(zoomCtl());
+    expect(onSetPaneZoom).toHaveBeenLastCalledWith("panel_1", "p2");
+    expect(zoomCtl().title).toBe("Zoom this pane to fill the tab"); // nothing local: unchanged until the parent says so
+    rerender(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={noop} onSplitPane={noop} onClosePane={noop} onSetPaneZoom={onSetPaneZoom} zoomedPaneId="p2" />);
     expect(zoomCtl().title).toBe("Restore split (un-zoom)");
-    expect(zoomCtl().closest(".phn-pane-controls").hasAttribute("data-zoomed")).toBe(true); // shown while zoomed
-    expect(zoomCtl().getAttribute("tabindex")).toBe("0");
-    // The other controls stay out of the Tab order (they have shortcuts).
-    for (const c of pane2().querySelectorAll(".phn-pane-ctl")) if (c !== zoomCtl()) expect(c.getAttribute("tabindex")).toBe("-1");
-    zoomCtl().focus();
-    fireEvent.keyDown(zoomCtl(), { key: "Enter" });
-    expect(zoomCtl().title).toBe("Zoom this pane to fill the tab");
-    expect(zoomCtl().getAttribute("tabindex")).toBe("-1");
-    // The cluster fades once un-zoomed, so focus must not stay on it (a second
-    // Enter would zoom again): it goes back to that pane's terminal.
-    expect(document.activeElement).toBe(screen.getByLabelText("terminal p2"));
+    expect(zoomCtl().closest(".phn-pane-controls").hasAttribute("data-zoomed")).toBe(true);
+    for (const c of document.querySelectorAll(".phn-pane-ctl")) expect(c.getAttribute("tabindex")).toBe("-1");
+    fireEvent.click(zoomCtl());
+    expect(onSetPaneZoom).toHaveBeenLastCalledWith("panel_1", null);
   });
 
   test("Enter and Space do what a click does", () => {

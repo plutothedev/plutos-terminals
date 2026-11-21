@@ -301,6 +301,8 @@ function TerminalPanel({
   onClosePane,
   onActivatePane,
   onSetPaneRatio,
+  zoomedPaneId = null,  // this panel's zoomed pane (hooks/usePaneZoom.js, owned by TerminalsTab)
+  onSetPaneZoom,        // (panelId, paneId | null): stable setter from usePaneZoom
 }) {
   // Bind this panel's id onto the parent's stable (panelId-first) callbacks so
   // the parent passes stable references and React.memo (below) can skip
@@ -408,7 +410,9 @@ function TerminalPanel({
   // Transient divider ratios during an active drag, keyed by splitId. Kept out
   // of app state so a drag doesn't hammer localStorage; committed on mouseup.
   const [dragRatios, setDragRatios] = useState({});
-  const [zoomedPaneId, setZoomedPaneId] = useState(null); // pane zoomed to fill its tab
+  // Zoom lives in TerminalsTab (usePaneZoom) so the command palette and the
+  // Terminal menu can toggle it too; the hover control below writes it here.
+  const setZoomedPaneId = (paneId) => onSetPaneZoom?.(panel.id, paneId);
   // Abort an in-flight tab/divider drag on unmount so document mousemove/mouseup
   // listeners (and, for tab-drag, the floating ghost + drop highlights) never
   // outlive the panel (audit L1). Each handler stores its AbortController here.
@@ -1160,16 +1164,17 @@ function TerminalPanel({
                     {/* role="button" spans, not <button>s, for the reason given at
                         activateOnKey (a UA button box would repaint them, and
                         the global button:focus ring would show on every click).
-                        tabIndex -1: the cluster is invisible until the pane is
-                        hovered, so a Tab stop here would be an invisible focus.
-                        Keyboard paths: split right, split down and close have
-                        the Panes shortcuts named in their titles (Ctrl+Shift+D,
-                        Ctrl+Shift+S, Ctrl+Shift+X, rebindable in Settings).
-                        Zoom has no shortcut, palette entry or menu item, so
-                        while the pane is zoomed (when the cluster is always
-                        shown, see data-zoomed) the zoom control is a Tab stop
-                        (tabIndex 0) and Enter/Space on it un-zooms. Zooming IN
-                        is mouse-only.
+                        tabIndex -1 on all four: the cluster is invisible until
+                        the pane is hovered, and even while it shows (zoomed) Tab
+                        cannot reach it, because it sits between xterm inputs and
+                        xterm keeps Tab. The keyboard paths are elsewhere:
+                        split right, split down and close have the Panes
+                        shortcuts named in their titles (Ctrl+Shift+D,
+                        Ctrl+Shift+S, Ctrl+Shift+X, rebindable in Settings);
+                        zoom has no key binding on purpose, and its keyboard
+                        path is the command palette's "Zoom pane" / "Restore
+                        split (un-zoom)" (also in the Terminal menu), which acts
+                        on the active pane through the same zoom state.
                         onMouseDown also calls preventDefault: a tabIndex -1
                         element takes focus on a click, and the cluster then
                         fades to opacity 0 with focus still on it, so a later
@@ -1203,7 +1208,7 @@ function TerminalPanel({
                           <span
                             className="phn-pane-ctl"
                             role="button"
-                            tabIndex={zoomed ? 0 : -1}
+                            tabIndex={-1}
                             onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1216,12 +1221,11 @@ function TerminalPanel({
                               e.currentTarget.closest(".phn-pane")?.querySelector(".xterm-helper-textarea")?.focus();
                             }}
                             onKeyDown={activateOnKey((ev) => {
+                              // Same as the click (this control is only focused
+                              // programmatically): focus ends in this pane's
+                              // terminal, never on a control that then fades.
                               setZoomedPaneId(zoomed ? null : node.id);
-                              // Un-zoomed from the keyboard: the cluster fades
-                              // and this control leaves the Tab order, so hand
-                              // focus to the pane's terminal rather than leave
-                              // it on an invisible control a second Enter re-fires.
-                              if (zoomed) ev.currentTarget.closest(".phn-pane")?.querySelector(".xterm-helper-textarea")?.focus();
+                              ev.currentTarget.closest(".phn-pane")?.querySelector(".xterm-helper-textarea")?.focus();
                             })}
                             title={zoomed ? "Restore split (un-zoom)" : "Zoom this pane to fill the tab"}
                           >

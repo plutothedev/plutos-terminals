@@ -14,6 +14,8 @@ import MobaMenuBar from "../MobaMenuBar.jsx";
 
 function MenuBar({
   addTab, addHomeTab, addNotebookTab, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
+  // Pane zoom (hooks/usePaneZoom.js): the same toggle as the palette's "Zoom pane".
+  canZoomActivePane, activePaneZoomed, toggleActivePaneZoom,
   // activePaneId is the id the PTY-facing actions must use (Summarize reads the
   // pane-keyed text buffer). See ModalHost's prop block / audit FE-1.
   activeTabId, activePaneId, activeTab, panels, activePanelId, switchTabRel,
@@ -87,6 +89,9 @@ function MenuBar({
         { label: "Split right", shortcut: "Ctrl+Shift+D", action: () => activeTabId && splitPane(activeTabId, activePaneId, "row") },
         { label: "Split down", shortcut: "Ctrl+Shift+S", action: () => activeTabId && splitPane(activeTabId, activePaneId, "col") },
         { label: "Equalize split sizes", disabled: !activeTab?.layout, action: () => activeTabId && equalizePanes(activeTabId) },
+        // Zoom's keyboard path, with the palette entry (no key binding on
+        // purpose). Disabled, not hidden, on a one-pane tab, like Equalize.
+        { label: activePaneZoomed ? "Restore split (un-zoom)" : "Zoom pane", disabled: !canZoomActivePane, action: () => toggleActivePaneZoom?.() },
         { divider: true },
         { label: "Close tab", shortcut: "Ctrl+Shift+W", action: () => { const p = panels.find((x) => x.id === activePanelId); if (p && p.tabs.length > 1 && p.activeTabId) closeTab(p.id, p.activeTabId); } },
         { divider: true },
@@ -162,6 +167,7 @@ function MenuBar({
     },
   ], [
     addTab, addHomeTab, newNotebook, openNotebook, addPanel, canAddPanel, splitPane, equalizePanes, closeTab,
+    canZoomActivePane, activePaneZoomed, toggleActivePaneZoom,
     activeTabId, activePaneId, activeTab, panels, activePanelId,
     activePanelTabCount, switchTabRel, activeSsh,
     toast, importSshConfig, selectRibbon, openTunnels,

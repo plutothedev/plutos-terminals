@@ -111,6 +111,16 @@
   text-transform: uppercase;
 }
 .phn-folder-header:hover { background: rgba(255, 255, 255, 0.04); color: var(--phn-text-active, #fff); }
+/* Keyboard focus ring INSIDE the full-width sidebar rows (folder headers,
+   and session rows in the collapsed rail, where the row itself is the
+   button). The global [role="button"]:focus-visible ring (src/styles.css)
+   sits 2px outside, and .phn-sidebar is overflow:hidden, so its left and
+   right edges were cut off on these rows. Inset like .moba-railcol and the
+   tab strip controls; the extra .phn-sidebar outranks the global rule
+   whatever order the stylesheets load in. :focus-visible only: no change
+   at rest or on a mouse click. */
+.phn-sidebar .phn-folder-header:focus-visible,
+.phn-sidebar .phn-session-row[role="button"]:focus-visible { outline-offset: -2px; }
 /* "User sessions" tree root — slightly brighter/bolder than category folders. */
 .phn-tree-root { color: var(--phn-text-fg, #cfcfcf); font-weight: 600; }
 .phn-tree-root .phn-folder-name { color: var(--phn-text-active, #fff); }

@@ -52,6 +52,8 @@ export function usePaletteCommands(args) {
     activeTabId, activePaneId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
     stopAndSaveRecording, startRecordingActive, persist, state, setActivePanel,
+    // pane zoom (hooks/usePaneZoom.js): the palette is zoom's keyboard path
+    canZoomActivePane, activePaneZoomed, toggleActivePaneZoom,
     // stable React-state setters (listed in the deps; stable, so harmless)
     setDialog, setSshKeysOpen, setMacrosOpen, setMasterPwOpen, setAskOpen,
     setAgentOpen, setSummary, setHistoryOpen, setWorkspacesOpen, setModelsOpen,
@@ -73,6 +75,15 @@ export function usePaletteCommands(args) {
     ...(activeTab?.layout ? [
       { id: "equalize-splits", icon: <SSplit size={14} />, label: "Equalize split sizes", hint: "Reset every divider in this tab to 50/50", action: () => equalizePanes(activeTabId) },
       { id: "close-pane", icon: <SSplit size={14} />, label: "Close active pane", hint: "Close the focused pane; its neighbor takes the space", shortcut: scOf("closePane"), action: () => closePane(activeTabId, activePaneId) },
+    ] : []),
+    // Zoom's keyboard path. Deliberately no key binding (a new global combo
+    // could collide with shell keys), and the pane's hover control cannot be
+    // reached by Tab (xterm keeps Tab). Listed only when the active tab has
+    // more than one pane; acts on the active pane and leaves focus in it.
+    ...(canZoomActivePane ? [
+      activePaneZoomed
+        ? { id: "zoom-pane", icon: <SLayout size={14} />, label: "Restore split (un-zoom)", hint: "Show every pane of this tab again", action: () => toggleActivePaneZoom() }
+        : { id: "zoom-pane", icon: <SLayout size={14} />, label: "Zoom pane", hint: "Fill the tab with the active pane; the others keep running underneath", action: () => toggleActivePaneZoom() },
     ] : []),
     { id: "add-panel", icon: "+", label: "Add panel", hint: canAddPanel ? "" : `Max ${MAX_PANELS} panels`, action: () => canAddPanel && addPanel() },
     { id: "ask", icon: <SAsk size={14} />, label: "Ask AI: plain English to command", hint: "Describe what you want; get a reviewable shell command", shortcut: scOf("askAi"), action: () => setAskOpen(true) },
@@ -180,6 +191,7 @@ export function usePaletteCommands(args) {
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
     stopAndSaveRecording, startRecordingActive, toast, confirm, flights,
     persist, state, setActivePanel,
+    canZoomActivePane, activePaneZoomed, toggleActivePaneZoom,
     // useState setters from TerminalsTab / useSimpleModals: stable, so listing
     // them never changes the array's identity.
     setDialog, setSshKeysOpen, setMacrosOpen, setMasterPwOpen, setAskOpen,

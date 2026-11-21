@@ -33,6 +33,7 @@ import { useBroadcastMode } from "./hooks/useBroadcastMode.js";
 import { useSnippets } from "./hooks/useSnippets.js";
 import { useSavedPrompts } from "./hooks/useSavedPrompts.js";
 import { useActiveTab } from "./hooks/useActiveTab.js";
+import { usePaneZoom } from "./hooks/usePaneZoom.js";
 import { useSimpleModals } from "./hooks/useSimpleModals.js";
 import { useTunnels } from "./hooks/useTunnels.js";
 import { useSessionSpawn } from "./hooks/useSessionSpawn.js";
@@ -560,6 +561,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // Active panel / tab derivation (plain, un-memoized — see useActiveTab). Sits
   // here so every reader below keeps the same declaration order.
   const { activeTabId, activeTab } = useActiveTab(state);
+  // Which pane each panel has zoomed. Owned here (not in TerminalPanel) so the
+  // command palette and the Terminal menu can toggle it for the active pane:
+  // they are zoom's keyboard path (see hooks/usePaneZoom.js).
+  const paneZoom = usePaneZoom(state);
 
   // THE id every "act on the active terminal" action must use. ptyBridge's
   // writers/readers, the recorder and the macro capture are keyed by PANE id
@@ -1129,6 +1134,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     activeTabId, activePaneId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
     stopAndSaveRecording, startRecordingActive, persist, state, setActivePanel,
+    canZoomActivePane: paneZoom.canZoomActivePane,
+    activePaneZoomed: paneZoom.activePaneZoomed,
+    toggleActivePaneZoom: paneZoom.toggleActivePaneZoom,
     setDialog, setSshKeysOpen, setMacrosOpen, setMasterPwOpen, setAskOpen,
     setAgentOpen, setSummary, setHistoryOpen, setWorkspacesOpen, setModelsOpen,
     setSerialOpen, setVncOpen, setRdpOpen, setRemoteOpen, setBroadcastGroupOpen,
@@ -1148,6 +1156,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         canAddPanel={canAddPanel}
         splitPane={splitPane}
         equalizePanes={equalizePanes}
+        canZoomActivePane={paneZoom.canZoomActivePane}
+        activePaneZoomed={paneZoom.activePaneZoomed}
+        toggleActivePaneZoom={paneZoom.toggleActivePaneZoom}
         closeTab={guardedCloseTab}
         activeTab={activeTab}
         activeSsh={activeSsh}
@@ -1322,6 +1333,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
               onClosePane={closePane}
               onActivatePane={activatePane}
               onSetPaneRatio={setPaneRatio}
+              zoomedPaneId={paneZoom.zoomedPanes[panel.id] ?? null}
+              onSetPaneZoom={paneZoom.setPaneZoom}
               onSplitDropTab={moveTabIntoSplit}
               saveUser={saveUser}
               notify={notify}

@@ -608,7 +608,10 @@ function ProjectSidebar({
             return (
               <div key={p.id}>
               <div
-                className={shakingIds.has(p.id) ? "tg-shake" : undefined}
+                // phn-session-row: terminals.css insets the keyboard focus ring
+                // on it when it is the button (collapsed rail, full width,
+                // where an outside ring is clipped by the sidebar's edges).
+                className={shakingIds.has(p.id) ? "phn-session-row tg-shake" : "phn-session-row"}
                 // The row is the mouse surface: click opens the session, drag
                 // drops it on a panel, double-click renames, right-click opens
                 // the menu. Its keyboard control is the session NAME below (a

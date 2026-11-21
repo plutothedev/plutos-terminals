@@ -18,6 +18,8 @@ import { render, fireEvent, cleanup, screen, act } from "@testing-library/react"
 
 vi.mock("@backend", () => ({ invoke: vi.fn(async () => null), listen: vi.fn(async () => () => {}), isTauri: () => true }));
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import ProjectSidebar from "./ProjectSidebar.jsx";
 import { setPaneActivity, setProjectIndex, __resetActivityStore } from "./activityStore.js";
 
@@ -214,5 +216,63 @@ describe("rename", () => {
     expect(input.value).toBe("Alpha");
     expect(input.selectionStart).toBe(0);
     expect(input.selectionEnd).toBe(5);
+  });
+});
+
+// Visual pass 2026-11-21: the global [role="button"]:focus-visible ring sits
+// 2px OUTSIDE the element, and the sidebar is overflow:hidden, so on a
+// full-width row (folder header; a session row in the collapsed rail) its left
+// and right edges were cut off. Those rows get an inset ring instead. Only the
+// :focus-visible state changes, so nothing moves at rest.
+describe("keyboard focus ring on full-width sidebar rows", () => {
+  const css = readFileSync(path.join(process.cwd(), "src/features/terminals/terminals.css"), "utf8").replace(/\r\n/g, "\n");
+  // Comments removed first: a comment above a rule is part of its "selector"
+  // text when the file is cut at each closing brace.
+  const stripComments = (t) => {
+    let out = "";
+    let i = 0;
+    for (;;) {
+      const a = t.indexOf("/*", i);
+      if (a < 0) return out + t.slice(i);
+      out += t.slice(i, a);
+      const e = t.indexOf("*/", a + 2);
+      i = e < 0 ? t.length : e + 2;
+    }
+  };
+  const rules = stripComments(css);
+  // The declarations of every rule whose selector list names this selector.
+  const declsFor = (selector) => rules.split("}").filter((chunk) => {
+    const head = chunk.slice(0, chunk.indexOf("{"));
+    return head.split(",").map((x) => x.trim()).includes(selector);
+  }).map((chunk) => chunk.slice(chunk.indexOf("{") + 1));
+  // Inset, with a selector more specific than the global (0,2,0) rule, so it
+  // wins whatever order the two stylesheets load in.
+  test.each([
+    ".phn-sidebar .phn-folder-header:focus-visible",
+    '.phn-sidebar .phn-session-row[role="button"]:focus-visible',
+  ])("%s draws its ring inside the row", (selector) => {
+    const decls = declsFor(selector).join(";");
+    expect(decls).toContain("outline-offset: -2px");
+  });
+
+  test("the folder header and a collapsed-rail row carry those classes inside .phn-sidebar", () => {
+    const { unmount } = render(<ProjectSidebar projects={projects} docked {...handlers()} />);
+    const header = screen.getByRole("button", { name: /Work/ });
+    expect(header.classList.contains("phn-folder-header")).toBe(true);
+    expect(header.closest(".phn-sidebar")).not.toBeNull();
+    unmount();
+    render(<ProjectSidebar projects={projects} collapsed {...handlers()} />);
+    const dotRow = screen.getByRole("button", { name: "Alpha" });
+    expect(dotRow.classList.contains("phn-session-row")).toBe(true);
+    expect(dotRow.closest(".phn-sidebar")).not.toBeNull();
+  });
+
+  test("the shake class still rides the row alongside it", () => {
+    act(() => { setPaneActivity("pa", "active"); });
+    render(<ProjectSidebar projects={projects} collapsed {...handlers()} />);
+    act(() => { setPaneActivity("pa", "done"); });
+    const dotRow = screen.getByRole("button", { name: "Alpha" });
+    expect(dotRow.classList.contains("tg-shake")).toBe(true);
+    expect(dotRow.classList.contains("phn-session-row")).toBe(true);
   });
 });
