@@ -1,7 +1,7 @@
 // (C)
 // RDP connection prompt. Password is handed to the RDP tab transiently via
 // ptyBridge (never persisted); username/host/port/domain ride on the tab.
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 
 const field = {
@@ -17,14 +17,42 @@ const field = {
 };
 const label = { fontSize: 10, letterSpacing: 0.5, color: "var(--phn-text-dim, #888)", marginBottom: 4, display: "block", textTransform: "uppercase" };
 
-export default function RdpConnectModal({ open, onConnect, onClose, initial = null, lockConnection = false, title, onSaveSession }) {
+// `targetId` names what the form is for: the saved session's project id, or
+// "quick" for Quick connect (ModalHost passes it). Without one, the key falls
+// back to every field of the target, so two saved sessions on one host and
+// port with different users still never share a form.
+function formKey(targetId, initial) {
+  if (targetId != null) return `id:${targetId}`;
+  if (!initial) return "quick";
+  return `t:${JSON.stringify([initial.host, initial.port, initial.username, initial.domain])}`;
+}
+
+export default function RdpConnectModal({ open, onConnect, onClose, initial = null, lockConnection = false, title, onSaveSession, targetId }) {
+  const key = formKey(targetId, initial);
+  const bodyRef = useRef(null);
+  // The key the form was last mounted under. A switch while open remounts the
+  // form, which unmounts the field that had focus and drops focus on <body>;
+  // Modal's own initial focus ran once, on open, and does not run again. So
+  // after a key change, apply the same data-autofocus rule here: focus the
+  // marked field, unless focus is already somewhere inside the dialog.
+  const shownKey = useRef(key);
+  useEffect(() => {
+    if (shownKey.current === key) return;
+    shownKey.current = key;
+    const root = bodyRef.current;
+    const dialog = root?.closest(".phn-modal");
+    if (!root || !dialog || dialog.contains(document.activeElement)) return;
+    const marked = root.querySelector('[data-autofocus]:not([data-autofocus="false"])');
+    marked?.focus();
+  }, [key]);
+
   if (!open) return null;
   return (
     <Modal open={open} title={title || "RDP connection"} onClose={onClose} width={460}>
       {/* Keyed on the target: a switch from one saved session to another (or
           to Quick connect) while open remounts the form, so a password typed
-          for one host can never be sent to another. */}
-      <RdpConnectBody key={initial ? `${initial.host}:${initial.port}` : "quick"} onConnect={onConnect} onClose={onClose} initial={initial} lockConnection={lockConnection} onSaveSession={onSaveSession} />
+          for one session can never be sent to another. */}
+      <RdpConnectBody key={key} rootRef={bodyRef} onConnect={onConnect} onClose={onClose} initial={initial} lockConnection={lockConnection} onSaveSession={onSaveSession} />
     </Modal>
   );
 }
@@ -32,7 +60,7 @@ export default function RdpConnectModal({ open, onConnect, onClose, initial = nu
 // Mounted fresh on every open, so the form starts from `initial` (a saved
 // session being launched, locked) or blank, and the typed password is dropped
 // with the component when the dialog closes.
-function RdpConnectBody({ onConnect, onClose, initial, lockConnection, onSaveSession }) {
+function RdpConnectBody({ rootRef, onConnect, onClose, initial, lockConnection, onSaveSession }) {
   const [host, setHost] = useState(initial?.host || "");
   const [port, setPort] = useState(initial?.port != null ? String(initial.port) : "3389");
   const [username, setUsername] = useState(initial?.username || "");
@@ -67,7 +95,7 @@ function RdpConnectBody({ onConnect, onClose, initial, lockConnection, onSaveSes
 
   return (
     <>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div ref={rootRef} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
             <label style={label} htmlFor={`${uid}-host`}>Host</label>

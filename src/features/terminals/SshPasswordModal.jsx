@@ -6,14 +6,16 @@
 import { useEffect, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 
-export default function SshPasswordModal({ open, host, user, onSubmit, onCancel }) {
+export default function SshPasswordModal({ open, host, user, onSubmit, onCancel, targetId }) {
   if (!open) return null;
   return (
     <Modal open={open} title="SSH password" onClose={onCancel} width={420}>
-      {/* Keyed on the target: if the prompt switches to another host while
-          open, the field remounts empty, so a password typed for host A is
-          never sent to host B. */}
-      <SshPasswordBody key={`${user}@${host}`} host={host} user={user} onSubmit={onSubmit} onCancel={onCancel} />
+      {/* Keyed on the target: if the prompt switches to another tab while
+          open, the field remounts empty, so a password typed for one
+          connection is never sent to another. `targetId` is the prompting
+          tab's id (ModalHost passes it): user@host alone matched two tabs on
+          one host with different ports. */}
+      <SshPasswordBody key={targetId != null ? `tab:${targetId}` : `${user}@${host}`} host={host} user={user} onSubmit={onSubmit} onCancel={onCancel} />
     </Modal>
   );
 }
@@ -52,9 +54,10 @@ function SshPasswordBody({ host, user, onSubmit, onCancel }) {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          // Enter only. Escape is Modal's (its window listener closes the
+          // topmost dialog); a second Escape branch here cancelled twice.
           onKeyDown={(e) => {
             if (e.key === "Enter") { e.preventDefault(); submit(); }
-            else if (e.key === "Escape") { e.preventDefault(); onCancel?.(); }
           }}
           placeholder="Password"
           spellCheck={false}

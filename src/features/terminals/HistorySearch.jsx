@@ -89,9 +89,11 @@ function HistoryBody({ history, onClose, onInsert, onRun }) {
           items.map((cmd, i) => (
             // Mouse path only: the keyboard path for the same action is the
             // filter field's arrows + Enter, with this row as its
-            // aria-activedescendant. The row never takes focus, so a key
-            // handler here would be dead code.
-            // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- keyboard selection lives on the filter input (aria-activedescendant points at this option); the option is never focused
+            // aria-activedescendant. The row never takes focus (its mousedown
+            // is cancelled below, so even a press that does not become a click
+            // leaves focus in the filter), so a key handler here would be dead
+            // code.
+            // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- keyboard selection lives on the filter input (aria-activedescendant points at this option); the option is never focused (onMouseDown prevents the focus a tabIndex -1 element would take)
             <div
               key={`${cmd}\u0000${i}`}
               id={optionId(i)}
@@ -101,6 +103,7 @@ function HistoryBody({ history, onClose, onInsert, onRun }) {
               // -1: an option must be focusable for jsx-a11y, but it is never
               // in the Tab order (focus stays on the filter field).
               tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => choose(cmd, false)}
               onMouseEnter={() => setSel(i)}
               title={`Enter = insert · ${modCombo("Enter")} = run`}

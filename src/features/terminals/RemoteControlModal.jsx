@@ -140,6 +140,17 @@ export default function RemoteControlModal({ open, onClose }) {
     if (node && !node.contains(document.activeElement)) node.focus();
     return () => { if (prev && typeof prev.focus === "function") prev.focus(); };
   }, [open]);
+  // Start and Stop disable the button they were pressed on and then swap it
+  // for the other one, so focus falls to <body> exactly while the token and
+  // QR are on screen, and Escape (which only reaches this dialog from inside
+  // the card) stops closing it. When a press settles, pull focus back to the
+  // card if it is no longer inside. Declared after the open effect, so on open
+  // that effect has already moved focus in and this one does nothing.
+  useEffect(() => {
+    if (!open || busy) return;
+    const node = cardRef.current;
+    if (node && !node.contains(document.activeElement)) node.focus();
+  }, [open, busy]);
 
   const start = async () => {
     setBusy(true); setErr("");

@@ -1,6 +1,7 @@
 // (C)
 import { useEffect, useId, useRef, useState } from "react";
 import { invoke } from "@backend";
+import { focusablesIn } from "../../components/Modal.jsx";
 import { SLocal, SSsh, SWindows, SMouse } from "./toolbarIcons.jsx";
 
 const BG = "var(--phn-surface-bg, #181818)";
@@ -64,16 +65,24 @@ function sessionType(initial) {
 // mounted while the dialog is open, so every open starts from `initial` (the
 // old reset-on-open effect set a dozen states synchronously after mount).
 //
-// Keyed on the session being edited, so switching straight from one session to
-// another while the dialog is open remounts the form from the new `initial`
-// instead of carrying the first session's typed fields into the second.
+// Keyed on the dialog session (`dialogKey`, which ModalHost derives from the
+// dialog request: "edit:<id>" or "add:<preset type>"), so switching straight
+// from one session to another while the dialog is open remounts the form from
+// the new `initial` instead of carrying the first session's typed fields into
+// the second. It is NOT keyed on `initial` itself: if the session being edited
+// disappears while the dialog is open (deleted elsewhere, a sync), `initial`
+// turns null, and a key read from it would wipe the typed fields and flip the
+// form to Add. Without a dialogKey the key falls back to `initial`.
 export default function ProjectDialog(props) {
   if (!props.open) return null;
-  const { initial } = props;
-  return <ProjectDialogForm key={initial?.id ?? `new:${initial?.type ?? ""}`} {...props} />;
+  const { initial, dialogKey } = props;
+  return <ProjectDialogForm key={dialogKey ?? initial?.id ?? `new:${initial?.type ?? ""}`} {...props} />;
 }
 
 function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
+  // Edit or Add, fixed for this form's life like every other field seeded
+  // from `initial` below, so a session vanishing mid-edit does not relabel it.
+  const [editing] = useState(!!initial);
   const t0 = sessionType(initial);
   const c0 = initial?.connection || {};
   const r0 = initial?.rdp || {};
@@ -124,6 +133,23 @@ function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
     }
     return () => { if (prev && typeof prev.focus === "function") prev.focus(); };
   }, []);
+
+  // Escape closes; Tab and Shift+Tab wrap at the ends, the same trap as
+  // Modal.jsx's onTrapKey (same focusablesIn, so the two agree on what
+  // counts as focusable). Tab between the ends is left to the browser.
+  const onBackdropKey = (e) => {
+    if (e.key === "Escape") { onClose(); return; }
+    if (e.key !== "Tab") return;
+    const node = dialogRef.current;
+    if (!node) return;
+    const items = focusablesIn(node);
+    if (items.length === 0) { e.preventDefault(); node.focus(); return; }
+    const firstEl = items[0];
+    const lastEl = items[items.length - 1];
+    if (document.activeElement === node) { e.preventDefault(); (e.shiftKey ? lastEl : firstEl).focus(); }
+    else if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+    else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+  };
 
 
   const browse = async () => {
@@ -285,10 +311,12 @@ function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
         downOnBackdrop.current = false;
         if (close) onClose();
       }}
-      // Escape is the keyboard path to close. On the backdrop (as in Modal.jsx)
-      // because jsx-a11y treats role="dialog" as non-interactive; the backdrop
-      // never takes focus, so every keydown here came up through the dialog.
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+      // Escape is the keyboard path to close, and Tab is trapped inside the
+      // dialog (what aria-modal="true" below promises). Both on the backdrop
+      // (as in Modal.jsx) because jsx-a11y treats role="dialog" as
+      // non-interactive; the backdrop never takes focus, so every keydown here
+      // came up through the dialog.
+      onKeyDown={onBackdropKey}
     >
       <div
         ref={dialogRef}
@@ -313,7 +341,7 @@ function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
         }}
       >
         <div id={`${uid}-title`} style={{ fontSize: 13, color: FG_ACTIVE, marginBottom: 14, letterSpacing: 0.5 }}>
-          {initial ? "EDIT SESSION" : "ADD SESSION"}
+          {editing ? "EDIT SESSION" : "ADD SESSION"}
         </div>
 
         {/* Type selector */}
@@ -617,7 +645,7 @@ function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
               cursor: canSave ? "pointer" : "not-allowed",
             }}
           >
-            {initial ? "Save" : "Add"}
+            {editing ? "Save" : "Add"}
           </button>
         </div>
       </div>

@@ -135,6 +135,7 @@ function ModalHost({
         <RdpConnectModal
           open={rdpOpen || !!rdpLaunch}
           initial={rdpLaunch?.project?.rdp || null}
+          targetId={rdpLaunch ? rdpLaunch.project.id : "quick"}
           lockConnection={!!rdpLaunch}
           title={rdpLaunch ? `Connect: ${rdpLaunch.project.name}` : undefined}
           onConnect={rdpLaunch ? launchRdp : connectRdp}
@@ -146,6 +147,7 @@ function ModalHost({
       {(!!dialog) && (
         <ProjectDialog
           open={!!dialog}
+          dialogKey={dialog.mode === "edit" ? `edit:${dialog.projectId}` : `add:${dialog.initialType ?? ""}`}
           initial={dialogInitial}
           existingFolders={[...new Set(projects.map((p) => p.folder).filter(Boolean))]}
           onClose={() => setDialog(null)}
@@ -156,6 +158,7 @@ function ModalHost({
       {(!!sshPrompt) && (
         <SshPasswordModal
           open={!!sshPrompt}
+          targetId={sshPrompt?.tab?.id}
           host={sshPrompt?.project?.connection?.host}
           user={sshPrompt?.project?.connection?.user}
           onSubmit={submitSshPassword}

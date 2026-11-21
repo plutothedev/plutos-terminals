@@ -78,6 +78,10 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
   // a second Ctrl+S during a slow write is refused even before the re-render
   // that would show "Saving…" has committed.
   const savingRef = useRef(false);
+  // The buffer the in-flight save is writing (null when none is). Close
+  // compares it with the current text: only edits that save covers may skip
+  // the discard confirm.
+  const inFlightRef = useRef(null);
   const textRef = useRef("");
   // Latest buffer for save(), written after every commit and read from handlers.
   useLayoutEffect(() => { textRef.current = text; });
@@ -111,14 +115,21 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
 
   // A promise chain rather than async/await: the mutex is taken here and
   // released in the chain's finally, the only two writers of savingRef.
+  //
+  // Nothing to save while the file is still loading or failed to load: the
+  // buffer is the empty placeholder then, and writing it would replace the
+  // remote file with an empty one. Nor when the buffer is clean, which is
+  // what the Save button already says by being disabled.
   const save = () => {
     if (savingRef.current || !sessionId || !path) return undefined;
+    if (loading || error || !dirty) return undefined;
     savingRef.current = true;
     setSaving(true);
     // Snapshot the buffer at call time; re-reading textRef after the write
     // would mark keystrokes typed during a slow save as already-saved and lose
     // them.
     const snapshot = textRef.current;
+    inFlightRef.current = snapshot;
     // new Promise(...) so a synchronous throw from invoke is still caught below.
     return new Promise((resolve) => resolve(invoke("sftp_write_file", { id: sessionId, path, content: snapshot })))
       .then(() => {
@@ -130,6 +141,7 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
       })
       .finally(() => {
         savingRef.current = false;
+        inFlightRef.current = null;
         setSaving(false);
       });
   };
@@ -148,9 +160,13 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
   }, []);
 
   // Never discard unsaved edits silently (audit C4): Escape / backdrop / ✕ all
-  // route through Modal's onClose, so gate it behind a confirm when dirty.
+  // route through Modal's onClose, so gate it behind a confirm when dirty. A
+  // save in flight excuses the confirm only when it is writing exactly the
+  // text on screen; keystrokes typed after its snapshot are not covered by it.
+  // (If that covering save then fails, its error toast still reports it.)
   const requestClose = async () => {
-    if (dirty && !saving) {
+    const covered = savingRef.current && inFlightRef.current === textRef.current;
+    if (dirty && !covered) {
       const ok = await confirm(
         `"${name}" has unsaved changes. Close and discard them?`,
         { title: "Discard changes?", confirmLabel: "Discard", destructive: true }
