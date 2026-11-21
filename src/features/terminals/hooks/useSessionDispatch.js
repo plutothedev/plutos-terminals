@@ -13,7 +13,7 @@
 // git-worktree launch entry points. No secret ever lands in app state —
 // passwords go to the ptyBridge (transient) / OS keychain only.
 
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { invoke } from "@backend";
 import { setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
@@ -36,10 +36,13 @@ export function useSessionDispatch({
   // stable across persists. Pre-migration, openProjectInPanel re-minted on
   // every workspace mutation, which churned homeApi and busted every panel
   // memo on every tab switch (plan-audit H3).
+  // Written at commit (layout effect), not during render: see useWorkspaceTree.
   const stateRef = useRef(state);
-  stateRef.current = state;
   const projectsRef = useRef(projects);
-  projectsRef.current = projects;
+  useLayoutEffect(() => {
+    stateRef.current = state;
+    projectsRef.current = projects;
+  });
 
   // FR-012: if a saved session already has an open tab, focus it instead of
   // opening a second connection. Returns true if an existing tab was focused.
@@ -167,7 +170,7 @@ export function useSessionDispatch({
       startCommands: cmds,
       projectId: project.id,
     });
-  }, [toast, spawnSessionTab, focusExistingProjectTab, getSessionPassword]);
+  }, [toast, spawnSessionTab, focusExistingProjectTab, getSessionPassword, setSshPrompt, setVncLaunch, setRdpLaunch]);
 
   const runProjectScript = useCallback((projectId, scriptName) => {
     openProjectInPanel(stateRef.current.activePanelId, projectId, [`npm run ${scriptName}`]);

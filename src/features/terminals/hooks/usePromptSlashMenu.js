@@ -13,8 +13,11 @@
 // ONE clamped read of it (via clampIndex, imported from PromptSlashMenu.jsx),
 // so the two call sites structurally cannot diverge — there's only one
 // `selectedIndex` in existence per render.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { filterPrompts, menuKeyAction, clampIndex } from "../PromptSlashMenu.jsx";
+
+// Shared empty list for the closed menu, so `filtered` keeps one identity.
+const NO_PROMPTS = Object.freeze([]);
 
 export function usePromptSlashMenu({ value, setValue, prompts }) {
   const [closed, setClosed] = useState(false);
@@ -29,7 +32,12 @@ export function usePromptSlashMenu({ value, setValue, prompts }) {
   // normally.
   const open = !closed && v.startsWith("/") && hasPrompts;
 
-  const filtered = open ? filterPrompts(prompts, v.slice(1)) : [];
+  // Memoized so `select` / `onKeyDown` keep their identities across renders
+  // that do not change the inputs (a fresh array each render re-minted them).
+  const filtered = useMemo(
+    () => (open ? filterPrompts(prompts, v.slice(1)) : NO_PROMPTS),
+    [open, prompts, v]
+  );
 
   // THE clamp — same function PromptSlashMenu's render uses for its own
   // defensive re-clamp, applied here to the same `filtered` array. This is the
@@ -42,11 +50,15 @@ export function usePromptSlashMenu({ value, setValue, prompts }) {
   // delete or a sync merge lands while the menu is open, with no keystroke to
   // trigger handleChange. Without this the raw index could sit far out of
   // range indefinitely and "resurrect" a stale position if the list later
-  // grows back to cover it.
-  useEffect(() => {
+  // grows back to cover it. Adjusted during render (React's "store
+  // information from previous renders" pattern) instead of in an effect, so
+  // the stored index is already clamped on the render that sees the new
+  // length, with no extra commit.
+  const [clampedForLength, setClampedForLength] = useState(filtered.length);
+  if (clampedForLength !== filtered.length) {
+    setClampedForLength(filtered.length);
     setRawIndex((i) => clampIndex(i, filtered.length));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered.length]);
+  }
 
   const close = useCallback(() => setClosed(true), []);
 

@@ -13,7 +13,7 @@
 // whose .current is set to selectRibbon each render once selectRibbon exists) and
 // invoked only from the post-render callback body.
 
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { invoke } from "@backend";
 import { freshId } from "../ids.js";
 import { humanizeError } from "../errorText.js";
@@ -24,10 +24,13 @@ export function useProjects({ state, persist, projects, toast, selectRibbonRef }
   // across persists — the old [state, persist, projects] deps re-minted every
   // handler on every workspace mutation and busted the sidebar/panel memos
   // (the "already stable" comment in TerminalsTab was false).
+  // Written at commit (layout effect), not during render: see useWorkspaceTree.
   const stateRef = useRef(state);
-  stateRef.current = state;
   const projectsRef = useRef(projects);
-  projectsRef.current = projects;
+  useLayoutEffect(() => {
+    stateRef.current = state;
+    projectsRef.current = projects;
+  });
 
   const upsertProject = useCallback((data, editingId) => {
     const projects = projectsRef.current;

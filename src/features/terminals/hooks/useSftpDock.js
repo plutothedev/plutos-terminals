@@ -74,7 +74,7 @@ export function useSftpDock({ ssh, dockTab, setDockTab }) {
   // The right dock (SFTP / Assistant / Monitor) is always open — focusing the
   // SFTP tab is what "F4 / file browser" does now. SFTP itself connects/
   // disconnects automatically with the active SSH tab via the effect below.
-  const focusFilesDock = useCallback(() => setDockTab("files"), []);
+  const focusFilesDock = useCallback(() => setDockTab("files"), [setDockTab]);
 
   // Keep the SFTP browser bound to the active SSH context: connect remote SFTP
   // when there is one, disconnect (so we don't leak it) otherwise. Key on a

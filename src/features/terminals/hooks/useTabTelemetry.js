@@ -11,24 +11,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getLayout, leafIds, leaves } from "../splitTree";
 import { allRenderedPaneIds, isSpecialTab } from "../paneIds.js";
 
-// Identity-stable shallow-map memo (P2-T2): recomputes per deps like useMemo,
-// but hands back the PREVIOUS object when the contents are shallow-equal —
-// plain-object shallow equality with a key-count check (covers deletion).
-function useStableMap(compute, deps) {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const value = useMemo(compute, deps);
-  const prevRef = useRef(value);
-  const prev = prevRef.current;
-  let out = value;
-  if (prev !== value) {
-    const pk = Object.keys(prev);
-    const vk = Object.keys(value);
-    if (pk.length === vk.length && vk.every((k) => prev[k] === value[k])) {
-      out = prev;
-    }
-  }
-  prevRef.current = out;
-  return out;
+// Plain-object shallow equality with a key-count check (covers deletion).
+function shallowEqualMap(a, b) {
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  return ak.length === bk.length && bk.every((k) => a[k] === b[k]);
+}
+
+// Identity-stable shallow map (P2-T2): takes a map the caller memoized with
+// useMemo (so it recomputes exactly when that memo's deps change) and hands
+// back the PREVIOUS object when the new one is shallow-equal. The previous
+// object is kept in state, not a ref read during render, and replaced during
+// render when the contents really differ (React's "store information from
+// previous renders" pattern): that re-runs this component's body once before
+// its children render, only on a real content change, never on an equal
+// rebuild or a cost tick.
+function useStableMap(value) {
+  const [stable, setStable] = useState(value);
+  if (stable === value || shallowEqualMap(stable, value)) return stable;
+  setStable(value);
+  return value;
 }
 
 // Rollup precedence when several tabs map to one project (or one summary row).
@@ -138,7 +140,7 @@ export function useTabTelemetry({ state, projects }) {
   // shallow-equal — returning the PREVIOUS object then keeps the panel memos
   // holding across unrelated tab switches. A real toggle/rename changes the
   // contents, so a fresh identity flows and the affected panes re-render.
-  const tabAutoApprove = useStableMap(() => {
+  const tabAutoApproveMap = useMemo(() => {
     const ap = {};
     for (const panel of state.panels) {
       for (const tab of panel.tabs) {
@@ -150,7 +152,8 @@ export function useTabTelemetry({ state, projects }) {
     }
     return ap;
   }, [state.panels, projects]);
-  const tabProjectNames = useStableMap(() => {
+  const tabAutoApprove = useStableMap(tabAutoApproveMap);
+  const tabProjectNamesMap = useMemo(() => {
     const names = {};
     for (const panel of state.panels) {
       for (const tab of panel.tabs) {
@@ -162,13 +165,14 @@ export function useTabTelemetry({ state, projects }) {
     }
     return names;
   }, [state.panels, projects]);
+  const tabProjectNames = useStableMap(tabProjectNamesMap);
   // Pane-id -> display title for pickers (the notebook target-pane dropdown —
   // copy-sweep bug fix 3, which previously showed raw internal ids). Split
   // panes read "label · N"; untitled tabs fall back to "Terminal N". Stable-map
   // (copy-sweep review WARNING): a switchTab persist rebuilds equal content —
   // the previous identity holds so TerminalPanel's memo doesn't bust; a real
   // rename/split/close changes contents and flows a fresh identity.
-  const paneTitles = useStableMap(() => {
+  const paneTitlesMap = useMemo(() => {
     const map = {};
     let n = 0;
     for (const panel of state.panels) {
@@ -182,6 +186,7 @@ export function useTabTelemetry({ state, projects }) {
     }
     return map;
   }, [state.panels]);
+  const paneTitles = useStableMap(paneTitlesMap);
 
   // Aggregate cost across all CURRENTLY-OPEN tabs/panes. tabCosts is never pruned
   // on close, so summing it raw keeps counting finished sessions (and double-counts

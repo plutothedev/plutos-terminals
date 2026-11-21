@@ -106,6 +106,12 @@ async function applyNativeTitle(title) {
   } catch {
     // browser / phone transport — document.title is all we have
   } finally {
+    // Only the call that set titleInFlight = true reaches here (every other
+    // call returned before its first await), and the drain loop has just seen
+    // titlePending === null with no await since, so clearing is never stale.
+    // Moving the clear into a .finally() callback to quiet the rule would open
+    // a microtask gap where a new title is queued but no drain runs.
+    // eslint-disable-next-line require-atomic-updates -- single-owner flag: only the drain that set it clears it, synchronously after its last await
     titleInFlight = false;
   }
 }

@@ -8,7 +8,7 @@
 // app state. setSshPrompt is returned so the grid's openProjectInPanel can open
 // the prompt for a saved password-auth session.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import { setTabPassword } from "../ptyBridge.js";
 import { sshAccount } from "../sshAccount.js";
@@ -19,8 +19,9 @@ export function useSshConnect({ state, spawnSessionTab, toast }) {
   // Live state for post-await reads: the keychain lookup below is async, and the
   // user can switch panels while it's in flight — a captured state.activePanelId
   // would spawn the tab in the panel active at CLICK time, not now (audit M7).
+  // Written at commit (layout effect), not during render: see useWorkspaceTree.
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useLayoutEffect(() => { stateRef.current = state; });
   // SSH password prompt: { panelId, tab, project } or null. On submit, stash the
   // password transiently in the bridge (keyed by the pending tab id) and create
   // the tab — TerminalPane reads the password at ssh_spawn time.

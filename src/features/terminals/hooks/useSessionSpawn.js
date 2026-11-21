@@ -8,15 +8,16 @@
 // app-run-lifetime ONLY, NEVER persisted (FR-008); the ref stays internal and
 // only the three accessors are returned.
 
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 
 export function useSessionSpawn({ state, persist }) {
   // Read the LATEST committed state via a ref, not the render-time closure: launch
   // paths call spawnSessionTab AFTER an async keychain/worktree IPC, and a concurrent
   // grid mutation during that await would otherwise be reverted by a stale-snapshot
   // persist (the H7 lost-update class; the same fix useWorkspaceTree already uses).
+  // Written at commit (layout effect), not during render: see useWorkspaceTree.
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useLayoutEffect(() => { stateRef.current = state; });
   // Append a tab to a panel and make it active. Shared by the local and SSH
   // paths. `extra` carries SSH-only fields (connection); the password (if any)
   // is recorded transiently in the bridge by the caller, never on the tab.

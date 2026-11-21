@@ -9,7 +9,7 @@
 // that touches localStorage / spawn_new_window. toast is injected for detachTab's
 // user feedback.
 
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { invoke } from "@backend";
 import { clearTabPassword, getTabPassword, setTabPassword } from "../ptyBridge.js";
 import { markNotebookNew } from "../NotebookView.jsx";
@@ -46,8 +46,12 @@ export function useWorkspaceTree({ state, persist, toast }) {
   // — would otherwise persist a pre-await/pre-update snapshot and silently
   // revert concurrent changes (lost update). Ref = always current; it also keeps
   // every callback's identity stable (no `state` in the dep arrays).
+  // Written in a layout effect, not during render: a render React discards
+  // (StrictMode, an interrupted concurrent render) must not leak its state
+  // into the handlers. Layout effects run in the commit, before any event or
+  // passive effect can call a handler, so handlers still see the committed tree.
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useLayoutEffect(() => { stateRef.current = state; });
 
   // ── Panel / tab mutations ──────────────────────────────────────────
 

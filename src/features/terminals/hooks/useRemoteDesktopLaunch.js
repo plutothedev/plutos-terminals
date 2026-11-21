@@ -37,7 +37,7 @@ export function useRemoteDesktopLaunch({
       serial: { path, baud },
     });
     setSerialOpen(false);
-  }, [state.activePanelId, spawnSessionTab]);
+  }, [state.activePanelId, spawnSessionTab, setSerialOpen]);
 
   // `vncOpen` (useSimpleModals) = ephemeral quick-connect; `vncLaunch` =
   // { panelId, project } when opening a SAVED VNC session (the modal then acts
@@ -55,7 +55,7 @@ export function useRemoteDesktopLaunch({
       vnc: { host, port },
     });
     setVncOpen(false);
-  }, [state.activePanelId, spawnSessionTab]);
+  }, [state.activePanelId, spawnSessionTab, setVncOpen]);
   const launchVnc = useCallback(({ password }) => {
     if (!vncLaunch) return;
     const { panelId, project } = vncLaunch;
@@ -83,7 +83,7 @@ export function useRemoteDesktopLaunch({
       rdp: { host, port, username, domain },
     });
     setRdpOpen(false);
-  }, [state.activePanelId, spawnSessionTab]);
+  }, [state.activePanelId, spawnSessionTab, setRdpOpen]);
   const launchRdp = useCallback(({ password }) => {
     if (!rdpLaunch) return;
     const { panelId, project } = rdpLaunch;
