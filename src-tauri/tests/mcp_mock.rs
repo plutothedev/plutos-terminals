@@ -116,39 +116,148 @@ fn kill(pid: u32) {
     let _ = std::process::Command::new("kill").args(["-9", &pid.to_string()]).output();
 }
 
-#[tokio::test]
-async fn a_launcher_that_times_out_takes_its_child_server_with_it() {
-    // npx, uvx and `cmd /c` start the real server as a child of their own.
-    // A handshake timeout (or an eviction) drops the transport; the whole
-    // process tree must go, not only the launcher.
-    let server = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/silent_server_pid.mjs");
-    let pid_file = std::env::temp_dir().join(format!("mcp-grandchild-{}.pid", std::process::id()));
-    let _ = std::fs::remove_file(&pid_file);
-    let pid_path = pid_file.to_string_lossy().into_owned();
-    // The shell is the direct child and the node server its child.
-    #[cfg(windows)]
-    let (launcher, args) = ("cmd", ["/c".to_string(), "node".into(), server.into(), pid_path]);
-    #[cfg(unix)]
-    let (launcher, args) = ("sh", ["-c".to_string(), "node \"$0\" \"$1\"; true".into(), server.into(), pid_path]);
-    let out = tokio::time::timeout(
-        GUARD,
-        McpConn::connect_stdio_within("launcher".into(), launcher, &args, &Default::default(), Duration::from_secs(3)),
-    )
-    .await
-    .expect("connect_stdio_within hung past its limit (needs node on PATH)");
-    assert!(out.is_err(), "the launcher never answers initialize");
-    let pid: u32 = std::fs::read_to_string(&pid_file)
-        .expect("the launcher never started its child")
-        .trim()
-        .parse()
-        .unwrap();
-    let _ = std::fs::remove_file(&pid_file);
-    // The kill runs on a spawned task after the drop; give it a moment.
-    let deadline = Instant::now() + Duration::from_secs(5);
+/// How long a test waits for a pid file. A cold `node` start on a loaded
+/// machine has taken more than 3 s; a warm one writes the file at once.
+const PID_FILE_WAIT: Duration = Duration::from_secs(15);
+
+/// Poll for a pid file until it has content or PID_FILE_WAIT passes.
+async fn read_pid_file(path: &std::path::Path) -> Option<String> {
+    let deadline = Instant::now() + PID_FILE_WAIT;
+    loop {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if !text.trim().is_empty() {
+                return Some(text);
+            }
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// Poll until `pid` is gone or `within` passes; whether it is still alive.
+async fn alive_after(pid: u32, within: Duration) -> bool {
+    let deadline = Instant::now() + within;
     while alive(pid) && Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let survived = alive(pid);
+    alive(pid)
+}
+
+/// A fresh pid file path for one test (several run at once).
+fn pid_path(tag: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("mcp-{tag}-{}.pid", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    path
+}
+
+/// The shell launcher that runs `node <args>` as its own child: `cmd /c` on
+/// Windows, `sh -c` elsewhere, the shape of a server started by `cmd /c`,
+/// `npx` or `uvx`. The shell is the app's direct child, node the grandchild.
+fn through_a_shell(node_args: &[String]) -> (&'static str, Vec<String>) {
+    #[cfg(windows)]
+    {
+        let mut args = vec!["/c".to_string(), "node".to_string()];
+        args.extend(node_args.iter().cloned());
+        ("cmd", args)
+    }
+    #[cfg(unix)]
+    {
+        let mut args = vec!["-c".to_string(), "node \"$@\"; true".to_string(), "sh".to_string()];
+        args.extend(node_args.iter().cloned());
+        ("sh", args)
+    }
+}
+
+#[tokio::test]
+async fn a_launcher_dropped_mid_handshake_takes_its_child_server_with_it() {
+    // A handshake that runs out of time drops the transport, and so does an
+    // eviction; the whole process tree must go, not only the launcher. The
+    // handshake future is dropped here as soon as the server is up, which is
+    // exactly what its timeout does on expiry (tokio::time::timeout drops the
+    // future it wraps), so a cold node start cannot outlast a short bound and
+    // a warm one does not wait out a long one.
+    let server = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/silent_server_pid.mjs");
+    let pid_file = pid_path("grandchild");
+    let (launcher, args) = through_a_shell(&[server.to_string(), pid_file.to_string_lossy().into_owned()]);
+    let env = std::collections::BTreeMap::new();
+    // Boxed, not tokio::pin!ed: dropping a pinned reference would leave the
+    // future, and the transport it owns, alive to the end of the scope.
+    let mut connect = Box::pin(McpConn::connect_stdio_within("launcher".into(), launcher, &args, &env, PID_FILE_WAIT));
+    let pid = tokio::select! {
+        out = &mut connect => {
+            assert!(out.is_err(), "the launcher never answers initialize");
+            read_pid_file(&pid_file).await
+        }
+        pid = read_pid_file(&pid_file) => pid,
+    };
+    drop(connect);
+    let pid: u32 = pid.expect("the launcher never started its child (needs node on PATH)").trim().parse().unwrap();
+    let _ = std::fs::remove_file(&pid_file);
+    // The kill runs on a spawned task after the drop; give it a moment.
+    let survived = alive_after(pid, Duration::from_secs(10)).await;
     kill(pid);
-    assert!(!survived, "the launcher's child server (pid {pid}) outlived the timed-out connection");
+    assert!(!survived, "the launcher's child server (pid {pid}) outlived the dropped connection");
+}
+
+#[tokio::test]
+async fn a_hung_server_behind_a_launcher_dies_with_its_tree_when_dropped() {
+    // A live connection whose server stopped answering (a call ran out of
+    // time) and does not exit when its stdin closes: dropping it, as an
+    // eviction does, waits out rmcp's grace period and then kills the whole
+    // tree, the real server behind the launcher included.
+    let pid_file = pid_path("hung");
+    let (launcher, args) = through_a_shell(&[
+        FIXTURE.to_string(),
+        "--hang-call".into(),
+        "--ignore-eof".into(),
+        "--pid-file".into(),
+        pid_file.to_string_lossy().into_owned(),
+    ]);
+    let conn = tokio::time::timeout(
+        GUARD,
+        McpConn::connect_stdio_within("hung".into(), launcher, &args, &Default::default(), PID_FILE_WAIT),
+    )
+    .await
+    .expect("connect hung past its limit")
+    .expect("connect the mock through a launcher (needs node on PATH)");
+    let pid: u32 = read_pid_file(&pid_file).await.expect("the server wrote no pid").trim().parse().unwrap();
+    let _ = std::fs::remove_file(&pid_file);
+    let e = conn.call_tool_within("echo", serde_json::json!({}), SHORT).await.expect_err("a hung call answered");
+    assert!(e.contains("timed out after"), "{e}");
+    assert!(conn.unusable());
+    drop(conn);
+    // rmcp drains for up to 2 s, closes stdin, waits up to 3 s, then kills.
+    let survived = alive_after(pid, GUARD).await;
+    kill(pid);
+    assert!(!survived, "the hung server (pid {pid}) behind the launcher outlived its dropped connection");
+}
+
+#[tokio::test]
+async fn a_server_that_exits_on_close_leaves_what_it_launched_running() {
+    // A tool opened something of its own (a browser, an editor). Closing the
+    // connection normally closes the server's stdin and it exits by itself;
+    // nothing it launched is killed, as before v0.7.6. Only a server that
+    // does not exit is killed, tree and all (the test above).
+    let pid_file = pid_path("spawner");
+    let args = [FIXTURE.to_string(), "--spawn-child".into(), pid_file.to_string_lossy().into_owned()];
+    let conn = McpConn::connect_stdio("spawner".into(), "node", &args, &Default::default())
+        .await
+        .expect("connect mock (needs node on PATH)");
+    let pids = read_pid_file(&pid_file).await.expect("the server wrote no pids");
+    let _ = std::fs::remove_file(&pid_file);
+    let mut pids = pids.split_whitespace().map(|p| p.parse::<u32>().unwrap());
+    let (server, child) = (pids.next().unwrap(), pids.next().unwrap());
+    assert!(alive(child), "the server's own process never started");
+    drop(conn);
+    let server_lived = alive_after(server, GUARD).await;
+    // The server is gone; give a kill that follows its exit (a job closed
+    // with kill-on-close) time to land before looking at what it launched.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let child_lived = alive(child);
+    kill(server);
+    kill(child);
+    assert!(!server_lived, "the server did not exit when its stdin closed");
+    assert!(child_lived, "closing the connection killed a process the server launched (pid {child})");
 }

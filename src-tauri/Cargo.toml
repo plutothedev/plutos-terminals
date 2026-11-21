@@ -126,12 +126,13 @@ reqwest013 = { package = "reqwest", version = "0.13", default-features = false, 
 # mcp/client.rs installs ring, as the updater does. Same version and feature
 # the updater already uses.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
-# Named directly only to hand rmcp's stdio transport a command that kills the
-# server's whole process tree (mcp/client.rs connect_stdio_within): a Job Object
-# on Windows, a process group on unix. rmcp 3.11 already pulls in this exact
-# version with its default features, so nothing new is compiled; the features
-# listed are the ones the app relies on.
-process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "job-object", "kill-on-drop", "process-group"] }
+# Named directly only to hand rmcp's stdio transport a command whose kill ends
+# the server's whole process tree (mcp/client.rs stdio_command): a Job Object
+# on Windows, a process group on unix, and CREATE_NO_WINDOW on Windows. rmcp
+# 3.11 already pulls in this exact version with its default features, so
+# nothing new is compiled; the features listed are the ones the app relies on.
+# kill-on-drop is deliberately not one of them: see stdio_command.
+process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "job-object", "creation-flags", "process-group"] }
 # Remember window size/position/maximized across launches (geometry only —
 # visibility is deliberately not tracked; see lib.rs).
 tauri-plugin-window-state = "2.4.1"

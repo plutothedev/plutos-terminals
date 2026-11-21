@@ -178,6 +178,67 @@ fn tool_bytes(t: &RmcpTool) -> usize {
     t.name.len().saturating_add(t.description.as_ref().map_or(0, |d| d.len())).saturating_add(schema.0)
 }
 
+/// Suppresses the console window a console program gets when the app (a
+/// GUI-subsystem process) spawns it; the same value as commands.rs.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// The command a stdio server is spawned from (see connect_stdio_within).
+fn stdio_command(command: &str, args: &[String], env: &BTreeMap<String, String>) -> CommandWrap {
+    let mut cmd = tokio::process::Command::new(command);
+    cmd.args(args);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    // The child is often only a launcher (npx, uvx, `cmd /c`) with the real
+    // server as ITS child, so the whole tree is wrapped: a Job Object on
+    // Windows, a process group on unix. rmcp then ends a connection like this
+    // (rmcp 3.11 transport/child_process.rs):
+    // - Close or eviction (the connection is dropped): rmcp's serve task
+    //   closes the server's stdin and waits up to 3 s for it to exit. A
+    //   server that exits by itself is not killed, and whatever it launched
+    //   (a browser, an editor) is left alone, as before the tree was wrapped.
+    //   A server still running after that (hung) is killed with kill(), which
+    //   terminates the whole job (TerminateJobObject) or signals the whole
+    //   group (killpg), so the real server behind a launcher dies too. (On
+    //   unix rmcp first sends SIGTERM, also to the whole group, and waits
+    //   another 3 s.)
+    //   That wait cannot end early on a hung server that launched something:
+    //   process-wrap's JobObjectChild::wait (and ProcessGroupChild::wait)
+    //   first awaits the direct child's own exit, and reads the job's
+    //   completion port only after it. (After that exit the Windows wait
+    //   returns on the first job message, and the job's NEW_PROCESS and
+    //   EXIT_PROCESS messages are queued by then. Windows calls job messages
+    //   best-effort: were none queued, the wait would run out at 3 s and the
+    //   kill would take what the server launched too; it never leaks the
+    //   server.)
+    // - A handshake that times out drops the transport: rmcp's
+    //   ChildWithCleanup kills it the same way, tree and all.
+    // - App quit kills nothing, as before.
+    // No kill-on-drop wrapper: with it the job is created kill-on-close, so
+    // every close, eviction, reconnect and app quit would also kill anything
+    // a tool had launched (tests/mcp_mock.rs drives each case).
+    let mut cmd = CommandWrap::from(cmd);
+    #[cfg(windows)]
+    {
+        // main.rs sets windows_subsystem = "windows", so a console server
+        // (node, python, cmd, uvx) spawned without CREATE_NO_WINDOW opens a
+        // console window of its own, as commands.rs notes for every spawn.
+        // A Command's own creation_flags would be overwritten by JobObject,
+        // which sets the flags from the CreationFlags wrapper plus a
+        // temporary CREATE_SUSPENDED it lifts once the child is in the job.
+        // (The flags type is the windows crate's, which the app does not
+        // name; it is built through the wrapper's own field.)
+        let mut no_window = process_wrap::tokio::CreationFlags(Default::default());
+        no_window.0 .0 = CREATE_NO_WINDOW;
+        cmd.wrap(no_window);
+        cmd.wrap(process_wrap::tokio::JobObject);
+    }
+    #[cfg(unix)]
+    cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
+    cmd
+}
+
 impl McpConn {
     /// Connect to a stdio (child-process) MCP server. `serve` performs the
     /// initialize handshake before returning.
@@ -199,28 +260,7 @@ impl McpConn {
         env: &BTreeMap<String, String>,
         limit: Duration,
     ) -> Result<McpConn, String> {
-        let mut cmd = tokio::process::Command::new(command);
-        cmd.args(args);
-        for (k, v) in env {
-            cmd.env(k, v);
-        }
-        // On a timeout the serve future, and the transport it owns, is dropped,
-        // and so is a connection manager.rs evicts: rmcp's ChildWithCleanup
-        // kills the child on drop. The child is often only a launcher (npx,
-        // uvx, `cmd /c`) with the real server as ITS child, which a kill of the
-        // direct child leaves running. So the whole tree is wrapped: a Job
-        // Object on Windows (KillOnDrop makes it kill-on-close), a process
-        // group on unix (the kill is sent to the group).
-        // Creation flags are unchanged from a plain Command: JobObject adds
-        // only a temporary CREATE_SUSPENDED and resumes the child once it is
-        // in the job, and nothing here sets CREATE_NO_WINDOW (neither did the
-        // plain Command, nor rmcp).
-        let mut cmd = CommandWrap::from(cmd);
-        #[cfg(windows)]
-        cmd.wrap(process_wrap::tokio::JobObject);
-        #[cfg(unix)]
-        cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
-        cmd.wrap(process_wrap::tokio::KillOnDrop);
+        let cmd = stdio_command(command, args, env);
         let transport = TokioChildProcess::new(cmd).map_err(|e| format!("spawn {command}: {e}"))?;
         let what = format!("mcp stdio handshake ({server_id})");
         let client = tokio::time::timeout(limit, ().serve(transport))
@@ -574,5 +614,44 @@ mod http_client_tests {
             Ok(_) => panic!("connected"),
         };
         assert!(err.contains("refusing to send the token to a non-HTTPS address"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod stdio_command_tests {
+    use super::stdio_command;
+
+    #[cfg(windows)]
+    #[test]
+    fn a_stdio_server_gets_no_console_window_and_a_job_object() {
+        // main.rs builds the app with windows_subsystem = "windows", so a
+        // console server (node, python, cmd, uvx) spawned without
+        // CREATE_NO_WINDOW opens a console window of its own. JobObject keeps
+        // the flags a CreationFlags wrapper sets (process-wrap's
+        // job_creation_flags only adds a temporary CREATE_SUSPENDED).
+        let cmd = stdio_command("node", &[], &Default::default());
+        let flags = cmd.get_wrap::<process_wrap::tokio::CreationFlags>().map(|f| f.0 .0);
+        assert_eq!(flags, Some(0x0800_0000), "CREATE_NO_WINDOW is not set");
+        assert!(cmd.has_wrap::<process_wrap::tokio::JobObject>(), "the server's tree is not in a job object");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stdio_server_gets_a_process_group() {
+        let cmd = stdio_command("node", &[], &Default::default());
+        assert!(cmd.has_wrap::<process_wrap::tokio::ProcessGroup>(), "the server's tree is not in a process group");
+    }
+
+    #[test]
+    fn a_closed_connection_does_not_kill_what_the_server_launched() {
+        // KillOnDrop would make the job kill-on-close: closing the job handle,
+        // which happens on every close, eviction, reconnect and app quit,
+        // would end a browser or an editor a tool had opened. Without it the
+        // tree is killed only when rmcp's kill() runs: a server that did not
+        // exit within its grace period, or a dropped handshake.
+        // (tests/mcp_mock.rs drives both sides.)
+        let src = include_str!("client.rs").replace("\r\n", "\n");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert!(!code.contains("KillOnDrop"), "a kill-on-drop wrapper is back on the stdio command");
     }
 }
