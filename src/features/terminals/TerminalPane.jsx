@@ -1844,6 +1844,24 @@ function TerminalPane({
               clearTimeout(c.timer);
               concealRef.current = null;
               const rest = c.buf.slice(idx + BOOT_MARKER.length);
+              // A restored tab's display line clears with ESC[2J right after
+              // the marker, and xterm's ED2 resets the visible rows without
+              // pushing them into scrollback. The replayed history is raw
+              // ConPTY output, which paints with absolute cursor moves and only
+              // scrolls once its screen is full, so a short session sits
+              // entirely in the visible rows and the clear used to erase all of
+              // it (and the last screenful of any longer one). So scroll every
+              // row above the cursor into scrollback first: rows - 1 line feeds
+              // from the cursor row (the blank line under the "scrollback
+              // restored" marker) move exactly those rows out, leaving no blank
+              // line between the history and the new prompt. Done here, at the
+              // clear, not at replay time: a reveal in between makes the
+              // terminal taller, and xterm then pulls the newest scrollback
+              // rows back on screen, where the clear would reach them again.
+              // Straight to term.write, not handleChunk: these line feeds are
+              // not shell output (no recording, transcript or scan). They join
+              // xterm's write queue ahead of `rest`, so they parse first.
+              if (restored) term.write("\r\n".repeat(Math.max(term.rows - 1, 0)));
               if (rest) handleChunk(rest);
             } else if (c.buf.length > 131072) {
               // Something is flooding output before setup finished (not the
@@ -2144,8 +2162,9 @@ function TerminalPane({
           // '<file>'` — a short command whose output (the box) lands before the
           // first prompt (clean ordering, box sits above the prompt where ZLE
           // never touches it). Restored tabs: set prompt then a scrollback-
-          // PRESERVING clear (ESC[2J, not ESC[3J) hides the echoed setup and
-          // keeps history scrollable.
+          // PRESERVING clear (ESC[2J, not ESC[3J) hides the echoed setup. ED2
+          // alone would also erase the replayed history still on screen, so
+          // the pty listener scrolls it into scrollback at the boot marker.
           // Send the setup (colors + prompt + OSC 133 hooks) and the visual
           // (clear + welcome box) as TWO separate lines. Combined they'd be
           // ~930 bytes — close enough to the tty canonical-mode limit
@@ -2163,7 +2182,8 @@ function TerminalPane({
               try { await invoke("pty_write", { id: ptyId, data: psComplete + "\r" }); } catch { /* best effort: a dead PTY drops this setup line; the conceal timer still releases the pane */ }
               // Fresh tab: clear + welcome box. Restored tab: scrollback was replayed,
               // so a scrollback-PRESERVING clear (ESC[2J, not Clear-Host) hides the
-              // echoed setup without wiping the history.
+              // echoed setup. The replayed rows still on screen are scrolled into
+              // scrollback at the boot marker, before this clear lands.
               // Each variant emits BOOT_MARKER first (assembled from [char]27
               // so the echoed source can't contain the real escape sequence),
               // releasing the conceal gate exactly at the clear.
