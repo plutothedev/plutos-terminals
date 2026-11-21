@@ -76,6 +76,15 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+/* Controls that are role="button" on a span or div (session names, toasts:
+   kept off <button> so their boxes do not change) get the same ring when
+   reached from the keyboard, instead of the browser's own. :focus-visible
+   only, so a mouse click never draws it. */
+[role="button"]:focus-visible {
+  outline: 1px solid var(--phn-focus-outline, #7c9cf5);
+  outline-offset: 2px;
+}
+
 code {
   font-family: 'JetBrains Mono', Menlo, Monaco, monospace;
   font-size: 0.92em;
