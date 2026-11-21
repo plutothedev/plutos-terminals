@@ -82,6 +82,9 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
   // compares it with the current text: only edits that save covers may skip
   // the discard confirm.
   const inFlightRef = useRef(null);
+  // That save's promise (true = written, false = failed), for a close that
+  // waits on it. Null when no save is in flight.
+  const inFlightDoneRef = useRef(null);
   const textRef = useRef("");
   // Latest buffer for save(), written after every commit and read from handlers.
   useLayoutEffect(() => { textRef.current = text; });
@@ -131,19 +134,26 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
     const snapshot = textRef.current;
     inFlightRef.current = snapshot;
     // new Promise(...) so a synchronous throw from invoke is still caught below.
-    return new Promise((resolve) => resolve(invoke("sftp_write_file", { id: sessionId, path, content: snapshot })))
+    // Settles to true when the write landed, false when it failed, so a close
+    // waiting on this save knows which way it went.
+    const done = new Promise((resolve) => resolve(invoke("sftp_write_file", { id: sessionId, path, content: snapshot })))
       .then(() => {
         setOrig(snapshot);
         toast.success(`Saved ${name}`);
+        return true;
       })
       .catch((e) => {
         toast.error(humanizeError(e, "Save failed"));
+        return false;
       })
       .finally(() => {
         savingRef.current = false;
         inFlightRef.current = null;
+        inFlightDoneRef.current = null;
         setSaving(false);
       });
+    inFlightDoneRef.current = done;
+    return done;
   };
   // Latest save() for the window key listener, which is registered once per
   // session: the listener reads this ref instead of a closure from the render
@@ -163,16 +173,26 @@ function RemoteEditorSession({ sessionId, path, name, onClose, Editor, monacoFai
   // route through Modal's onClose, so gate it behind a confirm when dirty. A
   // save in flight excuses the confirm only when it is writing exactly the
   // text on screen; keystrokes typed after its snapshot are not covered by it.
-  // (If that covering save then fails, its error toast still reports it.)
+  // Even then the close waits for that save: on success it closes; on failure
+  // the editor stays open with the text (the error toast says why), and the
+  // next close finds the buffer dirty with no save in flight, so it asks.
+  // While it waits, the Save button already reads "Saving…".
+  const askDiscard = () => confirm(
+    `"${name}" has unsaved changes. Close and discard them?`,
+    { title: "Discard changes?", confirmLabel: "Discard", destructive: true }
+  );
   const requestClose = async () => {
-    const covered = savingRef.current && inFlightRef.current === textRef.current;
-    if (dirty && !covered) {
-      const ok = await confirm(
-        `"${name}" has unsaved changes. Close and discard them?`,
-        { title: "Discard changes?", confirmLabel: "Discard", destructive: true }
-      );
-      if (!ok) return;
+    const coveredText = textRef.current;
+    const covered = savingRef.current && inFlightRef.current === coveredText;
+    if (covered) {
+      const saved = await inFlightDoneRef.current;
+      if (!saved) return;
+      // Keystrokes typed while the close waited are not in that save.
+      if (textRef.current !== coveredText && !(await askDiscard())) return;
+      onClose();
+      return;
     }
+    if (dirty && !(await askDiscard())) return;
     onClose();
   };
 

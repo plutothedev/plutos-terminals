@@ -82,7 +82,9 @@ export default function ProjectDialog(props) {
 function ProjectDialogForm({ initial, existingFolders = [], onSave, onClose }) {
   // Edit or Add, fixed for this form's life like every other field seeded
   // from `initial` below, so a session vanishing mid-edit does not relabel it.
-  const [editing] = useState(!!initial);
+  // A saved session has an id; an Add with a preset (the Servers button's
+  // `{ type: "ssh" }`) has none and is still an Add.
+  const [editing] = useState(!!initial?.id);
   const t0 = sessionType(initial);
   const c0 = initial?.connection || {};
   const r0 = initial?.rdp || {};

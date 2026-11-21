@@ -32,21 +32,27 @@ export function useProjects({ state, persist, projects, toast, selectRibbonRef }
     projectsRef.current = projects;
   });
 
+  // Returns the id the data was saved under. An edit of a session that is no
+  // longer in the list (removed by a sync or another window while the dialog
+  // was open; the dialog keeps the typed fields on purpose) goes through the
+  // Add path under a new id, with a toast saying so: mapping over a list
+  // without that id would match nothing and silently drop the user's edits.
   const upsertProject = useCallback((data, editingId) => {
     const projects = projectsRef.current;
     let nextProjects;
     let resultId;
-    if (editingId) {
+    if (editingId && projects.some(p => p.id === editingId)) {
       nextProjects = projects.map(p => p.id === editingId ? { ...p, ...data } : p);
       resultId = editingId;
     } else {
       const id = freshId("proj");
       nextProjects = [...projects, { id, color: null, ...data }];
       resultId = id;
+      if (editingId) toast.info("That session was removed elsewhere; saved as a new session.");
     }
     persist({ ...stateRef.current, projects: nextProjects });
     return resultId;
-  }, [persist]);
+  }, [persist, toast]);
 
   const removeProject = useCallback((projectId) => {
     const st = stateRef.current;

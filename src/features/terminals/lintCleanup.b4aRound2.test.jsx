@@ -219,6 +219,9 @@ describe("RemoteEditor save guards", () => {
     await act(async () => { write.resolve(undefined); });
   });
 
+  // Round 3 changed when this close happens: it now waits for the covering
+  // save and closes once it lands (a failure keeps the editor open, pinned in
+  // lintCleanup.b4aRound3.test.jsx). Still never asks.
   test("close while the save in flight carries exactly the current text closes without asking", async () => {
     const write = deferred();
     invokeMock.mockImplementation(async (cmd) => {
@@ -232,9 +235,10 @@ describe("RemoteEditor save guards", () => {
     fireEvent.change(textarea(), { target: { value: "v1" } });
     await act(async () => { fireEvent.keyDown(window, { key: "s", ctrlKey: true }); });
     await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Close dialog" })[0]); });
-    expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/has unsaved changes/)).toBeNull();
     await act(async () => { write.resolve(undefined); });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/has unsaved changes/)).toBeNull();
   });
 
   test("close after the in-flight save FAILED asks (the edits are still unsaved)", async () => {
