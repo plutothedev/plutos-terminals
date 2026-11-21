@@ -107,7 +107,14 @@ export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocu
             <div
               key={tab.id}
               className={isActive ? "moba-agent-row active" : "moba-agent-row"}
+              role="button"
+              tabIndex={0}
               onClick={() => onFocusTab?.(panel.id, tab.id)}
+              onKeyDown={(e) => {
+                // Only the row itself: Enter/Space on the nested Summarize button must reach that button.
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onFocusTab?.(panel.id, tab.id); }
+              }}
               title={(tab.worktree ? `worktree: ${tab.worktree.branch}` : tab.label) + (line ? `\n${line}` : "")}
             >
               <span

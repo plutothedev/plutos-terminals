@@ -1,13 +1,16 @@
 // (C)
 // Master-password unlock screen. Shown by App before the terminal grid when a
 // master password is set and this launch hasn't been unlocked yet.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { verifyPassword, markUnlocked } from "./masterPassword.js";
 import { SLock } from "./toolbarIcons.jsx";
 
 export default function LockScreen({ expectedHash, onUnlock }) {
   const [pw, setPw] = useState("");
   const [error, setError] = useState(false);
+  const inputRef = useRef(null);
+  // Focus moves into the lock input when the screen appears (was autoFocus).
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
   const tryUnlock = async () => {
     if (await verifyPassword(pw, expectedHash)) { markUnlocked(); onUnlock(); }
@@ -18,11 +21,11 @@ export default function LockScreen({ expectedHash, onUnlock }) {
     <div style={{ height: "100vh", background: "var(--phn-page-bg, #0b0c0e)", color: "var(--phn-text-fg, #d4d4d4)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--phn-ui-font, system-ui)" }}>
       <div style={{ width: 320, textAlign: "center" }}>
         <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", opacity: 0.85 }}><SLock size={30} /></div>
-        <div style={{ fontSize: 17, letterSpacing: 1, marginBottom: 4 }}>Pluto's Terminal</div>
+        <div style={{ fontSize: 17, letterSpacing: 1, marginBottom: 4 }}>Pluto&apos;s Terminal</div>
         <div style={{ fontSize: 12, color: "var(--phn-text-dim, #888)", marginBottom: 20 }}>Enter your master password</div>
         <input
           type="password"
-          autoFocus
+          ref={inputRef}
           value={pw}
           onChange={(e) => { setPw(e.target.value); setError(false); }}
           onKeyDown={(e) => { if (e.key === "Enter") tryUnlock(); }}

@@ -87,13 +87,21 @@ export default function ModelPicker({ open, onClose, userSt, saveUser }) {
 
   // Start clean each time the modal opens: unsaved typing from an earlier
   // open is dropped, as it always was.
+  // The state half is adjusted during render (prevOpen starts false so a modal
+  // mounted open resets on its first render too); the ref half is an effect.
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setKeyEdits({});
+      setBaseEdits({});
+      setExpanded(userSt?.activeModel?.providerId || PROVIDERS[0].id);
+      setCustom({});
+      setFilter({});
+    }
+  }
   useEffect(() => {
     if (!open) return;
-    setKeyEdits({});
-    setBaseEdits({});
-    setExpanded(userSt?.activeModel?.providerId || PROVIDERS[0].id);
-    setCustom({});
-    setFilter({});
     lastKey.current = { ...(userSt?.providerKeys || {}) };
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 

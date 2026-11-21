@@ -5,7 +5,7 @@
 // deliberately NOT synced (see sync/syncState.js): a gist created on one machine
 // is only listed and revocable where it was made. Mirrors WorkspacesModal's
 // list-with-per-item-actions shape (inline confirm before the destructive act).
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { invoke } from "@backend";
 import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
@@ -22,7 +22,12 @@ export default function SharesModal({ open, shareHistory, onClose, saveUser }) {
   const [revoking, setRevoking] = useState(null); // id currently in-flight
   const [shown, setShown] = useState(SHARES_PAGE_SIZE); // pagination cap (resets on open)
 
-  useEffect(() => { if (open) { setConfirmRevoke(null); setRevoking(null); setShown(SHARES_PAGE_SIZE); } }, [open]);
+  // Reset on open, adjusted during render (not in an effect).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) { setConfirmRevoke(null); setRevoking(null); setShown(SHARES_PAGE_SIZE); }
+  }
 
   // Storage stays append-order; display is newest-first + capped (sharesPage.js).
   const { rows, remaining } = visibleShares(shareHistory, shown);

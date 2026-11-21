@@ -64,17 +64,33 @@ export default function SessionSummary({ open, text, sourceId = null, panels = [
   const [modelLabel, setModelLabel] = useState("");
   const ran = useRef(false);
 
+  // Per-open / per-text reset, adjusted during render (not set synchronously
+  // in the effect): closing clears the answer and handoff; opening decides the
+  // empty / no-model messages or starts the loading state. `seen` starts as
+  // closed so a modal mounted open resets on its first render too.
+  const [seen, setSeen] = useState({ open: false, text: undefined });
+  if (seen.open !== open || seen.text !== text) {
+    setSeen({ open, text });
+    if (!open) {
+      setAnswer(""); setError(null); setTarget(""); setSent("");
+    } else if (!(text || "").trim()) {
+      setLoading(false); setError("Nothing in this terminal to summarize yet.");
+    } else {
+      const llmState = readUserSt();
+      const llm = resolveActiveLLM(llmState);
+      if (!llm) { setLoading(false); setError(noModelMessage(llmState)); }
+      else { setModelLabel(llm.model); setLoading(true); setError(null); setAnswer(""); }
+    }
+  }
+
   useEffect(() => {
-    if (!open) { ran.current = false; setAnswer(""); setError(null); setTarget(""); setSent(""); return; }
+    if (!open) { ran.current = false; return; }
     if (ran.current) return;
     ran.current = true;
     const body = (text || "").trim();
-    if (!body) { setLoading(false); setError("Nothing in this terminal to summarize yet."); return; }
-    const llmState = readUserSt();
-    const llm = resolveActiveLLM(llmState);
-    if (!llm) { setLoading(false); setError(noModelMessage(llmState)); return; }
-    setModelLabel(llm.model);
-    setLoading(true); setError(null); setAnswer("");
+    if (!body) return; // the empty message was set during render above
+    const llm = resolveActiveLLM(readUserSt());
+    if (!llm) return; // so was the no-model message
     // Streaming (P3-T2): deltas render as they arrive — the spinner clears on
     // the first token. Cleanup CANCELS the stream AND resets the ran-guard so
     // StrictMode's dev double-mount re-runs cleanly instead of dead-modaling

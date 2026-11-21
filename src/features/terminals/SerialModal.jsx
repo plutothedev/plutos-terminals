@@ -27,13 +27,19 @@ export default function SerialModal({ open, onConnect, onClose }) {
   const [ports, setPorts] = useState([]);
   const [selected, setSelected] = useState("");
   const [baud, setBaud] = useState(115200);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!!open);
   const [error, setError] = useState(null);
   const uid = useId();
 
-  const refresh = () => {
-    setLoading(true);
-    setError(null);
+  // Opening starts a scan: show it as loading from the first render (adjusted
+  // during render, not set synchronously in the effect that does the scan).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) { setLoading(true); setError(null); }
+  }
+
+  const scan = () => {
     invoke("serial_list")
       .then((list) => {
         const arr = Array.isArray(list) ? list : [];
@@ -43,8 +49,13 @@ export default function SerialModal({ open, onConnect, onClose }) {
       .catch((e) => setError(humanizeError(e).message))
       .finally(() => setLoading(false));
   };
+  const refresh = () => {
+    setLoading(true);
+    setError(null);
+    scan();
+  };
 
-  useEffect(() => { if (open) refresh(); }, [open]);
+  useEffect(() => { if (open) scan(); }, [open]);
 
   if (!open) return null;
 

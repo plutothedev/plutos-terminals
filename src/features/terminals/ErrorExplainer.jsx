@@ -34,19 +34,29 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
   const [modelLabel, setModelLabel] = useState("");
   const ranFor = useRef(null);
 
-  useEffect(() => {
-    if (!block) return;
-    if (ranFor.current === block.key) return; // one call per failed block
-    ranFor.current = block.key;
+  // A new failed block starts a fresh explanation. The reset (and the
+  // no-model message) is state adjusted during render, keyed on block.key, so
+  // the effect below only starts the stream and sets state from its callbacks.
+  const [seenKey, setSeenKey] = useState(null);
+  if (block && block.key !== seenKey) {
+    setSeenKey(block.key);
     const llmState = readUserSt();
     const llm = resolveActiveLLM(llmState);
     if (!llm) {
       setLoading(false);
       setError(noModelMessage(llmState));
-      return;
+    } else {
+      setModelLabel(llm.model);
+      setLoading(true); setError(null); setAnswer("");
     }
-    setModelLabel(llm.model);
-    setLoading(true); setError(null); setAnswer("");
+  }
+
+  useEffect(() => {
+    if (!block) return;
+    if (ranFor.current === block.key) return; // one call per failed block
+    ranFor.current = block.key;
+    const llm = resolveActiveLLM(readUserSt());
+    if (!llm) return; // the no-model message was set during render above
     const prompt =
       `Exit code: ${block.exitCode}\n\n--- terminal (command + output) ---\n` +
       block.text.slice(-3500);

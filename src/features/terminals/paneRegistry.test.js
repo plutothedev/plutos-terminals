@@ -75,11 +75,12 @@ describe("paneRegistry", () => {
     // times it is entered when two callers race in one tick.
     const seenOnEntry = [];
     let entered = 0;
-    e.spawnBody = async () => {
+    const body = async () => {
       entered++;
       seenOnEntry.push(e.spawnState);
       await Promise.resolve();
     };
+    e.spawnBody = body;
     e.startSpawn(); // TerminalPane's [visible] reveal
     e.startSpawn(); // the trickle tick, same frame
     expect(entered).toBe(1);

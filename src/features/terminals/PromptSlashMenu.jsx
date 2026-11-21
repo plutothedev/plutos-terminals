@@ -163,6 +163,9 @@ export default function PromptSlashMenu({ items, selectedIndex = 0, onInsert }) 
           <div
             key={p.id}
             role="option"
+            // Not a tab stop: focus stays in the input the menu belongs to
+            // (the mousedown below also keeps it there).
+            tabIndex={-1}
             aria-selected={i === activeIndex}
             className={i === activeIndex ? "phn-prompt-menu-item active" : "phn-prompt-menu-item"}
             // mousedown (not click), preventDefault: picking a prompt must not

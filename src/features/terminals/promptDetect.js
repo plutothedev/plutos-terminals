@@ -17,6 +17,7 @@
 
 // Byte-identical to the regex TerminalPane used inline (the write side
 // imports from HERE now, so the two can't drift).
+// eslint-disable-next-line no-control-regex -- ESC (0x1b) starts every ANSI CSI sequence; matching it is the whole purpose.
 const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 export function stripAnsi(s) {

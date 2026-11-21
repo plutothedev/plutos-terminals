@@ -14,7 +14,7 @@
 // vanished from the picker even though its shell was live and writable.
 // ptyBridge.writeBroadcast matches the group against those same writer keys, so
 // pane ids are also what the group must CONTAIN, not just what it displays.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button } from "../../components/ui.jsx";
 import { SLink } from "./toolbarIcons.jsx";
@@ -24,11 +24,15 @@ import { paneAddress, paneSpawnConfig } from "./activePane.js";
 const DIM = "var(--phn-text-dim, #888)";
 
 export default function BroadcastGroupModal({ open, panels, liveTabIds, current, onClose, onApply, onUseAllVisible }) {
-  const [sel, setSel] = useState(() => new Set());
+  const [sel, setSel] = useState(() => new Set(open ? current || [] : []));
 
-  useEffect(() => {
+  // Re-seed the selection whenever the modal opens or the applied group
+  // changes while it is open (state adjusted during render, not in an effect).
+  const [seen, setSeen] = useState({ open, current });
+  if (seen.open !== open || seen.current !== current) {
+    setSeen({ open, current });
     if (open) setSel(new Set(current || []));
-  }, [open, current]);
+  }
 
   const live = new Set(liveTabIds || []);
   // Only offer panes that have a live PTY writer (a fresh/home tab with no

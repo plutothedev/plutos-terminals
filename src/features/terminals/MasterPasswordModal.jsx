@@ -34,7 +34,7 @@ export default function MasterPasswordModal({ open, userSt, saveUser, onClose })
     if (!(await verifyCurrent())) { toast.error("Current password is incorrect."); return; }
     // Functional form: verifyCurrent awaits a PBKDF2/legacy-SHA256 hash, so derive
     // `rest` from the latest committed state, not the pre-await snapshot (invariant 3).
-    saveUser((prev) => { const { masterPasswordHash, ...rest } = prev; return rest; });
+    saveUser((prev) => { const { masterPasswordHash: _removed, ...rest } = prev; return rest; });
     toast.success("Master password removed.");
     reset(); onClose();
   };

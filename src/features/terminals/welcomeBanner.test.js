@@ -1,6 +1,7 @@
 import { test, expect } from "vitest";
 import { buildWelcomeBanner } from "./welcomeBanner.js";
 
+// eslint-disable-next-line no-control-regex -- ESC (0x1b) is the ANSI escape introducer being stripped; the control char is the point.
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 // Full-box contract (2026-08-14 — pluto: "colorful ascii box like mobaxterm").

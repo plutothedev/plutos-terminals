@@ -4,7 +4,7 @@
 // row to its default; Disable unbinds it. Overrides persist in
 // userSt.keybindings via saveUser (shared across windows).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@backend";
 import { Button } from "../../components/ui.jsx";
 import { humanizeError } from "./errorText.js";
@@ -19,8 +19,14 @@ const SUMMON = "__summon__"; // recording sentinel for the OS-level summon row
 export default function KeybindingsSection({ userSt, saveUser }) {
   const [recordingId, setRecordingId] = useState(null);
   const [error, setError] = useState("");
-  const recRef = useRef(recordingId);
-  recRef.current = recordingId;
+
+  // Row click / summon click: start recording (clearing the last message) or
+  // stop. The message is cleared here, in the event, not in the effect below.
+  const toggleRecording = (id) => {
+    if (recordingId === id) { setRecordingId(null); return; }
+    setError("");
+    setRecordingId(id);
+  };
 
   const { byAction } = resolveBindings(userSt?.keybindings);
 
@@ -61,13 +67,12 @@ export default function KeybindingsSection({ userSt, saveUser }) {
   useEffect(() => {
     if (!recordingId) { setCapturing(false); return; }
     setCapturing(true);
-    setError("");
     const onKey = (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (e.key === "Escape") { setRecordingId(null); return; }
 
-      if (recRef.current === SUMMON) {
+      if (recordingId === SUMMON) {
         const combo = comboFromCode(e);
         if (!combo) return; // lone modifier
         if (!isSummonBindable(combo)) {
@@ -87,13 +92,13 @@ export default function KeybindingsSection({ userSt, saveUser }) {
       }
       const c = canon(combo);
       const clash = KEY_ACTIONS.find(
-        (a) => a.id !== recRef.current && byAction.get(a.id) && canon(byAction.get(a.id)) === c
+        (a) => a.id !== recordingId && byAction.get(a.id) && canon(byAction.get(a.id)) === c
       );
       if (clash) {
         setError(`${formatCombo(combo)} is already used by “${clash.label}”.`);
         return;
       }
-      writeBinding(recRef.current, combo);
+      writeBinding(recordingId, combo);
       setRecordingId(null);
     };
     window.addEventListener("keydown", onKey, true);
@@ -128,7 +133,7 @@ export default function KeybindingsSection({ userSt, saveUser }) {
                 <span style={{ flex: 1, fontSize: 13 }}>{a.label}</span>
                 <button
                   className="phn-ui-kbd"
-                  onClick={() => setRecordingId(recording ? null : a.id)}
+                  onClick={() => toggleRecording(a.id)}
                   title="Click, then press the new shortcut (Esc to cancel)"
                   style={{
                     cursor: "pointer",
@@ -174,7 +179,7 @@ export default function KeybindingsSection({ userSt, saveUser }) {
           </span>
           <button
             className="phn-ui-kbd"
-            onClick={() => setRecordingId(recordingId === SUMMON ? null : SUMMON)}
+            onClick={() => toggleRecording(SUMMON)}
             title="Click, then press the new shortcut (Esc to cancel)"
             style={{
               cursor: "pointer", minWidth: 92, textAlign: "center",

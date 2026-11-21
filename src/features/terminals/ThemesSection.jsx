@@ -155,7 +155,7 @@ export default function ThemesSection({ st, save, userSt, saveUser }) {
 
       <Field
         label="Import a Warp theme (YAML)"
-        hint={<>Paste a theme from <strong>github.com/warpdotdev/themes</strong> (or any Warp-format YAML). It drives the terminal colors and the whole app's theme. Switch back anytime with the Dark/Light buttons above.</>}
+        hint={<>Paste a theme from <strong>github.com/warpdotdev/themes</strong> (or any Warp-format YAML). It drives the terminal colors and the whole app&apos;s theme. Switch back anytime with the Dark/Light buttons above.</>}
       >
         <Textarea
           rows={5}

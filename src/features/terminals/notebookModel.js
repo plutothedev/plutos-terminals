@@ -182,7 +182,7 @@ function scanFences(text) {
 // bare `---`, AND a matching bare `---` closer must appear at a line whose
 // start precedes the first fence in the document (fence-aware — see the
 // module header for why). Returns null when there is no frontmatter.
-function detectFrontmatter(fences, lines, text) {
+function detectFrontmatter(fences, lines) {
   if (!lines.length || !isDashLine(lines[0].text)) return null;
   const firstFenceStart = fences.length ? fences[0].start : Infinity;
   for (let i = 1; i < lines.length; i++) {
@@ -197,7 +197,7 @@ function detectFrontmatter(fences, lines, text) {
 export function parseBlocks(md) {
   const text = String(md ?? "");
   const { fences, lines } = scanFences(text);
-  const fm = detectFrontmatter(fences, lines, text);
+  const fm = detectFrontmatter(fences, lines);
 
   const frontmatter = {};
   if (fm) {
@@ -269,7 +269,7 @@ export function setFrontmatterTarget(md, paneId) {
   const text = String(md ?? "");
   const NL = dominantEOL(text);
   const { fences, lines } = scanFences(text);
-  const fm = detectFrontmatter(fences, lines, text);
+  const fm = detectFrontmatter(fences, lines);
 
   if (!fm) {
     return `---${NL}targetPane: ${paneId}${NL}---${NL}${text}`;

@@ -25,13 +25,21 @@ export default function VncConnectModal({ open, onConnect, onClose, initial = nu
   // A11Y-10, see RdpConnectModal.jsx for the reasoning.
   const uid = useId();
 
-  useEffect(() => {
+  // When launching a SAVED session, pre-fill (and lock) host/port; otherwise
+  // start blank for an ephemeral quick-connect. Adjusted during render
+  // (`seen` starts closed so a modal mounted open pre-fills on its first render).
+  const [seen, setSeen] = useState({ open: false, initial, lockConnection });
+  if (seen.open !== open || seen.initial !== initial || seen.lockConnection !== lockConnection) {
+    setSeen({ open, initial, lockConnection });
     if (open) {
-      // When launching a SAVED session, pre-fill (and lock) host/port; otherwise
-      // start blank for an ephemeral quick-connect.
       setHost(initial?.host || "");
       setPort(initial?.port != null ? String(initial.port) : "5900");
       setPassword("");
+    }
+  }
+
+  useEffect(() => {
+    if (open) {
       const t = setTimeout(() => (lockConnection ? null : hostRef.current?.focus()), 30);
       return () => clearTimeout(t);
     }

@@ -32,11 +32,16 @@ export default function AskBar({ open, onClose, onRun, onInsert, shellName, cwd 
   const intentRef = useRef(null);
   const cmdRef = useRef(null);
 
+  // Start clean each time the bar opens (state adjusted during render, not in
+  // an effect: no extra committed render of the stale values).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) { setIntent(""); setCommand(""); setError(null); setLoading(false); }
+  }
+
   useEffect(() => {
-    if (open) {
-      setIntent(""); setCommand(""); setError(null); setLoading(false);
-      setTimeout(() => intentRef.current?.focus(), 30);
-    }
+    if (open) setTimeout(() => intentRef.current?.focus(), 30);
   }, [open]);
 
   const generate = async () => {

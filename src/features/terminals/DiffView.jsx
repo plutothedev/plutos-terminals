@@ -23,15 +23,22 @@ export default function DiffView({ open, worktree, onClose, onDiscard }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [diff, setDiff] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!!(open && worktree?.path));
   const [error, setError] = useState(null);
   const [creating, setCreating] = useState(false);
   const [discarding, setDiscarding] = useState(false);
 
+  // A new open / worktree starts a fresh load: reset during render (not in the
+  // effect) so the stale diff is never committed alongside the new worktree.
+  const [loadKey, setLoadKey] = useState({ open, worktree });
+  if (loadKey.open !== open || loadKey.worktree !== worktree) {
+    setLoadKey({ open, worktree });
+    if (open && worktree?.path) { setLoading(true); setError(null); setDiff(null); }
+  }
+
   useEffect(() => {
     if (!open || !worktree?.path) return;
     let alive = true;
-    setLoading(true); setError(null); setDiff(null);
     invoke("git_diff", { path: worktree.path })
       .then((d) => { if (alive) setDiff(typeof d === "string" ? d : ""); })
       .catch((e) => { if (alive) setError(humanizeError(e, "Couldn't load the diff").message); })

@@ -37,7 +37,14 @@ export default function SharingSection() {
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Initial lookup: state is set from the promise callbacks only.
+  useEffect(() => {
+    let alive = true;
+    invoke("gist_auth_available")
+      .then((auth) => { if (alive) setSource(auth?.source || "none"); })
+      .catch(() => { if (alive) setSource("none"); });
+    return () => { alive = false; };
+  }, []);
 
   const saveToken = async () => {
     const secret = pat.trim();

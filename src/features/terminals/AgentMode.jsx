@@ -7,7 +7,7 @@
 // command is model-chosen from possibly attacker-controlled content and the danger
 // denylist is evadable), as do MCP write/destructive tools (annotation-aware, in
 // code; see agentTools.js).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import { Button, Input, Textarea } from "../../components/ui.jsx";
 import { invoke } from "@backend";
@@ -45,7 +45,10 @@ export default function AgentMode({ open, onClose, tabId, cwd, shellName, userSt
   // loop is still in flight, or that loop resumes invisibly.
   const runningRef = useRef(false);
   const scrollRef = useRef(null);
-  autoRunRef.current = autoRun;
+  // Latest-value mirror for the loop and the approval gate (read only from
+  // handlers/async code, never during render): written in a layout effect so it
+  // is current before any event can run after the commit.
+  useLayoutEffect(() => { autoRunRef.current = autoRun; });
 
   // Saved-prompts "/" menu over the goal input — all index/filter/keyboard
   // state lives in the shared hook (also consumed by DockAssistant.jsx), so
