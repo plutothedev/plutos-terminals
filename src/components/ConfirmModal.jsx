@@ -4,7 +4,7 @@
 //   const confirm = useConfirm();
 //   if (await confirm("Replace panels?", { destructive: true })) { ... }
 
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 
 const { FG, ACCENT, BORDER, M } = MODAL_COLORS;
@@ -16,10 +16,28 @@ export function ConfirmProvider({ children }) {
   const [request, setRequest] = useState(null);
   // request: { id, message, title, confirmLabel, cancelLabel, destructive, resolve }
   const nextId = useRef(0);
+  // The request waiting for an answer, for confirm() and the answer handlers
+  // (state lags a render behind them). A confirm() asked while another is
+  // open replaces it, so it settles the old one with false first: otherwise
+  // that caller's await would never return (a guarded close fired from a
+  // global shortcut while a confirm is up).
+  const pendingRef = useRef(null);
+  // The element focused when a chain of requests began (asked while none was
+  // open), cleared when the last one closes. The shared Modal hands focus back
+  // per request, so an opener that is disabled or gone when the first answer
+  // swaps dialogs makes the next one record <body>, and the chain would end
+  // there even if the opener can take focus again by then.
+  const openerRef = useRef(null);
 
   const confirm = useCallback((message, opts = {}) => {
     return new Promise((resolve) => {
-      setRequest({
+      const replaced = pendingRef.current;
+      if (replaced) replaced.resolve(false);
+      // A caller that asks again straight after an answer does so before the
+      // close commits (openerRef is cleared only then), so that is still the
+      // same chain.
+      if (!openerRef.current) openerRef.current = document.activeElement;
+      const next = {
         id: ++nextId.current,
         message,
         title: opts.title || "Confirm",
@@ -27,18 +45,38 @@ export function ConfirmProvider({ children }) {
         cancelLabel: opts.cancelLabel || "Cancel",
         destructive: !!opts.destructive,
         resolve,
-      });
+      };
+      pendingRef.current = next;
+      setRequest(next);
     });
   }, []);
 
-  const onConfirm = () => {
-    if (request) request.resolve(true);
-    setRequest(null);
+  // Answers the request on screen. Only that request's answer closes the
+  // dialog: a click on a dialog already replaced by a newer request (before
+  // the re-render) must not close the newer one unanswered.
+  const answer = (value) => {
+    if (!request) return;
+    request.resolve(value);
+    if (pendingRef.current === request) {
+      pendingRef.current = null;
+      setRequest(null);
+    }
   };
-  const onCancel = () => {
-    if (request) request.resolve(false);
-    setRequest(null);
-  };
+  const onConfirm = () => answer(true);
+  const onCancel = () => answer(false);
+
+  // The chain's last request has closed. This runs after the Modal's own
+  // cleanup has handed focus back; if that left focus on <body> (the opener
+  // could not take it when the chain started) and the opener can take it now,
+  // it goes there.
+  useEffect(() => {
+    if (request) return;
+    const opener = openerRef.current;
+    openerRef.current = null;
+    if (!opener || opener === document.body || !opener.isConnected || opener.disabled) return;
+    const active = document.activeElement;
+    if ((active == null || active === document.body) && typeof opener.focus === "function") opener.focus();
+  }, [request]);
 
   return (
     <ConfirmContext.Provider value={confirm}>

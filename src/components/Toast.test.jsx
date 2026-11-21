@@ -181,3 +181,77 @@ test("a return target that left the page is not focused", () => {
   fireEvent.keyDown(toast, { key: "Enter" });
   expect(document.activeElement).not.toBe(field);
 });
+
+// v0.7.6 lint fix round 3: alt-tabbing away while a toast has focus fires a
+// blur with relatedTarget null and document.hasFocus() false, while the toast
+// stays the active element. That is not leaving the stack: the toast stays
+// paused (it must not vanish while the user is in another window), and on
+// return the refocus (relatedTarget null again) must not wipe the return
+// target, so a later dismiss still hands focus back to the field.
+function windowBlur(toast) {
+  const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  fireEvent.focusOut(toast, { relatedTarget: null });
+  return hasFocus;
+}
+
+test("a focused toast stays paused while the window is away", () => {
+  vi.useFakeTimers();
+  try {
+    mountWithField();
+    act(() => { api.info("held", { ttl: 1000 }); });
+    const toast = screen.getByRole("button", { name: /held/ });
+    act(() => { toast.focus(); });
+    act(() => { windowBlur(toast); });
+    act(() => { vi.advanceTimersByTime(5000); });
+    expect(screen.getByText("held")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("returning to the window keeps the toast's return target", () => {
+  const field = mountWithField();
+  act(() => { field.focus(); });
+  act(() => { api.info("note", { ttl: 0 }); });
+  const toast = screen.getByRole("button", { name: /note/ });
+  act(() => { toast.focus(); });
+  let hasFocus;
+  act(() => { hasFocus = windowBlur(toast); });
+  hasFocus.mockReturnValue(true);
+  fireEvent.focusIn(toast, { relatedTarget: null });
+  fireEvent.keyDown(toast, { key: "Enter" });
+  expect(screen.queryByText("note")).toBeNull();
+  expect(document.activeElement).toBe(field);
+});
+
+// Guard for the window-away rule: a blur with no relatedTarget while the page
+// still has focus (a click on an empty, non-focusable area drops focus to
+// <body>) does leave the stack, so the toast's timer resumes.
+test("focus dropping to <body> inside the page resumes the toast's timer", () => {
+  vi.useFakeTimers();
+  try {
+    mountWithField();
+    act(() => { api.info("held", { ttl: 1000 }); });
+    const toast = screen.getByRole("button", { name: /held/ });
+    act(() => { toast.focus(); });
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    act(() => { toast.blur(); });
+    act(() => { vi.advanceTimersByTime(1001); });
+    expect(screen.queryByText("held")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+// v0.7.6 lint fix round 3: handing focus back must not scroll the page to
+// the return target.
+test("the return focus does not scroll", () => {
+  const field = mountWithField();
+  act(() => { field.focus(); });
+  act(() => { api.info("note", { ttl: 0 }); });
+  const toast = screen.getByRole("button", { name: /note/ });
+  act(() => { toast.focus(); });
+  const focus = vi.spyOn(field, "focus");
+  fireEvent.keyDown(toast, { key: "Enter" });
+  expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+});

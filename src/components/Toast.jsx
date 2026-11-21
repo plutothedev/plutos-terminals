@@ -77,7 +77,7 @@ export function ToastProvider({ children }) {
       focusedIdRef.current = null;
       const back = returnFocusRef.current;
       returnFocusRef.current = null;
-      if (back && back.isConnected && typeof back.focus === "function") back.focus();
+      if (back && back.isConnected && typeof back.focus === "function") back.focus({ preventScroll: true });
     }
     setToasts((ts) => ts.filter((t) => t.id !== id));
   }, []);
@@ -194,14 +194,26 @@ export function ToastProvider({ children }) {
               onClick={activate}
               onFocus={(e) => {
                 // Record where focus came from only when it enters the stack
-                // from outside; Tab between toasts keeps the first origin.
+                // from outside; Tab between toasts keeps the first origin. A
+                // null relatedTarget (focus coming back with the window, or
+                // from nowhere) never overwrites it: on return from another
+                // window that would wipe the target recorded on the way in.
                 const from = e.relatedTarget;
-                if (!(from && stackRef.current?.contains(from))) returnFocusRef.current = from || null;
+                if (from && !stackRef.current?.contains(from)) returnFocusRef.current = from;
                 focusedIdRef.current = t.id;
                 pause(t.id);
               }}
-              onBlur={() => {
+              onBlur={(e) => {
+                const to = e.relatedTarget;
+                // No relatedTarget and the document has lost focus: the window
+                // went to the background (alt-tab) and the toast is still the
+                // active element. Stay paused and keep focusedIdRef, so the
+                // toast is still there when the user comes back. A null
+                // relatedTarget while the page keeps focus is focus dropping to
+                // <body> (a click on empty space): that does leave the stack.
+                if (to == null && !document.hasFocus()) return;
                 if (focusedIdRef.current === t.id) focusedIdRef.current = null;
+                if (!(to && stackRef.current?.contains(to))) returnFocusRef.current = null;
                 resume(t.id);
               }}
               onKeyDown={(e) => {

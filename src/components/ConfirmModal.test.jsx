@@ -5,6 +5,7 @@
 // cannot reset a workspace), and closing returns focus to the trigger.
 import { test, expect, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { ConfirmProvider, useConfirm } from "./ConfirmModal.jsx";
 
 afterEach(() => cleanup());
@@ -146,5 +147,71 @@ test("a confirm asked right after one answered from its Cancel button opens on i
   expect(screen.getByText("recover b?")).toBeTruthy();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save" }));
   await resolveWith("Discard");
+  expect(document.activeElement).toBe(trigger);
+});
+
+// v0.7.6 lint fix round 3: a second confirm() asked while one is still open
+// (a guarded close fired from a global shortcut while a confirm is up)
+// replaces it. The first caller must not hang: its promise resolves false,
+// and the second request is the one shown.
+let confirmFn = null;
+function Grab() {
+  const confirm = useConfirm();
+  useEffect(() => { confirmFn = confirm; }, [confirm]);
+  return null;
+}
+
+test("a confirm asked while another is open resolves the first with false and shows the second", async () => {
+  render(<ConfirmProvider><Grab /></ConfirmProvider>);
+  let first, second;
+  await act(async () => { first = confirmFn("first?"); });
+  expect(screen.getByText("first?")).toBeTruthy();
+  await act(async () => { second = confirmFn("second?"); });
+  const settled = await Promise.race([first, new Promise((r) => setTimeout(() => r("pending"), 50))]);
+  expect(settled).toBe(false);
+  expect(screen.queryByText("first?")).toBeNull();
+  expect(screen.getByText("second?")).toBeTruthy();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm" })); });
+  expect(await second).toBe(true);
+});
+
+// v0.7.6 lint fix round 3: the chain's opener is disabled while its work runs,
+// so when the first answer swaps dialogs it cannot take focus and the second
+// dialog records <body> as where to return. The opener is enabled again before
+// the last answer; the chain must still end on it.
+function BusyChain() {
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <button
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          answers.push(await confirm("first?"));
+          answers.push(await confirm("second?"));
+        }}
+      >
+        trigger
+      </button>
+      <button onClick={() => setBusy(false)}>work done</button>
+    </>
+  );
+}
+
+test("a chain whose opener was disabled mid-chain and enabled again ends on the opener", async () => {
+  answers.length = 0;
+  render(<ConfirmProvider><BusyChain /></ConfirmProvider>);
+  const trigger = screen.getByText("trigger");
+  trigger.focus();
+  await act(async () => { fireEvent.click(trigger); });
+  expect(trigger.disabled).toBe(true);
+  await resolveWith("Cancel");
+  expect(screen.getByText("second?")).toBeTruthy();
+  fireEvent.click(screen.getByText("work done"));
+  expect(trigger.disabled).toBe(false);
+  await resolveWith("Cancel");
+  expect(answers).toEqual([false, false]);
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
