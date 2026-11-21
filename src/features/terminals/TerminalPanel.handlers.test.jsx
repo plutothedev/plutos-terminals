@@ -116,6 +116,16 @@ describe("per-pane handler props", () => {
   });
 });
 
+describe("tab strip controls", () => {
+  test("the tab close control draws its focus ring inside, like the new-tab and close-panel controls", () => {
+    // The strip clips at 30px, so a ring 2px outside loses its top and bottom.
+    const two = [{ id: "t1", label: "one" }, { id: "t2", label: "two" }];
+    render(<TerminalPanel {...baseProps} canClosePanel panel={panelOf(two)} onTabCostUpdate={noop} />);
+    const insets = ["Close one", "New tab in this panel", "Close this panel"].map((name) => screen.getByRole("button", { name }).style.outlineOffset);
+    expect(insets).toEqual(["-2px", "-2px", "-2px"]);
+  });
+});
+
 describe("per-pane hover controls", () => {
   test("are named role=button controls kept out of the Tab order", () => {
     render(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={noop} onSplitPane={noop} onClosePane={noop} />);

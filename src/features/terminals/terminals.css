@@ -113,7 +113,7 @@
 .phn-folder-header:hover { background: rgba(255, 255, 255, 0.04); color: var(--phn-text-active, #fff); }
 /* Keyboard focus ring INSIDE the full-width sidebar rows (folder headers,
    and session rows in the collapsed rail, where the row itself is the
-   button). The global [role="button"]:focus-visible ring (src/styles.css)
+   button). The global :where([role="button"]) ring (src/styles.css)
    sits 2px outside, and .phn-sidebar is overflow:hidden, so its left and
    right edges were cut off on these rows. Inset like .moba-railcol and the
    tab strip controls; the extra .phn-sidebar outranks the global rule

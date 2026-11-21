@@ -1007,6 +1007,7 @@ function TerminalPanel({
                     onKeyDown={activateOnKey((ev) => closeTabFromKeyboard(tab, stripOf(ev)))}
                     onMouseEnter={(e) => { e.currentTarget.style.color = "var(--phn-danger, #e08784)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.color = ""; }}
+                    style={{ outlineOffset: -2 }} // the strip clips at 30px: ring inside, like + and the panel ✕
                   >
                     ✕
                   </span>
@@ -1179,7 +1180,13 @@ function TerminalPanel({
                         element takes focus on a click, and the cluster then
                         fades to opacity 0 with focus still on it, so a later
                         Enter meant for the terminal re-fired the control. A
-                        click now leaves focus where it was (the terminal). */}
+                        click now leaves focus where it was (the terminal).
+                        The onKeyDown handlers stay: neither Tab nor a click
+                        focuses these, but a screen reader can move system
+                        focus onto a tabIndex -1 element (VoiceOver with focus
+                        following its cursor, NVDA set to move focus to
+                        focusable elements), and Enter/Space then arrive as
+                        keydown; each does exactly what its click does. */}
                     <div className="phn-pane-controls" data-zoomed={zoomed ? "1" : undefined}>
                       <span
                         className="phn-pane-ctl"
@@ -1221,9 +1228,10 @@ function TerminalPanel({
                               e.currentTarget.closest(".phn-pane")?.querySelector(".xterm-helper-textarea")?.focus();
                             }}
                             onKeyDown={activateOnKey((ev) => {
-                              // Same as the click (this control is only focused
-                              // programmatically): focus ends in this pane's
-                              // terminal, never on a control that then fades.
+                              // Same as the click (reached only through a screen
+                              // reader moving focus here, see above): focus ends
+                              // in this pane's terminal, never on a control that
+                              // then fades.
                               setZoomedPaneId(zoomed ? null : node.id);
                               ev.currentTarget.closest(".phn-pane")?.querySelector(".xterm-helper-textarea")?.focus();
                             })}

@@ -79,8 +79,13 @@ button:focus-visible {
 /* Controls that are role="button" on a span or div (session names, toasts:
    kept off <button> so their boxes do not change) get the same ring when
    reached from the keyboard, instead of the browser's own. :focus-visible
-   only, so a mouse click never draws it. */
-[role="button"]:focus-visible {
+   only, so a mouse click never draws it.
+   :where() keeps this a DEFAULT: its specificity is that of :focus-visible
+   alone (0,1,0). This file loads after the component stylesheets (main.jsx
+   imports App.jsx first), so written as [role="button"]:focus-visible
+   (0,2,0) it overrode every component ring of equal specificity, such as
+   .moba-railcol:focus-visible's 2px inset ring, by load order alone. */
+:where([role="button"]):focus-visible {
   outline: 1px solid var(--phn-focus-outline, #7c9cf5);
   outline-offset: 2px;
 }
