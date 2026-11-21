@@ -122,6 +122,71 @@ monochrome stroke icons (plus importable custom themes).
 - **Phone remote control** — run a private companion server (Tailscale-friendly)
   to view and type into your terminals from your phone.
 
+## How the agent works
+
+Agent Mode is a tool-calling agent built into the app, not a wrapper around an agent CLI. You give
+it a goal; it calls tools until the goal is done, and you approve what it runs.
+
+### The loop
+
+- **Native function calling in both provider dialects.** Anthropic `tool_use` / `tool_result`
+  and OpenAI-compatible `tool_calls` / `tool_call_id`, including arguments that stream in as
+  fragments. Code: [`src-tauri/src/llm.rs`](src-tauri/src/llm.rs),
+  [`src-tauri/src/llm_tools.rs`](src-tauri/src/llm_tools.rs),
+  [`src/features/terminals/llmTools.js`](src/features/terminals/llmTools.js).
+- **One loop for every tool.** Each run collects the built-in `run_command` tool plus every tool
+  from your connected MCP servers, calls the model, gates and runs each tool call, sends the
+  results back, and repeats until the model answers without calling a tool. Code:
+  [`src/features/terminals/agentLoop.js`](src/features/terminals/agentLoop.js),
+  [`src/features/terminals/AgentMode.jsx`](src/features/terminals/AgentMode.jsx).
+- **It cannot spin forever.** A run stops at 14 steps (`MAX_STEPS`), and the Stop button ends it
+  at any point. Cleanup runs in a `finally`, so a tool that throws cannot leave the agent stuck.
+- **Shell commands run in your real terminal pane.** Output is captured per command through
+  OSC 133 command blocks, so the model sees exactly what that command printed.
+- **16 providers, 40 models,** plus a custom slot for any OpenAI-compatible endpoint. Code:
+  [`src/features/terminals/providers.js`](src/features/terminals/providers.js).
+
+### MCP client
+
+- **Built on the official Rust MCP SDK (`rmcp`).** Two transports: stdio servers, spawned as child
+  processes from an argument list with no shell in between, and streamable HTTP servers. Code:
+  [`src-tauri/src/mcp/`](src-tauri/src/mcp/).
+- **One connection per server for the app's lifetime.** Servers connect on first use and their
+  tool lists are cached.
+- **Server secrets live in the OS keychain.** HTTP tokens and sensitive environment values are
+  referenced by name in the config and read from the keychain at connect time.
+- **The bearer token never follows a bad redirect.** The HTTP client refuses redirects to another
+  host or port, and any redirect from https down to http.
+
+### Safety is enforced in code, not in the prompt
+
+Tool output goes back into the next prompt, so anything a tool reads can try to steer the model.
+The gates below do not depend on the model behaving.
+
+- **Every shell command waits for your approval,** even with auto-run on. You can edit the
+  command before it runs, and known destructive patterns get a warning.
+- **MCP tools auto-run only when the server marks them read-only.** A tool with no annotation is
+  treated as destructive and waits for approval.
+- **Tool output is trimmed, capped and secret-masked** before it goes back to the model. Only the
+  text parts of an MCP result are sent.
+- **Project rules files are data, not instructions.** `AGENTS.md` and `CLAUDE.md` each need a
+  one-time approval of their exact content. The whole context block is masked before it is cut
+  to size, so a secret on the cut line cannot slip through as a fragment.
+
+### Tests
+
+- Agent loop, tool gating, tool-call parsing and context building:
+  [`agentLoop.test.js`](src/features/terminals/agentLoop.test.js),
+  [`agentTools.test.js`](src/features/terminals/agentTools.test.js),
+  [`llmTools.test.js`](src/features/terminals/llmTools.test.js),
+  [`agentContext.test.js`](src/features/terminals/agentContext.test.js).
+- MCP client against a mock MCP server:
+  [`src-tauri/tests/mcp_mock.rs`](src-tauri/tests/mcp_mock.rs), with the server in
+  [`src-tauri/tests/fixtures/mock_mcp_server.mjs`](src-tauri/tests/fixtures/mock_mcp_server.mjs).
+
+Design write-up:
+[`docs/superpowers/specs/2026-06-14-mcp-native-agent-design.md`](docs/superpowers/specs/2026-06-14-mcp-native-agent-design.md).
+
 ## Install
 
 1. Go to the **[Releases page](https://github.com/plutothedev/plutos-terminals/releases/latest)**.
