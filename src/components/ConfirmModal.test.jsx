@@ -206,6 +206,8 @@ test("recovery loop: a shortcut's confirm queues behind the recovery prompt and 
   expect(answers).toEqual([true]);
   // The shortcut's dialog is next, ahead of the loop's "recover b?".
   expect(screen.getByText(/unsaved changes/)).toBeTruthy();
+  // A queued destructive confirm still opens on Cancel.
+  expect(document.activeElement).toBe(screen.getByText("Cancel"));
   expect(screen.queryByText("recover b?")).toBeNull();
   expect(await settledOf(shortcut)).toBe("pending");
   await resolveWith("Cancel");

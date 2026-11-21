@@ -188,6 +188,11 @@ export function useWorkspaceTree({ state, persist, toast }) {
     const st = stateRef.current;
     const target = st.panels.find(p => p.id === panelId);
     if (!target) return;
+    // A close for a tab that is already gone does nothing. Confirms queue, so
+    // two Ctrl+Shift+W presses on a tab with an unsaved edit ask twice for the
+    // same id; without this, the second answer reached the one-tab branch below
+    // (the panel now holding only another tab) and closed that tab's panel.
+    if (!target.tabs.some(t => t.id === tabId)) return;
     if (target.tabs.length === 1) {
       closePanel(panelId);
       return;

@@ -130,7 +130,10 @@ export function usePaletteCommands(args) {
         );
         if (!ok) return;
         const fresh = defaultState();
-        persist({ ...state, panels: fresh.panels, activePanelId: fresh.activePanelId });
+        // Updater form: this runs after an await (and confirms queue, so the
+        // wait can be long); spreading the render-time `state` could undo
+        // whatever changed meanwhile.
+        persist((prev) => ({ ...(prev || {}), panels: fresh.panels, activePanelId: fresh.activePanelId }));
       },
     },
     // Tab switching (audit A11Y-05). The palette had ~33 commands and none of
