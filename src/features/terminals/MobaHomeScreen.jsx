@@ -34,7 +34,7 @@ export default function MobaHomeScreen({ panelId, tabId, api }) {
   return (
     <div className="moba-home">
       <div className="moba-home-inner">
-        <div className="moba-home-brand">⬢ Pluto's Terminal</div>
+        <div className="moba-home-brand">⬢ Pluto&apos;s Terminal</div>
         <div className="moba-home-tagline">Start a session</div>
 
         <button className="moba-home-start" onClick={() => api?.startLocal?.(panelId, tabId)}>

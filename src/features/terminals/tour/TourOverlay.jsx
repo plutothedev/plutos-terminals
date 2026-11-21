@@ -43,8 +43,17 @@ export default function TourOverlay({ open, onClose, ctx, steps = TOUR_STEPS, ch
     else setI(idx);
   }, [steps.length, close, i]);
 
-  // Reset to the first step whenever the tour opens fresh.
-  useEffect(() => { if (open) { setI(0); dirRef.current = 1; closedRef.current = false; } }, [open]);
+  // Reset to the first step whenever the tour opens fresh. The step index is
+  // reset during render (React's "adjust state when a prop changes" pattern),
+  // so the first open frame already measures step 0. The refs are reset in a
+  // layout effect declared BEFORE the measuring layout effect below, so the
+  // measurement (and its rAF auto-skip) always sees the fresh direction.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) setI(0);
+  }
+  useLayoutEffect(() => { if (open) { dirRef.current = 1; closedRef.current = false; } }, [open]);
 
   // Keep focus on the card so nothing beneath the overlay can hold it.
   useEffect(() => { if (open) cardRef.current?.focus?.(); }, [open, i]);

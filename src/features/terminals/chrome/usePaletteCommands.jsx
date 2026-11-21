@@ -8,11 +8,12 @@
 //
 // Dependency contract (byte-preserved from the pre-extraction memo, then
 // widened by three): 27 tracked dependencies, of which 25 arrive as named
-// fields on the single `args` object (the dep array lists args.<field> for
-// each) and 2 (toast and confirm) are context values read via
-// useToast()/useConfirm() HERE and listed as the locals. All useState setters
-// and module imports are stable and intentionally omitted from the dep list,
-// exactly as before. state/persist DO cross into this hook (the
+// fields on the single `args` object (the dep array lists the destructured
+// locals) and 2 (toast and confirm) are context values read via
+// useToast()/useConfirm() HERE. The useState setters (all from TerminalsTab's
+// useState / useSimpleModals) are listed too since the 2026-11-20 lint pass:
+// they are stable, so listing them changes nothing at runtime and keeps the
+// list honest. state/persist DO cross into this hook (the
 // reset-workspace action needs them): the sanctioned exception, matching the
 // useWorkspaceTree/useProjects convention.
 //
@@ -44,7 +45,7 @@ export function usePaletteCommands(args) {
     activeTabId, activePaneId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
     ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
     stopAndSaveRecording, startRecordingActive, persist, state, setActivePanel,
-    // stable React-state setters (dep-exempt, same as pre-extraction)
+    // stable React-state setters (listed in the deps; stable, so harmless)
     setDialog, setSshKeysOpen, setMacrosOpen, setMasterPwOpen, setAskOpen,
     setAgentOpen, setSummary, setHistoryOpen, setWorkspacesOpen, setModelsOpen,
     setSerialOpen, setVncOpen, setRdpOpen, setRemoteOpen, setBroadcastGroupOpen,
@@ -163,11 +164,17 @@ export function usePaletteCommands(args) {
       action: () => setActivePanel(p.id),
     })),
   ], [
-    args.scOf, args.addTab, args.addPanel, args.canAddPanel, args.splitPane, args.equalizePanes, args.closePane, args.importSshConfig,
-    args.switchTab, args.switchTabRel,
-    args.activeTabId, args.activePaneId, args.activeTab, args.activeTabRecording, args.broadcast, args.toggleBroadcast,
-    args.ribbon, args.selectRibbon, args.focusFilesDock, args.tunnelsOpen, args.setTunnelsOpen, args.openTunnels,
-    args.stopAndSaveRecording, args.startRecordingActive, toast, confirm,
-    args.persist, args.state, args.setActivePanel,
+    scOf, addTab, addPanel, canAddPanel, splitPane, equalizePanes, closePane, importSshConfig,
+    switchTab, switchTabRel,
+    activeTabId, activePaneId, activeTab, activeTabRecording, broadcast, toggleBroadcast,
+    ribbon, selectRibbon, focusFilesDock, tunnelsOpen, setTunnelsOpen, openTunnels,
+    stopAndSaveRecording, startRecordingActive, toast, confirm,
+    persist, state, setActivePanel,
+    // useState setters from TerminalsTab / useSimpleModals: stable, so listing
+    // them never changes the array's identity.
+    setDialog, setSshKeysOpen, setMacrosOpen, setMasterPwOpen, setAskOpen,
+    setAgentOpen, setSummary, setHistoryOpen, setWorkspacesOpen, setModelsOpen,
+    setSerialOpen, setVncOpen, setRdpOpen, setRemoteOpen, setBroadcastGroupOpen,
+    setNetToolsOpen, setMcpOpen, setSetupOpen, setSettingsOpen,
   ]);
 }

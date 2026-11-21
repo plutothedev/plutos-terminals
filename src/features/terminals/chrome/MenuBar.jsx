@@ -166,6 +166,13 @@ function MenuBar({
     activePanelTabCount, switchTabRel, activeSsh,
     toast, importSshConfig, selectRibbon, openTunnels,
     broadcast, toggleBroadcast, ribbon, onStartTour,
+    // useState setters from TerminalsTab / useSimpleModals (stable): listing
+    // them never rebuilds the menus.
+    setDialog, setSshKeysOpen, setSerialOpen, setVncOpen, setRdpOpen, setNetToolsOpen,
+    setMacrosOpen, setAskOpen, setSummary, setHistoryOpen, setModelsOpen,
+    setBroadcastGroupOpen, setRemoteOpen, setMcpOpen, setSetupOpen,
+    setCommandPaletteOpen, setWorkspacesOpen, setSettingsOpen, setMasterPwOpen,
+    setSharesOpen,
   ]);
 
   return (
@@ -223,7 +230,7 @@ function MenuBar({
         <Modal open={aboutOpen} title="About Pluto's Terminal" onClose={() => setAboutOpen(false)} width={400}>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, lineHeight: 1.5 }}>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--phn-text-active, #E6E6E6)" }}>Pluto's Terminal</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--phn-text-active, #E6E6E6)" }}>Pluto&apos;s Terminal</div>
               <div style={{ color: "var(--phn-text-dim, #9D9D9D)" }}>Version {APP_VERSION}</div>
             </div>
             <div>A workstation for running AI agents, SSH, and remote desktops side by side.</div>

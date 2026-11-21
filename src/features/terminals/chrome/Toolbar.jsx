@@ -44,6 +44,8 @@ function Toolbar({
   ], [
     activeTabId, activeTab, activeSsh, splitPane, broadcast, toggleBroadcast,
     tunnelsOpen, setTunnelsOpen, openTunnels, ribbon, selectRibbon,
+    // useState setters from TerminalsTab (stable): listing them never rebuilds.
+    setDialog, setSerialOpen, setAskOpen, setAgentOpen, setModelsOpen,
   ]);
 
   return (

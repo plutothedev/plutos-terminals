@@ -111,4 +111,22 @@ describe("TourOverlay", () => {
     fireEvent.click(screen.getByText("Back"));
     expect(await screen.findByText("OK")).toBeTruthy();
   });
+  test("reopening after a close starts again at step 1, and onClose can fire again", async () => {
+    const onClose = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const props = { steps: STEPS, chapters: CHAPTERS, ctx: {}, onClose };
+    const { rerender } = render(<TourOverlay open {...props} />, { container: host });
+    fireEvent.click(screen.getByText("Next")); // a -> b
+    expect(await screen.findByText("B")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    rerender(<TourOverlay open={false} {...props} />);
+    expect(screen.queryByText("B")).toBeNull();
+    rerender(<TourOverlay open {...props} />);
+    expect(await screen.findByText("A")).toBeTruthy();
+    expect(screen.getByText("1/4")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
 });

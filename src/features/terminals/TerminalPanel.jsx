@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@backend";
 import TerminalPane, { todayDate, transcriptName } from "./TerminalPane";
 import { PaneBoundary } from "../../components/ErrorBoundary.jsx";
@@ -22,9 +22,7 @@ import "./terminals.css";
 // haven't been injected yet (first paint pre-mount). Component reads
 // xtermTheme.background for the panel bg so the active tab's bg seamlessly
 // merges with the terminal output area below.
-const STRIP_BG = "var(--phn-surface-bg, rgba(17,17,17,0.95))";
 const BORDER_DIM = "var(--phn-surface-border, rgba(255,255,255,0.08))";
-const TAB_FG = "var(--phn-text-fg, #9D9D9D)";
 const TAB_FG_ACTIVE = "var(--phn-text-active, #E6E6E6)";
 // Alpha washes composite from a per-skin RGB TRIPLE instead of a hardcoded white
 // one: 255,255,255 in all twelve dark skins, 0,0,0 in moba-light and daylight
@@ -80,8 +78,56 @@ const DOT_WAITING = "#E0A93C";
 const GLOW_ACTIVE = "rgba(251,191,36,0.45)";
 const GLOW_DONE = "rgba(52,211,153,0.55)";
 const GLOW_WAITING = "rgba(224,169,60,0.85)";
-const GLOW_ACTIVE_SHADOW = "0 0 0 1px rgba(251,191,36,0.25), 0 0 10px rgba(251,191,36,0.15)";
-const GLOW_DONE_SHADOW = "0 0 0 1px rgba(52,211,153,0.45), 0 0 12px rgba(52,211,153,0.25)";
+
+// A per-pane handler cache: one function per pane id, minted on first use and
+// kept until the pane is pruned, so a pane's handler prop has a PERMANENT
+// identity and memo(TerminalPane) is never defeated by a fresh arrow. The
+// cache lives in useState (created once per panel), not in a ref read during
+// render; minting is idempotent, so a render React throws away leaves nothing
+// behind but a handler the next render would have minted anyway.
+function makeHandlerCache(make) {
+  const byId = new Map();
+  return {
+    get(id) {
+      let h = byId.get(id);
+      if (!h) { h = make(id); byId.set(id, h); }
+      return h;
+    },
+    prune(live) {
+      for (const id of [...byId.keys()]) if (!live.has(id)) byId.delete(id);
+    },
+  };
+}
+
+// One row of the tab context menu. A module-level component rather than a
+// helper called inside the menu's render: the row's click handler calls the
+// panel's dismiss callback (which reads the menu's DOM ref), and a component
+// boundary makes it plain that nothing here runs during render.
+function TabCtxMenuItem({ label, onSelect, onDismiss, disabled, danger }) {
+  return (
+    <button
+      role="menuitem"
+      // Nothing inside an open menu sits in the document tab sequence:
+      // arrows move between items and Tab dismisses (onTabCtxMenuKey).
+      tabIndex={-1}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); onDismiss(); if (e.detail > 0) releaseTabStripFocus(); if (!disabled) onSelect(e); }}
+      disabled={disabled}
+      style={{
+        display: "block", width: "100%", textAlign: "left",
+        background: "transparent", border: "none",
+        color: danger ? "var(--phn-danger, #f87171)" : TAB_FG_ACTIVE,
+        padding: "6px 12px", fontFamily: M, fontSize: 12,
+        cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.4 : 1,
+        whiteSpace: "nowrap", borderRadius: 4, boxSizing: "border-box",
+      }}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = "rgba(127,127,127,0.18)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+    >
+      {label}
+    </button>
+  );
+}
 
 // Floating drag preview for tab moves. Mirrors the project-drag ghost.
 function makeTabGhost(label) {
@@ -277,34 +323,20 @@ function TerminalPanel({
   // latest onTabCostUpdate rides a ref; stale ids are pruned when the leaf
   // set changes.
   const onTabCostUpdateRef = useRef(onTabCostUpdate);
-  onTabCostUpdateRef.current = onTabCostUpdate;
   // Same permanent-identity rule for the per-pane conversation writers. The
   // setter is stable (useWorkspaceTree useCallback over persist); should it
-  // ever change, the cache is dropped below and the handlers are rebuilt.
-  const agentHandlersRef = useRef(new Map());
-  const agentSessionHandlerFor = (paneId) => {
-    let h = agentHandlersRef.current.get(paneId);
-    if (!h) {
-      h = (session) => onPaneAgentSession?.(paneId, session);
-      agentHandlersRef.current.set(paneId, h);
-    }
-    return h;
-  };
+  // ever change, the handlers call the new one through this ref (they used to
+  // be dropped and re-minted one render late instead).
   const agentSetterRef = useRef(onPaneAgentSession);
-  useEffect(() => {
-    if (agentSetterRef.current === onPaneAgentSession) return;
+  // Latest-value writes after commit; only the handlers below read them.
+  useLayoutEffect(() => {
+    onTabCostUpdateRef.current = onTabCostUpdate;
     agentSetterRef.current = onPaneAgentSession;
-    agentHandlersRef.current = new Map();
-  }, [onPaneAgentSession]);
-  const costHandlersRef = useRef(new Map());
-  const costHandlerFor = (paneId) => {
-    let h = costHandlersRef.current.get(paneId);
-    if (!h) {
-      h = (c) => onTabCostUpdateRef.current?.(paneId, c);
-      costHandlersRef.current.set(paneId, h);
-    }
-    return h;
-  };
+  });
+  const [agentHandlers] = useState(() => makeHandlerCache((paneId) => (session) => agentSetterRef.current?.(paneId, session)));
+  const [costHandlers] = useState(() => makeHandlerCache((paneId) => (c) => onTabCostUpdateRef.current?.(paneId, c)));
+  const agentSessionHandlerFor = (paneId) => agentHandlers.get(paneId);
+  const costHandlerFor = (paneId) => costHandlers.get(paneId);
 
   const activeTab = panel.tabs.find(t => t.id === panel.activeTabId) || panel.tabs[0];
   // Subscribe to THIS panel's leaf set only (P2-T1): an activity flip in one
@@ -317,13 +349,9 @@ function TerminalPanel({
   usePanelActivityStamp(leafKey);
   useEffect(() => {
     const live = new Set(leafKey ? leafKey.split(",") : []);
-    for (const id of [...costHandlersRef.current.keys()]) {
-      if (!live.has(id)) costHandlersRef.current.delete(id);
-    }
-    for (const id of [...agentHandlersRef.current.keys()]) {
-      if (!live.has(id)) agentHandlersRef.current.delete(id);
-    }
-  }, [leafKey]);
+    costHandlers.prune(live);
+    agentHandlers.prune(live);
+  }, [leafKey, costHandlers, agentHandlers]);
   const panelState = aggregatePanelActivity(panel);
 
   // Panel bg = xterm bg so the active tab visually merges with the terminal
@@ -334,8 +362,6 @@ function TerminalPanel({
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef(null);
-  // Hovered tab — drives the hover-only close button (Termius style).
-  const [hoverTabId, setHoverTabId] = useState(null);
   // Right-click tab context menu: { x, y, tabId } or null.
   const [tabCtxMenu, setTabCtxMenu] = useState(null);
 
@@ -792,10 +818,8 @@ function TerminalPanel({
     borderColor = GLOW_DONE;
   }
 
-  const activePaneId = activeTab?.activePaneId || activeTab?.id;
-  const activeTabMulti = activeTab ? !isLeaf(getLayout(activeTab)) : false;
-
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer convenience on a layout container: mousedown anywhere in the panel marks it active; keyboard users switch panels with the panel shortcuts and the palette's "Switch to panel N", and the container itself is not a control
     <div
       data-panel-id={panel.id}
       onMouseDown={h.activate}
@@ -835,7 +859,7 @@ function TerminalPanel({
             the far right edge of the panel. It is exposed as a named button
             rather than dropped from the a11y tree. */}
         <div className="moba-tabstrip" role="tablist" aria-label="Terminal tabs" aria-orientation="horizontal" data-tour={isActive ? "tab-strip" : undefined} style={{ display: "flex", flex: 1, minWidth: 0, overflowX: "auto", overflowY: "hidden", alignItems: "stretch" }}>
-          {panel.tabs.map((tab, ti) => {
+          {panel.tabs.map((tab) => {
             const active = tab.id === panel.activeTabId;
             // Roving tabIndex. `active` can be false for EVERY tab if
             // activeTabId is stale, which would leave the strip with no tab
@@ -870,8 +894,6 @@ function TerminalPanel({
                 onDoubleClick={(e) => { e.stopPropagation(); startRename(tab); }}
                 onKeyDown={(e) => handleTabKeyDown(tab, e)}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setTabCtxMenu({ x: e.clientX, y: e.clientY, tabId: tab.id }); }}
-                onMouseEnter={() => setHoverTabId(tab.id)}
-                onMouseLeave={() => setHoverTabId((cur) => (cur === tab.id ? null : cur))}
                 // outlineOffset draws the UA focus ring INSIDE the tab. The
                 // strip's parent is overflow:hidden at height 30 and the tab is
                 // 27px flush to its bottom edge, so a default (offset 0) ring
@@ -1131,19 +1153,31 @@ function TerminalPanel({
                         visible while zoomed so un-zoom stays discoverable);
                         mousedown is stopped so a click here never re-activates
                         or types into the pane underneath. */}
+                    {/* role="button" spans, not <button>s, for the reason given at
+                        activateOnKey (a UA button box would repaint them, and
+                        the global button:focus ring would show on every click).
+                        tabIndex -1: the cluster is invisible until the pane is
+                        hovered, so a Tab stop here would be an invisible focus;
+                        the keyboard path is the shortcut in each title. */}
                     <div className="phn-pane-controls" data-zoomed={zoomed ? "1" : undefined}>
                       <span
                         className="phn-pane-ctl"
+                        role="button"
+                        tabIndex={-1}
                         onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => { e.stopPropagation(); if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "row"); }}
+                        onKeyDown={activateOnKey(() => { if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "row"); })}
                         title="Split right (Ctrl+Shift+D)"
                       >
                         <SSplitRow size={12} />
                       </span>
                       <span
                         className="phn-pane-ctl"
+                        role="button"
+                        tabIndex={-1}
                         onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => { e.stopPropagation(); if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "col"); }}
+                        onKeyDown={activateOnKey(() => { if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "col"); })}
                         title="Split down (Ctrl+Shift+S)"
                       >
                         <SSplitCol size={12} />
@@ -1152,16 +1186,22 @@ function TerminalPanel({
                         <>
                           <span
                             className="phn-pane-ctl"
+                            role="button"
+                            tabIndex={-1}
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); setZoomedPaneId(zoomed ? null : node.id); }}
+                            onKeyDown={activateOnKey(() => setZoomedPaneId(zoomed ? null : node.id))}
                             title={zoomed ? "Restore split (un-zoom)" : "Zoom this pane to fill the tab"}
                           >
                             {zoomed ? "⤡" : "⤢"}
                           </span>
                           <span
                             className="phn-pane-ctl phn-pane-ctl-danger"
+                            role="button"
+                            tabIndex={-1}
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); onClosePane?.(tab.id, node.id); }}
+                            onKeyDown={activateOnKey(() => onClosePane?.(tab.id, node.id))}
                             title="Close this pane (Ctrl+Shift+X)"
                           >
                             ✕
@@ -1178,6 +1218,7 @@ function TerminalPanel({
                   ? d.container.left + d.container.width * d.ratio
                   : d.container.top + d.container.height * d.ratio;
                 return (
+                  // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer-only split divider (drag to resize, double-click 50/50); the keyboard path is Equalize splits, and a focusable separator would need arrow-key resizing (new behaviour) that jsx-a11y rejects on a separator role anyway
                   <div
                     key={`div-${d.splitId}`}
                     onMouseDown={(e) => handleDividerMouseDown(d, tab.id, e)}
@@ -1233,32 +1274,10 @@ function TerminalPanel({
         // detail 0. So the mouse releases the guard again, right after the
         // dismissal armed it.
         const multi = panel.tabs.length > 1;
-        const item = (label, onClick, opts = {}) => (
-          <button
-            role="menuitem"
-            // Nothing inside an open menu sits in the document tab sequence:
-            // arrows move between items and Tab dismisses (onTabCtxMenuKey).
-            tabIndex={-1}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); dismissTabCtxMenu(); if (e.detail > 0) releaseTabStripFocus(); if (!opts.disabled) onClick(); }}
-            disabled={opts.disabled}
-            style={{
-              display: "block", width: "100%", textAlign: "left",
-              background: "transparent", border: "none",
-              color: opts.danger ? "var(--phn-danger, #f87171)" : TAB_FG_ACTIVE,
-              padding: "6px 12px", fontFamily: M, fontSize: 12,
-              cursor: opts.disabled ? "default" : "pointer", opacity: opts.disabled ? 0.4 : 1,
-              whiteSpace: "nowrap", borderRadius: 4, boxSizing: "border-box",
-            }}
-            onMouseEnter={(e) => { if (!opts.disabled) e.currentTarget.style.background = "rgba(127,127,127,0.18)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-          >
-            {label}
-          </button>
-        );
         return (
           <>
-            <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onMouseDown={() => { dismissTabCtxMenu(); releaseTabStripFocus(); }} onContextMenu={(e) => { e.preventDefault(); dismissTabCtxMenu(); releaseTabStripFocus(); }} />
+            {/* Click-away backdrop; its keyboard path is the window Escape listener above. */}
+            <div role="presentation" style={{ position: "fixed", inset: 0, zIndex: 9998 }} onMouseDown={() => { dismissTabCtxMenu(); releaseTabStripFocus(); }} onContextMenu={(e) => { e.preventDefault(); dismissTabCtxMenu(); releaseTabStripFocus(); }} />
             <div
               ref={mountTabCtxMenu}
               // The marker attribute does double duty: the window-level Escape
@@ -1285,7 +1304,7 @@ function TerminalPanel({
                 boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
               }}
             >
-              {item("Rename", () => startRename(tab))}
+              <TabCtxMenuItem label="Rename" onSelect={() => startRename(tab)} onDismiss={dismissTabCtxMenu} />
               {onSetTabColor && (
                 <div style={{ display: "flex", gap: 5, alignItems: "center", padding: "6px 10px" }}>
                   {[null, "#ef4444", "#f59e0b", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#a855f7"].map((c) => (
@@ -1333,16 +1352,16 @@ function TerminalPanel({
                   ))}
                 </div>
               )}
-              {item("Duplicate", () => h.duplicate(tab.id))}
-              {onDetachTab && !tab.home && item("Detach to new window", () => h.detach(tab.id))}
-              {onSplitPane && item("Split right", () => onSplitPane(tab.id, tab.activePaneId || tab.id, "row"))}
-              {!tab.home && !tab.vnc && !tab.rdp && !tab.notebook && item("Share transcript…", () => shareTranscript(tab))}
+              <TabCtxMenuItem label="Duplicate" onSelect={() => h.duplicate(tab.id)} onDismiss={dismissTabCtxMenu} />
+              {onDetachTab && !tab.home && <TabCtxMenuItem label="Detach to new window" onSelect={() => h.detach(tab.id)} onDismiss={dismissTabCtxMenu} />}
+              {onSplitPane && <TabCtxMenuItem label="Split right" onSelect={() => onSplitPane(tab.id, tab.activePaneId || tab.id, "row")} onDismiss={dismissTabCtxMenu} />}
+              {!tab.home && !tab.vnc && !tab.rdp && !tab.notebook && <TabCtxMenuItem label="Share transcript…" onSelect={() => shareTranscript(tab)} onDismiss={dismissTabCtxMenu} />}
               <div style={{ height: 1, background: BORDER_DIM, margin: "4px 0" }} />
-              {item("Close others", () => h.closeOthers(tab.id), { disabled: !multi })}
+              <TabCtxMenuItem label="Close others" onSelect={() => h.closeOthers(tab.id)} onDismiss={dismissTabCtxMenu} disabled={!multi} />
               {/* The keyboard close: dismiss has just put focus on the tab that is
                   about to be removed, so move it to a neighbour the way the
                   tab's own Delete key does. */}
-              {item("Close", () => closeTabFromKeyboard(tab, stripFor(tabCtxMenuRef.current)), { disabled: !multi, danger: true })}
+              <TabCtxMenuItem label="Close" onSelect={(e) => closeTabFromKeyboard(tab, stripFor(e.currentTarget))} onDismiss={dismissTabCtxMenu} disabled={!multi} danger />
             </div>
           </>
         );

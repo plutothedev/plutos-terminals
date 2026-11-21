@@ -1,5 +1,5 @@
 // (C)
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen } from "@backend";
 import TerminalPanel from "./TerminalPanel";
 import ProjectSidebar from "./ProjectSidebar";
@@ -24,7 +24,7 @@ import { useConfirm } from "../../components/ConfirmModal.jsx";
 
 import { KEY_ACTIONS, comboFromEvent, resolveBindings, setResolved, isCapturing, formatCombo } from "./keybindings.js";
 import { gridDims, MAX_PANELS } from "./grid";
-import { useSystemStats, useShellName, useClaudeAvailable, useRecordingState, useRegistryListener, useWindowTitle } from "./hooks/independentEffects.js";
+import { useSystemStats, useShellName, useRecordingState, useRegistryListener, useWindowTitle } from "./hooks/independentEffects.js";
 import TourOverlay from "./tour/TourOverlay.jsx";
 import TourOffer from "./tour/TourOffer.jsx";
 import { useDockResize } from "./hooks/useDockResize.js";
@@ -62,7 +62,7 @@ import { navigatePane } from "./paneNav.js";
 import { resolveActivePaneId, allPaneTargets, findPaneOwner, activeSshContext, paneSessionLabel } from "./activePane.js";
 import { nextTabId, tabIdAt } from "./tabNav.js";
 import { reconcile, getEntry } from "./paneRegistry.js";
-import { allRenderedPaneIds, isSpecialTab } from "./paneIds.js";
+import { allRenderedPaneIds } from "./paneIds.js";
 import { trickleTick } from "./trickle.js";
 import { setProjectIndex, pruneActivities, getPaneActivity, subscribeActivities } from "./activityStore.js";
 import { sshAccount } from "./sshAccount.js";
@@ -73,9 +73,14 @@ import { humanizeError } from "./errorText.js";
 // trickle active). Owned by the trickle effect below.
 let trickleTimer = null;
 
+// One shared empty list for a workspace with no saved sessions. A fresh `[]`
+// per render would change `projects`' identity every render and re-run every
+// effect/memo keyed on it (the homeApi memo, the project-index effect).
+const NO_PROJECTS = [];
+
 export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {} }) {
   const state = st?.terminalsState || defaultState();
-  const projects = state.projects || [];
+  const projects = state.projects || NO_PROJECTS;
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -86,7 +91,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // A ref holds the latest toast api behind this stable callback, so
   // TerminalPanel keeps a constant `notify` prop and its React.memo stays intact.
   const toastRef = useRef(toast);
-  toastRef.current = toast;
+  // Latest-value write after commit (read only from the notify callback).
+  useLayoutEffect(() => { toastRef.current = toast; });
   const notify = useCallback((variant, message) => {
     const fn = toastRef.current?.[variant] || toastRef.current?.info;
     fn?.(message);
@@ -237,7 +243,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // by the burst itself; interactive edits commit once on mouseup and cost
   // at most ~1s. Visible panes are unaffected (they spawn via [visible]).
   const trickleStateRef = useRef(state.panels);
-  trickleStateRef.current = state.panels;
+  // Latest-value write after commit; only the timer tick below reads it.
+  useLayoutEffect(() => { trickleStateRef.current = state.panels; });
   useEffect(() => {
     if (trickleTimer !== null) return; // already armed (this or another mount)
     const tick = () => {
@@ -382,9 +389,6 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // collapsed dock with monitor selected polled a disk stat forever (P2-T5).
   const sysStats = useSystemStats(dockTab === "monitor" && !dockCollapsed);
 
-  // Claude CLI availability — checked once on mount, surfaced in the status bar.
-  const claudeAvailable = useClaudeAvailable();
-
   // First-launch auto-detect: if user has never seen the setup checker AND
   // `claude` isn't on PATH, auto-open the modal so they don't type `claude`
   // and hit "command not recognized" as their first impression. Set
@@ -449,9 +453,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // closePane→closeTab, detachTab→closeTab) are internal to the hook.
   const {
     setActivePanel, addPanel, closePanel,
-    addTab, addHomeTab, focusOrAddHomeTab, convertHomeToShell, addNotebookTab,
+    addTab, addHomeTab, convertHomeToShell, addNotebookTab,
     closeTab, closeTabs, switchTab, renameTab, setTabColor, duplicateTab, detachTab, closeOtherTabs, moveTab, reorderTab, reopenTab,
-    panelIdForTab, splitPane, closePane, activatePane, setPaneRatio, equalizePanes, moveTabIntoSplit,
+    splitPane, closePane, activatePane, setPaneRatio, equalizePanes, moveTabIntoSplit,
     setPaneAgentSession,
   } = useWorkspaceTree({ state, persist, toast });
 
@@ -556,7 +560,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
 
   // Active panel / tab derivation (plain, un-memoized — see useActiveTab). Sits
   // here so every reader below keeps the same declaration order.
-  const { activePanel, activeTabId, activeTab } = useActiveTab(state);
+  const { activeTabId, activeTab } = useActiveTab(state);
 
   // THE id every "act on the active terminal" action must use. ptyBridge's
   // writers/readers, the recorder and the macro capture are keyed by PANE id
@@ -742,7 +746,8 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // a shell that flows back into the session list). A ref carries the latest
   // addTab/activePanelId so the listener registers once (no re-subscribe churn).
   const newSessionReqRef = useRef(() => {});
-  newSessionReqRef.current = () => addTab(state.activePanelId);
+  // Latest-value write after commit; only the event listener reads it.
+  useLayoutEffect(() => { newSessionReqRef.current = () => addTab(state.activePanelId); });
   useEffect(() => {
     // companion://* are GLOBAL app.emit broadcasts → every open window receives
     // them. Only the primary window (no ?w= suffix) should act, else one phone
@@ -765,10 +770,13 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
   // touch keys). The next spawned shell routes to it (TerminalPane reads
   // activeModel at spawn). Ref carries latest userSt.
   const setActiveModelRef = useRef(() => {});
-  setActiveModelRef.current = (payload) => {
-    const next = phoneModelChoice(payload, userSt);
-    if (next) saveUser((prev) => ({ ...prev, activeModel: next }));
-  };
+  // Latest-value write after commit; only the event listener reads it.
+  useLayoutEffect(() => {
+    setActiveModelRef.current = (payload) => {
+      const next = phoneModelChoice(payload, userSt);
+      if (next) saveUser((prev) => ({ ...prev, activeModel: next }));
+    };
+  });
   useEffect(() => {
     if (!isPrimaryWindow()) return; // primary window only (see new-session)
     let un, cancelled = false;
@@ -865,7 +873,11 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
     vnc: () => setVncOpen(true),
     rdp: () => setRdpOpen(true),
     serial: () => setSerialOpen(true),
-  }), [projects, convertHomeToShell, openProjectInPanel]);
+  }), [
+    projects, convertHomeToShell, openProjectInPanel,
+    // useSimpleModals' useState setters: stable, so listing them never rebuilds homeApi.
+    setVncOpen, setRdpOpen, setSerialOpen,
+  ]);
 
   // Pane-id → display title for the notebook target-pane picker. The picker
   // previously listed raw internal leaf ids. Lives in useTabTelemetry beside
@@ -1060,7 +1072,9 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         // activatePane only marks workspace state; keyboard nav must move real
         // keyboard focus too (a click does it natively — arrows can't). The
         // registry holds the live xterm; defer past this keydown's dispatch.
-        setTimeout(() => { try { getEntry(target)?.term?.focus(); } catch {} }, 0);
+        setTimeout(() => {
+          try { getEntry(target)?.term?.focus(); } catch { /* best effort: the pane may have been disposed in the tick since; activation already landed */ }
+        }, 0);
       },
     };
   });
@@ -1325,6 +1339,10 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
           <CollapsedRail glyph="‹" label="Panel" title="Show side panel" onExpand={() => collapseDock(false)} />
         ) : (
           <>
+            {/* Pointer-only drag handle. The keyboard path to this dock is the
+                collapse rail and F4; a focusable splitter would need arrow-key
+                resizing, which this lint pass does not add. */}
+            {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer-only drag-resize handle; making it a focusable separator means adding keyboard resizing (new behaviour), and jsx-a11y rejects a separator with handlers anyway */}
             <div className="moba-splitter" title="Drag to resize" onMouseDown={startDockResize} style={{ cursor: "col-resize" }}><span className="moba-grip"><i></i><i></i><i></i></span></div>
             <div className="moba-rightdock" style={{ width: dockWidth }}>
               <DockTabStrip dockTab={dockTab} setDockTab={setDockTab} collapseDock={collapseDock} />

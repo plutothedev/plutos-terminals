@@ -21,7 +21,7 @@ const { mounts, unmounts } = vi.hoisted(() => ({ mounts: new Map(), unmounts: ne
 const bump = (m, k) => m.set(k, (m.get(k) || 0) + 1);
 
 vi.mock("./TerminalPane", () => ({
-  default: ({ tabId }) => {
+  default: function MockTerminalPane({ tabId }) {
     useEffect(() => {
       bump(mounts, tabId);
       return () => bump(unmounts, tabId);

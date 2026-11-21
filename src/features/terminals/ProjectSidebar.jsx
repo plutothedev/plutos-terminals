@@ -1,11 +1,10 @@
 // (C)
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@backend";
 import "./terminals.css";
-import { SLocal, SSsh, SWindows, SServer, SBox, SBot, SModels, SFolder, SAgents } from "./toolbarIcons.jsx";
+import { SLocal, SWindows, SServer, SBox, SFolder, SAgents } from "./toolbarIcons.jsx";
 import { useProjectRollups } from "./activityStore.js";
 
-const SIDEBAR_BG = "var(--phn-surface-alt-bg, #0d0d0d)";
 const HEADER_BG = "var(--phn-surface-bg, #181818)";
 const FG = "var(--phn-text-fg, #CCCCCC)";
 const FG_DIM = "var(--phn-text-dim, #9D9D9D)";
@@ -40,22 +39,6 @@ const colorHex = (id) => COLOR_PALETTE.find(c => c.id === id)?.hex || FG_FAINT;
 
 // SSH sessions carry a `connection`; older/local records have a `path`.
 const isSsh = (p) => p?.type === "ssh" || (!!p?.connection && !p?.path);
-
-// MobaXterm-style platform icons: infer the OS/platform from the session name,
-// folder, host, or path so the tree reads like MobaXterm's categorised list.
-// Monochrome stroke glyphs (reskin) — falls back to a generic host/computer icon.
-function platformGlyph(p) {
-  const hay = `${p?.name || ""} ${p?.folder || ""} ${p?.connection?.host || ""} ${p?.path || ""}`.toLowerCase();
-  if (/(ubuntu|debian|linux|fedora|centos|arch|alpine|redhat|rhel|kali|suse)/.test(hay)) return <SServer size={13} />;
-  if (/(windows|win10|win11|wsl|\bwin\b)/.test(hay)) return <SWindows size={13} />;
-  if (/(macos|macbook|apple|osx|darwin|\bmac\b)/.test(hay)) return <SLocal size={13} />;
-  if (/(android)/.test(hay)) return <SBot size={13} />;
-  if (/(raspberry|\brpi\b)/.test(hay)) return <SModels size={13} />;
-  if (/(aix|solaris|\bunix\b|\bbsd\b)/.test(hay)) return <SServer size={13} />;
-  if (/(docker|container|k8s|kube)/.test(hay)) return <SBox size={13} />;
-  return isSsh(p) ? <SSsh size={13} /> : <SLocal size={13} />;
-}
-const typeGlyph = (p) => platformGlyph(p);
 
 // Colored stroke OS-type icons, ported 1:1 from the mockup (#i-tux / #i-win /
 // #i-branch / #i-mon). All stroke (fill:none) for the crisp line-art look; the
@@ -136,6 +119,17 @@ function highlightPanel(el) {
   el.style.outlineOffset = "-2px";
 }
 
+// Keyboard path for a click target that is not a native <button>: Enter or
+// Space does what the click does. The rows and chips here stay <div>/<span>
+// with role="button" rather than becoming <button>s: a UA button box would
+// repaint them, and the global button:focus ring would show on every click.
+const onActivateKey = (fn) => (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  e.preventDefault();
+  e.stopPropagation();
+  fn(e);
+};
+
 // Activity tints for project rows (mirror tab dot colors).
 const ACTIVE_FG = "rgba(250,204,21,0.85)";
 const DONE_FG = "#34D399";
@@ -177,12 +171,13 @@ function ProjectSidebar({
   // immediately. Single-flight guards a slow batch overlapping the next tick.
   useEffect(() => {
     let cancelled = false;
-    let inFlight = false;
+    // The running batch's promise, or null. Cleared from the promise's own
+    // .finally, so the single-flight flag is never written back from a stale
+    // read across an await.
+    let inFlight = null;
     const ssh = (projects || []).filter((p) => isSsh(p) && p.connection?.host);
     if (ssh.length === 0) return undefined;
-    const probe = async () => {
-      if (cancelled || inFlight || document.hidden) return;
-      inFlight = true;
+    const run = async () => {
       try {
         // Trimmed host both directions — the Rust side trims before keying,
         // so an untrimmed lookup here would never match (stream audit nit).
@@ -200,7 +195,11 @@ function ProjectSidebar({
             return next;
           });
         }
-      } catch { /* ignore */ } finally { inFlight = false; }
+      } catch { /* best effort: a failed batch keeps the last known latencies; the next tick retries */ }
+    };
+    const probe = () => {
+      if (cancelled || inFlight || document.hidden) return;
+      inFlight = run().finally(() => { inFlight = null; });
     };
     probe();
     const t = setInterval(probe, 30000);
@@ -222,7 +221,12 @@ function ProjectSidebar({
   const [ctxMenu, setCtxMenu] = useState(null); // {x, y, projectId}
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
-  const renameInputRef = useRef(null);
+  // Focus + select the rename field once, when it mounts (a stable callback
+  // ref, so React calls it on mount only, never on a re-render while typing).
+  // Deferred a task like the old startRename timer, which it replaces.
+  const focusRenameInput = useCallback((el) => {
+    if (el) setTimeout(() => { el.focus(); el.select(); }, 0);
+  }, []);
 
   // Git branch + dirty state per project, refreshed every 30s while the
   // sidebar is open. P2-T4: ONE batched invoke (chunked scoped threads on the
@@ -233,12 +237,10 @@ function ProjectSidebar({
   const [gitStatus, setGitStatus] = useState({}); // {projectId: {branch, dirty} | null}
   useEffect(() => {
     let cancelled = false;
-    let inFlight = false;
+    let inFlight = null; // the running batch's promise, or null (see the latency probe)
     const withPath = projects.filter((p) => p.path);
     if (withPath.length === 0) return undefined;
-    const refresh = async () => {
-      if (cancelled || inFlight || document.hidden) return;
-      inFlight = true;
+    const run = async () => {
       try {
         const byCwd = await invoke("git_branch_status_many", {
           cwds: withPath.map((p) => p.path),
@@ -250,7 +252,11 @@ function ProjectSidebar({
             return next;
           });
         }
-      } catch { /* ignore */ } finally { inFlight = false; }
+      } catch { /* best effort: a failed batch keeps the last known branches; the next tick retries */ }
+    };
+    const refresh = () => {
+      if (cancelled || inFlight || document.hidden) return;
+      inFlight = run().finally(() => { inFlight = null; });
     };
     refresh();
     const t = setInterval(refresh, 30000);
@@ -275,34 +281,34 @@ function ProjectSidebar({
   // but no longer the whole app on the way here.
   const projectActivities = useProjectRollups();
 
-  // Shake projects whose tied tab just transitioned active→done. Tracks
-  // previous per-project activity in a ref; a 400ms class flicker drives
-  // the CSS animation defined in terminals.css.
-  const prevActivityRef = useRef({});
-  const [shakingIds, setShakingIds] = useState(new Set());
-  useEffect(() => {
-    const newlyDone = [];
-    for (const [id, state] of Object.entries(projectActivities || {})) {
-      if (state === "done" && prevActivityRef.current[id] === "active") {
-        newlyDone.push(id);
-      }
-    }
-    prevActivityRef.current = projectActivities || {};
-    if (newlyDone.length === 0) return;
-    setShakingIds(prev => {
-      const next = new Set(prev);
-      newlyDone.forEach(id => next.add(id));
-      return next;
-    });
-    const t = setTimeout(() => {
-      setShakingIds(prev => {
+  // Shake projects whose tied tab just transitioned active→done: a 400ms class
+  // flicker drives the CSS animation defined in terminals.css. The transition
+  // is detected DURING RENDER against the previous rollups (React's "adjust
+  // state when a value changes" pattern), and the clear timer is keyed on the
+  // shaking set alone. The old effect keyed the timer on every rollup change,
+  // so any other project's flip inside the 420 ms cancelled it and left the
+  // class on for good (that project then never shook again).
+  const [prevActivities, setPrevActivities] = useState(projectActivities);
+  const [shakingIds, setShakingIds] = useState(() => new Set());
+  if (projectActivities !== prevActivities) {
+    setPrevActivities(projectActivities);
+    const before = prevActivities || {};
+    const newlyDone = Object.entries(projectActivities || {})
+      .filter(([id, state]) => state === "done" && before[id] === "active")
+      .map(([id]) => id);
+    if (newlyDone.length > 0) {
+      setShakingIds((prev) => {
         const next = new Set(prev);
-        newlyDone.forEach(id => next.delete(id));
+        newlyDone.forEach((id) => next.add(id));
         return next;
       });
-    }, 420);
+    }
+  }
+  useEffect(() => {
+    if (shakingIds.size === 0) return undefined;
+    const t = setTimeout(() => setShakingIds(new Set()), 420);
     return () => clearTimeout(t);
-  }, [projectActivities]);
+  }, [shakingIds]);
 
   const closeCtx = () => setCtxMenu(null);
 
@@ -326,10 +332,6 @@ function ProjectSidebar({
   const startRename = (project) => {
     setRenamingId(project.id);
     setRenameValue(project.name || "");
-    setTimeout(() => {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    }, 0);
   };
   const commitRename = () => {
     if (!renamingId) return;
@@ -366,7 +368,7 @@ function ProjectSidebar({
       }
     };
 
-    const onUp = (ev) => {
+    const onUp = () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       if (ghost) ghost.remove();
@@ -565,7 +567,7 @@ function ProjectSidebar({
           </div>
           )
         ) : visibleProjects.length === 0 ? (
-          <div className="phn-snippets-empty">No sessions match "{query}".</div>
+          <div className="phn-snippets-empty">No sessions match &quot;{query}&quot;.</div>
         ) : (() => {
           const renderRow = (p) => {
             const isHover = hoverId === p.id;
@@ -586,6 +588,19 @@ function ProjectSidebar({
               <div key={p.id}>
               <div
                 className={shakingIds.has(p.id) ? "tg-shake" : undefined}
+                // The row is the session's control: click (or Enter/Space)
+                // opens it, drag drops it on a panel. Named explicitly so the
+                // tag chips, latency and branch text do not pile into its name.
+                // A mouse press never focuses it (handleRowMouseDown calls
+                // preventDefault), so the look under the mouse is unchanged.
+                role="button"
+                tabIndex={0}
+                aria-label={p.name}
+                onKeyDown={(e) => {
+                  // Keys typed in the rename field or on a nested chip are theirs.
+                  if (e.target !== e.currentTarget || isRenamingThis) return;
+                  onActivateKey(() => onClickProject(p.id))(e);
+                }}
                 onMouseDown={(e) => { if (!isRenamingThis) handleRowMouseDown(p, e); }}
                 onDoubleClick={(e) => { e.stopPropagation(); startRename(p); }}
                 onContextMenu={(e) => handleRowContextMenu(p, e)}
@@ -626,7 +641,7 @@ function ProjectSidebar({
                 <>
                 {isRenamingThis ? (
                   <input
-                    ref={renameInputRef}
+                    ref={focusRenameInput}
                     value={renameValue}
                     onChange={(e) => setRenameValue(e.target.value)}
                     onBlur={commitRename}
@@ -686,8 +701,14 @@ function ProjectSidebar({
                     {Array.isArray(p.tags) && p.tags.slice(0, 2).map((tag) => (
                       <span
                         key={tag}
+                        // Out of the Tab order (two per row would double the
+                        // list's stops); the keyboard path is typing #tag in
+                        // the search box above.
+                        role="button"
+                        tabIndex={-1}
                         onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => { e.stopPropagation(); setQuery(`#${tag}`); }}
+                        onKeyDown={onActivateKey(() => setQuery(`#${tag}`))}
                         title={`Filter by #${tag}`}
                         style={{
                           flexShrink: 0, fontSize: 8.5, lineHeight: 1.4, padding: "0 4px",
@@ -740,8 +761,13 @@ function ProjectSidebar({
                 )}
                 {!isRenamingThis && !isSsh(p) && (
                   <span
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={expandedId === p.id}
+                    aria-label={`Recent files in ${p.name}`}
                     onMouseDown={(e) => { e.stopPropagation(); }}
                     onClick={(e) => { e.stopPropagation(); toggleExpand(p); }}
+                    onKeyDown={onActivateKey(() => toggleExpand(p))}
                     title={expandedId === p.id ? "Hide recent files" : "Show recent files"}
                     style={{
                       color: expandedId === p.id ? ACCENT : (isHover ? FG_DIM : FG_FAINT),
@@ -758,8 +784,14 @@ function ProjectSidebar({
                 )}
                 {isHover && !isRenamingThis && (
                   <span
+                    // Rendered only while the mouse is over the row, so it can
+                    // never be a Tab stop; the keyboard path is the right-click
+                    // menu's "Remove session".
+                    role="button"
+                    tabIndex={-1}
                     onMouseDown={(e) => { e.stopPropagation(); }}
                     onClick={(e) => { e.stopPropagation(); onRemoveProject(p.id); }}
+                    onKeyDown={onActivateKey(() => onRemoveProject(p.id))}
                     title="Remove session"
                     style={{
                       color: FG_FAINT,
@@ -770,6 +802,8 @@ function ProjectSidebar({
                     }}
                     onMouseOver={(e) => (e.currentTarget.style.color = "var(--phn-danger, #e08784)")}
                     onMouseOut={(e) => (e.currentTarget.style.color = FG_FAINT)}
+                    onFocus={(e) => (e.currentTarget.style.color = "var(--phn-danger, #e08784)")}
+                    onBlur={(e) => (e.currentTarget.style.color = FG_FAINT)}
                   >
                     ✕
                   </span>
@@ -828,7 +862,11 @@ function ProjectSidebar({
               <div key={`folder:${name}`}>
                 <div
                   className="phn-folder-header"
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={!isCol}
                   onClick={() => toggleFolder(name)}
+                  onKeyDown={onActivateKey(() => toggleFolder(name))}
                   title={isCol ? `Expand "${name}"` : `Collapse "${name}"`}
                 >
                   <span className="phn-folder-chevron">{isCol ? "▸" : "▾"}</span>
@@ -858,8 +896,12 @@ function ProjectSidebar({
         const allFolders = [...new Set(projects.map((p) => p.folder).filter(Boolean))];
         return (
           <>
-            <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onClick={closeCtx} onContextMenu={(e) => { e.preventDefault(); closeCtx(); }} />
+            {/* Click-away backdrop: presentation only, it is not a control. */}
+            <div role="presentation" style={{ position: "fixed", inset: 0, zIndex: 9998 }} onClick={closeCtx} onContextMenu={(e) => { e.preventDefault(); closeCtx(); }} />
+            {/* The panel's onClick only stops a click inside it from reaching
+                anything beneath; the controls are the buttons and swatches. */}
             <div
+              role="presentation"
               style={{
                 position: "fixed",
                 left: Math.min(ctxMenu.x, window.innerWidth - 200),
@@ -896,7 +938,12 @@ function ProjectSidebar({
                 {COLOR_PALETTE.map(c => (
                   <span
                     key={c.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Color: ${c.id}`}
+                    aria-pressed={project.color === c.id}
                     onClick={() => { onColorProject(project.id, c.id); closeCtx(); }}
+                    onKeyDown={onActivateKey(() => { onColorProject(project.id, c.id); closeCtx(); })}
                     title={c.id}
                     style={{
                       width: 16,
@@ -916,7 +963,11 @@ function ProjectSidebar({
                   />
                 ))}
                 <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Clear color"
                   onClick={() => { onColorProject(project.id, null); closeCtx(); }}
+                  onKeyDown={onActivateKey(() => { onColorProject(project.id, null); closeCtx(); })}
                   title="Clear color"
                   style={{
                     width: 16,
