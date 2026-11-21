@@ -129,4 +129,34 @@ describe("TourOverlay", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(2);
   });
+
+  test("the first frame after a reopen is already step 1: the old step is never shown or prepped", async () => {
+    // Pins the render-time reset. With the reset in an effect, the reopen's
+    // first commit still showed the step the tour was closed on, and the
+    // measuring layout effect ran that step's prep (e.g. opening the dock for
+    // it) before the effect jumped back to step 1.
+    const prepA = vi.fn(), prepB = vi.fn();
+    const steps = STEPS.map((s) => (s.id === "a" ? { ...s, prep: prepA } : s.id === "b" ? { ...s, prep: prepB } : s));
+    const onClose = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const props = { steps, chapters: CHAPTERS, ctx: {}, onClose };
+    const { rerender } = render(<TourOverlay open {...props} />, { container: host });
+    fireEvent.click(screen.getByText("Next")); // a -> b
+    expect(await screen.findByText("B")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    rerender(<TourOverlay open={false} {...props} />);
+    const prepBBefore = prepB.mock.calls.length;
+    const prepABefore = prepA.mock.calls.length;
+    // Record which step each prep saw on screen, synchronously, at the moment
+    // the measuring layout effect calls it (before any passive effect runs).
+    const seen = [];
+    prepA.mockImplementation(() => seen.push(document.querySelector(".phn-tour-title")?.textContent));
+    prepB.mockImplementation(() => seen.push(document.querySelector(".phn-tour-title")?.textContent));
+    rerender(<TourOverlay open {...props} />);
+    expect(prepB.mock.calls.length).toBe(prepBBefore); // step B is not prepped on reopen
+    expect(prepA.mock.calls.length).toBe(prepABefore + 1); // step A exactly once
+    expect(seen).toEqual(["A"]); // and the first committed frame already showed A
+    expect(screen.getByText("1/4")).toBeTruthy();
+  });
 });

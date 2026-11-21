@@ -333,6 +333,10 @@ function TerminalPanel({
     onTabCostUpdateRef.current = onTabCostUpdate;
     agentSetterRef.current = onPaneAgentSession;
   });
+  // Intended: a cached handler always calls the parent's NEWEST callback (read
+  // through the refs at call time). Before the lint pass a handler kept calling
+  // the callback it was minted with until it was re-minted, one render late;
+  // calling the current one is the correct behaviour, not a side effect.
   const [agentHandlers] = useState(() => makeHandlerCache((paneId) => (session) => agentSetterRef.current?.(paneId, session)));
   const [costHandlers] = useState(() => makeHandlerCache((paneId) => (c) => onTabCostUpdateRef.current?.(paneId, c)));
   const agentSessionHandlerFor = (paneId) => agentHandlers.get(paneId);
@@ -1157,14 +1161,26 @@ function TerminalPanel({
                         activateOnKey (a UA button box would repaint them, and
                         the global button:focus ring would show on every click).
                         tabIndex -1: the cluster is invisible until the pane is
-                        hovered, so a Tab stop here would be an invisible focus;
-                        the keyboard path is the shortcut in each title. */}
+                        hovered, so a Tab stop here would be an invisible focus.
+                        Keyboard paths: split right, split down and close have
+                        the Panes shortcuts named in their titles (Ctrl+Shift+D,
+                        Ctrl+Shift+S, Ctrl+Shift+X, rebindable in Settings).
+                        Zoom has no shortcut, palette entry or menu item, so
+                        while the pane is zoomed (when the cluster is always
+                        shown, see data-zoomed) the zoom control is a Tab stop
+                        (tabIndex 0) and Enter/Space on it un-zooms. Zooming IN
+                        is mouse-only.
+                        onMouseDown also calls preventDefault: a tabIndex -1
+                        element takes focus on a click, and the cluster then
+                        fades to opacity 0 with focus still on it, so a later
+                        Enter meant for the terminal re-fired the control. A
+                        click now leaves focus where it was (the terminal). */}
                     <div className="phn-pane-controls" data-zoomed={zoomed ? "1" : undefined}>
                       <span
                         className="phn-pane-ctl"
                         role="button"
                         tabIndex={-1}
-                        onMouseDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                         onClick={(e) => { e.stopPropagation(); if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "row"); }}
                         onKeyDown={activateOnKey(() => { if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "row"); })}
                         title="Split right (Ctrl+Shift+D)"
@@ -1175,7 +1191,7 @@ function TerminalPanel({
                         className="phn-pane-ctl"
                         role="button"
                         tabIndex={-1}
-                        onMouseDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                         onClick={(e) => { e.stopPropagation(); if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "col"); }}
                         onKeyDown={activateOnKey(() => { if (zoomed) setZoomedPaneId(null); onSplitPane?.(tab.id, node.id, "col"); })}
                         title="Split down (Ctrl+Shift+S)"
@@ -1187,10 +1203,17 @@ function TerminalPanel({
                           <span
                             className="phn-pane-ctl"
                             role="button"
-                            tabIndex={-1}
-                            onMouseDown={(e) => e.stopPropagation()}
+                            tabIndex={zoomed ? 0 : -1}
+                            onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                             onClick={(e) => { e.stopPropagation(); setZoomedPaneId(zoomed ? null : node.id); }}
-                            onKeyDown={activateOnKey(() => setZoomedPaneId(zoomed ? null : node.id))}
+                            onKeyDown={activateOnKey((ev) => {
+                              setZoomedPaneId(zoomed ? null : node.id);
+                              // Un-zoomed from the keyboard: the cluster fades
+                              // and this control leaves the Tab order, so hand
+                              // focus to the pane's terminal rather than leave
+                              // it on an invisible control a second Enter re-fires.
+                              if (zoomed) ev.currentTarget.closest(".phn-pane")?.querySelector(".xterm-helper-textarea")?.focus();
+                            })}
                             title={zoomed ? "Restore split (un-zoom)" : "Zoom this pane to fill the tab"}
                           >
                             {zoomed ? "⤡" : "⤢"}
@@ -1199,7 +1222,7 @@ function TerminalPanel({
                             className="phn-pane-ctl phn-pane-ctl-danger"
                             role="button"
                             tabIndex={-1}
-                            onMouseDown={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                             onClick={(e) => { e.stopPropagation(); onClosePane?.(tab.id, node.id); }}
                             onKeyDown={activateOnKey(() => onClosePane?.(tab.id, node.id))}
                             title="Close this pane (Ctrl+Shift+X)"

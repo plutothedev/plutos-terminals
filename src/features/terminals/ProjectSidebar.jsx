@@ -1,5 +1,5 @@
 // (C)
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@backend";
 import "./terminals.css";
 import { SLocal, SWindows, SServer, SBox, SFolder, SAgents } from "./toolbarIcons.jsx";
@@ -284,10 +284,11 @@ function ProjectSidebar({
   // Shake projects whose tied tab just transitioned active→done: a 400ms class
   // flicker drives the CSS animation defined in terminals.css. The transition
   // is detected DURING RENDER against the previous rollups (React's "adjust
-  // state when a value changes" pattern), and the clear timer is keyed on the
-  // shaking set alone. The old effect keyed the timer on every rollup change,
-  // so any other project's flip inside the 420 ms cancelled it and left the
-  // class on for good (that project then never shook again).
+  // state when a value changes" pattern), and each shaking project gets its
+  // OWN clear timer, started once and never restarted. A single timer keyed on
+  // the rollups (the original) or on the whole shaking set (the first lint
+  // pass) restarted whenever another project changed or finished, so a run of
+  // finishes under 420 ms apart kept the first project's class on.
   const [prevActivities, setPrevActivities] = useState(projectActivities);
   const [shakingIds, setShakingIds] = useState(() => new Set());
   if (projectActivities !== prevActivities) {
@@ -304,11 +305,31 @@ function ProjectSidebar({
       });
     }
   }
+  const shakeTimersRef = useRef(new Map()); // project id -> its clear timeout
   useEffect(() => {
-    if (shakingIds.size === 0) return undefined;
-    const t = setTimeout(() => setShakingIds(new Set()), 420);
-    return () => clearTimeout(t);
+    const timers = shakeTimersRef.current;
+    for (const id of shakingIds) {
+      if (timers.has(id)) continue;
+      timers.set(id, setTimeout(() => {
+        timers.delete(id);
+        setShakingIds((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, 420));
+    }
   }, [shakingIds]);
+  // Pending clears die with the sidebar (StrictMode's re-run of the effect
+  // above restarts them for whatever is still shaking).
+  useEffect(() => {
+    const timers = shakeTimersRef.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
 
   const closeCtx = () => setCtxMenu(null);
 
@@ -588,19 +609,20 @@ function ProjectSidebar({
               <div key={p.id}>
               <div
                 className={shakingIds.has(p.id) ? "tg-shake" : undefined}
-                // The row is the session's control: click (or Enter/Space)
-                // opens it, drag drops it on a panel. Named explicitly so the
-                // tag chips, latency and branch text do not pile into its name.
-                // A mouse press never focuses it (handleRowMouseDown calls
-                // preventDefault), so the look under the mouse is unchanged.
-                role="button"
-                tabIndex={0}
-                aria-label={p.name}
-                onKeyDown={(e) => {
-                  // Keys typed in the rename field or on a nested chip are theirs.
-                  if (e.target !== e.currentTarget || isRenamingThis) return;
-                  onActivateKey(() => onClickProject(p.id))(e);
-                }}
+                // The row is the mouse surface: click opens the session, drag
+                // drops it on a panel, double-click renames, right-click opens
+                // the menu. Its keyboard control is the session NAME below (a
+                // role="button" span), not the row, because the row holds other
+                // controls (recent-files arrow, tag chips, remove cross, the
+                // rename field) and a button's children are presentational to a
+                // screen reader. In the collapsed rail the row holds only the
+                // colour dot, so there the row itself is the button.
+                // "presentation" otherwise: the row is a plain container whose
+                // handlers mirror the name button for the mouse.
+                role={collapsed ? "button" : "presentation"}
+                tabIndex={collapsed ? 0 : undefined}
+                aria-label={collapsed ? p.name : undefined}
+                onKeyDown={collapsed ? onActivateKey(() => onClickProject(p.id)) : undefined}
                 onMouseDown={(e) => { if (!isRenamingThis) handleRowMouseDown(p, e); }}
                 onDoubleClick={(e) => { e.stopPropagation(); startRename(p); }}
                 onContextMenu={(e) => handleRowContextMenu(p, e)}
@@ -686,6 +708,16 @@ function ProjectSidebar({
                       <OsIcon p={p} info={searchIndex.get(p.id)?.iconInfo} />
                     </span>
                     <span
+                      // The session's keyboard control: Enter/Space opens it.
+                      // Mouse presses reach the row's handlers by bubbling, and
+                      // handleRowMouseDown calls preventDefault, so a click never
+                      // focuses it and the look under the mouse is unchanged.
+                      // Only the name sits inside: the chips, latency and branch
+                      // are siblings, so the button names just the session.
+                      role="button"
+                      tabIndex={0}
+                      aria-label={p.name}
+                      onKeyDown={onActivateKey(() => onClickProject(p.id))}
                       style={{
                         flex: 1,
                         minWidth: 0,
@@ -703,10 +735,13 @@ function ProjectSidebar({
                         key={tag}
                         // Out of the Tab order (two per row would double the
                         // list's stops); the keyboard path is typing #tag in
-                        // the search box above.
+                        // the search box above. preventDefault on mousedown: a
+                        // tabIndex -1 element takes focus on a click, which would
+                        // pull focus off the terminal onto a stop Tab never
+                        // reaches; a click leaves focus where it was instead.
                         role="button"
                         tabIndex={-1}
-                        onMouseDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                         onClick={(e) => { e.stopPropagation(); setQuery(`#${tag}`); }}
                         onKeyDown={onActivateKey(() => setQuery(`#${tag}`))}
                         title={`Filter by #${tag}`}
@@ -786,10 +821,11 @@ function ProjectSidebar({
                   <span
                     // Rendered only while the mouse is over the row, so it can
                     // never be a Tab stop; the keyboard path is the right-click
-                    // menu's "Remove session".
+                    // menu's "Remove session". preventDefault on mousedown, as
+                    // for the tag chips: a click must not leave focus on it.
                     role="button"
                     tabIndex={-1}
-                    onMouseDown={(e) => { e.stopPropagation(); }}
+                    onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                     onClick={(e) => { e.stopPropagation(); onRemoveProject(p.id); }}
                     onKeyDown={onActivateKey(() => onRemoveProject(p.id))}
                     title="Remove session"

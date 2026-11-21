@@ -1334,14 +1334,20 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
         </div>
 
         {/* Right dock — SFTP / Assistant / Monitor. Always present (workstation
-            layout); collapsible to a rail and drag-resizable. F4 focuses SFTP. */}
+            layout); collapsible to a rail and drag-resizable. The F-key bar's
+            F4 button (a click target; no F4 key binding exists) and the
+            palette's "File browser (SFTP)" entry switch it to the Files tab. */}
         {dockCollapsed ? (
           <CollapsedRail glyph="‹" label="Panel" title="Show side panel" onExpand={() => collapseDock(false)} />
         ) : (
           <>
-            {/* Pointer-only drag handle. The keyboard path to this dock is the
-                collapse rail and F4; a focusable splitter would need arrow-key
-                resizing, which this lint pass does not add. */}
+            {/* Pointer-only drag handle: resizing the dock has NO keyboard path
+                (a focusable splitter would need arrow-key resizing, which this
+                lint pass does not add). The keyboard paths to the dock itself:
+                the collapse button in its tab strip and the collapsed rail
+                (Enter/Space expands it), the strip's roving-tabIndex tabs, and
+                the command palette's "File browser (SFTP)" entry, which selects
+                the Files tab (it does not expand a collapsed dock). */}
             {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer-only drag-resize handle; making it a focusable separator means adding keyboard resizing (new behaviour), and jsx-a11y rejects a separator with handlers anyway */}
             <div className="moba-splitter" title="Drag to resize" onMouseDown={startDockResize} style={{ cursor: "col-resize" }}><span className="moba-grip"><i></i><i></i><i></i></span></div>
             <div className="moba-rightdock" style={{ width: dockWidth }}>

@@ -10,6 +10,10 @@
 //    callbacks behind layout-effect refs.
 // 2. The per-pane hover controls (split right / split down / zoom / close) are
 //    role="button" with Enter/Space activation, and still do what a click does.
+// Fix round 1 (review of bd9eebc): a click on a hover control leaves focus
+// where it was; the zoom control is a Tab stop while the pane is zoomed (the
+// only keyboard path to un-zoom); a pane leaving the leaf set drops its cached
+// handler.
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, fireEvent, cleanup, screen } from "@testing-library/react";
 
@@ -20,7 +24,8 @@ vi.mock("./TerminalPane", () => {
     const seen = paneProps.get(props.tabId) || [];
     seen.push(props);
     paneProps.set(props.tabId, seen);
-    return <div data-testid={`pane-body-${props.tabId}`} />;
+    // xterm's own input element, so focus hand-back can be observed.
+    return <div data-testid={`pane-body-${props.tabId}`}><textarea className="xterm-helper-textarea" aria-label={`terminal ${props.tabId}`} /></div>;
   }
   return {
     default: PaneMock,
@@ -75,6 +80,23 @@ describe("per-pane handler props", () => {
     expect(agentB).toHaveBeenCalledWith("t1", { id: "s" });
   });
 
+  test("a pane that leaves the leaf set loses its cached handler", () => {
+    const cost = vi.fn();
+    const single = { id: "t1", label: "one", activePaneId: "t1" };
+    const { rerender } = render(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={cost} />);
+    const before = last("p2").onCostUpdate;
+    const beforeAgent = last("p2").onAgentSession;
+    rerender(<TerminalPanel {...baseProps} panel={panelOf([single])} onTabCostUpdate={cost} />); // p2 closed
+    rerender(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={cost} />); // a pane p2 again
+    // Pruned, so the returning id is minted afresh (a kept entry would be the same function).
+    expect(last("p2").onCostUpdate).not.toBe(before);
+    expect(last("p2").onAgentSession).not.toBe(beforeAgent);
+    // The surviving pane kept its handler throughout.
+    expect(paneProps.get("t1").every((pp) => pp.onCostUpdate === paneProps.get("t1")[0].onCostUpdate)).toBe(true);
+    last("p2").onCostUpdate({ usd: 3 });
+    expect(cost).toHaveBeenCalledWith("p2", { usd: 3 });
+  });
+
   test("each pane of a split tab gets its own handler, bound to its own id", () => {
     const cost = vi.fn();
     render(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={cost} />);
@@ -90,6 +112,50 @@ describe("per-pane hover controls", () => {
     const ctl = screen.getAllByRole("button", { name: "Split right (Ctrl+Shift+D)" });
     expect(ctl.length).toBe(2); // one per pane
     for (const el of ctl) expect(el.getAttribute("tabindex")).toBe("-1");
+  });
+
+  test("a click on a hover control leaves focus where it was", () => {
+    // The browser moves focus on mousedown unless it is prevented. These spans
+    // are tabIndex -1, so a click used to leave focus on a control that then
+    // faded out (opacity 0), and a later Enter meant for the terminal re-fired
+    // it (click Zoom, press Enter: the pane un-zoomed).
+    render(<><textarea aria-label="terminal input" /><TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={noop} onSplitPane={noop} onClosePane={noop} /></>);
+    const term = screen.getByLabelText("terminal input");
+    const pane2 = document.querySelector('[data-pane-id="p2"]');
+    const pressLikeBrowser = (el) => {
+      term.focus();
+      const notPrevented = fireEvent.mouseDown(el);
+      if (notPrevented) el.closest("[tabindex]")?.focus();
+      fireEvent.mouseUp(el);
+      fireEvent.click(el);
+      return document.activeElement;
+    };
+    const titles = ["Split right (Ctrl+Shift+D)", "Split down (Ctrl+Shift+S)", "Zoom this pane to fill the tab", "Close this pane (Ctrl+Shift+X)"];
+    for (const t of titles) {
+      const el = [...pane2.querySelectorAll(".phn-pane-ctl")].find((c) => c.title === t);
+      expect(el, t).toBeTruthy();
+      expect(pressLikeBrowser(el), t).toBe(term);
+    }
+  });
+
+  test("the zoom control is a Tab stop only while its pane is zoomed, so un-zoom has a keyboard path", () => {
+    render(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={noop} onSplitPane={noop} onClosePane={noop} />);
+    const pane2 = () => document.querySelector('[data-pane-id="p2"]');
+    const zoomCtl = () => [...pane2().querySelectorAll(".phn-pane-ctl")].find((c) => /zoom/i.test(c.title));
+    expect(zoomCtl().getAttribute("tabindex")).toBe("-1"); // hidden until hover: no invisible stop
+    fireEvent.click(zoomCtl());
+    expect(zoomCtl().title).toBe("Restore split (un-zoom)");
+    expect(zoomCtl().closest(".phn-pane-controls").hasAttribute("data-zoomed")).toBe(true); // shown while zoomed
+    expect(zoomCtl().getAttribute("tabindex")).toBe("0");
+    // The other controls stay out of the Tab order (they have shortcuts).
+    for (const c of pane2().querySelectorAll(".phn-pane-ctl")) if (c !== zoomCtl()) expect(c.getAttribute("tabindex")).toBe("-1");
+    zoomCtl().focus();
+    fireEvent.keyDown(zoomCtl(), { key: "Enter" });
+    expect(zoomCtl().title).toBe("Zoom this pane to fill the tab");
+    expect(zoomCtl().getAttribute("tabindex")).toBe("-1");
+    // The cluster fades once un-zoomed, so focus must not stay on it (a second
+    // Enter would zoom again): it goes back to that pane's terminal.
+    expect(document.activeElement).toBe(screen.getByLabelText("terminal p2"));
   });
 
   test("Enter and Space do what a click does", () => {

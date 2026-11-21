@@ -126,19 +126,6 @@ export function useWindowTitle(label) {
   }, [label]);
 }
 
-// Whether the `claude` CLI is on PATH — checked once on mount (informational).
-export function useClaudeAvailable() {
-  const [claudeAvailable, setClaudeAvailable] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    invoke("check_command_version", { name: "claude" })
-      .then((v) => { if (!cancelled) setClaudeAvailable(!!v); })
-      .catch(() => { if (!cancelled) setClaudeAvailable(false); });
-    return () => { cancelled = true; };
-  }, []);
-  return claudeAvailable;
-}
-
 // Recording-module subscription — status-bar indicator + command-palette labels
 // update on start/stop; recordingCapHit tracks the MAX_EVENTS auto-stop.
 export function useRecordingState() {
