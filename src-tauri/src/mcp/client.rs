@@ -55,6 +55,13 @@ pub(crate) fn mcp_http_client() -> Result<reqwest013::Client, String> {
         .map_err(|e| e.to_string())
 }
 
+/// The most one MCP reply over HTTP may hold: a whole JSON reply, or one SSE
+/// event. 16 MiB, rmcp's default; a tool result bigger than this is past any
+/// model's context anyway.
+pub const MCP_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+/// The most of an HTTP error body kept for the error message.
+pub const MCP_MAX_ERROR_BYTES: usize = 64 * 1024;
+
 /// A tool advertised by a connected MCP server, normalized to the shape the rest
 /// of the app consumes.
 #[derive(Clone, Debug, serde::Serialize)]
@@ -111,7 +118,15 @@ impl McpConn {
             ));
         }
         // `auth_header` wants the raw bearer token (no "Bearer " prefix).
-        let config = StreamableHttpClientTransportConfig::with_uri(url.to_string());
+        // The size limits are rmcp's own defaults, set here by name so a change
+        // of default upstream cannot quietly lift them (RUSTSEC-2026-0462: rmcp
+        // before 3.9 read a reply of any size into memory). rmcp enforces them
+        // in its reqwest client impl, so they hold for the client handed over
+        // by with_client below. tests/mcp_http_limits.rs drives a hostile server.
+        let config = StreamableHttpClientTransportConfig::with_uri(url.to_string())
+            .max_json_response_size(MCP_MAX_RESPONSE_BYTES)
+            .max_sse_event_size(MCP_MAX_RESPONSE_BYTES)
+            .max_error_response_size(MCP_MAX_ERROR_BYTES);
         let config = match bearer {
             Some(token) => config.auth_header(token),
             None => config,
@@ -240,6 +255,14 @@ mod http_client_tests {
         assert!(body.contains("let http = mcp_http_client()"), "{body}");
         assert!(body.contains("StreamableHttpClientTransport::with_client(http, config)"), "{body}");
         assert!(!body.contains("from_config"), "{body}");
+        // The reply size limits (RUSTSEC-2026-0462) are set on this config.
+        for limit in [
+            ".max_json_response_size(MCP_MAX_RESPONSE_BYTES)",
+            ".max_sse_event_size(MCP_MAX_RESPONSE_BYTES)",
+            ".max_error_response_size(MCP_MAX_ERROR_BYTES)",
+        ] {
+            assert!(body.contains(limit), "{limit} missing: {body}");
+        }
     }
 
     #[tokio::test]

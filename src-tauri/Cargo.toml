@@ -109,7 +109,10 @@ tauri-plugin-global-shortcut = "2"
 git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2", "vendored-openssl", "ssh", "https"] }
 # Model Context Protocol client (official SDK). stdio child-process + streamable
 # HTTP transports for connecting to MCP servers; protocol/handshake handled here.
-rmcp = { version = "1.7", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "client-side-sse"] }
+# 3.9 is the floor (RUSTSEC-2026-0462): before it the streamable HTTP client
+# buffered a response body with no limit, so a hostile server could take the
+# app's memory. mcp/client.rs sets the limits explicitly.
+rmcp = { version = "3.11", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "client-side-sse"] }
 # rmcp's MCP transport speaks reqwest 0.13 (the app's own calls use 0.12).
 # Named directly only to hand rmcp a client with the app's redirect rule
 # (mcp/client.rs mcp_http_client). The features are exactly the ones the tree
