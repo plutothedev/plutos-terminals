@@ -20,8 +20,18 @@
 //      latest COMMITTED props, through the entry, without a respawn.
 //   5. A cwd change re-attaches (park + attach) without a second spawn, and
 //      an unmount parks: the remount re-attaches the same terminal.
+//   6. The prop refs are written in a LAYOUT effect: a passive effect that
+//      runs earlier in the same commit already sees the new visibility and
+//      auto-approve (act() hides the difference from case 4).
+//   7. Escape closes the find bar from its buttons as well as its input.
+//
+// Not pinned here on purpose: deleting the mount-time startSpawn call is an
+// equivalent mutant in this harness (the reveal effect calls startSpawn in the
+// same passive flush). The double-spawn guard is the registry's latch in
+// paneRegistry.js, tested in paneRegistry.test.js.
+import { useEffect } from "react";
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, cleanup, waitFor, act } from "@testing-library/react";
+import { render, cleanup, waitFor, act, fireEvent } from "@testing-library/react";
 
 const { invoke, terms } = vi.hoisted(() => ({
   invoke: vi.fn(async (cmd) => {
@@ -204,6 +214,58 @@ describe("TerminalPane lifecycle (PTYs survive React)", () => {
     await settle();
     expect(calls("ssh_spawn")).toHaveLength(1);
     expect(terms).toHaveLength(1);
+  });
+
+  // The test above cannot tell useLayoutEffect from useEffect for the prop-ref
+  // writes: act() flushes both before it returns. This one can. A sibling
+  // rendered BEFORE the pane runs its passive effect after every layout effect
+  // of the commit but before the pane's own passive effects, so it reads the
+  // entry in the window where a useEffect write would still be stale. That
+  // window is real in the app: anything that consults auto-approve or
+  // visibility from a passive effect or a callback queued at commit would see
+  // "visible, auto-approve off" for a pane that was just hidden with
+  // auto-approve on, and "auto-approve only when away" is the rule it guards.
+  test("the live readers are current for a passive effect earlier in the same commit", async () => {
+    const seen = [];
+    function Before({ tick }) {
+      useEffect(() => {
+        const e = getEntry(PANE);
+        if (e?.ui) seen.push({ tick, visible: e.ui.isVisible(), autoApprove: e.ui.isAutoApprove() });
+      }, [tick]);
+      return null;
+    }
+    const tree = (tick, over) => (
+      <>
+        <Before tick={tick} />
+        <TerminalPane {...props(over)} />
+      </>
+    );
+    const { rerender } = render(tree(0, {}));
+    await waitFor(() => expect(calls("ssh_spawn")).toHaveLength(1));
+
+    rerender(tree(1, { visible: false, active: false, autoApprove: true }));
+    expect(seen.filter((s) => s.tick === 1)).toEqual([{ tick: 1, visible: false, autoApprove: true }]);
+  });
+
+  // The find bar's ↑ ↓ ✕ are real buttons now, so Tab reaches them; Escape
+  // must close the bar from any of them, exactly as from the input.
+  test("Escape closes the find bar from its buttons as well as its input", async () => {
+    const view = render(<TerminalPane {...props()} />);
+    await waitFor(() => expect(calls("ssh_spawn")).toHaveLength(1));
+    const open = () => act(() => { getEntry(PANE).ui.setSearchOpen(true); });
+
+    for (const name of ["Close find", "Previous match", "Next match"]) {
+      open();
+      const btn = view.getByRole("button", { name });
+      btn.focus();
+      expect(document.activeElement).toBe(btn);
+      fireEvent.keyDown(btn, { key: "Escape" });
+      expect(view.queryByRole("search")).toBeNull();
+    }
+
+    open();
+    fireEvent.keyDown(view.getByPlaceholderText("Find in terminal…"), { key: "Escape" });
+    expect(view.queryByRole("search")).toBeNull();
   });
 
   test("a cwd change re-attaches without a second spawn", async () => {

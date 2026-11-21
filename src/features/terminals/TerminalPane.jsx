@@ -44,7 +44,7 @@ function attachImageAddon(entry, t) {
   loadImageAddonCls().then((Cls) => {
     if (!Cls || !t || !t.element || entry.imageAddonDone) return;
     entry.imageAddonDone = true;
-    try { t.loadAddon(new Cls()); } catch { /* ignore */ }
+    try { t.loadAddon(new Cls()); } catch { /* the image addon is optional: without it the terminal renders without inline images */ }
   });
 }
 
@@ -84,7 +84,7 @@ function attachCanvasRenderer(entry, t) {
 function copySelection(t) {
   const text = t.getSelection();
   if (!text) return;
-  try { navigator.clipboard?.writeText(text)?.catch(() => {}); } catch { /* ignore */ }
+  try { navigator.clipboard?.writeText(text)?.catch(() => {}); } catch { /* no clipboard (denied or absent): copy stays silent, as the rejection path above does */ }
   t.clearSelection();
 }
 // Read the clipboard and inject it as a paste. term.paste (not a raw write)
@@ -135,7 +135,7 @@ function attachAssistiveInput(entry, t, paneId) {
     // Clear before sending: xterm clears this textarea on its own schedule
     // (keydown), and leaving the text sitting there is what lets a later
     // read send it a second time.
-    try { ta.value = ""; } catch { /* ignore */ }
+    try { ta.value = ""; } catch { /* clearing only guards against a second read; the paste below is what matters */ }
     // paste(), NOT input() and not a raw write. Same reasoning the clipboard
     // path documents: bracketed-paste mode is honored, so WHEN THE RUNNING
     // PROGRAM HAS ENABLED IT (DECSET 2004, which shells and editors do and a
@@ -256,6 +256,10 @@ const GLYPH_BUTTON_RESET = {
   border: 0,
   margin: 0,
   textAlign: "inherit",
+  // macOS WKWebView draws its native push-button look unless appearance is
+  // reset; Chromium/WebView2 ignore it once background and border are set.
+  appearance: "none",
+  WebkitAppearance: "none",
 };
 
 // Activity state machine constants (per Moon Dev): only fire dots when the
@@ -1040,7 +1044,12 @@ function TerminalPane({
             // mount (a pane parked before it was ever visible). Latched on
             // the entry, so the two call sites cannot double-attach.
             attachAssistiveInput(entry, t, tabId);
-          } catch { /* ignore */ }
+          } catch (err) {
+            // Not ignorable: a failed open leaves this re-attached pane blank
+            // (or without dictation), with no other trace. Logged, not
+            // rethrown, so one pane's renderer cannot break the observer.
+            console.warn("[TerminalPane] terminal open on re-attach failed", err);
+          }
         }
         try { entry.fit?.fit(); } catch { /* fit throws while the renderer is not ready; the next resize or reveal refits */ }
       };
@@ -1126,14 +1135,14 @@ function TerminalPane({
     // Destroy hooks run LIFO — dispose is registered FIRST so it runs LAST
     // (after the listener-detach and pty-kill hooks registered further down).
     registerDestroyHook(tabId, () => {
-      try { term.dispose(); } catch { /* best effort: a half-built or already disposed terminal must not stop the other destroy hooks */ }
+      try { term.dispose(); } catch { /* expected on a half-built or already disposed terminal; not worth destroyEntry's console.error */ }
     });
     // Transcript tail: the transcript buffer + flush belong to THIS mount's
     // fiber (deliberately not migrated to the entry), but after a move the
     // later fibers' cleanups flush their own — empty — buffers. This hook
     // flushes the owning fiber's tail on real destroy (close/lock/crash).
     registerDestroyHook(tabId, () => {
-      try { flushTranscript(); } catch { /* best effort: a failed tail flush must not stop the other destroy hooks */ }
+      try { flushTranscript(); } catch { /* the tail is best effort at teardown (the pane is going away); not worth destroyEntry's console.error */ }
     });
     // The "find" shortcut opens the find overlay (intercepted before the PTY).
     // Combo is user-remappable; read it live from the shared keybinding cache.
@@ -1361,7 +1370,7 @@ function TerminalPane({
           const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
           const dir = new TextDecoder().decode(bytes);
           if (dir) entry.ui.setShellCwd((prev) => (prev === dir ? prev : dir));
-        } catch { /* ignore */ }
+        } catch { /* a malformed cwd report (bad base64 or UTF-8) is dropped; the last good cwd stays */ }
         return true;
       }
       if (!data.startsWith("PlutoCmd=")) return false;
@@ -1558,7 +1567,15 @@ function TerminalPane({
           // localStorage once keychain migration completes, so a raw
           // localStorage read here would spawn shells with NO keys.
           let userPersisted = null;
-          try { userPersisted = readUserSt(); } catch (_) { /* ignore */ }
+          try {
+            userPersisted = readUserSt();
+          } catch (err) {
+            // Unreadable user state counts as no saved keys. The shell still
+            // starts, without them and without a notice (shellNotice has
+            // nothing to go on), so it is logged. Name only: a parse message
+            // can quote the stored blob, which holds keys.
+            console.warn("[TerminalPane] reading user state failed; spawning without saved provider keys:", err?.name);
+          }
           // Pure transform: provider keys + active-model routing → env vars.
           // The keychain-overlaid read (readUserSt) stays above; this only
           // maps the already-read blob.
@@ -1590,7 +1607,12 @@ function TerminalPane({
             }
           }
           if (Object.keys(env).length > 0) extraEnv = env;
-        } catch (_) { /* ignore */ }
+        } catch (err) {
+          // Not ignorable: the shell still spawns, but with no provider keys
+          // and no notice saying why. Only the error's name is logged: a JSON
+          // parse message can quote the stored blob, which holds keys.
+          console.warn("[TerminalPane] building the shell env failed; spawning without provider keys:", err?.name);
+        }
         // A tab that runs its own start commands is never cleared, so its
         // notice goes to the pane now, above the shell. Every other local shell
         // prints it itself after the setup's clear, which would wipe anything
@@ -2384,7 +2406,11 @@ function TerminalPane({
   const closeSearch = () => {
     setSearchOpen(false);
     searchAddonRef.current?.clearDecorations?.();
-    try { termRef.current?.focus(); } catch { /* ignore */ }
+    try { termRef.current?.focus(); } catch { /* focus is best effort; the terminal may be disposed */ }
+  };
+  // Shared by every control in the find bar (input and ↑ ↓ ✕ buttons).
+  const closeSearchOnEscape = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
   };
 
   // ── Block actions (Blocks UI, slice 2) ─────────────────────────────────────
@@ -2418,7 +2444,7 @@ function TerminalPane({
     if (rightClickAction({ hasSelection: t.hasSelection() }) === "copy") copySelection(t);
     else pasteInto(t);
   };
-  const copyToClipboard = (t) => { try { navigator.clipboard?.writeText(t); } catch { /* ignore */ } };
+  const copyToClipboard = (t) => { try { navigator.clipboard?.writeText(t)?.catch(() => {}); } catch { /* no clipboard (denied or absent): the menu copy stays silent, like copySelection */ } };
   // The block menu's rows are plain data, and this runs the clicked one. The
   // rows used to carry their own closures, and handing an array of closures
   // that read termRef (through blockText) to .map during render is what the
@@ -2490,7 +2516,7 @@ function TerminalPane({
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    try { term.options.cursorInactiveStyle = showEditor ? "none" : "outline"; } catch { /* ignore */ }
+    try { term.options.cursorInactiveStyle = showEditor ? "none" : "outline"; } catch { /* a disposed terminal cannot take the option, and has no caret to hide */ }
   }, [showEditor]);
 
   // Reposition the editor as the viewport scrolls/resizes while shown.
@@ -2609,7 +2635,11 @@ function TerminalPane({
         </>
       )}
       {searchOpen && (
+        // Escape closes the bar from every control in it, not just the input:
+        // the ↑ ↓ ✕ buttons are Tab-reachable. It sits on each control because
+        // jsx-a11y refuses a key handler on the non-interactive search landmark.
         <div
+          role="search"
           style={{
             position: "absolute", top: 8, right: 12, zIndex: 20,
             display: "flex", alignItems: "center", gap: 4,
@@ -2626,7 +2656,7 @@ function TerminalPane({
             onChange={(e) => { setSearchQuery(e.target.value); runSearch(e.target.value, "incremental"); }}
             onKeyDown={(e) => {
               if (e.key === "Enter") { e.preventDefault(); runSearch(searchQuery, e.shiftKey ? "prev" : "next"); }
-              else if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
+              else closeSearchOnEscape(e);
             }}
             placeholder="Find in terminal…"
             spellCheck={false}
@@ -2643,6 +2673,7 @@ function TerminalPane({
               type="button"
               key={g}
               onMouseDown={(e) => e.preventDefault()}
+              onKeyDown={closeSearchOnEscape}
               onClick={() => (i === 0 ? runSearch(searchQuery, "prev") : i === 1 ? runSearch(searchQuery, "next") : closeSearch())}
               title={i === 0 ? "Previous (Shift+Enter)" : i === 1 ? "Next (Enter)" : "Close (Esc)"}
               aria-label={i === 0 ? "Previous match" : i === 1 ? "Next match" : "Close find"}
