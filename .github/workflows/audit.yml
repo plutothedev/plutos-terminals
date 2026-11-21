@@ -58,7 +58,9 @@ jobs:
           path: ~/.cargo/bin/cargo-audit
           key: cargo-audit-bin-v1
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked || true
+        # Install only when the cache did not restore it; a failed install then
+        # fails here, instead of "|| true" hiding it until "command not found".
+        run: command -v cargo-audit >/dev/null 2>&1 || cargo install cargo-audit --locked
       # Cargo.lock lives under src-tauri (this is a Tauri app, not a workspace root).
       # --ignore = known residual advisories, each unfixable or parent-capped:
       #   RUSTSEC-2023-0071  rsa "Marvin" timing side-channel. No patched release
