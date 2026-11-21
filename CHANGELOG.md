@@ -68,7 +68,18 @@
   the dialog itself, and a drag released on the backdrop no longer closes it
   (also in the pairing dialog, the session dialog and the tour).
 - Zooming a pane focuses its terminal; hover controls no longer keep invisible
-  focus after a click; the "finished" shake has a timer per project.
+  focus after a click; the "finished" shake has a timer per project. Zoom
+  state lives in `usePaneZoom` (TerminalsTab), shared by the hover control, a
+  palette command and a Terminal menu item (the control itself cannot be
+  reached with Tab between two terminals).
+- A restored local pane keeps the last screen of its saved history: at the
+  boot marker the replayed screen is scrolled into scrollback before the
+  shell's ESC[2J (xterm's ED2 does not move visible rows to scrollback).
+  Pre-existing since scrollback restore shipped. Holds for the most recent
+  session only: older sessions' clears inside the saved file still erase on
+  replay (follow-up: a session boundary in the saved file).
+- `[role="button"]:focus-visible` uses the skin's focus ring (inset on the
+  sidebar folder header, which would otherwise be clipped).
 - Pairing dialog: Escape closes it, including after Start/Stop; its QR is tied
   to the address it encodes.
 - Toasts pause while focused (also across alt-tab) and return focus on
