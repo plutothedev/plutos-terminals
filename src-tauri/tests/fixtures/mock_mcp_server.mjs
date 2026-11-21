@@ -1,5 +1,7 @@
 import { createInterface } from "node:readline";
 const rl = createInterface({ input: process.stdin });
+// --hang-call: read tools/call and never answer (the call-timeout test).
+const hangCall = process.argv.includes("--hang-call");
 function send(o) { process.stdout.write(JSON.stringify(o) + "\n"); }
 rl.on("line", (line) => {
   let msg; try { msg = JSON.parse(line); } catch { return; }
@@ -12,6 +14,7 @@ rl.on("line", (line) => {
       { name: "echo", description: "echoes args", inputSchema: { type: "object" }, annotations: { readOnlyHint: true, destructiveHint: false } }
     ] } });
   } else if (msg.method === "tools/call") {
+    if (hangCall) return;
     send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: JSON.stringify(msg.params.arguments) }], isError: false } });
   } else if (msg.id != null) {
     send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });

@@ -5,7 +5,7 @@
 // names in ServerCfg.secret_keys — account format "mcp-secret:<id>:<key>".
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, OnceLock};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use serde_json::Value;
 use crate::mcp::client::{McpConn, Tool};
 use crate::mcp::config::{load_configs, save_configs, config_path, ServerCfg};
@@ -125,13 +125,13 @@ pub async fn mcp_list_tools(app: tauri::AppHandle) -> Result<Vec<Tool>, String> 
             all.extend(cached);
             continue;
         }
-        if ensure_conn(&app, &cfg.id).await.is_err() { continue; } // skip servers that won't connect
-        let conn = conns().lock().await.get(&cfg.id).cloned(); // brief global lock: clone the Arc out
-        if let Some(conn) = conn {
-            if let Ok(tools) = conn.lock().await.list_tools().await {
-                tool_cache().lock().await.insert(cfg.id.clone(), tools.clone());
-                all.extend(tools);
-            }
+        // Skip servers that won't connect.
+        let Ok(guard) = lock_live_conn(&app, &cfg.id).await else { continue };
+        let listed = guard.list_tools().await;
+        drop_if_timed_out(&cfg.id, guard).await;
+        if let Ok(tools) = listed {
+            tool_cache().lock().await.insert(cfg.id.clone(), tools.clone());
+            all.extend(tools);
         }
     }
     Ok(all)
@@ -139,10 +139,50 @@ pub async fn mcp_list_tools(app: tauri::AppHandle) -> Result<Vec<Tool>, String> 
 
 #[tauri::command]
 pub async fn mcp_call_tool(app: tauri::AppHandle, server: String, tool: String, args: Value) -> Result<Value, String> {
-    ensure_conn(&app, &server).await?;
-    let conn = conns().lock().await.get(&server).cloned().ok_or("not connected")?; // clone Arc, drop map lock
-    let guard = conn.lock().await; // per-server lock held only for this call
-    guard.call_tool(&tool, args).await
+    let guard = lock_live_conn(&app, &server).await?; // per-server lock held only for this call
+    let out = guard.call_tool(&tool, args).await;
+    drop_if_timed_out(&server, guard).await;
+    out
+}
+
+// Every list and call is bounded in client.rs (MCP_LIST_TIMEOUT,
+// MCP_CALL_TIMEOUT), so a stuck server releases its lock in the end. A
+// connection that hit a bound is in an unknown state (a stdio server still
+// stuck on the request, an HTTP request still open), so it is not used again:
+// the caller that hit the bound drops it from the map, and a caller that was
+// queued on its lock meanwhile finds it marked and reconnects instead of
+// waiting out the bound a second time on the same stuck server.
+
+/// Connect if needed and lock the server's connection, skipping one already
+/// marked timed out. Two tries: a fresh connection that is already marked
+/// again means the server is stuck, and the caller gets an error.
+async fn lock_live_conn(app: &tauri::AppHandle, id: &str) -> Result<OwnedMutexGuard<McpConn>, String> {
+    for _ in 0..2 {
+        ensure_conn(app, id).await?;
+        let conn = conns().lock().await.get(id).cloned().ok_or("not connected")?; // clone Arc, drop map lock
+        let guard = conn.lock_owned().await;
+        if !guard.timed_out() {
+            return Ok(guard);
+        }
+        drop_if_timed_out(id, guard).await;
+    }
+    Err(format!("mcp ({id}): the server stopped answering"))
+}
+
+/// Release the per-server lock and, if that connection hit a bound, drop it
+/// from the map (only if the map still holds this same one: a reconnect may
+/// already have replaced it). The per-server lock is released before the map
+/// lock is taken, so the two never nest.
+async fn drop_if_timed_out(id: &str, guard: OwnedMutexGuard<McpConn>) {
+    let timed_out = guard.timed_out();
+    let conn = OwnedMutexGuard::mutex(&guard).clone();
+    drop(guard);
+    if timed_out {
+        let mut map = conns().lock().await;
+        if map.get(id).is_some_and(|c| Arc::ptr_eq(c, &conn)) {
+            map.remove(id);
+        }
+    }
 }
 
 #[tauri::command]
@@ -155,4 +195,67 @@ pub async fn mcp_reconnect(_app: tauri::AppHandle, id: Option<String>) -> Result
     let mut cache = tool_cache().lock().await;
     match id { Some(i) => { cache.remove(&i); } None => cache.clear() }
     Ok(())
+}
+
+#[cfg(test)]
+mod timeout_eviction_tests {
+    // lock_live_conn needs a Tauri AppHandle (ensure_conn reads the config
+    // file), so these drive the eviction it relies on directly, against the
+    // stdio mock server (needs node on PATH, as tests/mcp_mock.rs does).
+    use super::{conns, drop_if_timed_out};
+    use crate::mcp::client::McpConn;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Mutex;
+
+    const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/mock_mcp_server.mjs");
+
+    async fn mock(id: &str, hang_call: bool) -> Arc<Mutex<McpConn>> {
+        let mut args = vec![FIXTURE.to_string()];
+        if hang_call {
+            args.push("--hang-call".into());
+        }
+        let conn = McpConn::connect_stdio(id.into(), "node", &args, &Default::default())
+            .await
+            .expect("connect mock (needs node on PATH)");
+        let conn = Arc::new(Mutex::new(conn));
+        conns().lock().await.insert(id.to_string(), conn.clone());
+        conn
+    }
+
+    async fn call(conn: &Arc<Mutex<McpConn>>, id: &str) {
+        let guard = conn.clone().lock_owned().await;
+        let _ = guard.call_tool_within("echo", serde_json::json!({}), Duration::from_millis(300)).await;
+        drop_if_timed_out(id, guard).await;
+    }
+
+    #[tokio::test]
+    async fn a_connection_whose_call_timed_out_is_dropped() {
+        let conn = mock("evict-hung", true).await;
+        call(&conn, "evict-hung").await;
+        assert!(conn.lock().await.timed_out());
+        assert!(!conns().lock().await.contains_key("evict-hung"), "a timed-out connection stayed in use");
+    }
+
+    #[tokio::test]
+    async fn a_connection_whose_call_finished_is_kept() {
+        let conn = mock("evict-live", false).await;
+        call(&conn, "evict-live").await;
+        assert!(!conn.lock().await.timed_out());
+        let kept = conns().lock().await.get("evict-live").cloned();
+        assert!(kept.is_some_and(|c| Arc::ptr_eq(&c, &conn)));
+        conns().lock().await.remove("evict-live");
+    }
+
+    #[tokio::test]
+    async fn a_reconnect_that_already_replaced_it_is_not_dropped() {
+        // The timed-out connection is no longer the one in the map (a queued
+        // caller reconnected first): the newer one must survive.
+        let old = mock("evict-replaced", true).await;
+        let newer = mock("evict-replaced", false).await;
+        call(&old, "evict-replaced").await;
+        let kept = conns().lock().await.get("evict-replaced").cloned();
+        assert!(kept.is_some_and(|c| Arc::ptr_eq(&c, &newer)), "the replacement was dropped");
+        conns().lock().await.remove("evict-replaced");
+    }
 }

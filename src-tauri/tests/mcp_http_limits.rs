@@ -9,7 +9,17 @@
 // length, and as one SSE event. A reply under the limit must still connect, and
 // the tool list read over HTTP must keep the fail-safe annotation mapping
 // (unannotated = destructive) and carry the bearer token.
+//
+// The same fake server also scripts the denial-of-service cases of the same
+// class that are not about size: a tool list that pages for ever (rmcp's
+// list_all_tools follows nextCursor with no cap), and a server that reads a
+// request and then holds the socket open without answering (no timeout used to
+// bound connect, list or call, and manager.rs holds the server's lock across a
+// call). Timeouts are tested through the `_within` seams with short durations,
+// against real sockets and the real clock (a paused tokio clock races bytes in
+// flight on a real socket).
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use app_lib::mcp::client::McpConn;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -28,6 +38,37 @@ enum Reply {
 struct Seen {
     methods: Vec<String>,
     auth: Vec<Option<String>>,
+    /// The cursor each tools/list asked for (None = the first page).
+    cursors: Vec<Option<String>>,
+}
+
+/// The `result` of tools/list for the page a cursor asks for.
+type ListFn = fn(Option<&str>) -> serde_json::Value;
+
+/// What the fake server does. `hang` names a method the server reads and then
+/// never answers, holding the socket open.
+#[derive(Clone, Copy)]
+struct Script {
+    how: Reply,
+    pad: usize,
+    call: fn(&serde_json::Value) -> serde_json::Value,
+    list: ListFn,
+    hang: Option<&'static str>,
+}
+
+impl Script {
+    fn new(how: Reply, pad: usize) -> Script {
+        Script { how, pad, call: complete, list: two_tools, hang: None }
+    }
+}
+
+/// One tool marked read-only, one with no annotations.
+fn two_tools(_: Option<&str>) -> serde_json::Value {
+    serde_json::json!({ "tools": [
+        { "name": "look", "inputSchema": { "type": "object" },
+          "annotations": { "readOnlyHint": true } },
+        { "name": "wipe", "inputSchema": { "type": "object" } }
+    ]})
 }
 
 async fn read_request(sock: &mut TcpStream) -> Option<(String, Vec<u8>)> {
@@ -94,11 +135,12 @@ async fn write_reply(sock: &mut TcpStream, how: Reply, body: &str) {
 }
 
 /// A streamable-HTTP MCP server whose `initialize` reply carries `pad` bytes of
-/// instructions. Lists two tools: one marked read-only, one with no annotations.
-async fn fake_server(how: Reply, pad: usize, call: fn(&serde_json::Value) -> serde_json::Value) -> (String, Arc<Mutex<Seen>>) {
+/// instructions, listing tools and answering calls as `script` says.
+async fn fake_server(script: Script) -> (String, Arc<Mutex<Seen>>) {
+    let Script { how, pad, call, list, hang } = script;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://127.0.0.1:{}/mcp", listener.local_addr().unwrap().port());
-    let seen = Arc::new(Mutex::new(Seen { methods: Vec::new(), auth: Vec::new() }));
+    let seen = Arc::new(Mutex::new(Seen { methods: Vec::new(), auth: Vec::new(), cursors: Vec::new() }));
     let s = seen.clone();
     let padding = Arc::new("a".repeat(pad));
     tokio::spawn(async move {
@@ -117,10 +159,18 @@ async fn fake_server(how: Reply, pad: usize, call: fn(&serde_json::Value) -> ser
                 }
                 let msg: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
                 let method = msg["method"].as_str().unwrap_or("").to_string();
+                let cursor = msg["params"]["cursor"].as_str().map(str::to_string);
                 {
                     let mut g = s.lock().unwrap();
                     g.methods.push(method.clone());
                     g.auth.push(header(&head, "authorization"));
+                    if method == "tools/list" {
+                        g.cursors.push(cursor.clone());
+                    }
+                }
+                if hang == Some(method.as_str()) {
+                    // Read the request, answer nothing, keep the socket open.
+                    std::future::pending::<()>().await;
                 }
                 let id = msg["id"].clone();
                 match method.as_str() {
@@ -139,12 +189,7 @@ async fn fake_server(how: Reply, pad: usize, call: fn(&serde_json::Value) -> ser
                     }
                     "tools/list" => {
                         let reply = serde_json::json!({
-                            "jsonrpc": "2.0", "id": id,
-                            "result": { "tools": [
-                                { "name": "look", "inputSchema": { "type": "object" },
-                                  "annotations": { "readOnlyHint": true } },
-                                { "name": "wipe", "inputSchema": { "type": "object" } }
-                            ]}
+                            "jsonrpc": "2.0", "id": id, "result": list(cursor.as_deref())
                         });
                         write_reply(&mut sock, Reply::Json, &reply.to_string()).await;
                     }
@@ -178,7 +223,11 @@ async fn connect_with(
     pad: usize,
     call: fn(&serde_json::Value) -> serde_json::Value,
 ) -> (Result<McpConn, String>, Arc<Mutex<Seen>>) {
-    let (url, seen) = fake_server(how, pad, call).await;
+    connect_script(Script { call, ..Script::new(how, pad) }).await
+}
+
+async fn connect_script(script: Script) -> (Result<McpConn, String>, Arc<Mutex<Seen>>) {
+    let (url, seen) = fake_server(script).await;
     let conn = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         McpConn::connect_http("hostile".into(), &url, Some("tok".into())),
@@ -296,6 +345,7 @@ async fn a_finished_call_serializes_with_its_content() {
     let conn = r.expect("connect");
     let out = conn.call_tool("wipe", serde_json::json!({"a": 1})).await.expect("call");
     assert_eq!(out["content"][0]["text"], "done", "{out}");
+    assert!(!conn.timed_out(), "a finished call must not mark its connection");
 }
 
 #[tokio::test]
@@ -308,4 +358,165 @@ async fn a_failed_call_still_says_is_error() {
     let (r, _) = connect_with(Reply::Json, 0, failed).await;
     let out = r.expect("connect").call_tool("wipe", serde_json::json!({})).await.expect("call");
     assert_eq!(out["isError"], true, "{out}");
+}
+
+// ---- Pagination (M1) ------------------------------------------------------
+
+use app_lib::mcp::client::{MCP_MAX_TOOLS, MCP_MAX_TOOL_PAGES};
+
+fn lists(seen: &Arc<Mutex<Seen>>) -> usize {
+    seen.lock().unwrap().methods.iter().filter(|m| *m == "tools/list").count()
+}
+
+/// A guard well past anything the fix needs: before the fix these tests hang
+/// here (rmcp kept asking for the next page for ever).
+async fn list_guarded(conn: &McpConn) -> Result<Vec<app_lib::mcp::client::Tool>, String> {
+    tokio::time::timeout(Duration::from_secs(20), conn.list_tools())
+        .await
+        .expect("list_tools hung: it kept following nextCursor")
+}
+
+#[tokio::test]
+async fn endless_pagination_stops_at_the_page_cap() {
+    // One tool and a fresh cursor on every page, for ever.
+    fn endless(cursor: Option<&str>) -> serde_json::Value {
+        let n: u64 = cursor.and_then(|c| c.strip_prefix('c')?.parse().ok()).unwrap_or(0);
+        serde_json::json!({
+            "tools": [{ "name": format!("t{n}"), "inputSchema": { "type": "object" } }],
+            "nextCursor": format!("c{}", n + 1)
+        })
+    }
+    let (r, seen) = connect_script(Script { list: endless, ..Script::new(Reply::Json, 0) }).await;
+    let conn = r.expect("connect");
+    let started = Instant::now();
+    let e = list_guarded(&conn).await.expect_err("an endless tool list was accepted");
+    assert!(started.elapsed() < Duration::from_secs(10), "took {:?}", started.elapsed());
+    assert!(e.contains("MCP_MAX_TOOL_PAGES"), "{e}");
+    assert_eq!(lists(&seen), MCP_MAX_TOOL_PAGES, "pages requested");
+}
+
+#[tokio::test]
+async fn a_repeated_cursor_is_refused_as_a_loop() {
+    fn looping(_: Option<&str>) -> serde_json::Value {
+        serde_json::json!({
+            "tools": [{ "name": "t", "inputSchema": { "type": "object" } }],
+            "nextCursor": "same"
+        })
+    }
+    let (r, seen) = connect_script(Script { list: looping, ..Script::new(Reply::Json, 0) }).await;
+    let conn = r.expect("connect");
+    let e = list_guarded(&conn).await.expect_err("a looping cursor was followed");
+    assert!(e.contains("repeated"), "{e}");
+    // Page 1 (no cursor), page "same", then "same" again is refused unsent.
+    assert_eq!(lists(&seen), 2, "pages requested");
+}
+
+#[tokio::test]
+async fn more_tools_than_the_cap_is_refused() {
+    // Two pages of 3,000 tools each: few pages, too many tools.
+    fn crowded(cursor: Option<&str>) -> serde_json::Value {
+        let page = cursor.unwrap_or("p1").to_string();
+        let tools: Vec<_> = (0..3000)
+            .map(|i| serde_json::json!({ "name": format!("{page}-{i}"), "inputSchema": { "type": "object" } }))
+            .collect();
+        match cursor {
+            None => serde_json::json!({ "tools": tools, "nextCursor": "p2" }),
+            Some(_) => serde_json::json!({ "tools": tools }),
+        }
+    }
+    const { assert!(6000 > MCP_MAX_TOOLS) };
+    let (r, _) = connect_script(Script { list: crowded, ..Script::new(Reply::Json, 0) }).await;
+    let conn = r.expect("connect");
+    let e = list_guarded(&conn).await.expect_err("6,000 tools were accepted");
+    assert!(e.contains("MCP_MAX_TOOLS"), "{e}");
+}
+
+#[tokio::test]
+async fn three_pages_list_every_tool_fail_safe() {
+    fn three(cursor: Option<&str>) -> serde_json::Value {
+        match cursor {
+            None => serde_json::json!({
+                "tools": [{ "name": "look", "inputSchema": { "type": "object" },
+                            "annotations": { "readOnlyHint": true } }],
+                "nextCursor": "p2"
+            }),
+            Some("p2") => serde_json::json!({
+                "tools": [{ "name": "wipe", "inputSchema": { "type": "object" } }],
+                "nextCursor": "p3"
+            }),
+            _ => serde_json::json!({
+                "tools": [{ "name": "note", "inputSchema": { "type": "object" },
+                            "annotations": { "destructiveHint": false } }]
+            }),
+        }
+    }
+    let (r, seen) = connect_script(Script { list: three, ..Script::new(Reply::Json, 0) }).await;
+    let conn = r.expect("connect");
+    let tools = list_guarded(&conn).await.expect("three pages");
+    let names: Vec<_> = tools.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["look", "wipe", "note"]);
+    let flags: Vec<_> = tools.iter().map(|t| (t.read_only, t.destructive)).collect();
+    // read-only hint honoured; unannotated = destructive; an explicit
+    // destructiveHint false without readOnlyHint is neither.
+    assert_eq!(flags, [(true, false), (false, true), (false, false)]);
+    assert!(tools.iter().all(|t| t.server == "hostile"));
+    let g = seen.lock().unwrap();
+    assert_eq!(g.cursors, [None, Some("p2".to_string()), Some("p3".to_string())]);
+}
+
+// ---- Timeouts (M2) --------------------------------------------------------
+
+/// The short bound the seams are driven with, and the most a test waits.
+const SHORT: Duration = Duration::from_millis(500);
+const GUARD: Duration = Duration::from_secs(10);
+
+#[tokio::test]
+async fn a_tools_call_the_server_never_answers_times_out() {
+    let (r, seen) = connect_script(Script { hang: Some("tools/call"), ..Script::new(Reply::Json, 0) }).await;
+    let conn = r.expect("connect");
+    let started = Instant::now();
+    let out = tokio::time::timeout(GUARD, conn.call_tool_within("wipe", serde_json::json!({}), SHORT))
+        .await
+        .expect("call_tool_within hung past its limit");
+    let took = started.elapsed();
+    let e = out.expect_err("a call nobody answered succeeded");
+    assert!(e.contains("timed out after"), "{e}");
+    assert!(e.contains("call_tool wipe (hostile)"), "{e}");
+    assert!(took >= SHORT && took < SHORT + Duration::from_secs(3), "took {took:?}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(calls(&seen), 1, "tools/call sent more than once");
+    // manager.rs reads this to drop the connection instead of reusing it.
+    assert!(conn.timed_out(), "a timed-out call must mark its connection");
+}
+
+#[tokio::test]
+async fn a_tools_list_the_server_never_answers_times_out() {
+    let (r, _) = connect_script(Script { hang: Some("tools/list"), ..Script::new(Reply::Json, 0) }).await;
+    let conn = r.expect("connect");
+    let out = tokio::time::timeout(GUARD, conn.list_tools_within(SHORT))
+        .await
+        .expect("list_tools_within hung past its limit");
+    let e = out.expect_err("a list nobody answered succeeded");
+    assert!(e.contains("list_tools (hostile)") && e.contains("timed out after"), "{e}");
+    assert!(conn.timed_out(), "a timed-out list must mark its connection");
+}
+
+#[tokio::test]
+async fn a_server_that_never_answers_initialize_times_out() {
+    let (url, seen) = fake_server(Script { hang: Some("initialize"), ..Script::new(Reply::Json, 0) }).await;
+    let started = Instant::now();
+    let out = tokio::time::timeout(
+        GUARD,
+        McpConn::connect_http_within("hostile".into(), &url, Some("tok".into()), SHORT),
+    )
+    .await
+    .expect("connect_http_within hung past its limit");
+    let took = started.elapsed();
+    let e = match out {
+        Err(e) => e,
+        Ok(_) => panic!("connected to a server that never answered initialize"),
+    };
+    assert!(e.contains("mcp http handshake (hostile)") && e.contains("timed out after"), "{e}");
+    assert!(took < SHORT + Duration::from_secs(3), "took {took:?}");
+    assert_eq!(seen.lock().unwrap().methods, ["initialize"]);
 }
