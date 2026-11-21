@@ -67,6 +67,34 @@ test("reopening resets every row to checking and probes again", async () => {
   expect(probes()).toEqual(["node", "npm", "claude", "node", "npm", "claude"]);
 });
 
+// v0.7.6 lint fix round 1: probes carry a run generation, so an older run that
+// answers late can never paint over a newer run's result.
+test("a slow probe from an earlier run does not overwrite a Re-run's answer", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  invokeMock.mockImplementationOnce(async () => { await gate; return "v18.0.0-stale"; });
+  render(<Harness open />);
+  fireEvent.click(screen.getByRole("button", { name: "Re-run checks" }));
+  await waitFor(() => expect(screen.getByText("v22.1.0")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("not found")).toBeTruthy());
+  await act(async () => { release(); await new Promise((r) => setTimeout(r, 20)); });
+  expect(screen.queryByText("v18.0.0-stale")).toBeNull();
+  expect(screen.getByText("v22.1.0")).toBeTruthy();
+});
+
+test("a slow probe from before a close does not overwrite the reopened run", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  invokeMock.mockImplementationOnce(async () => { await gate; return "v18.0.0-stale"; });
+  const { rerender } = render(<Harness open />);
+  rerender(<Harness open={false} />);
+  rerender(<Harness open />);
+  await waitFor(() => expect(screen.getByText("v22.1.0")).toBeTruthy());
+  await act(async () => { release(); await new Promise((r) => setTimeout(r, 20)); });
+  expect(screen.queryByText("v18.0.0-stale")).toBeNull();
+  expect(screen.getByText("v22.1.0")).toBeTruthy();
+});
+
 test("Re-run checks resets to checking and probes again; a throw reads as not found", async () => {
   render(<Harness open />);
   await waitFor(() => expect(screen.getByText("not found")).toBeTruthy());

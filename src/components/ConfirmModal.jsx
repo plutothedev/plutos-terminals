@@ -50,6 +50,9 @@ export function ConfirmProvider({ children }) {
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button
             onClick={onCancel}
+            // A destructive confirm ("Reset workspace") opens on Cancel, so an
+            // Enter pressed right after it appears cannot destroy anything.
+            data-autofocus={request?.destructive ? true : undefined}
             style={{
               background: "transparent",
               border: `1px solid ${BORDER}`,
@@ -76,12 +79,9 @@ export function ConfirmProvider({ children }) {
               fontWeight: 600,
               cursor: "pointer",
             }}
-            // Focus moves into the dialog it opens, onto the confirm action; the
-            // shared Modal skips its own first-field pick when a child already
-            // holds focus. Replacing this with a ref + effect would run after
-            // Modal's effect and change which element Modal restores on close.
-            // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
-            autoFocus
+            // Default focus: Confirm, unless the action is destructive (see
+            // Cancel). The shared Modal focuses the data-autofocus element.
+            data-autofocus={request?.destructive ? undefined : true}
           >
             {request?.confirmLabel || "Confirm"}
           </button>

@@ -10,9 +10,12 @@
 // a refactor of where the hold is taken (render, initializer, effect) has to
 // keep it taking effect before the first flush can reach the mirror.
 //
-// Also pinned here: the "Storage is full" toast flushNow raises once when the
-// layout write throws (it reaches the toast through a ref kept current by an
-// effect, not by a render-time write).
+// Also pinned here: flushNow raises the "Storage is full" toast exactly once
+// when the layout write throws, even across a second refused write. This does
+// NOT pin how toastRef is kept current (the layout effect that replaced a
+// render-time write): ToastProvider's api is memoized and stable, so
+// useRef(toast) already holds the right value from the first render and the
+// test would pass with or without that effect.
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, waitFor, act, screen } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -114,6 +117,7 @@ describe("boot with no usable layout holds the store.json mirror until the backu
 });
 
 describe("a layout write the browser refuses", () => {
+  // Pins the once-only quota warning; see the header for what it does not pin.
   test("raises the storage-full toast once, through the toast App holds", async () => {
     await launch({ layout: JSON.stringify({ oledDefaultMigrated: true, mobaDefaultForced: true }) });
     await waitFor(() => expect(probe.props).not.toBeNull());

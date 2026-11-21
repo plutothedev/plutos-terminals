@@ -19,6 +19,11 @@ export function focusablesIn(node) {
 export default function Modal({ open, title, onClose, children, width = 520 }) {
   const overlayRef = useRef(null);
   const dialogRef = useRef(null);
+  // Whether the current mouse press began on the backdrop itself. A drag that
+  // starts inside the dialog (selecting text) and is released over the
+  // backdrop fires its click on the common ancestor, the overlay, so the click
+  // alone cannot tell a backdrop click from the end of that drag.
+  const downOnBackdrop = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -38,23 +43,38 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Accessibility: move focus into the dialog on open (unless a child already
-  // claimed it via autoFocus / its own effect), and restore focus to whatever
-  // was focused before — the trigger — when it closes. Keyboard/SR users then
-  // land in the dialog instead of Tabbing into the terminal grid behind it.
+  // Accessibility: move focus into the dialog on open, and restore focus to
+  // whatever was focused before (the trigger) when it closes. Keyboard/SR users
+  // then land in the dialog instead of Tabbing into the terminal grid behind it.
+  //
+  // Children pick the initial field with a `data-autofocus` attribute, never
+  // React's autoFocus: autoFocus runs in the layout phase, before this passive
+  // effect, so `prev` would record the dialog's own field instead of the
+  // trigger and close would drop focus on <body>.
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement;
     const node = dialogRef.current;
+    // The dialog this one is nested in, if any (a nested modal renders inside
+    // its parent's body). Captured now: on close this overlay is already gone.
+    const outer = overlayRef.current?.parentElement?.closest(".phn-modal") || null;
     if (node && !node.contains(document.activeElement)) {
-      // Focus the first field in the BODY, not the header ✕ (which is DOM-first) —
-      // otherwise every modal without its own autoFocus lands the user on Close.
-      // Fall back to the dialog itself if the body has nothing focusable.
+      // Focus the marked field, else the first field in the BODY, not the
+      // header ✕ (which is DOM-first), so a modal without a mark does not land
+      // the user on Close. Fall back to the dialog itself if the body has
+      // nothing focusable.
       const body = node.querySelector(".phn-modal-body");
-      const first = body ? focusablesIn(body)[0] : null;
-      (first || node).focus();
+      const fields = body ? focusablesIn(body) : [];
+      const marked = fields.find((el) => el.hasAttribute("data-autofocus"));
+      (marked || fields[0] || node).focus();
     }
-    return () => { if (prev && typeof prev.focus === "function") prev.focus(); };
+    return () => {
+      if (prev && typeof prev.focus === "function") prev.focus();
+      // The opener may no longer take focus (disabled while the work it
+      // started runs, or unmounted). Keep focus inside the outer dialog then,
+      // so its Tab trap still holds, rather than letting it fall to <body>.
+      if (outer && outer.isConnected && !outer.contains(document.activeElement)) outer.focus();
+    };
   }, [open]);
 
   if (!open) return null;
@@ -76,7 +96,8 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
   return (
     // The backdrop is presentation only: its click closes the dialog for the
     // mouse, and the keyboard path for the same action is Escape (the window
-    // listener above). The Tab trap is bound here rather than on the dialog
+    // listener above). A click closes only when the press also began on the
+    // backdrop (downOnBackdrop, above); the flag is cleared after every click. The Tab trap is bound here rather than on the dialog
     // element because jsx-a11y treats role="dialog" as non-interactive. The
     // overlay's only child is the dialog and the overlay itself never takes
     // focus, so every keydown that reaches this handler came up through this
@@ -86,7 +107,12 @@ export default function Modal({ open, title, onClose, children, width = 520 }) {
       ref={overlayRef}
       className="phn-modal-overlay"
       role="presentation"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => { downOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        const close = downOnBackdrop.current && e.target === e.currentTarget;
+        downOnBackdrop.current = false;
+        if (close) onClose();
+      }}
       onKeyDown={onTrapKey}
     >
       <div

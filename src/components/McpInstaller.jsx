@@ -436,8 +436,9 @@ export default function McpInstaller({ open, onClose }) {
         </p>
         <input
           type="password"
-          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog it opens
-          autoFocus
+          // Initial focus via the shared Modal (not autoFocus, which would make
+          // Modal record this field as the element to restore on close).
+          data-autofocus
           value={secretValue}
           onChange={(e) => setSecretValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") closeSecret(secretValue); }}

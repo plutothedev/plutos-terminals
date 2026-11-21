@@ -1,7 +1,7 @@
 // Branded toast notification system. Replaces window.alert across the app.
 // Three variants: success (green), error (danger red), info (accent).
 // Auto-dismiss after 4 seconds (errors: 8 — long enough to actually read a
-// failure); click to dismiss early. Clicking an error toast also copies its
+// failure), paused while the toast has keyboard focus; click to dismiss early. Clicking an error toast also copies its
 // full raw detail to the clipboard for pasting into a bug report.
 //
 // toast.error accepts either a string or a humanizeError() result
@@ -12,7 +12,7 @@
 // <ToastProvider>. Then `const toast = useToast(); toast.success("done");`.
 // ToastProvider mounts once at the App root.
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 const ToastContext = createContext(null);
 
@@ -51,9 +51,50 @@ let nextId = 1;
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
+  // Auto-dismiss timers by toast id: { handle, deadline, remaining }. handle is
+  // null while paused. A toast is a Tab stop, and one that vanished while
+  // focused would drop focus to <body>, so its timer pauses while it has focus
+  // and resumes with the time it had left on blur.
+  const timersRef = useRef(new Map());
 
   const dismiss = useCallback((id) => {
+    const timer = timersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer.handle);
+      timersRef.current.delete(id);
+    }
     setToasts((ts) => ts.filter((t) => t.id !== id));
+  }, []);
+
+  const arm = useCallback((id, ms) => {
+    timersRef.current.set(id, {
+      handle: setTimeout(() => dismiss(id), ms),
+      deadline: Date.now() + ms,
+      remaining: ms,
+    });
+  }, [dismiss]);
+
+  const pause = useCallback((id) => {
+    const timer = timersRef.current.get(id);
+    if (!timer || timer.handle == null) return;
+    clearTimeout(timer.handle);
+    timer.handle = null;
+    timer.remaining = Math.max(0, timer.deadline - Date.now());
+  }, []);
+
+  const resume = useCallback((id) => {
+    const timer = timersRef.current.get(id);
+    if (!timer || timer.handle != null) return;
+    arm(id, timer.remaining);
+  }, [arm]);
+
+  // Unmount: no timer outlives the provider.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer.handle);
+      timers.clear();
+    };
   }, []);
 
   const push = useCallback((variant, message, opts = {}) => {
@@ -67,11 +108,9 @@ export function ToastProvider({ children }) {
     }
     const ttl = typeof opts.ttl === "number" ? opts.ttl : variant === "error" ? 8000 : 4000;
     setToasts((ts) => [...ts, { id, variant, message, detail }]);
-    if (ttl > 0) {
-      setTimeout(() => dismiss(id), ttl);
-    }
+    if (ttl > 0) arm(id, ttl);
     return id;
-  }, [dismiss]);
+  }, [arm]);
 
   // Memoized (P2 stream audit W1): a plain object literal here handed every
   // useToast() consumer a FRESH identity on every provider re-render — i.e.
@@ -123,6 +162,8 @@ export function ToastProvider({ children }) {
               tabIndex={0}
               title={t.variant === "error" ? "Click to copy" : undefined}
               onClick={activate}
+              onFocus={() => pause(t.id)}
+              onBlur={() => resume(t.id)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();

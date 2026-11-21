@@ -46,6 +46,43 @@ for (const key of ["Enter", " "]) {
   });
 }
 
+// v0.7.6 lint fix round 1: a toast is a Tab stop, so one can hold focus. If it
+// auto-dismissed while focused, focus would drop to <body>. The timer pauses
+// while the toast has focus and resumes with the time it had left on blur.
+test("a focused toast does not auto-dismiss; blur resumes the remaining time", () => {
+  vi.useFakeTimers();
+  try {
+    mount();
+    act(() => { api.info("held", { ttl: 1000 }); });
+    const toast = screen.getByRole("button", { name: /held/ });
+    act(() => { vi.advanceTimersByTime(600); });
+    act(() => { toast.focus(); });
+    act(() => { vi.advanceTimersByTime(5000); });
+    expect(screen.getByText("held")).toBeTruthy();
+    act(() => { toast.blur(); });
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(screen.getByText("held")).toBeTruthy(); // 400 ms were left at focus
+    act(() => { vi.advanceTimersByTime(150); });
+    expect(screen.queryByText("held")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("an unfocused toast still auto-dismisses on its ttl", () => {
+  vi.useFakeTimers();
+  try {
+    mount();
+    act(() => { api.success("gone soon", { ttl: 1000 }); });
+    act(() => { vi.advanceTimersByTime(999); });
+    expect(screen.getByText("gone soon")).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(2); });
+    expect(screen.queryByText("gone soon")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("other keys leave the toast alone", () => {
   mount();
   act(() => { api.info("heads up", { ttl: 0 }); });

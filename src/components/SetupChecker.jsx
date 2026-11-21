@@ -7,7 +7,7 @@
 // (resolves the binary on the parent process's PATH at the time the app
 // launched — not the ephemeral PATH inside spawned shells).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@backend";
 import Modal, { MODAL_COLORS } from "./Modal.jsx";
 import { useToast } from "./Toast.jsx";
@@ -44,25 +44,33 @@ export default function SetupChecker({ open, onClose }) {
     if (open) resetToPending();
   }
 
+  // Run generation. Each probe run takes the next number and stops as soon as
+  // a newer run has started, so a slow answer from an earlier run (Re-run
+  // pressed mid-probe, or the checker closed and reopened) never overwrites a
+  // newer result.
+  const runIdRef = useRef(0);
+
   // The probes themselves: every status update lands after an await (an IPC
   // answer), so the open effect only starts work against the outside world.
   const probe = useCallback(async () => {
+    const run = ++runIdRef.current;
     const checks = [
       ["node", setNodeStatus],
       ["npm", setNpmStatus],
       ["claude", setClaudeStatus],
     ];
     for (const [bin, setter] of checks) {
+      let next;
       try {
         const v = await invoke("check_command_version", { name: bin });
-        if (v && typeof v === "string" && v.length > 0) {
-          setter({ state: "found", value: v });
-        } else {
-          setter({ state: "missing", value: null });
-        }
-      } catch (e) {
-        setter({ state: "missing", value: null });
+        next = v && typeof v === "string" && v.length > 0
+          ? { state: "found", value: v }
+          : { state: "missing", value: null };
+      } catch {
+        next = { state: "missing", value: null };
       }
+      if (runIdRef.current !== run) return;
+      setter(next);
     }
   }, []);
 
