@@ -1205,7 +1205,16 @@ function TerminalPanel({
                             role="button"
                             tabIndex={zoomed ? 0 : -1}
                             onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                            onClick={(e) => { e.stopPropagation(); setZoomedPaneId(zoomed ? null : node.id); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setZoomedPaneId(zoomed ? null : node.id);
+                              // The mousedown above keeps focus where it was,
+                              // which may be ANOTHER pane's shell: zooming this
+                              // pane would hide that pane while it still takes
+                              // every keystroke. This pane is the active one now,
+                              // so its terminal gets the keyboard.
+                              e.currentTarget.closest(".phn-pane")?.querySelector(".xterm-helper-textarea")?.focus();
+                            }}
                             onKeyDown={activateOnKey((ev) => {
                               setZoomedPaneId(zoomed ? null : node.id);
                               // Un-zoomed from the keyboard: the cluster fades

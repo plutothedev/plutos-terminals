@@ -130,12 +130,32 @@ describe("per-pane hover controls", () => {
       fireEvent.click(el);
       return document.activeElement;
     };
-    const titles = ["Split right (Ctrl+Shift+D)", "Split down (Ctrl+Shift+S)", "Zoom this pane to fill the tab", "Close this pane (Ctrl+Shift+X)"];
+    // Zoom is the exception: it hands focus to the zoomed pane's own terminal
+    // (next test), since the pane it zooms covers whatever had focus.
+    const titles = ["Split right (Ctrl+Shift+D)", "Split down (Ctrl+Shift+S)", "Close this pane (Ctrl+Shift+X)"];
     for (const t of titles) {
       const el = [...pane2.querySelectorAll(".phn-pane-ctl")].find((c) => c.title === t);
       expect(el, t).toBeTruthy();
       expect(pressLikeBrowser(el), t).toBe(term);
     }
+  });
+
+  test("a click on zoom puts keyboard focus in the zoomed pane's terminal, never a pane it covers", () => {
+    // Zooming pane 2 while pane 1's shell has focus used to leave focus (and
+    // every keystroke, Enter included) in pane 1, now hidden behind pane 2.
+    render(<TerminalPanel {...baseProps} panel={panelOf([splitTab])} onTabCostUpdate={noop} onSplitPane={noop} onClosePane={noop} />);
+    const pane2 = document.querySelector('[data-pane-id="p2"]');
+    const zoomCtl = () => [...pane2.querySelectorAll(".phn-pane-ctl")].find((c) => /zoom/i.test(c.title));
+    screen.getByLabelText("terminal t1").focus();
+    fireEvent.mouseDown(zoomCtl());
+    fireEvent.mouseUp(zoomCtl());
+    fireEvent.click(zoomCtl());
+    expect(zoomCtl().title).toBe("Restore split (un-zoom)");
+    expect(document.activeElement).toBe(screen.getByLabelText("terminal p2"));
+    // Un-zooming by click keeps focus in that same pane.
+    fireEvent.mouseDown(zoomCtl());
+    fireEvent.click(zoomCtl());
+    expect(document.activeElement).toBe(screen.getByLabelText("terminal p2"));
   });
 
   test("the zoom control is a Tab stop only while its pane is zoomed, so un-zoom has a keyboard path", () => {
