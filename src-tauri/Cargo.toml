@@ -10,7 +10,9 @@ license-file = "../LICENSE"
 publish = false
 repository = "https://github.com/plutothedev/plutos-terminals"
 edition = "2021"
-rust-version = "1.90"
+# The highest rust-version among the crates in Cargo.lock (ironrdp 0.12-era
+# crates declare 1.94; tauri 2.12, tray-icon 0.25 and the updater 1.90).
+rust-version = "1.94"
 
 [lib]
 name = "app_lib"
@@ -135,11 +137,13 @@ tauri-plugin-window-state = "2.4.1"
 # without the private key. `process` provides the relaunch after install.
 # 2.14.1 is the floor: it moves Windows zip handling to zip ^9 (RUSTSEC-2026-0367
 # to -0369, -0429, -0545, -0548 were all on zip 4). Default features are off and
-# the 2.10 set is named back (rustls-tls, zip) because 2.14 added `system-proxy`
+# the 2.10 set is named back (rustls-tls, zip) because 2.11 added `system-proxy`
 # to its defaults, and that feature unifies onto the one reqwest 0.13 in the tree,
 # which is also the MCP client (mcp/client.rs mcp_http_client). It would have
-# sent MCP requests, bearer token included, through the OS proxy settings, which
-# no build did before. `zip` still carries the tar/flate2 the macOS update needs.
+# sent MCP requests, bearer token included, through the proxy set in Windows
+# Internet Options or macOS network settings, which no build did before (the
+# HTTP(S)_PROXY environment variables apply either way, as they always did).
+# `zip` still carries the tar/flate2 the macOS update needs.
 tauri-plugin-updater = { version = "2.14.1", default-features = false, features = ["rustls-tls", "zip"] }
 tauri-plugin-process = "2"
 
