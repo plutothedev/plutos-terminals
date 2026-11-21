@@ -40,7 +40,9 @@ impl RdpServerDisplay for Display {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // nosemgrep: rust.lang.security.args.args -- dev-only local RDP test server (not in the app crate or any installer); reads the port and mode the developer typed, never argv[0], and makes no security decision from them
     let port: u16 = std::env::args().nth(1).and_then(|p| p.parse().ok()).unwrap_or(13389);
+    // nosemgrep: rust.lang.security.args.args -- dev-only local RDP test server (not in the app crate or any installer); reads the port and mode the developer typed, never argv[0], and makes no security decision from them
     let mode = std::env::args().nth(2).unwrap_or_else(|| "hybrid".into());
     let id = TlsIdentityCtx::init_from_paths("cert.pem".as_ref(), "key.pem".as_ref())?;
     let acceptor = id.make_acceptor()?;

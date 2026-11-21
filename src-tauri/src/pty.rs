@@ -192,7 +192,7 @@ fn emit_under_lock(
     } else {
         let n = entry.fails.fetch_add(1, Ordering::Relaxed) + 1;
         co.retain_front(out, now);
-        if n % EMIT_FAIL_MARKER_AFTER == 0 {
+        if n.is_multiple_of(EMIT_FAIL_MARKER_AFTER) {
             let _ = sink.emit_pty(id, BACKLOG_MARKER);
         }
         false
@@ -1694,6 +1694,7 @@ mod known_hosts_tests {
     /// yet, so every test also proves the create-parents path.
     fn kh_path(tag: &str) -> PathBuf {
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let mut p = std::env::temp_dir();
         p.push(format!("plutokh-{}-{n}-{tag}", std::process::id()));
         let _ = fs::remove_dir_all(&p);
@@ -1708,6 +1709,7 @@ mod known_hosts_tests {
     /// works. Written as escapes so the source file stays ASCII.
     fn kh_path_non_ascii(tag: &str) -> PathBuf {
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let mut p = std::env::temp_dir();
         p.push(format!(
             "plutokh-Bj\u{f6}rn-\u{41c}\u{438}\u{448}\u{430}-\u{6f22}\u{5b57}-{}-{n}-{tag}",
@@ -2974,6 +2976,7 @@ mod scrollback_rotation_tests {
     use super::*;
 
     fn tmp_scrollback(name: &str) -> PathBuf {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir()
             .join("plutos-terminals-tests")
             .join(format!("{}-{}", name, new_id("t")));

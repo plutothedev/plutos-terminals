@@ -737,6 +737,7 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir().join(format!("pluto-sync-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
@@ -868,6 +869,7 @@ mod tests {
     #[test]
     #[ignore]
     fn fetches_over_https() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir().join(format!("pluto-sync-https-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let repo = git2::Repository::init(&dir).unwrap();
@@ -986,6 +988,7 @@ mod tests {
 
     #[test]
     fn round_trips_two_files_through_a_bare_repo() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let base = std::env::temp_dir().join(format!("pluto-sync-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let bare = base.join("origin.git");
@@ -1018,6 +1021,7 @@ mod tests {
 
     #[test]
     fn gc_compacts_loose_objects_and_preserves_round_trip() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let base = std::env::temp_dir().join(format!("pluto-sync-gc-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let bare = base.join("origin.git");

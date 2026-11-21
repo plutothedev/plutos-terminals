@@ -59,6 +59,7 @@ mod tests {
     use super::*;
     #[test]
     fn round_trips_config_json() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir().join(format!("mcp-cfg-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -78,6 +79,7 @@ mod tests {
     }
     #[test]
     fn missing_file_is_empty_list() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let p = std::env::temp_dir().join("does-not-exist-mcp-xyz.json");
         let _ = std::fs::remove_file(&p);
         assert!(load_configs(&p).unwrap().is_empty());

@@ -213,8 +213,9 @@ pub fn parse_anthropic_response(v: &Value) -> Value {
             }
         }
     }
-    let stop = if v.get("stop_reason").and_then(|s| s.as_str()) == Some("tool_use") { "tool_use" }
-               else if !calls.is_empty() { "tool_use" } else { "end" };
+    // A turn wants tools when its stop reason says so or when it carries calls.
+    let wants_tools = v.get("stop_reason").and_then(|s| s.as_str()) == Some("tool_use") || !calls.is_empty();
+    let stop = if wants_tools { "tool_use" } else { "end" };
     json!({ "text": text, "tool_calls": calls, "stop_reason": stop })
 }
 
@@ -381,6 +382,18 @@ mod tests {
         assert_eq!(r["tool_calls"][0]["name"], "fs.read");
         assert_eq!(r["tool_calls"][0]["args"]["p"], "a");
         assert_eq!(r["stop_reason"], "tool_use");
+    }
+    #[test]
+    fn parse_anthropic_stop_reason_follows_reason_or_calls() {
+        let calls_only = json!({
+            "stop_reason":"end_turn",
+            "content":[{"type":"tool_use","id":"c1","name":"fs_dread","input":{}}]
+        });
+        assert_eq!(parse_anthropic_response(&calls_only)["stop_reason"], "tool_use");
+        let reason_only = json!({"stop_reason":"tool_use","content":[]});
+        assert_eq!(parse_anthropic_response(&reason_only)["stop_reason"], "tool_use");
+        let neither = json!({"stop_reason":"end_turn","content":[{"type":"text","text":"done"}]});
+        assert_eq!(parse_anthropic_response(&neither)["stop_reason"], "end");
     }
     #[test]
     fn parse_openai_with_tool_calls() {

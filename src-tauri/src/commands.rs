@@ -40,6 +40,7 @@ fn silent_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
 
 pub fn get_data_dir(app: &AppHandle) -> PathBuf {
     if cfg!(debug_assertions) {
+        // nosemgrep: rust.lang.security.current-exe.current-exe -- debug-build only (cfg!(debug_assertions)): finds the dev checkout's data folder next to package.json; release builds use app_local_data_dir and no access decision rests on the path
         let exe_dir = std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|p| p.to_path_buf()))
@@ -324,7 +325,7 @@ fn git_diff_sync(path: String) -> Result<String, String> {
             let s = String::from_utf8_lossy(&d.stdout);
             if !s.trim().is_empty() {
                 if !diff.is_empty() {
-                    diff.push_str("\n");
+                    diff.push('\n');
                 }
                 diff.push_str(&s);
             }
@@ -536,6 +537,9 @@ pub(crate) fn notify_text(s: &str, max: usize) -> String {
 
 /// The osascript arguments for one notification: a fixed script that reads
 /// the title and body from its arguments, then `--`, then the text.
+/// Only macOS shows notifications through osascript; the test build keeps it
+/// on every platform so its argument-only quoting is checked everywhere.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn osascript_args(title: &str, body: &str) -> Vec<String> {
     [
         "-e",
@@ -594,6 +598,7 @@ fn show_notification(app: &tauri::AppHandle, title: &str, body: &str) {
     #[cfg(windows)]
     {
         use tauri_winrt_notification::Toast;
+        // nosemgrep: rust.lang.security.current-exe.current-exe -- only picks the toast app id (installed build vs target/debug|release); a misleading path just shows the toast under PowerShell's id, no access decision rests on it
         let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()));
         let app_id = toast_app_id(&app.config().identifier, exe_dir.as_deref())
             .unwrap_or_else(|| Toast::POWERSHELL_APP_ID.to_string());
@@ -659,7 +664,7 @@ pub async fn spawn_new_window(app: tauri::AppHandle, window_id: String) -> Resul
 
     let url = tauri::WebviewUrl::App(format!("index.html?w={}", safe_id).into());
     tauri::WebviewWindowBuilder::new(&app, &label, url)
-        .title(&format!("Pluto's Terminal — {}", safe_id))
+        .title(format!("Pluto's Terminal — {}", safe_id))
         .inner_size(1280.0, 820.0)
         .min_inner_size(900.0, 600.0)
         .resizable(true)
@@ -1525,6 +1530,7 @@ mod scrollback_sweep_tests {
 
     #[test]
     fn sweep_removes_stale_txt_only() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir().join(format!("sb-sweep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1545,6 +1551,7 @@ mod scrollback_sweep_tests {
     fn sweep_keeps_owned_even_when_stale() {
         // The core safety property: a file whose tab is still open is NEVER
         // deleted, even if its mtime is ancient.
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir().join(format!("sb-keep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1561,6 +1568,7 @@ mod scrollback_sweep_tests {
 
     #[test]
     fn sweep_keeps_fresh_files() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir().join(format!("sb-fresh-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1578,6 +1586,7 @@ mod scrollback_sweep_tests {
 
     #[test]
     fn sweep_missing_dir_is_zero() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let missing = std::env::temp_dir().join("sb-nope-xyz-does-not-exist-12345");
         let _ = std::fs::remove_dir_all(&missing);
         assert_eq!(
@@ -1593,6 +1602,7 @@ mod scrollback_sweep_tests {
         // which is exactly what reaped a recovering user's history while the
         // frontend was still reading the durable backup. The frontend refuses
         // first (diskGc.js); this is the floor under that.
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir().join(format!("sb-empty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -3356,6 +3366,7 @@ mod scrollback_tail_tests {
     use std::path::PathBuf;
 
     fn tmp_pair(name: &str) -> (PathBuf, PathBuf) {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir()
             .join("plutos-terminals-tests")
             .join(format!("{}-{}", name, crate::session::new_id("t")));
@@ -3430,6 +3441,7 @@ mod transcript_pool_tests {
     use super::*;
 
     fn tmp_base(name: &str) -> PathBuf {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir()
             .join("plutos-terminals-tests")
             .join(format!("{}-{}", name, crate::session::new_id("t")));
@@ -3490,6 +3502,7 @@ mod scrollback_race_tests {
     use std::path::PathBuf;
 
     fn tmp(name: &str) -> PathBuf {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir()
             .join("plutos-terminals-tests")
             .join(format!("{}-{}", name, crate::session::new_id("t")));
@@ -3546,6 +3559,7 @@ mod git_status_tests {
 
     #[test]
     fn non_git_and_missing_dirs_are_none() {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let dir = std::env::temp_dir()
             .join("plutos-terminals-tests")
             .join(format!("nongit-{}", crate::session::new_id("t")));

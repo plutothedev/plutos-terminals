@@ -245,16 +245,69 @@ pub fn ssh_keys_list() -> Result<Vec<SshKey>, String> {
     Ok(keys)
 }
 
-/// RAII cleanup for the unix askpass helper script — removed as soon as
-/// ssh-keygen finishes (the script itself never contains the passphrase; it
-/// only echoes the env var, but don't litter temp anyway).
+/// RAII cleanup for the unix askpass helper: the private directory holding the
+/// script, removed with it as soon as ssh-keygen finishes (the script itself
+/// never contains the passphrase; it only echoes the env var, but don't litter
+/// temp anyway).
 #[cfg(not(target_os = "windows"))]
-struct AskpassScript(PathBuf);
+struct AskpassScript {
+    dir: PathBuf,
+    script: PathBuf,
+}
 #[cfg(not(target_os = "windows"))]
 impl Drop for AskpassScript {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+/// The askpass helper's text: prints the passphrase from the environment.
+#[cfg(not(target_os = "windows"))]
+const ASKPASS_SCRIPT: &str = "#!/bin/sh\nprintf '%s' \"$PT_KEY_PASSPHRASE\"\n";
+
+/// Write the askpass helper into a fresh directory under `base` that only this
+/// user can enter. The shared temp dir (/tmp on Linux) is writable by every
+/// local user, so a fixed or guessable file name there could be planted first
+/// (a symlink the write would follow onto one of the user's own files, or a
+/// file someone else can rewrite before ssh-keygen runs it). Here the directory
+/// name is random, mkdir creates it exclusively (an existing path or symlink
+/// fails rather than being reused) with mode 0700, and the script inside is
+/// created new; nobody else can reach either.
+#[cfg(not(target_os = "windows"))]
+fn write_askpass_script(base: &std::path::Path) -> Result<AskpassScript, String> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    for _ in 0..8 {
+        let dir = base.join(format!(
+            ".pt-askpass-{:016x}{:016x}",
+            rand::random::<u64>(),
+            rand::random::<u64>()
+        ));
+        match fs::DirBuilder::new().mode(0o700).create(&dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("askpass helper: {e}")),
+        }
+        let script = dir.join("askpass");
+        // From here on the guard removes the directory on every exit path.
+        let guard = AskpassScript { dir, script };
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o700)
+            .open(&guard.script)
+            .map_err(|e| format!("askpass helper: {e}"))?;
+        f.write_all(ASKPASS_SCRIPT.as_bytes())
+            .map_err(|e| format!("askpass helper: {e}"))?;
+        // Closed before ssh-keygen executes it: Linux refuses to exec a file
+        // that is still open for writing (ETXTBSY).
+        drop(f);
+        // The umask may have narrowed the create mode; the owner needs rwx.
+        fs::set_permissions(&guard.script, fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("askpass helper: {e}"))?;
+        return Ok(guard);
+    }
+    Err("askpass helper: could not create a private directory".into())
 }
 
 /// Feed a non-empty passphrase to ssh-keygen without `-N` (argv is
@@ -264,23 +317,15 @@ impl Drop for AskpassScript {
 /// from an environment variable, which only the owning user can read.
 #[cfg(not(target_os = "windows"))]
 fn setup_askpass(cmd: &mut Command, passphrase: &str) -> Result<AskpassScript, String> {
-    use std::os::unix::fs::PermissionsExt;
-    let script = std::env::temp_dir().join(format!(
-        ".pt-askpass-{}-{}",
-        std::process::id(),
-        chrono::Utc::now().timestamp_millis()
-    ));
-    fs::write(&script, "#!/bin/sh\nprintf '%s' \"$PT_KEY_PASSPHRASE\"\n")
-        .map_err(|e| format!("askpass helper: {e}"))?;
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o700))
-        .map_err(|e| format!("askpass helper: {e}"))?;
-    cmd.env("SSH_ASKPASS", &script)
+    // nosemgrep: rust.lang.security.temp-dir.temp-dir -- only the parent of a random, exclusively created 0700 directory (write_askpass_script); no file is made directly in the shared temp dir
+    let askpass = write_askpass_script(&std::env::temp_dir())?;
+    cmd.env("SSH_ASKPASS", &askpass.script)
         .env("SSH_ASKPASS_REQUIRE", "force")
         .env("PT_KEY_PASSPHRASE", passphrase)
         // Pre-8.4 OpenSSH only consults SSH_ASKPASS when DISPLAY is set.
         .env("DISPLAY", ":0")
         .stdin(std::process::Stdio::null());
-    Ok(AskpassScript(script))
+    Ok(askpass)
 }
 
 /// Async wrapper (audit H6): a non-async `#[tauri::command]` runs INLINE on the
@@ -369,4 +414,47 @@ fn ssh_key_generate_sync(
         key_type: format!("ssh-{kt}"),
         comment,
     })
+}
+
+#[cfg(all(test, not(target_os = "windows")))]
+mod askpass_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn askpass_lives_in_a_fresh_private_dir_and_prints_the_passphrase() {
+        let base = tempfile::tempdir().unwrap();
+        let a = write_askpass_script(base.path()).unwrap();
+        let b = write_askpass_script(base.path()).unwrap();
+        assert_ne!(a.dir, b.dir, "every helper gets its own directory");
+        for h in [&a, &b] {
+            assert_eq!(h.dir.parent(), Some(base.path()));
+            assert_eq!(h.script.parent(), Some(h.dir.as_path()));
+            let name = h.dir.file_name().unwrap().to_str().unwrap();
+            assert!(name.starts_with(".pt-askpass-") && name.len() == ".pt-askpass-".len() + 32, "{name}");
+            let dir_meta = fs::symlink_metadata(&h.dir).unwrap();
+            assert!(dir_meta.is_dir() && !dir_meta.file_type().is_symlink());
+            assert_eq!(dir_meta.permissions().mode() & 0o777, 0o700, "only the owner can enter");
+            assert_eq!(fs::metadata(&h.script).unwrap().permissions().mode() & 0o777, 0o700);
+            assert_eq!(fs::read_to_string(&h.script).unwrap(), ASKPASS_SCRIPT);
+        }
+        // The script runs (no write handle left open) and echoes the env var.
+        let out = Command::new(&a.script)
+            .env("PT_KEY_PASSPHRASE", "pa ss'phrase")
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        assert_eq!(out.stdout, b"pa ss'phrase");
+        let (dir_a, dir_b) = (a.dir.clone(), b.dir.clone());
+        drop(a);
+        drop(b);
+        assert!(!dir_a.exists() && !dir_b.exists(), "the guard removes the directory");
+    }
+
+    #[test]
+    fn askpass_fails_cleanly_when_the_base_is_missing() {
+        let base = tempfile::tempdir().unwrap();
+        assert!(write_askpass_script(&base.path().join("missing")).is_err());
+        assert_eq!(fs::read_dir(base.path()).unwrap().count(), 0, "nothing left behind");
+    }
 }

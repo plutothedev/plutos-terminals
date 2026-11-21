@@ -1036,6 +1036,7 @@ mod tests {
     }
 
     fn tmp_path(name: &str) -> String {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir -- test-only scratch dir inside a #[cfg(test)] module; never compiled into the app
         let mut p = std::env::temp_dir();
         p.push(format!("plutosftp-test-{}-{name}", std::process::id()));
         p.to_string_lossy().into_owned()

@@ -10,6 +10,10 @@ updates:
       interval: weekly
     commit-message:
       prefix: "ci(deps)"
+    # Wait a week after a release before proposing it: a hijacked or broken
+    # version is usually yanked within days. Security updates are not delayed.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: npm
     directory: /
@@ -17,6 +21,10 @@ updates:
       interval: weekly
     commit-message:
       prefix: "deps"
+    # Wait a week after a release before proposing it: a hijacked or broken
+    # version is usually yanked within days. Security updates are not delayed.
+    cooldown:
+      default-days: 7
     # Security-only would be ideal; weekly keeps the small tree fresh.
 
   - package-ecosystem: cargo
@@ -25,3 +33,7 @@ updates:
       interval: weekly
     commit-message:
       prefix: "deps(rust)"
+    # Wait a week after a release before proposing it: a hijacked or broken
+    # version is usually yanked within days. Security updates are not delayed.
+    cooldown:
+      default-days: 7

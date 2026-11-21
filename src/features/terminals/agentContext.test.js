@@ -245,7 +245,7 @@ describe("partitionRuleFiles", () => {
 // site (assemble+cut, then scan) let a secret straddling the cut boundary
 // survive as an unmatchable raw fragment in the text sent to the LLM.
 describe("buildSafeContextBlock — masks before the budget cut", () => {
-  const KEY = "AKIAABCDEFGHIJKLMNOP"; // 20 chars, matches the aws-access-key pattern
+  const KEY = "AKIAABCDEFGHIJKLMNOP"; // 20 chars, matches the aws-access-key pattern // nosemgrep: generic.secrets.security.detected-aws-access-key-id-value.detected-aws-access-key-id-value -- fake fixture (not a real key), already allowlisted in GitHub push protection
 
   const mkInput = (pos) => ({
     globalRules: "",

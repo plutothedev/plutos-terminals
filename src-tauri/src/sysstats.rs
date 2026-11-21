@@ -123,7 +123,7 @@ pub fn system_stats_sync() -> SystemStats {
             let mut best: Option<&sysinfo::Disk> = None;
             for d in disks.list() {
                 if home.starts_with(d.mount_point()) {
-                    let better = best.map_or(true, |b| {
+                    let better = best.is_none_or(|b| {
                         d.mount_point().as_os_str().len() > b.mount_point().as_os_str().len()
                     });
                     if better {

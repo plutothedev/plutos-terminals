@@ -35,7 +35,7 @@ describe("scanSecrets", () => {
     ["github-pat", "token ghp_abcdefghijklmnopqrstuvwxyz0123456789"],
     ["github-fine-grained", "github_pat_11ABCDEFG0_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"],
     ["provider-key", "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwx"],
-    ["provider-key", "STRIPE_SECRET_KEY=sk_live_abcdefghijklmnopqrstuvwx"],
+    ["provider-key", "STRIPE_SECRET_KEY=sk_live_abcdefghijklmnopqrstuvwx"], // nosemgrep: generic.secrets.security.detected-stripe-api-key.detected-stripe-api-key -- fake fixture (not a real key), already allowlisted in GitHub push protection
     ["slack-token", "xoxb-123456789012-abcdefghijklmnop"],
     ["slack-token", "xapp-1-A0123456789-abcdefghijklm"],
     ["pem-private-key", FAKE_PEM],
