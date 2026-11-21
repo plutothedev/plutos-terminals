@@ -48,7 +48,9 @@
   from Cancel; the recovery prompt keeps the recording on a dismissal
   (recordingRecovery.js). In-flight recordings get a file name of their own
   (they were named after the pane, so the next recording there truncated one
-  kept for the next launch).
+  kept for the next launch). Recovery runs in the main window only (a
+  detached window could list, and offer to discard, a recording still running
+  in the main one).
 - MCP calls carry the epoch of the connection their tool was listed from; a
   call to a server that restarted since is refused, so Agent Mode's approval
   never relies on another process's annotations.

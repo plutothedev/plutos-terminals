@@ -343,7 +343,7 @@ where
             // The connection is fine (it is the new one): keep it, and the
             // next listing reads its tools and annotations.
             drop(guard);
-            return Err(format!("{id} restarted since its tools were listed; run again so they are re-read"));
+            return Err(format!("{id} restarted since its tools were listed, so this call was not sent. Do not retry it in this run: start a new run so the tools are read again."));
         }
     }
     let out = guard.call_tool(tool, args).await;
@@ -759,7 +759,7 @@ mod timeout_eviction_tests {
         .await;
         assert_eq!(connects.load(Ordering::SeqCst), 1, "the reconnect did not happen");
         let e = out.expect_err("a call approved against the old process ran on the new one");
-        assert_eq!(e, "epoch-replaced restarted since its tools were listed; run again so they are re-read");
+        assert_eq!(e, "epoch-replaced restarted since its tools were listed, so this call was not sent. Do not retry it in this run: start a new run so the tools are read again.");
         // Not sent: the new mock exits on any call, so a sent call would have
         // left its connection unusable and out of the map.
         let kept = conns().lock().await.get("epoch-replaced").cloned().expect("the new connection was dropped");

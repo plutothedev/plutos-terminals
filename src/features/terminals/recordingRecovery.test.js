@@ -81,3 +81,17 @@ test("the prompt tells the user that closing it keeps the recording", async () =
   expect(message).toMatch(/[Cc]los(e|ing) this keeps it/);
   expect(opts).toMatchObject({ confirmLabel: "Save", cancelLabel: "Discard" });
 });
+
+test("a secondary window recovers nothing: the files may be the main window's live recordings", async () => {
+  // In-flight files are shared by every window. A detached window that mounts
+  // while the main window is recording would list that live recording and
+  // offer to Discard it.
+  const h = harness([false]);
+  await recoverInflightRecordings({
+    recording: h.recording, confirm: h.confirm, saveFile: h.saveFile, toast: h.toast,
+    isCancelled: () => false, isPrimary: () => false,
+  });
+  expect(h.recording.listInflightRecordings).not.toHaveBeenCalled();
+  expect(h.confirm).not.toHaveBeenCalled();
+  expect(h.recording.discardInflightRecording).not.toHaveBeenCalled();
+});

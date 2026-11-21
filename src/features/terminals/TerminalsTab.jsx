@@ -962,6 +962,7 @@ export default function TerminalsTab({ st, save, userSt = {}, saveUser = () => {
       confirm,
       toast,
       isCancelled: () => cancelled,
+      isPrimary: isPrimaryWindow,
       describeError: (e) => humanizeError(e, "Save failed"),
       saveFile: (name, cast) => invoke("save_text_to_file", {
         suggestedName: `${name}.cast`,

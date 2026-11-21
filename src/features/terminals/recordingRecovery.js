@@ -12,7 +12,12 @@
 // recording: { listInflightRecordings, readInflightRecording, discardInflightRecording }
 // saveFile(name, cast) -> saved path, or null when the Save dialog is cancelled
 // isCancelled() -> true once the owning effect has been torn down
-export async function recoverInflightRecordings({ recording, confirm, saveFile, toast, isCancelled, describeError = (e) => String(e?.message || e) }) {
+// isPrimary() -> false in a secondary (detached) window. In-flight files are
+// shared by every window, so a window that mounts later would list a recording
+// still RUNNING in the main window and offer to Discard it; only the main
+// window, which mounts first at launch, runs recovery.
+export async function recoverInflightRecordings({ recording, confirm, saveFile, toast, isCancelled, isPrimary = () => true, describeError = (e) => String(e?.message || e) }) {
+  if (!isPrimary()) return;
   const names = await recording.listInflightRecordings();
   if (isCancelled() || !Array.isArray(names) || names.length === 0) return;
   for (const name of names) {
