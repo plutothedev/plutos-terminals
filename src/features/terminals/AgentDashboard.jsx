@@ -129,6 +129,7 @@ export default function AgentDashboard({ panels, activePanelId, tabCosts, onFocu
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onFocusTab?.(panel.id, tab.id); }}
+                className="moba-agent-btn"
                 style={NAME_BUTTON}
               >
                 <span

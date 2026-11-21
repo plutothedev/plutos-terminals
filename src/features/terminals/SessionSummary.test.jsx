@@ -150,3 +150,17 @@ describe("handing a summary to another pane", () => {
     expect(screen.queryByLabelText("Pane to hand the summary to")).toBeNull();
   });
 });
+
+describe("a new summary while the modal stays open", () => {
+  test("clears the previous target and the 'Pasted into' line", async () => {
+    const { rerender } = render(<SessionSummary open text="make: ok" sourceId="src" panels={panels} onClose={() => {}} />);
+    const select = await screen.findByLabelText("Pane to hand the summary to");
+    fireEvent.change(select, { target: { value: "loc" } });
+    fireEvent.click(pasteButton());
+    expect(await screen.findByText(/Pasted into local\./)).toBeTruthy();
+    rerender(<SessionSummary open text="make: failed" sourceId="src" panels={panels} onClose={() => {}} />);
+    const select2 = await screen.findByLabelText("Pane to hand the summary to");
+    expect(screen.queryByText(/Pasted into local\./)).toBeNull();
+    expect(select2.value).toBe("");
+  });
+});

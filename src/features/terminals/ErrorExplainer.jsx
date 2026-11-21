@@ -32,7 +32,6 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modelLabel, setModelLabel] = useState("");
-  const ranFor = useRef(null);
   // The block key the component is showing now, written at commit (layout
   // effect) so a delta or final answer from an earlier block's stream is
   // dropped from the moment the new block is on screen, not only once that
@@ -73,8 +72,6 @@ export default function ErrorExplainer({ block, onClose, onRun }) {
 
   useEffect(() => {
     if (blockKey === null || run.key !== blockKey) return;
-    if (ranFor.current === blockKey) return; // one call per failed block
-    ranFor.current = blockKey;
     const { llm, prompt } = run;
     if (!llm) return; // the no-model message was set during render above
     // Staleness guard + stream cancel (P3-T2): a since-dismissed block (or a

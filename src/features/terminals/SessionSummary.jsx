@@ -85,13 +85,13 @@ export default function SessionSummary({ open, text, sourceId = null, panels = [
       setAnswer(""); setError(null); setTarget(""); setSent("");
     } else if (!body) {
       setRun({ open, text, llm: null, body });
-      setAnswer(""); setModelLabel("");
+      setAnswer(""); setModelLabel(""); setTarget(""); setSent("");
       setLoading(false); setError("Nothing in this terminal to summarize yet.");
     } else {
       const llmState = readUserSt();
       const llm = resolveActiveLLM(llmState);
       setRun({ open, text, llm, body });
-      setAnswer("");
+      setAnswer(""); setTarget(""); setSent("");
       if (!llm) { setModelLabel(""); setLoading(false); setError(noModelMessage(llmState)); }
       else { setModelLabel(llm.model); setLoading(true); setError(null); }
     }

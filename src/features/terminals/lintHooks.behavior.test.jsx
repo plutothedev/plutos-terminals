@@ -6,7 +6,7 @@
 // would fail if the reset stopped happening on the transition it guards.
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, cleanup, waitFor, act, fireEvent } from "@testing-library/react";
-import { useLayoutEffect } from "react";
+import { useLayoutEffect, StrictMode } from "react";
 
 const { invokeMock, readUserStMock, llmStreamMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -128,6 +128,21 @@ describe("ErrorExplainer", () => {
     expect(llmStreamMock).toHaveBeenCalledTimes(1);
     rerender(<ErrorExplainer block={block("k2")} {...props} />);
     expect(llmStreamMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("under StrictMode (effect re-run) the restarted stream completes and the answer shows", async () => {
+    readUserStMock.mockReturnValue(MODEL);
+    // Each call gets its own promise; a cancelled stream never settles, like a dropped connection.
+    llmStreamMock.mockImplementation(() => {
+      let done = false;
+      const promise = new Promise((resolve) => { setTimeout(() => { if (!done) resolve("Use the fix."); }, 0); });
+      return { promise, cancel: () => { done = true; } };
+    });
+    const { container } = render(
+      <StrictMode><ErrorExplainer block={block("k1")} onClose={() => {}} onRun={() => {}} /></StrictMode>
+    );
+    await waitFor(() => expect(container.textContent).toContain("Use the fix."));
+    expect(container.textContent).not.toContain("Asking");
   });
 
   test("a new block object with the same key keeps the running stream", () => {
