@@ -10,20 +10,20 @@ license-file = "../LICENSE"
 publish = false
 repository = "https://github.com/plutothedev/plutos-terminals"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.90"
 
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.6", features = [] }
+tauri-build = { version = "2.7.6", features = [] }
 
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.10.3", features = ["tray-icon"] }
+tauri = { version = "2.12.7", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 chrono = "0.4"
 portable-pty = "0.8"
@@ -130,7 +130,14 @@ tauri-plugin-window-state = "2.4.1"
 # Updates are minisign-verified against the pubkey in tauri.conf.json, so the
 # release HOST is not trusted: a compromised CDN or repo still cannot ship code
 # without the private key. `process` provides the relaunch after install.
-tauri-plugin-updater = "2"
+# 2.14.1 is the floor: it moves Windows zip handling to zip ^9 (RUSTSEC-2026-0367
+# to -0369, -0429, -0545, -0548 were all on zip 4). Default features are off and
+# the 2.10 set is named back (rustls-tls, zip) because 2.14 added `system-proxy`
+# to its defaults, and that feature unifies onto the one reqwest 0.13 in the tree,
+# which is also the MCP client (mcp/client.rs mcp_http_client). It would have
+# sent MCP requests, bearer token included, through the OS proxy settings, which
+# no build did before. `zip` still carries the tar/flate2 the macOS update needs.
+tauri-plugin-updater = { version = "2.14.1", default-features = false, features = ["rustls-tls", "zip"] }
 tauri-plugin-process = "2"
 
 # Windows toasts for commands::notify, through the WinRT toast API (the same
