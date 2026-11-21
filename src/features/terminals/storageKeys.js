@@ -142,7 +142,7 @@ export function allOpenTabIds() {
 // "plutos-terminals:" (state/user blobs, cmd history, macros, dismissed-update)
 // and "pt:" (dock/tree layout in useDockResize). Factory reset wipes by prefix
 // so new keys can't silently escape the reset.
-export const ALL_STORAGE_PREFIXES = ["plutos-terminals:", "pt:"];
+const ALL_STORAGE_PREFIXES = ["plutos-terminals:", "pt:"];
 
 // Persistence hold. A factory reset clears BOTH copies of the workspace (the
 // durable store.json first, then localStorage) and reloads, and App.jsx's
@@ -220,7 +220,7 @@ export function wipeAllLocalState() {
 // sessionStorage, not localStorage: it survives location.reload() (same window)
 // but dies with the window, so a mark that somehow never gets consumed cannot
 // suppress one layout forever. Consumed exactly once, at boot.
-export const LAYOUT_DISCARD_KEY = "pt:layout-discarded";
+const LAYOUT_DISCARD_KEY = "pt:layout-discarded";
 
 // No fingerprint means there was nothing recognisable to discard (a missing,
 // blank or unparseable blob), and an unusable local layout is not what crashed

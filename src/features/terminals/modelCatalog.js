@@ -41,7 +41,7 @@ export const NEW_WINDOW_MS = 30 * DAY_MS;
 // that reached the cache, because an out-of-range date throws when formatted.
 const MAX_CREATED_SECS = 4_102_444_800;
 // Most models the phone's picker is sent per provider.
-export const PHONE_MAX_PER_PROVIDER = 60;
+const PHONE_MAX_PER_PROVIDER = 60;
 // Most models cached per provider (llm.rs keeps up to 5000; nobody scrolls that).
 const MAX_CACHED_PER_PROVIDER = 2000;
 

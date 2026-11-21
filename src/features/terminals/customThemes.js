@@ -48,7 +48,7 @@ function rgba(hex, alpha) {
   return `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha})`;
 }
 // Relative luminance (0 dark … 1 light), no gamma — good enough for dark/light.
-export function luminance(hex) {
+function luminance(hex) {
   const c = hexToRgb(hex);
   if (!c) return 0;
   return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / 255;

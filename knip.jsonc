@@ -1,0 +1,39 @@
+// knip config: dead-code + unused-dependency check, run in CI by
+// .github/workflows/static.yml (`npx --yes knip --reporter symbols`).
+//
+// Knip finds the app's own entry points itself (the Vite plugin reads
+// index.html -> src/main.jsx; the Vitest plugin picks up every *.test.*).
+// The files below are real entry points that sit outside that graph, so knip
+// would otherwise report them as unused files. Each one was checked by grep
+// before being listed here; keep the reason next to anything you add.
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  "entry": [
+    // Loaded by a plain <script src="/boot.js"> in index.html, served from
+    // public/ as-is (kept external because Tauri hashes inline scripts into
+    // the CSP, which would block xterm's runtime stylesheet).
+    "public/boot.js",
+
+    // Claude Code hook scripts, run by `node` from .claude/settings.json
+    // (PreToolUse and PostToolUse hooks).
+    ".claude/hooks/*.mjs",
+
+    // Packaged-app smoke test, run by hand: `node scripts/smoke-packaged.mjs`.
+    "scripts/smoke-packaged.mjs",
+
+    // Phone companion page, compiled into the Rust binary with include_str!
+    // in src-tauri/src/companion.rs and served by the companion HTTP server.
+    // vendor/ holds the xterm + addon-fit bundles that page loads.
+    "src-tauri/companion-web/**/*.js",
+
+    // Mock MCP server spawned by the cargo tests (src-tauri/tests/mcp_mock.rs
+    // and the test module in src-tauri/src/mcp/manager.rs).
+    "src-tauri/tests/fixtures/mock_mcp_server.mjs"
+  ],
+  "ignoreBinaries": [
+    // Called by .claude/hooks/cargo-fmt.mjs through execFileSync. It ships
+    // with the Rust toolchain (rustup), not npm, so it can never be listed in
+    // package.json; the hook already exits quietly when it is missing.
+    "rustfmt"
+  ]
+}

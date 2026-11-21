@@ -65,7 +65,7 @@ function fmtSize(n) {
 }
 
 // Relative "modified" age for the Mod column (now / 2m / 1h / 3d / 5mo / 1y).
-export function fmtMtime(sec) {
+function fmtMtime(sec) {
   if (!sec) return "";
   const d = Date.now() / 1000 - sec;
   if (d < 60) return "now";

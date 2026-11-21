@@ -52,7 +52,3 @@ export function Chip({ active, className, children, ...rest }) {
     </button>
   );
 }
-
-export function Kbd({ children }) {
-  return <kbd className="phn-ui-kbd">{children}</kbd>;
-}

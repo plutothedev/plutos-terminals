@@ -198,12 +198,13 @@ export const HEADER_SKINS = [
     light: true,
     // Light terminal palette so the shell matches the chrome instead of sitting
     // as a dark rectangle inside a light app. Hues follow the One Light family
-    // already shipped as the "Pluto Light" terminal theme (themes.js), which is
-    // tuned for contrast against a near-white background.
+    // of the old "Pluto Light" terminal preset (themes.js, unused since v0.1.11 and
+    // deleted as dead code in v0.7.6), tuned for contrast against a
+    // near-white background.
     //
     // ANSI white/brightWhite deliberately do NOT map to near-white here: on a
-    // light background that renders them invisible (the existing Pluto Light
-    // theme has that flaw — both are #fafafa, the background colour). They map
+    // light background that renders them invisible (the old Pluto Light
+    // preset had that flaw — both were #fafafa, the background colour). They map
     // to greys instead, and every bright* variant is DARKER than its base,
     // since on a light background more contrast — not more luminance — is what
     // "bright" has to mean.
@@ -266,7 +267,7 @@ export function getSkinXtermTheme(skinId, opts = {}) {
 // Header button styles — orthogonal axis to skins. Skin sets colors;
 // button-style sets shape / border / padding / hover behavior. Combine any
 // skin with any button-style. Default keeps current bordered-rectangle look.
-export const HEADER_BUTTON_STYLES = [
+const HEADER_BUTTON_STYLES = [
   {
     id: "default",
     label: "Default: bordered rectangle",
@@ -299,12 +300,6 @@ export const HEADER_BUTTON_STYLES = [
   },
 ];
 
-export function getButtonStyleId(stored) {
-  const ids = HEADER_BUTTON_STYLES.map((s) => s.id);
-  if (typeof stored === "string" && ids.includes(stored)) return stored;
-  return "default";
-}
-
 // Apply button style globally on <html> alongside data-phn-skin so button
 // shape/border/padding rules cascade everywhere (header, modals, etc.).
 export function applyGlobalButtonStyle(styleId) {
@@ -315,7 +310,7 @@ export function applyGlobalButtonStyle(styleId) {
 
 // Layout density — third axis. Skin sets colors, button-style sets shape,
 // layout sets sizing/spacing of the header row. Three options for v0.1.15.
-export const HEADER_LAYOUTS = [
+const HEADER_LAYOUTS = [
   {
     id: "default",
     label: "Default: standard density",
@@ -355,16 +350,6 @@ export function getSkinId(stored) {
   return "oled";
 }
 
-
-
-// Apply the active skin globally on <html> so portaled / sibling elements
-// (toasts, modals rendered above the TerminalsTab subtree) inherit the
-// CSS vars. Safe to call repeatedly; idempotent.
-export function applyGlobalSkin(skinId) {
-  if (typeof document === "undefined") return;
-  const id = HEADER_SKINS.find((s) => s.id === skinId) ? skinId : "default";
-  document.documentElement.dataset.phnSkin = id;
-}
 
 // ── Custom themes ────────────────────────────────────────────────────────────
 // A custom theme is referenced by a stored value of "custom:<id>" and lives in

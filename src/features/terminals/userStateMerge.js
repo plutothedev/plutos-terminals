@@ -14,7 +14,6 @@
 // re-overlays them from the in-memory keychain cache AFTER this merge. ONE
 // canonical list, shared with App.jsx's writeUserState (review M10 #3).
 import { SECRET_FIELDS as KEYCHAIN_FIELDS } from "./storageKeys.js";
-export { KEYCHAIN_FIELDS };
 
 // Deterministic, symmetric tie-break for equal timestamps (same rationale as
 // sync/merge.js L6): without it, two windows that wrote the same field at the

@@ -150,7 +150,7 @@ export function buildSafeContextBlock({ globalRules, ruleFiles, facts }) {
 
 const quiet = async (p) => { try { return await p; } catch { return null; } };
 
-export async function sha256Hex(text) {
+async function sha256Hex(text) {
   const data = new TextEncoder().encode(String(text));
   const digest = await crypto.subtle.digest("SHA-256", data);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");

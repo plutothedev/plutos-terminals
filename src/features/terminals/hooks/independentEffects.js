@@ -52,7 +52,7 @@ const SHELL_NAMES = {
   nu: "Nushell",
   nushell: "Nushell",
 };
-export function friendlyShellName(raw) {
+function friendlyShellName(raw) {
   if (!raw || typeof raw !== "string") return raw;
   const base = raw.split(/[\\/]/).pop().replace(/\.exe$/i, "");
   return SHELL_NAMES[base.toLowerCase()] || base;

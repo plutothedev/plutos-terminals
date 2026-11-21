@@ -181,18 +181,6 @@ function subscribeKeyed(map, key, cb) {
   };
 }
 
-/// Per-pane/tab activity as a string primitive. tabId may be null (no active
-/// tab) → "idle".
-export function useTabActivity(tabId) {
-  const subscribe = useCallback(
-    (cb) => (tabId ? subscribeKeyed(paneListeners, tabId, cb) : () => {}),
-    [tabId]
-  );
-  return useSyncExternalStore(subscribe, () =>
-    tabId ? activities.get(tabId) || "idle" : "idle"
-  );
-}
-
 // NOTE deliberately NO per-project hook here (T1 review): both project
 // consumers render projects inside .map(), where a per-row hook would violate
 // the Rules of Hooks — they use the cached useProjectRollups() object and

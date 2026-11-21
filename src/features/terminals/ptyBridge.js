@@ -153,10 +153,6 @@ export function setTabDims(tabId, cols, rows) {
   emitDims();
 }
 
-export function getTabDims(tabId) {
-  return dims.get(tabId) || null;
-}
-
 // ── Version channels (useSyncExternalStore surfaces) ────────────────────────
 // Two (subscribe, getSnapshot) pairs. DIMS: per-resize churn — currently has
 // NO UI consumer (the cols×rows readout was removed 2026-08-14); the channel
@@ -203,11 +199,6 @@ export function isBroadcast() {
 // Set the broadcast group: an array/Set of tabIds, or null for "all visible".
 export function setBroadcastTargets(ids) {
   broadcastTargets = ids && [...ids].length ? new Set(ids) : null;
-}
-
-// Current broadcast group as an array, or null when targeting all visible.
-export function getBroadcastTargets() {
-  return broadcastTargets ? [...broadcastTargets] : null;
 }
 
 // tabIds that currently have a live PTY writer (for the group picker).

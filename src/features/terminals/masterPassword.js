@@ -66,7 +66,3 @@ export function isUnlockedThisSession() {
 export function markUnlocked() {
   try { sessionStorage.setItem(UNLOCK_KEY, "1"); } catch { /* ignore */ }
 }
-
-export function clearUnlocked() {
-  try { sessionStorage.removeItem(UNLOCK_KEY); } catch { /* ignore */ }
-}

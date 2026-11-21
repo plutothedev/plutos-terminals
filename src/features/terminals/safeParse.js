@@ -5,7 +5,7 @@
 // optional onCorrupt hook for the sites that want to react (log, flag, recover)
 // rather than swallow silently. The specialized corrupt-aware workspace parser
 // (parseWorkspace, audit C2) stays separate — it also drives backup recovery.
-export function safeParse(raw, { fallback = null, onCorrupt } = {}) {
+function safeParse(raw, { fallback = null, onCorrupt } = {}) {
   if (raw == null || raw === "") return fallback;
   try {
     return JSON.parse(raw);

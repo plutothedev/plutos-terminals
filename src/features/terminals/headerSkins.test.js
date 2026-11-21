@@ -4,7 +4,7 @@
 // left a black rectangle sitting inside a light app. It is now a genuinely
 // light terminal, and these tests keep it readable: ANSI colours on a
 // near-white background are easy to regress into invisibility (the older
-// "Pluto Light" terminal theme in themes.js maps white/brightWhite to the
+// "Pluto Light" preset in the since-deleted themes.js mapped white/brightWhite to the
 // background colour itself, which is exactly the trap being avoided here).
 import { describe, it, expect } from "vitest";
 import { getSkinXtermTheme, getActiveXtermTheme, ANSI_LIGHT } from "./headerSkins.js";
