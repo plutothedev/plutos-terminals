@@ -9,7 +9,7 @@
 
 A free desktop workstation for developers who live in the terminal and run AI
 agents. One dense window holds a saved-session tree, a multi-tab terminal grid,
-a built-in AI assistant and agent mode across 16+ LLM providers, a Warp-style
+a built-in AI assistant and agent mode across 15 LLM providers and any OpenAI-compatible endpoint, a Warp-style
 prompt editor, an SFTP file browser, a live system monitor, SSH/serial sessions,
 port forwarding, and remote desktops (RDP/VNC) — all in the same place.
 
@@ -45,7 +45,7 @@ monochrome stroke icons (plus importable custom themes).
 - **Command palette** (`⌘K`), F-key quick-action bar, and a segmented status bar.
 
 ### AI, your way
-- **16+ LLM providers, ~40 models** — bring your own key for Anthropic, OpenAI,
+- **15 LLM providers, 60+ models, plus any OpenAI-compatible endpoint** — bring your own key for Anthropic, OpenAI,
   Google, Groq, Mistral, OpenRouter, Moonshot/Kimi, and more. The picker injects
   the right env vars at shell spawn so `claude`, `codex`, etc. just work.
 - **Ask AI** (`Ctrl+I`) — turn plain English into a shell command, review it,
@@ -143,7 +143,7 @@ it a goal; it calls tools until the goal is done, and you approve what it runs.
   at any point. Cleanup runs in a `finally`, so a tool that throws cannot leave the agent stuck.
 - **Shell commands run in your real terminal pane.** Output is captured per command through
   OSC 133 command blocks, so the model sees exactly what that command printed.
-- **16 providers, 40 models,** plus a custom slot for any OpenAI-compatible endpoint. Code:
+- **15 providers, 61 models,** plus a custom slot for any OpenAI-compatible endpoint. Code:
   [`src/features/terminals/providers.js`](src/features/terminals/providers.js).
 
 ### MCP client
