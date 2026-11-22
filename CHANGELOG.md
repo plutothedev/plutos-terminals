@@ -82,6 +82,10 @@
 - Sessions saved before this version carry no size marks and still replay
   with repeated lines where they were resized. A visible tab replays them at
   its own size, a background tab at 80 x 24, as before.
+- Live, on Windows: a taller resize while output is streaming can lose the
+  top screen row (live check: 1 line per taller resize, 400 lines at 15 ms
+  each; v0.7.5 lost 20). The saved file holds the line and the replay brings
+  it back.
 - Live, on Windows: a wider resize that unwraps a line on screen makes xterm
   pull a scrollback row down, and ConPTY's repaint can overwrite it. The
   replay pushes such rows back; the live terminal does not.
