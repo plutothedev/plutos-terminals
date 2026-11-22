@@ -2,6 +2,11 @@
 
 ## v0.7.7: restored history survives every restart (2026-11-22)
 
+### Security
+- **url 2.5.9** (form_urlencoded 1.2.3): RUSTSEC-2026-0592, published
+  2026-11-20, a stack overflow in `Url::origin()` on nested `blob:` URLs.
+  Lockfile only.
+
 ### Fixed
 - **Restore: every past session's last screen is kept.** A tab's saved
   scrollback is the raw output of every session, back to back. Each session
@@ -31,6 +36,28 @@
   reports, bracketed paste, cursor-key and keypad modes and both character
   sets go back to defaults at every seal. A half-written escape sequence at
   the end of a session is aborted, not acted on.
+- **Restore: each part of the history is replayed at the size it was recorded
+  at.** ConPTY repaints its whole view on every resize and each paint is in
+  the saved file; a paint recorded for a taller window scrolls when replayed
+  into a shorter terminal, and its lines came back two to six times (found by
+  the live check; present in v0.7.5 too). A local pane's saved file now holds
+  size marks (`ESC]1337;PlutoSize=<cols>;<rows> BEL`): after the session mark,
+  before every resize, every 64 KB of output and at the top of a new segment
+  (`pty.rs`, `ScrollbackWriter::mark_size`). The replay resizes the terminal
+  per part, from inside xterm's write callbacks (`restoreSeal.js`). On ConPTY
+  streams a resize is applied where its repaint begins, not at the mark
+  (output produced at the old size is still on its way when the mark is
+  written), and scrollback rows that a resize brings down are pushed back
+  before the repaint can overwrite them. Fits are held back while a history
+  replays. The loader keeps the size in force across dropped boot noise and
+  cuts; the raw path (SSH, serial, the phone) gets the tail with size marks
+  removed.
+- **Windows: a full screen made taller no longer loses rows.** Local panes
+  run xterm with `windowsPty { backend: "conpty" }`: a taller resize adds
+  blank rows at the bottom, as ConPTY does, instead of pulling scrollback
+  rows down under ConPTY's repaint (60 lines on 36 rows, window made taller:
+  lines 13 to 25 were gone). No build number is passed: with one, xterm also
+  changes rewrapping and wrapped-line handling on Windows 10.
 - **Restore: a boot marker that arrives after the 4 s gate** (a slow shell, a
   flood, a pane parked during boot). The banner is on screen by then; if it
   filled the screen, a taller resize pulls the newest history rows back down
@@ -52,15 +79,17 @@
   timers of its own).
 
 ### Known limits
-- **Repeats after a resize (found by the live check, present since v0.7.5 or
-  earlier).** ConPTY repaints its whole view on every resize and each paint is
-  in the saved file. A paint recorded for a taller window scrolls when it is
-  replayed into a shorter terminal, so the block lands in scrollback and the
-  next paint draws it again: copies = taller resizes + 1 (v0.7.5: taller
-  resizes, the last copy being erased by the bug fixed here). No line is
-  lost. The fix is to record the size with the stream and replay each part at
-  its own size; `windowsPty` is also not set on the xterm instance, which
-  loses rows live on a taller resize with a full screen.
+- Sessions saved before this version carry no size marks and still replay
+  with repeated lines where they were resized. A visible tab replays them at
+  its own size, a background tab at 80 x 24, as before.
+- Live, on Windows: a wider resize that unwraps a line on screen makes xterm
+  pull a scrollback row down, and ConPTY's repaint can overwrite it. The
+  replay pushes such rows back; the live terminal does not.
+- A tab hidden during a taller resize can come back with its view scrolled
+  above the bottom (xterm's viewport; older than this change).
+- A resize whose repaint is not a plain full-view paint (a cursor position
+  inside a line, a pager's partial paint) is applied at the mark, without the
+  protection for output still on its way.
 - On Windows 10.0.22631 ConPTY does not forward `ESC[?1049h`: a pager erases
   the screen row by row, and lines above it leave the live scrollback. The
   restore cannot return what the live terminal no longer had. The alternate
