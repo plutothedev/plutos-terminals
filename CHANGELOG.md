@@ -52,6 +52,19 @@
   timers of its own).
 
 ### Known limits
+- **Repeats after a resize (found by the live check, present since v0.7.5 or
+  earlier).** ConPTY repaints its whole view on every resize and each paint is
+  in the saved file. A paint recorded for a taller window scrolls when it is
+  replayed into a shorter terminal, so the block lands in scrollback and the
+  next paint draws it again: copies = taller resizes + 1 (v0.7.5: taller
+  resizes, the last copy being erased by the bug fixed here). No line is
+  lost. The fix is to record the size with the stream and replay each part at
+  its own size; `windowsPty` is also not set on the xterm instance, which
+  loses rows live on a taller resize with a full screen.
+- On Windows 10.0.22631 ConPTY does not forward `ESC[?1049h`: a pager erases
+  the screen row by row, and lines above it leave the live scrollback. The
+  restore cannot return what the live terminal no longer had. The alternate
+  screen part of the seal is exercised by tests only, not by the live check.
 - Saved files from v0.7.6 or earlier carry no session marks: inside that part
   each clear still erases the screen before it. No migration.
 - A session that cleared its own scrollback (`ESC[3J`: Clear-Host, `clear`,
