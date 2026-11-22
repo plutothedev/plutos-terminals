@@ -205,7 +205,7 @@ import {
   registerDestroyHook,
   destroyEntry,
 } from "./paneRegistry.js";
-import { replaySaved } from "./restoreSeal.js";
+import { replaySaved, pushBackHistory } from "./restoreSeal.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
 // rather than an mp3 asset so there's nothing to bundle. Two-note ascending
@@ -1085,6 +1085,11 @@ function TerminalPane({
     // (jump-host tunnel id lives at entry.jumpFwdId — single-ownership
     // teardown via its dedicated destroy hook + the spawn-catch fast path)
     let restoringScrollback = false; // suppress OSC 133 while replaying old output
+    // xterm marker on the last line of a restored local history (the
+    // "scrollback restored" line). It follows that line through scrolling,
+    // resizes and trimming, so the listener can tell whether history is back
+    // on screen when a late clear arrives (pushBackHistory).
+    let restoredEnd = null;
     let unlistenExit = null;
     let unlistenPhone = null;
     const cmdsAtSpawn = Array.isArray(startCommandsRef.current) ? [...startCommandsRef.current] : [];
@@ -1503,7 +1508,11 @@ function TerminalPane({
       const id = tabIdRef.current;
       if (!id) return false;
       try {
-        const saved = await invoke("scrollback_load", { tabId: id });
+        // `local`: only a local shell's saved file carries session marks, and
+        // only then does the loader drop the boot noise that follows them. An
+        // SSH or serial file is returned byte for byte, whatever the remote
+        // end printed.
+        const saved = await invoke("scrollback_load", { tabId: id, local: !connection && !serial });
         if (saved && entryLive()) {
           // Suppress OSC 133 while the old bytes replay; clear once parsed.
           restoringScrollback = true;
@@ -1528,7 +1537,13 @@ function TerminalPane({
           // so the shell below starts on an empty screen. False = the file
           // held nothing but session marks: a fresh pane, not a restored one.
           try {
-            return await replaySaved(term, saved, entryLive, restoredLine);
+            const replayed = await replaySaved(term, saved, entryLive, restoredLine);
+            if (replayed && entryLive()) {
+              // The replay left the cursor at home on an empty screen, with
+              // the marker line as the last line of scrollback: one row up.
+              try { restoredEnd = term.registerMarker(-1); } catch { restoredEnd = null; }
+            }
+            return replayed;
           } finally {
             restoringScrollback = false;
           }
@@ -1567,6 +1582,11 @@ function TerminalPane({
     entry.spawnBody = () => {
       (async () => {
       const restored = await replayScrollback();
+      // The replay is awaited now, so the window in which the pane can be
+      // destroyed before its shell exists is longer. A dead entry must not
+      // spawn: the Rust side would write a session mark and the orphan's
+      // first output into the saved file before the orphan guard kills it.
+      if (!entryLive()) return;
       // At launch the keychain is read in the background (App.jsx
       // migrateAndLoad), and until that first read finishes the cache holds no
       // keys: a pane restored at launch used to start its shell without them.
@@ -1574,6 +1594,7 @@ function TerminalPane({
       // serial panes never get these keys. The wait comes BEFORE the size read
       // below, so a fit that lands meanwhile is the size the PTY starts at.
       if (!serial && !connection) await keysReady(2000);
+      if (!entryLive()) return;
       try {
         const cols = Math.max(term.cols, MIN_COLS);
         const rows = Math.max(term.rows, MIN_ROWS);
@@ -1844,6 +1865,11 @@ function TerminalPane({
         // Only ever present in OUTPUT (the typed setup source builds it from
         // [char]27 / \033 pieces, so the echo never contains the real ESC byte
         // and can't false-trigger the scan).
+        // Set while a restored pane's boot marker has not been seen yet: the
+        // last few characters delivered (a marker can straddle two chunks) and
+        // how much more output to watch before giving up. See
+        // deliverWatchingForMarker.
+        let lateMarker = null;
         const BOOT_MARKER = "\x1b]1337;PlutoBoot=1\x07";
         const flushConceal = () => {
           const c = concealRef.current;
@@ -1851,6 +1877,37 @@ function TerminalPane({
           clearTimeout(c.timer);
           concealRef.current = null;
           if (c.buf && entryLive()) handleChunk(c.buf);
+          if (lateMarker) lateMarker.tail = c.buf.slice(-(BOOT_MARKER.length - 1));
+        };
+        // A restored pane whose gate was released without the marker (a shell
+        // slower than the 4 s fallback, a flood, a pane parked during boot):
+        // the banner and echoed setup are on screen. If they filled it, a
+        // taller resize since then pulled the newest history rows back down,
+        // and the clear that follows the late marker would erase them. So the
+        // stream is watched for the marker (it can be split across chunks),
+        // and any history that is back on screen is pushed up again right
+        // after it, before the clear is rendered. Three plain writes in a
+        // row, so xterm parses them in that order.
+        const deliverWatchingForMarker = (payload) => {
+          const w = lateMarker;
+          const joined = w.tail + payload;
+          const idx = joined.indexOf(BOOT_MARKER);
+          if (idx < 0) {
+            w.tail = joined.slice(-(BOOT_MARKER.length - 1));
+            w.budget -= payload.length;
+            if (w.budget <= 0) lateMarker = null; // this shell never sent one
+            handleChunk(payload);
+            return;
+          }
+          lateMarker = null;
+          // Just past the marker, as an offset into this payload (the tail is
+          // one character short of a marker, so this is at least 1).
+          const cut = idx + BOOT_MARKER.length - w.tail.length;
+          handleChunk(payload.slice(0, cut));
+          const push = pushBackHistory(term, restoredEnd);
+          if (push) term.write(push); // not shell output: no recording, transcript or scan
+          const rest = payload.slice(cut);
+          if (rest) handleChunk(rest);
         };
 
         unlistenData = await listen(`pty://${id}`, (e) => {
@@ -1865,6 +1922,7 @@ function TerminalPane({
               // including the marker), render from the clear onward.
               clearTimeout(c.timer);
               concealRef.current = null;
+              lateMarker = null; // the marker came through the gate: nothing to watch for
               const rest = c.buf.slice(idx + BOOT_MARKER.length);
               // A restored pane needs nothing more here: its replay ended
               // with all of the history sealed into scrollback
@@ -1880,6 +1938,7 @@ function TerminalPane({
             }
             return;
           }
+          if (lateMarker) { deliverWatchingForMarker(payload); return; }
           handleChunk(payload);
         });
         // If the entry was destroyed while listen() was in flight, the destroy
@@ -2128,6 +2187,7 @@ function TerminalPane({
           // display command below emits BOOT_MARKER right before its clear,
           // which releases the gate; the 4s timer is the can't-go-blank fallback.
           concealRef.current = { buf: "", timer: setTimeout(flushConceal, 4000) };
+          if (restored) lateMarker = { tail: "", budget: 262144 };
           // Let the shell render its first prompt AND the pane finish its
           // first fit before the banner measures term.cols. 450ms — RESTORED
           // (2026-08-14): P4-T4 cut this to 150ms for boot feel, and that was

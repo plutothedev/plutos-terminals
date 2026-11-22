@@ -5,9 +5,9 @@
 // REAL xterm: the loss it prevents lives in xterm itself (ED2 blanks the
 // visible rows without moving them into scrollback), so a stubbed terminal
 // would prove nothing.
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { Terminal } from "@xterm/xterm";
-import { SESSION_SENTINEL, sealScreen, lastUsedRow, replaySaved } from "./restoreSeal.js";
+import { SESSION_SENTINEL, sealScreen, lastUsedRow, replaySaved, pushBackHistory } from "./restoreSeal.js";
 
 const ESC = String.fromCharCode(27);
 const CSI = ESC + "[";
@@ -18,7 +18,7 @@ const make = (rows = 24, cols = 80) => new Terminal({
   rows, cols, scrollback: 1000, allowProposedApi: true, cursorBlink: true, cursorStyle: "bar",
 });
 const write = (t, s) => new Promise((r) => t.write(s, r));
-const seal = (t, after) => new Promise((r) => sealScreen(t, r, after));
+const seal = (t) => new Promise((r) => sealScreen(t, r));
 const all = (t) => {
   const b = t.buffer.active;
   const out = [];
@@ -83,14 +83,6 @@ describe("sealScreen", () => {
     await write(t, painted(rows));
     await seal(t);
     expect(history(t)).toEqual(rows);
-  });
-
-  test("text given to the seal lands on the emptied screen, after the push", async () => {
-    const t = make();
-    await write(t, painted(["one", "two"]));
-    await seal(t, "AFTER");
-    expect(history(t)).toEqual(["one", "two"]);
-    expect(viewport(t)[0]).toBe("AFTER");
   });
 
   test("a history that ended in the alternate screen comes back to the normal one", async () => {
@@ -169,6 +161,55 @@ describe("sealScreen", () => {
     expect(t.options.cursorBlink).toBe(true);
     expect(t.options.convertEol).toBe(false);
     expect(linkId()).toBe(0);
+  });
+
+  test("a red cursor state the dead program had saved does not colour the new shell", async () => {
+    const t = make();
+    // DECSC with red set: leaving the alternate screen restores the saved
+    // cursor, attributes included, so the reset must clear them after that.
+    await write(t, `${CSI}31m${ESC}7`);
+    await seal(t);
+    await write(t, "x");
+    const cell = t.buffer.active.getLine(t.buffer.active.baseY).getCell(0);
+    expect(cell.getChars()).toBe("x");
+    expect(cell.isFgDefault()).toBe(true);
+  });
+
+  test("cursor visibility, mouse encoding, focus reports and keypad mode are back to defaults", async () => {
+    const t = make();
+    await write(t, `${CSI}?25l${CSI}?1000h${CSI}?1006h${CSI}?1004h${ESC}=`);
+    // No public API reads these two.
+    const hidden = () => t._core.coreService.isCursorHidden;
+    const encoding = () => t._core.coreMouseService.activeEncoding;
+    expect(hidden()).toBe(true);
+    expect(encoding()).toBe("SGR");
+    expect(t.modes.sendFocusMode).toBe(true);
+    expect(t.modes.applicationKeypadMode).toBe(true);
+    await seal(t);
+    expect(hidden()).toBe(false);
+    expect(encoding()).toBe("DEFAULT");
+    expect(t.modes.sendFocusMode).toBe(false);
+    expect(t.modes.applicationKeypadMode).toBe(false);
+  });
+
+  test("line-drawing character sets left selected do not turn the new shell's text into box lines", async () => {
+    const SO = String.fromCharCode(14);
+    // G0 and G1 both set to line drawing, G1 shifted in.
+    const t = make();
+    await write(t, `${ESC}(0${ESC})0${SO}q`);
+    expect(viewport(t)[0]).not.toBe("q"); // really was line drawing
+    await seal(t);
+    await write(t, "q");
+    expect(viewport(t)[0]).toBe("q"); // G0 is ASCII again
+    await write(t, `${SO}q`);
+    expect(viewport(t)[0]).toBe("qq"); // and so is G1
+    // G0 is the selected set again: a shell that later loads line drawing
+    // into G1 (a common terminal init) must not have its text use it.
+    const u = make();
+    await write(u, SO);
+    await seal(u);
+    await write(u, `${ESC})0q`);
+    expect(viewport(u)[0]).toBe("q");
   });
 
   test("scrollback that was already there is not erased", async () => {
@@ -290,5 +331,121 @@ describe("replaySaved", () => {
     await p;
     expect(count(t, "S2")).toBe(0);
     expect(count(t, END)).toBe(0);
+  });
+
+  test("an end line wider than the pane leaves the screen completely", async () => {
+    const t = make(24, 20);
+    const long = "x".repeat(45); // three rows at 20 columns
+    await replaySaved(t, painted(["one"]), () => true, long);
+    expect(blankScreen(t)).toBe(true);
+    expect(history(t).join("")).toBe("one" + long);
+  });
+
+  test("the end line starts its own line even when the row it lands on was a wrapped continuation", async () => {
+    const t = make(24, 20);
+    // 20 characters fill row 0; the three spaces wrap onto row 1, which is
+    // blank to the eye but flagged as a continuation of row 0.
+    await replaySaved(t, "a".repeat(20) + "   ", () => true, END);
+    const b = t.buffer.active;
+    let at = -1;
+    for (let i = 0; i < b.length; i++) if (b.getLine(i).translateToString(true) === END) at = i;
+    expect(at).toBeGreaterThan(-1);
+    expect(b.getLine(at).isWrapped).toBe(false);
+  });
+
+  test("sixty sessions replay in one parsing pass, not a timer round trip per session", async () => {
+    const t = make();
+    let saved = "";
+    for (let i = 0; i < 60; i++) saved += SESSION_SENTINEL + session(`S${i}`);
+    const spy = vi.spyOn(globalThis, "setTimeout"); // counts, and still calls through
+    let timers = 0;
+    try {
+      await replaySaved(t, saved, () => true, END);
+      timers = spy.mock.calls.length;
+    } finally {
+      spy.mockRestore();
+    }
+    expect(timers).toBeGreaterThan(0); // the count is real: xterm did schedule its parsing pass
+    // A hidden window runs timers about once a second: a round trip per
+    // session would hold a pane's shell back for minutes.
+    expect(timers).toBeLessThan(10);
+    expect(count(t, "S59")).toBe(2);
+    expect(count(t, "S0")).toBeGreaterThan(0);
+  });
+
+  test("a terminal that throws part-way still settles the replay", async () => {
+    let writes = 0;
+    const broken = {
+      rows: 2,
+      buffer: { normal: { baseY: 0, getLine: () => ({ translateToString: () => "" }) } },
+      write(_data, cb) {
+        writes += 1;
+        if (writes === 3) throw new Error("disposed");
+        if (cb) cb();
+      },
+    };
+    await expect(replaySaved(broken, "a" + SESSION_SENTINEL + "b", () => true, END)).resolves.toBe(true);
+  });
+});
+
+describe("pushBackHistory", () => {
+  const END = "--- restored ---";
+  const NOISE = Array.from({ length: 24 }, (_, i) => `noise ${i}`).join("\r\n");
+  let HIST = "";
+  for (let i = 0; i < 30; i++) HIST += `hist ${i}\r\n`;
+  const kept = (t) => all(t).filter((l) => l.startsWith("hist ") || l === END).length;
+
+  // A slow shell's banner fills the screen (cursor on the last row), then the
+  // pane is revealed taller: xterm pulls the newest history rows back down.
+  async function slowShellThenReveal() {
+    const t = make();
+    await replaySaved(t, HIST, () => true, END);
+    const marker = t.registerMarker(-1); // the end line: last line of the history
+    expect(pushBackHistory(t, marker)).toBe(""); // nothing of it on screen yet
+    await write(t, NOISE);
+    t.resize(80, 45);
+    await write(t, "");
+    return { t, marker };
+  }
+
+  test("the scenario is real: without the push, the late clear erases history", async () => {
+    const { t } = await slowShellThenReveal();
+    expect(viewport(t).some((l) => l === END)).toBe(true); // history is back on screen
+    await write(t, CLEAR_HOME + "PS> ");
+    expect(kept(t)).toBeLessThan(31);
+  });
+
+  test("history pulled back on screen is moved into scrollback again before the clear", async () => {
+    const { t, marker } = await slowShellThenReveal();
+    const push = pushBackHistory(t, marker);
+    expect(push).not.toBe("");
+    await write(t, push + CLEAR_HOME + "PS> ");
+    expect(kept(t)).toBe(31);
+    for (let i = 0; i < 30; i++) expect(all(t).filter((l) => l === `hist ${i}`)).toHaveLength(1);
+    expect(viewport(t)[0]).toBe("PS> ");
+    // Only history went up: the banner was on screen and the clear took it.
+    expect(count(t, "noise 23")).toBe(0);
+  });
+
+  test("the cursor stays on the line of text it was on", async () => {
+    const { t, marker } = await slowShellThenReveal();
+    const under = () => {
+      const buf = t.buffer.active;
+      return [buf.cursorX, buf.getLine(buf.baseY + buf.cursorY).translateToString(true)];
+    };
+    const before = under();
+    expect(before[1]).toBe("noise 23");
+    await write(t, pushBackHistory(t, marker));
+    // xterm restores a saved cursor onto the same buffer line, so it moved up
+    // with the text instead of staying on the (now blank) last row.
+    expect(under()).toEqual(before);
+  });
+
+  test("no marker, or one whose line is gone, asks for nothing", async () => {
+    const t = make();
+    expect(pushBackHistory(t, null)).toBe("");
+    const marker = t.registerMarker(0);
+    marker.dispose();
+    expect(pushBackHistory(t, marker)).toBe("");
   });
 });

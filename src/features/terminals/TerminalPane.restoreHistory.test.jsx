@@ -155,7 +155,11 @@ async function restoreAndClear({ saved, visible, beforeClear }) {
     await act(async () => { entry.startSpawn(); }); // what trickleTick does
   }
   const term = entry.term;
-  await wait(20);
+  // The shell is spawned only once the replay has been parsed, so the spawn
+  // call is the signal that the replay is done (a fixed wait would race it).
+  const spawnedYet = () => h.calls.some(([c]) => c === "pty_spawn");
+  for (let i = 0; i < 80 && !spawnedYet(); i++) await wait(25);
+  expect(spawnedYet()).toBe(true);
   await parsed(term);
   if (beforeClear) await beforeClear(term);
   // The display line is the last setup write; it goes out after a 450 ms wait.
@@ -421,17 +425,25 @@ describe("the new shell's start cannot erase restored history", () => {
     expect(shown[1]).toBe("NEXT-LINE");
   });
 
-  test("a slow shell: the marker arrives after the gate's 4 s fallback and the history still survives", async () => {
-    const { term } = await mountRestored({ saved: conptyScreen([`${PROMPT}echo SLOW`, "SLOW-OUT", PROMPT]) });
+  test("a slow shell whose banner fills the screen, then a taller reveal, then the late marker (split in two): history survives the clear", async () => {
+    let hist = "";
+    for (let i = 0; i < 30; i++) hist += `hist ${i}\r\n`;
+    const { term } = await mountRestored({ saved: hist });
     await displayLineTyped();
-    fire("slow banner\r\n");
+    // 24 rows of banner and echoed setup, held by the gate.
+    fire(Array.from({ length: 24 }, (_, i) => `slow banner ${i}`).join("\r\n"));
     await wait(4300); // past the 4 s fallback: the gate gives up and shows what it held
     await parsed(term);
-    expect(count(term, "slow banner")).toBe(1);
-    fire(`${BOOT_MARKER}${E}[2J${E}[H${PROMPT}`);
+    expect(count(term, "slow banner 23")).toBe(1);
+    // The banner filled the screen, so the cursor is on the last row: a taller
+    // terminal now pulls the newest history rows back on screen.
+    term.resize(80, 45);
     await parsed(term);
+    expect(screen(term).some((l) => l.includes(RESTORED_LINE))).toBe(true);
+    fire(BOOT_MARKER.slice(0, 11));
+    fire(BOOT_MARKER.slice(11) + `${E}[2J${E}[H${PROMPT}`);
     await parsed(term);
-    expect(exact(term, "SLOW-OUT")).toBe(1);
+    for (let i = 0; i < 30; i++) expect(exact(term, `hist ${i}`)).toBe(1);
     expect(count(term, RESTORED_LINE)).toBe(1);
     expect(screen(term)[0].trimEnd()).toBe(PROMPT.trimEnd());
   }, 15000);
@@ -480,5 +492,68 @@ describe("the new shell's start cannot erase restored history", () => {
     expect(exact(term, "remote line 1")).toBe(1);
     expect(count(term, "after a mark")).toBe(1);
     expect(count(term, RESTORED_LINE)).toBe(1);
+  });
+});
+
+describe("the shell starts only when the replay is done, and only for a pane that still exists", () => {
+  const spawned = () => h.calls.some(([c]) => c === "pty_spawn");
+  // Mounts a hidden restored pane and holds every write to its terminal, so
+  // the replay cannot finish until `release` is called.
+  async function mountHeld(saved) {
+    h.saved = saved;
+    const view = render(<TerminalPane {...props({ visible: false, active: false })} />);
+    await wait(0);
+    const entry = getEntry(PANE);
+    const term = entry.term;
+    const real = term.write.bind(term);
+    const held = [];
+    term.write = (data, cb) => { held.push([data, cb]); };
+    const release = () => {
+      term.write = real;
+      for (const [data, cb] of held.splice(0)) {
+        try { real(data, cb); } catch { if (cb) cb(); }
+      }
+    };
+    await act(async () => { entry.startSpawn(); });
+    return { view, entry, term, release };
+  }
+
+  test("no shell is spawned while the replay is still being parsed", async () => {
+    const { term, release } = await mountHeld(pastSession("S1-OUT") + SESSION_MARK + pastSession("S2-OUT"));
+    await wait(200);
+    expect(spawned()).toBe(false);
+    release();
+    for (let i = 0; i < 80 && !spawned(); i++) await wait(25);
+    expect(spawned()).toBe(true);
+    await parsed(term);
+    // The spawn came after the whole replay: the end line is already there.
+    expect(count(term, RESTORED_LINE)).toBe(1);
+    expect(exact(term, "S1-OUT")).toBe(1);
+  });
+
+  test("a pane destroyed during the replay never spawns a shell", async () => {
+    const { view, release } = await mountHeld(pastSession("S1-OUT") + SESSION_MARK + pastSession("S2-OUT"));
+    view.unmount();
+    destroyAll();
+    release();
+    await wait(300);
+    expect(spawned()).toBe(false);
+  });
+});
+
+describe("what the loader is asked for", () => {
+  const loadArgs = () => h.calls.find(([c]) => c === "scrollback_load")[1];
+
+  test("a local pane says so, so the loader may drop boot noise at session marks", async () => {
+    await mountRestored({ saved: conptyScreen(["x"]) });
+    expect(loadArgs()).toEqual({ tabId: PANE, local: true });
+  });
+
+  test("an SSH pane says it is not local: its saved file is returned as it is", async () => {
+    await mountRestored({
+      saved: conptyScreen(["x"]),
+      over: { connection: { host: "example.invalid", user: "u", port: 22, auth: { method: "agent" } } },
+    });
+    expect(loadArgs()).toEqual({ tabId: PANE, local: false });
   });
 });

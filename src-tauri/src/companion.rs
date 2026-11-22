@@ -859,7 +859,9 @@ fn dispatch(
         // runs on the blocking pool (P1-T6; also caps the payload at the
         // 256KB replay tail instead of the old up-to-10MB whole file).
         "scrollback_load" => Ok(
-            match crate::commands::scrollback_load_sync(app, &s("tabId")?) {
+            // `false`: the phone gets the file as saved (no session-mark
+            // handling; its page replays the stream as one piece).
+            match crate::commands::scrollback_load_sync(app, &s("tabId")?, false) {
                 Some(v) => serde_json::Value::String(v),
                 None => serde_json::Value::Null,
             },

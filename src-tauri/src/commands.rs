@@ -1324,8 +1324,14 @@ fn drop_boot_noise(buf: Vec<u8>) -> Vec<u8> {
 }
 
 /// Testable core: up to `cap` tail bytes across the two rotation segments,
-/// old-part first then current — chronological replay order.
-fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize) -> Option<String> {
+/// old-part first then current — chronological replay order. The flag says
+/// whether saved data older than these bytes exists (a larger `cap` would
+/// return more).
+fn scrollback_tail_bytes(
+    current: &std::path::Path,
+    old: &std::path::Path,
+    cap: usize,
+) -> Option<(Vec<u8>, bool)> {
     use std::io::{Read, Seek, SeekFrom};
     // Hold the current handle across the whole stitch: a concurrent rotation
     // renames the file out from under the PATH, but a held handle keeps
@@ -1338,6 +1344,8 @@ fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize)
         .map(|m| m.len() as usize)
         .unwrap_or(0);
     let mut parts: Vec<Vec<u8>> = Vec::new();
+    // The current segment alone fills the budget: the old one was not opened.
+    let mut more = cur_len >= cap && old.exists();
     if cur_len < cap {
         // Fill the remaining budget from the old segment's tail — UNLESS a
         // rotation landed between our two opens. Post-rotation the old PATH
@@ -1353,6 +1361,7 @@ fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize)
                 if let Ok(m) = of.metadata() {
                     let olen = m.len() as usize;
                     let off = olen.saturating_sub(budget);
+                    more |= off > 0;
                     if of.seek(SeekFrom::Start(off as u64)).is_ok() {
                         let mut buf = Vec::new();
                         // take() bounds the read even if the file grows under
@@ -1369,6 +1378,7 @@ fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize)
     let cur_missing = cur.is_none();
     if let Some(f) = cur.as_mut() {
         let off = cur_len.saturating_sub(cap);
+        more |= off > 0;
         if f.seek(SeekFrom::Start(off as u64)).is_ok() {
             let mut buf = Vec::new();
             // Bounded for the same reason (the current segment is the one
@@ -1385,24 +1395,91 @@ fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize)
     if cur_missing && parts.iter().all(|p| p.is_empty()) {
         return None; // fresh tab: neither segment exists
     }
-    // Session marks + boot noise (v0.7.7): see `drop_boot_noise`.
-    let joined = drop_boot_noise(parts.concat());
-    // Lossy-decode (v0.1.30 rationale): legacy files may carry invalid UTF-8;
-    // U+FFFD matches what xterm renders live.
-    Some(String::from_utf8_lossy(&joined).into_owned())
+    Some((parts.concat(), more))
+}
+
+/// Lossy-decode (v0.1.30 rationale): legacy files may carry invalid UTF-8;
+/// U+FFFD matches what xterm renders live.
+fn lossy(bytes: Vec<u8>) -> String {
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// The replay tail exactly as saved: what SSH and serial panes and the phone
+/// companion get. No session marks are looked for and nothing is dropped,
+/// whatever the far end printed.
+fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize) -> Option<String> {
+    scrollback_tail_bytes(current, old, cap).map(|(bytes, _)| lossy(bytes))
+}
+
+/// How much further back than the replay cap the loader may read for a local
+/// pane, as a multiple of the cap (16 x 256 KB = 4 MB). Real files measured at
+/// 80 to 90% boot noise: every restart of an idle pane adds about 4 KB of
+/// banner and echoed setup that the replay never shows.
+const SCROLLBACK_RAW_WINDOW_FACTOR: usize = 16;
+
+/// The replay tail for a LOCAL pane: boot noise dropped at session marks
+/// (`drop_boot_noise`), and the replay budget counted AFTER the drop.
+///
+/// Cutting `cap` raw bytes first and dropping noise from that would spend most
+/// of the budget on noise: about fifty restarts of an idle pane pushed its
+/// last real work out of the window although the file still held it. So the
+/// raw window grows (x4 per step, up to `SCROLLBACK_RAW_WINDOW_FACTOR` x cap)
+/// until the bytes kept after the first mark fill the budget or the saved data
+/// ends, and the result is then cut back to the last `cap` kept bytes.
+///
+/// The bytes before the first mark in a window that was cut mid-file are a
+/// session without its mark (its noise cannot be told from its output), so
+/// they do not count toward the budget; once the budget is filled without
+/// them the final cut removes them. A window with no mark at all is an older
+/// file: returned as `scrollback_tail` would, in one read.
+fn scrollback_tail_sessions(
+    current: &std::path::Path,
+    old: &std::path::Path,
+    cap: usize,
+) -> Option<String> {
+    let max_window = cap.saturating_mul(SCROLLBACK_RAW_WINDOW_FACTOR);
+    let mut window = cap;
+    loop {
+        let (raw, more) = scrollback_tail_bytes(current, old, window)?;
+        let Some(first_mark) = find_bytes(&raw, SCROLLBACK_SESSION_SENTINEL) else {
+            return Some(lossy(trim_to_cap(raw, cap)));
+        };
+        let uncounted = if more { first_mark } else { 0 };
+        let kept = drop_boot_noise(raw);
+        if !more || window >= max_window || kept.len() - uncounted >= cap {
+            return Some(lossy(trim_to_cap(kept, cap)));
+        }
+        window = window.saturating_mul(4).min(max_window);
+    }
+}
+
+/// The last `cap` bytes, starting at a line boundary when anything was cut.
+fn trim_to_cap(bytes: Vec<u8>, cap: usize) -> Vec<u8> {
+    if bytes.len() <= cap {
+        return bytes;
+    }
+    let cut = bytes.len() - cap;
+    align_forward(bytes[cut..].to_vec(), true)
 }
 
 /// Sync core for direct in-process callers (the phone companion dispatches on
-/// its own blocking pool and calls this without the IPC wrapper).
-pub fn scrollback_load_sync(app: &AppHandle, tab_id: &str) -> Option<String> {
+/// its own blocking pool and calls this without the IPC wrapper). `local` is
+/// true for a local shell's pane only: see `scrollback_tail_sessions`.
+pub fn scrollback_load_sync(app: &AppHandle, tab_id: &str, local: bool) -> Option<String> {
     let path = scrollback_path(app, tab_id);
     let old = path.with_extension("old.txt");
-    scrollback_tail(&path, &old, SCROLLBACK_REPLAY_CAP)
+    if local {
+        scrollback_tail_sessions(&path, &old, SCROLLBACK_REPLAY_CAP)
+    } else {
+        scrollback_tail(&path, &old, SCROLLBACK_REPLAY_CAP)
+    }
 }
 
 #[tauri::command]
-pub async fn scrollback_load(app: AppHandle, tab_id: String) -> Option<String> {
-    tauri::async_runtime::spawn_blocking(move || scrollback_load_sync(&app, &tab_id))
+pub async fn scrollback_load(app: AppHandle, tab_id: String, local: Option<bool>) -> Option<String> {
+    // Absent means not local: a caller that does not say gets the file as saved.
+    let local = local.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || scrollback_load_sync(&app, &tab_id, local))
         .await
         .ok()
         .flatten()
@@ -3585,7 +3662,7 @@ mod scrollback_tail_tests {
         let (cur, old) = tmp_pair("marks-stitch");
         fs::write(&old, cat(&[b"older line\n", &mark(), b"noise 1", &boot(), b"out 1\n"])).unwrap();
         fs::write(&cur, cat(&[b"more 1\n", &mark(), b"noise 2", &boot(), b"out 2\n"])).unwrap();
-        let out = scrollback_tail(&cur, &old, 256 * 1024).unwrap();
+        let out = scrollback_tail_sessions(&cur, &old, 256 * 1024).unwrap();
         let m = String::from_utf8(mark()).unwrap();
         assert_eq!(out, format!("older line\n{m}out 1\nmore 1\n{m}out 2\n"));
     }
@@ -3598,17 +3675,16 @@ mod scrollback_tail_tests {
         let b = boot();
         fs::write(&old, cat(&[b"older\n", &mark(), b"noise", &b[..7]])).unwrap();
         fs::write(&cur, cat(&[&b[7..], b"out\n"])).unwrap();
-        let out = scrollback_tail(&cur, &old, 256 * 1024).unwrap();
+        let out = scrollback_tail_sessions(&cur, &old, 256 * 1024).unwrap();
         let m = String::from_utf8(mark()).unwrap();
         assert_eq!(out, format!("older\n{m}out\n"));
     }
 
     #[test]
-    fn a_tail_cut_inside_a_session_leaves_that_part_untouched() {
-        // The replay cap cuts inside the first session's noise, so the slice
-        // starts with no session mark: that part is returned as it is (its
-        // boot marker is not a cut), and only the session after the next mark
-        // loses its noise.
+    fn a_tail_cut_inside_a_sessions_noise_reads_further_back_and_drops_it() {
+        // The replay cap cuts inside the first session's noise. The loader
+        // reads further back, finds that session's mark, and drops its noise
+        // instead of replaying half a wall of echoed setup.
         let (cur, old) = tmp_pair("marks-cut");
         let data = cat(&[
             &mark(),
@@ -3622,10 +3698,84 @@ mod scrollback_tail_tests {
         ]);
         fs::write(&cur, &data).unwrap();
         let cap = data.len() - mark().len() - 5; // starts 5 bytes into "noise line one"
-        let out = scrollback_tail(&cur, &old, cap).unwrap();
+        let out = scrollback_tail_sessions(&cur, &old, cap).unwrap();
         let m = String::from_utf8(mark()).unwrap();
-        let b = String::from_utf8(boot()).unwrap();
-        assert_eq!(out, format!("noise line two\n{b}out A\n{m}out B\n"));
+        assert_eq!(out, format!("{m}out A\n{m}out B\n"));
+    }
+
+    #[test]
+    fn boot_noise_does_not_eat_the_replay_budget() {
+        // One session of real work, then forty restarts of the idle pane, each
+        // adding about 4 KB of noise and one prompt line. A 16 KB raw tail
+        // holds only the last few idle sessions; the work must still come back.
+        let (cur, old) = tmp_pair("marks-budget");
+        let noise = vec![b'N'; 4000];
+        let mut data = cat(&[&mark(), &noise, &boot()]);
+        for i in 0..1000 {
+            data.extend_from_slice(format!("work line {i}\n").as_bytes());
+        }
+        for k in 0..40 {
+            data.extend_from_slice(&cat(&[&mark(), &noise, &boot()]));
+            data.extend_from_slice(format!("prompt {k}\n").as_bytes());
+        }
+        fs::write(&cur, &data).unwrap();
+        let cap = 16 * 1024;
+        let out = scrollback_tail_sessions(&cur, &old, cap).unwrap();
+        assert!(out.len() <= cap, "budget respected: {}", out.len());
+        assert!(!out.contains('N'), "no noise in the replay");
+        assert!(out.contains("work line 999\n"), "the work session is still there");
+        for k in 0..40 {
+            assert!(out.contains(&format!("prompt {k}\n")), "idle session {k} kept");
+        }
+        // The raw tail, for contrast: the same budget, almost all noise.
+        let raw = scrollback_tail(&cur, &old, cap).unwrap();
+        assert!(!raw.contains("work line"), "a raw 16 KB tail never reaches the work");
+    }
+
+    #[test]
+    fn the_extra_reading_is_bounded() {
+        // Far more noise than the largest window: the loader stops at
+        // SCROLLBACK_RAW_WINDOW_FACTOR x cap and returns what that window kept.
+        let (cur, old) = tmp_pair("marks-bound");
+        let cap = 4096;
+        let noise = vec![b'N'; 2000];
+        let mut data = b"VERY OLD WORK\n".to_vec();
+        for k in 0..40 {
+            data.extend_from_slice(&cat(&[&mark(), &noise, &boot()]));
+            data.extend_from_slice(format!("p{k}\n").as_bytes());
+        }
+        fs::write(&cur, &data).unwrap();
+        assert!(data.len() > cap * SCROLLBACK_RAW_WINDOW_FACTOR);
+        let out = scrollback_tail_sessions(&cur, &old, cap).unwrap();
+        assert!(out.len() <= cap);
+        assert!(out.ends_with("p39\n"));
+        assert!(!out.contains("VERY OLD WORK"), "beyond the largest window");
+    }
+
+    #[test]
+    fn a_file_with_no_marks_loads_the_same_through_either_path() {
+        let (cur, old) = tmp_pair("marks-none");
+        let line = "0123456789012345678901234567890123456789\n";
+        fs::write(&old, line.repeat(50)).unwrap();
+        fs::write(&cur, cat(&[line.repeat(50).as_bytes(), b"noise", &boot(), b"tail\n"])).unwrap();
+        for cap in [300usize, 1500, 256 * 1024] {
+            assert_eq!(
+                scrollback_tail_sessions(&cur, &old, cap),
+                scrollback_tail(&cur, &old, cap),
+                "cap {cap}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_raw_tail_never_drops_or_splits_whatever_the_bytes_are() {
+        // SSH, serial and the phone: a far end that prints the session mark
+        // and the boot marker changes nothing.
+        let (cur, old) = tmp_pair("marks-raw");
+        let data = cat(&[b"remote\n", &mark(), b"between", &boot(), b"after\n"]);
+        fs::write(&cur, &data).unwrap();
+        let out = scrollback_tail(&cur, &old, 256 * 1024).unwrap();
+        assert_eq!(out.as_bytes(), &data[..]);
     }
 
     #[test]
@@ -3634,7 +3784,7 @@ mod scrollback_tail_tests {
         // before the next session's mark.
         let (cur, old) = tmp_pair("marks-utf8");
         fs::write(&cur, cat(&[b"caf", &[0xc3], &mark(), b"noise", &boot(), b"next"])).unwrap();
-        let out = scrollback_tail(&cur, &old, 256 * 1024).unwrap();
+        let out = scrollback_tail_sessions(&cur, &old, 256 * 1024).unwrap();
         let m = String::from_utf8(mark()).unwrap();
         assert_eq!(out, format!("caf\u{fffd}{m}next"));
     }
