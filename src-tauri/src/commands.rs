@@ -1265,6 +1265,64 @@ fn rotation_raced(held: &fs::File, path: &std::path::Path) -> bool {
     }
 }
 
+/// Written into a tab's saved scrollback by the PTY reader at the start of
+/// every LOCAL shell session (pty.rs, `ScrollbackWriter::mark_session_start`).
+/// An OSC that xterm ignores, in the same private family as the boot marker.
+/// The saved file holds every past session's raw output back to back, and each
+/// session opens with its own screen clear; the renderer splits the replay at
+/// this mark and moves the screen into scrollback before the next session's
+/// bytes, so one session's clear cannot erase the last screen of the session
+/// before it (restoreSeal.js). SSH and serial sessions never write it.
+pub(crate) const SCROLLBACK_SESSION_SENTINEL: &[u8] = b"\x1b]1337;PlutoSession=1\x07";
+
+/// What a local shell's display line prints right before its clear
+/// (TerminalPane.jsx `BOOT_MARKER`). Live, the renderer hides everything a new
+/// shell prints before this mark: the banner and the echoed setup lines.
+const SCROLLBACK_BOOT_MARKER: &[u8] = b"\x1b]1337;PlutoBoot=1\x07";
+
+/// How far into a session the boot marker is looked for. The renderer's gate
+/// gives up hiding after 128 KB of output without a marker (a flood), and from
+/// then on that output was really shown, so it must not be dropped here.
+const SCROLLBACK_BOOT_NOISE_MAX: usize = 128 * 1024;
+
+fn find_bytes(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Drops, from every session that follows a session mark, the bytes the live
+/// boot gate hid: everything from the mark through the boot marker. The mark
+/// itself stays (the renderer seals the screen there). Bytes before the first
+/// mark are returned untouched: an older file, or a tail that was cut inside a
+/// session. A buffer with no mark comes back byte-identical.
+fn drop_boot_noise(buf: Vec<u8>) -> Vec<u8> {
+    let mark = SCROLLBACK_SESSION_SENTINEL;
+    let Some(first) = find_bytes(&buf, mark) else {
+        return buf;
+    };
+    let mut out = Vec::with_capacity(buf.len());
+    out.extend_from_slice(&buf[..first]);
+    let mut rest = &buf[first..];
+    while !rest.is_empty() {
+        // `rest` always starts at a mark here.
+        let body = &rest[mark.len()..];
+        let end = find_bytes(body, mark).unwrap_or(body.len());
+        let session = &body[..end];
+        let window_len = session
+            .len()
+            .min(SCROLLBACK_BOOT_NOISE_MAX + SCROLLBACK_BOOT_MARKER.len());
+        out.extend_from_slice(mark);
+        match find_bytes(&session[..window_len], SCROLLBACK_BOOT_MARKER) {
+            Some(i) => out.extend_from_slice(&session[i + SCROLLBACK_BOOT_MARKER.len()..]),
+            None => out.extend_from_slice(session),
+        }
+        rest = &body[end..];
+    }
+    out
+}
+
 /// Testable core: up to `cap` tail bytes across the two rotation segments,
 /// old-part first then current — chronological replay order.
 fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize) -> Option<String> {
@@ -1327,7 +1385,8 @@ fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize)
     if cur_missing && parts.iter().all(|p| p.is_empty()) {
         return None; // fresh tab: neither segment exists
     }
-    let joined = parts.concat();
+    // Session marks + boot noise (v0.7.7): see `drop_boot_noise`.
+    let joined = drop_boot_noise(parts.concat());
     // Lossy-decode (v0.1.30 rationale): legacy files may carry invalid UTF-8;
     // U+FFFD matches what xterm renders live.
     Some(String::from_utf8_lossy(&joined).into_owned())
@@ -3433,6 +3492,151 @@ mod scrollback_tail_tests {
         assert!(scrollback_tail(&cur, &old, 100).is_none());
         fs::write(&old, "only old\n").unwrap();
         assert_eq!(scrollback_tail(&cur, &old, 100).unwrap(), "only old\n");
+    }
+
+    // ── session marks and boot noise (v0.7.7) ───────────────────────────────
+
+    fn mark() -> Vec<u8> {
+        SCROLLBACK_SESSION_SENTINEL.to_vec()
+    }
+    fn boot() -> Vec<u8> {
+        SCROLLBACK_BOOT_MARKER.to_vec()
+    }
+    fn cat(parts: &[&[u8]]) -> Vec<u8> {
+        parts.concat()
+    }
+
+    #[test]
+    fn the_marks_are_the_exact_bytes_the_renderer_looks_for() {
+        // restoreSeal.js SESSION_SENTINEL and TerminalPane.jsx BOOT_MARKER.
+        let mut want = vec![0x1b];
+        want.extend_from_slice(b"]1337;PlutoSession=1");
+        want.push(0x07);
+        assert_eq!(SCROLLBACK_SESSION_SENTINEL, &want[..]);
+        let mut want = vec![0x1b];
+        want.extend_from_slice(b"]1337;PlutoBoot=1");
+        want.push(0x07);
+        assert_eq!(SCROLLBACK_BOOT_MARKER, &want[..]);
+    }
+
+    #[test]
+    fn no_session_mark_is_byte_identical() {
+        // An older file: a boot marker with no session mark before it must not
+        // be taken as a place to cut.
+        let data = cat(&[b"banner noise", &boot(), b"real output", &[0xff, 0xfe]]);
+        assert_eq!(drop_boot_noise(data.clone()), data);
+    }
+
+    #[test]
+    fn noise_through_the_boot_marker_is_dropped_per_session() {
+        let data = cat(&[
+            b"tail of an older session",
+            &mark(),
+            b"banner A + echoed setup A",
+            &boot(),
+            b"output A",
+            &mark(),
+            b"banner B",
+            &boot(),
+            b"output B",
+        ]);
+        let want = cat(&[b"tail of an older session", &mark(), b"output A", &mark(), b"output B"]);
+        assert_eq!(drop_boot_noise(data), want);
+    }
+
+    #[test]
+    fn a_session_with_no_boot_marker_is_kept_whole() {
+        // Agent panes (start commands) have no boot gate and print no marker.
+        let data = cat(&[b"old", &mark(), b"agent output, no marker", &mark(), b"n", &boot(), b"x"]);
+        let want = cat(&[b"old", &mark(), b"agent output, no marker", &mark(), b"x"]);
+        assert_eq!(drop_boot_noise(data), want);
+    }
+
+    #[test]
+    fn a_marker_past_the_flood_bound_is_not_a_cut() {
+        // More than 128 KB before the marker: the live gate gave up and showed
+        // it all, so it stays.
+        let flood = vec![b'f'; SCROLLBACK_BOOT_NOISE_MAX + 1];
+        let data = cat(&[&mark(), &flood, &boot(), b"after"]);
+        assert_eq!(drop_boot_noise(data.clone()), data);
+        // Exactly at the bound it is still a cut.
+        let edge = vec![b'e'; SCROLLBACK_BOOT_NOISE_MAX];
+        let data = cat(&[&mark(), &edge, &boot(), b"after"]);
+        assert_eq!(drop_boot_noise(data), cat(&[&mark(), b"after"]));
+    }
+
+    #[test]
+    fn only_the_first_boot_marker_of_a_session_cuts() {
+        let data = cat(&[&mark(), b"noise", &boot(), b"kept ", &boot(), b"also kept"]);
+        let want = cat(&[&mark(), b"kept ", &boot(), b"also kept"]);
+        assert_eq!(drop_boot_noise(data), want);
+    }
+
+    #[test]
+    fn trailing_and_repeated_marks_survive() {
+        // A session that started and wrote nothing yet, and two empty sessions.
+        let data = cat(&[b"old", &mark(), &mark(), b"n", &boot(), b"x", &mark()]);
+        let want = cat(&[b"old", &mark(), &mark(), b"x", &mark()]);
+        assert_eq!(drop_boot_noise(data), want);
+    }
+
+    #[test]
+    fn tail_drops_noise_across_both_rotation_segments() {
+        let (cur, old) = tmp_pair("marks-stitch");
+        fs::write(&old, cat(&[b"older line\n", &mark(), b"noise 1", &boot(), b"out 1\n"])).unwrap();
+        fs::write(&cur, cat(&[b"more 1\n", &mark(), b"noise 2", &boot(), b"out 2\n"])).unwrap();
+        let out = scrollback_tail(&cur, &old, 256 * 1024).unwrap();
+        let m = String::from_utf8(mark()).unwrap();
+        assert_eq!(out, format!("older line\n{m}out 1\nmore 1\n{m}out 2\n"));
+    }
+
+    #[test]
+    fn a_boot_marker_split_across_the_two_segments_still_cuts() {
+        // Rotation can land anywhere in a session's output; the two segments
+        // are joined before the noise is dropped.
+        let (cur, old) = tmp_pair("marks-split");
+        let b = boot();
+        fs::write(&old, cat(&[b"older\n", &mark(), b"noise", &b[..7]])).unwrap();
+        fs::write(&cur, cat(&[&b[7..], b"out\n"])).unwrap();
+        let out = scrollback_tail(&cur, &old, 256 * 1024).unwrap();
+        let m = String::from_utf8(mark()).unwrap();
+        assert_eq!(out, format!("older\n{m}out\n"));
+    }
+
+    #[test]
+    fn a_tail_cut_inside_a_session_leaves_that_part_untouched() {
+        // The replay cap cuts inside the first session's noise, so the slice
+        // starts with no session mark: that part is returned as it is (its
+        // boot marker is not a cut), and only the session after the next mark
+        // loses its noise.
+        let (cur, old) = tmp_pair("marks-cut");
+        let data = cat(&[
+            &mark(),
+            b"noise line one\nnoise line two\n",
+            &boot(),
+            b"out A\n",
+            &mark(),
+            b"n",
+            &boot(),
+            b"out B\n",
+        ]);
+        fs::write(&cur, &data).unwrap();
+        let cap = data.len() - mark().len() - 5; // starts 5 bytes into "noise line one"
+        let out = scrollback_tail(&cur, &old, cap).unwrap();
+        let m = String::from_utf8(mark()).unwrap();
+        let b = String::from_utf8(boot()).unwrap();
+        assert_eq!(out, format!("noise line two\n{b}out A\n{m}out B\n"));
+    }
+
+    #[test]
+    fn invalid_utf8_before_a_mark_does_not_hide_it() {
+        // A session killed mid-character leaves a partial UTF-8 sequence right
+        // before the next session's mark.
+        let (cur, old) = tmp_pair("marks-utf8");
+        fs::write(&cur, cat(&[b"caf", &[0xc3], &mark(), b"noise", &boot(), b"next"])).unwrap();
+        let out = scrollback_tail(&cur, &old, 256 * 1024).unwrap();
+        let m = String::from_utf8(mark()).unwrap();
+        assert_eq!(out, format!("caf\u{fffd}{m}next"));
     }
 }
 

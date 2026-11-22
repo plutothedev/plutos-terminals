@@ -548,6 +548,15 @@ impl ScrollbackWriter {
             .ok();
     }
 
+    /// Marks the start of a new session in the saved file (v0.7.7). Called by
+    /// the LOCAL spawn only, once, before any output. The file holds every past
+    /// session back to back; this mark is where the restore splits them (see
+    /// `commands::SCROLLBACK_SESSION_SENTINEL`). SSH and serial sessions do not
+    /// mark, so their saved files and their replay are unchanged.
+    fn mark_session_start(&mut self) {
+        self.append(crate::commands::SCROLLBACK_SESSION_SENTINEL);
+    }
+
     /// Append a chunk. Best-effort: on I/O failure we silently swallow rather
     /// than tear down the PTY reader — losing scrollback is worse for the
     /// pane's correctness than losing scrollback durability.
@@ -943,9 +952,11 @@ fn pty_spawn_sync(
     // handler) means every chunk that goes to xterm is also on disk before
     // we move on. tray→Quit and OS shutdown therefore lose at most the bytes
     // still in the OS write buffer (typically <4KB).
-    let mut scrollback_writer = tab_id
-        .as_ref()
-        .map(|tid| ScrollbackWriter::new(scrollback_path(&app, tid)));
+    let mut scrollback_writer = tab_id.as_ref().map(|tid| {
+        let mut w = ScrollbackWriter::new(scrollback_path(&app, tid));
+        w.mark_session_start();
+        w
+    });
 
     // Reader thread: pump bytes -> Tauri event AND scrollback file.
     // Exits on EOF / read error.
@@ -2982,6 +2993,31 @@ mod scrollback_rotation_tests {
             .join(format!("{}-{}", name, new_id("t")));
         let _ = fs::create_dir_all(&dir);
         dir.join("tab_x.txt")
+    }
+
+    #[test]
+    fn a_new_writer_writes_nothing_until_a_session_is_marked() {
+        // SSH and serial sessions build a writer and never mark: their saved
+        // file must stay exactly the bytes the session printed.
+        let path = tmp_scrollback("mark-none");
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 4096);
+        assert_eq!(fs::read(&path).unwrap(), b"");
+        w.append(b"ssh output");
+        assert_eq!(fs::read(&path).unwrap(), b"ssh output");
+    }
+
+    #[test]
+    fn marking_a_session_appends_the_mark_after_what_is_already_saved() {
+        let path = tmp_scrollback("mark-append");
+        fs::write(&path, b"last session").unwrap();
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 4096);
+        w.mark_session_start();
+        w.append(b"this session");
+        let mut want = b"last session".to_vec();
+        want.extend_from_slice(crate::commands::SCROLLBACK_SESSION_SENTINEL);
+        want.extend_from_slice(b"this session");
+        assert_eq!(fs::read(&path).unwrap(), want);
+        assert_eq!(w.bytes_on_disk, want.len() as u64);
     }
 
     #[test]

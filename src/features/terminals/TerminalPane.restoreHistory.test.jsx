@@ -24,7 +24,7 @@ vi.mock("@backend", () => ({
   invoke: async (cmd, args) => {
     h.calls.push([cmd, args]);
     if (cmd === "scrollback_load") return h.saved;
-    if (cmd === "pty_spawn") return "pty-1";
+    if (cmd === "pty_spawn" || cmd === "ssh_spawn") return "pty-1";
     return null;
   },
   listen: async (ev, cb) => {
@@ -239,8 +239,8 @@ describe("restored history survives the restored tab's clear", () => {
       reset();
       const { term } = await restoreAndClear({ saved, visible: false });
       expect(count(term, RESTORED_LINE)).toBe(1);
-      // rows - 1 line feeds from the cursor row scroll out exactly the rows
-      // above it, so the fresh prompt follows the marker line directly.
+      // The replay ends by moving every used row, then the marker line, into
+      // scrollback, so the fresh prompt follows the marker line directly.
       expect(gapBeforePrompt(term)).toBe(0);
     }
   });
@@ -260,5 +260,225 @@ describe("restored history survives the restored tab's clear", () => {
       expect(displayLine).toContain(clearCmd);
       expect(count(term, "R10-SHELL")).toBe(2);
     }
+  });
+});
+
+// ── v0.7.7: every session boundary, and every way the new shell can start ────
+//
+// The saved file is every past session back to back. From v0.7.7 the Rust
+// reader writes a session mark at the start of each local session, and the
+// loader drops the boot noise that followed it. These tests feed the pane what
+// the loader returns and play what the shell (or ConPTY) prints next.
+const E = String.fromCharCode(27);
+const SESSION_MARK = `${E}]1337;PlutoSession=1${String.fromCharCode(7)}`;
+// ConPTY's first frame, read from a real saved file: hide cursor, clear,
+// reset colours, home, one line feed per row, home again.
+const conptyFirstFrame = (rows = 24) => `${E}[?25l${E}[2J${E}[m${E}[H${"\r\n".repeat(rows - 1)}${E}[H`;
+// One past session as the loader returns it: its clear, then its screen.
+const pastSession = (tag) => `${E}[2J${E}[H` +
+  [`${PROMPT}echo ${tag}`, tag, PROMPT].map((l, i) => `${E}[${i + 1};1H${l}`).join("");
+const exact = (t, text) => lines(t).filter((l) => l === text).length;
+const fire = (payload) => act(() => h.listeners.get("pty://pty-1")({ payload }));
+
+// Mounts a restored pane and waits until its pty listener is attached and the
+// replay is parsed. Does not play the shell's answer.
+async function mountRestored({ saved, over = {} }) {
+  h.saved = saved;
+  const view = render(<TerminalPane {...props({ visible: true, active: true, ...over })} />);
+  await wait(0);
+  const entry = getEntry(PANE);
+  for (let i = 0; i < 80 && !h.listeners.has("pty://pty-1"); i++) await wait(25);
+  expect(h.listeners.has("pty://pty-1")).toBe(true);
+  await parsed(entry.term);
+  return { view, term: entry.term, entry };
+}
+const displayLineTyped = async () => {
+  const typed = () => h.calls.filter(([c, a]) => c === "pty_write" && a.data.includes("PlutoBoot"));
+  for (let i = 0; i < 60 && typed().length === 0; i++) await wait(25);
+  expect(typed()).toHaveLength(1);
+};
+
+describe("restored history across several restarts", () => {
+  test("three sessions in one file: every session's last screen is still there", async () => {
+    const saved = pastSession("S1-OUT") + SESSION_MARK + pastSession("S2-OUT") + SESSION_MARK + pastSession("S3-OUT");
+    const { term } = await restoreAndClear({ saved, visible: true });
+    for (const tag of ["S1-OUT", "S2-OUT", "S3-OUT"]) {
+      expect(exact(term, tag)).toBe(1);
+      expect(exact(term, `${PROMPT}echo ${tag}`)).toBe(1);
+    }
+    const order = ["S1-OUT", "S2-OUT", "S3-OUT", RESTORED_LINE].map((s) => lines(term).findIndex((l) => l.includes(s)));
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(count(term, RESTORED_LINE)).toBe(1);
+    const shown = screen(term);
+    expect(shown[0].trimEnd()).toBe(PROMPT.trimEnd());
+    expect(shown.slice(1).every((l) => l.trim() === "")).toBe(true);
+  });
+
+  test("the same holds when the boot noise was not dropped (each session opens with ConPTY's first frame)", async () => {
+    const noisy = (tag) => conptyFirstFrame() + "banner + echoed setup" + BOOT_MARKER + pastSession(tag);
+    const saved = pastSession("S1-OUT") + SESSION_MARK + noisy("S2-OUT") + SESSION_MARK + noisy("S3-OUT");
+    const { term } = await restoreAndClear({ saved, visible: false });
+    for (const tag of ["S1-OUT", "S2-OUT", "S3-OUT"]) expect(exact(term, tag)).toBe(1);
+  });
+
+  test("three sessions, then the pane is revealed taller before the shell answers: nothing comes back on screen, nothing is lost", async () => {
+    const saved = pastSession("S1-OUT") + SESSION_MARK + pastSession("S2-OUT") + SESSION_MARK + pastSession("S3-OUT");
+    const { term } = await restoreAndClear({
+      saved,
+      visible: false,
+      beforeClear: async (t) => {
+        t.resize(100, 48);
+        await parsed(t);
+        // The whole history is already in scrollback and stays there.
+        expect(screen(t).every((l) => l.trim() === "")).toBe(true);
+      },
+    });
+    for (const tag of ["S1-OUT", "S2-OUT", "S3-OUT"]) expect(exact(term, tag)).toBe(1);
+    expect(count(term, RESTORED_LINE)).toBe(1);
+    expect(gapBeforePrompt(term)).toBe(0);
+  });
+
+  test("a file holding only session marks is a fresh pane: no restored line, and the fresh display line", async () => {
+    h.saved = SESSION_MARK + SESSION_MARK;
+    render(<TerminalPane {...props({ visible: true, active: true })} />);
+    await wait(0);
+    const term = getEntry(PANE).term;
+    await displayLineTyped();
+    const typed = h.calls.filter(([c, a]) => c === "pty_write" && a.data.includes("PlutoBoot"))[0][1].data;
+    expect(typed).not.toContain("'[2J'"); // the restored variant
+    expect(typed).not.toContain("033[2J");
+    await parsed(term);
+    expect(count(term, RESTORED_LINE)).toBe(0);
+  });
+
+  test("a file that starts with a session mark restores like one that does not", async () => {
+    const { term } = await restoreAndClear({ saved: SESSION_MARK + pastSession("ONLY-OUT"), visible: true });
+    expect(exact(term, "ONLY-OUT")).toBe(1);
+    expect(count(term, RESTORED_LINE)).toBe(1);
+    expect(gapBeforePrompt(term)).toBe(0);
+  });
+});
+
+describe("the new shell's start cannot erase restored history", () => {
+  test("cursor parked above the last used row: the rows below it survive and no gap is added", async () => {
+    const saved = conptyScreen(["top", "middle", "LOWEST-ROW"]) + `${E}[1;1H`;
+    const { term } = await restoreAndClear({ saved, visible: true });
+    expect(exact(term, "LOWEST-ROW")).toBe(1);
+    expect(exact(term, "top")).toBe(1);
+    expect(count(term, RESTORED_LINE)).toBe(1);
+    expect(gapBeforePrompt(term)).toBe(0);
+    // The restored line sits below the history, not on top of it.
+    const all = lines(term);
+    expect(all.findIndex((l) => l.includes(RESTORED_LINE))).toBeGreaterThan(all.indexOf("LOWEST-ROW"));
+  });
+
+  test("a history that ended inside a pager: the new prompt lands on the normal screen", async () => {
+    const saved = conptyScreen([`${PROMPT}less notes.txt`, "SHELL-LINE"]) + `${E}[?1049h${E}[2J${E}[HPAGER-TEXT`;
+    const { term } = await restoreAndClear({ saved, visible: true });
+    expect(term.buffer.active.type).toBe("normal");
+    expect(exact(term, "SHELL-LINE")).toBe(1);
+    expect(screen(term)[0].trimEnd()).toBe(PROMPT.trimEnd());
+    expect(count(term, "PAGER-TEXT")).toBe(0);
+  });
+
+  test("a cursor shape left by an editor is back to the pane's own before the shell starts", async () => {
+    const saved = conptyScreen([`${PROMPT}vim notes.txt`, "EDITOR-RAN"]) + `${E}[2 q`;
+    const { term } = await restoreAndClear({ saved, visible: true });
+    expect(term.options.cursorStyle).toBe("bar");
+    expect(term.options.cursorBlink).toBe(true);
+    expect(exact(term, "EDITOR-RAN")).toBe(1);
+  });
+
+  test("boot marker split across two pty events", async () => {
+    const { term } = await mountRestored({ saved: conptyScreen([`${PROMPT}echo SPLIT`, "SPLIT-OUT", PROMPT]) });
+    await displayLineTyped();
+    fire("banner noise" + BOOT_MARKER.slice(0, 9));
+    fire(BOOT_MARKER.slice(9) + `${E}[2J${E}[H${PROMPT}`);
+    await parsed(term);
+    await parsed(term);
+    expect(exact(term, "SPLIT-OUT")).toBe(1);
+    expect(count(term, "banner noise")).toBe(0);
+    expect(screen(term)[0].trimEnd()).toBe(PROMPT.trimEnd());
+  });
+
+  test("output that follows the marker in the same tick is rendered in order", async () => {
+    const { term } = await mountRestored({ saved: conptyScreen([`${PROMPT}echo ORDER`, "ORDER-OUT", PROMPT]) });
+    await displayLineTyped();
+    // Same tick: the marker chunk, then two more chunks before xterm has
+    // parsed anything.
+    act(() => {
+      const cb = h.listeners.get("pty://pty-1");
+      cb({ payload: `${BOOT_MARKER}${E}[2J${E}[H${PROMPT}first` });
+      cb({ payload: " second" });
+      cb({ payload: "\r\nNEXT-LINE" });
+    });
+    await parsed(term);
+    await parsed(term);
+    await parsed(term);
+    expect(exact(term, "ORDER-OUT")).toBe(1);
+    const shown = screen(term);
+    expect(shown[0]).toBe(`${PROMPT}first second`);
+    expect(shown[1]).toBe("NEXT-LINE");
+  });
+
+  test("a slow shell: the marker arrives after the gate's 4 s fallback and the history still survives", async () => {
+    const { term } = await mountRestored({ saved: conptyScreen([`${PROMPT}echo SLOW`, "SLOW-OUT", PROMPT]) });
+    await displayLineTyped();
+    fire("slow banner\r\n");
+    await wait(4300); // past the 4 s fallback: the gate gives up and shows what it held
+    await parsed(term);
+    expect(count(term, "slow banner")).toBe(1);
+    fire(`${BOOT_MARKER}${E}[2J${E}[H${PROMPT}`);
+    await parsed(term);
+    await parsed(term);
+    expect(exact(term, "SLOW-OUT")).toBe(1);
+    expect(count(term, RESTORED_LINE)).toBe(1);
+    expect(screen(term)[0].trimEnd()).toBe(PROMPT.trimEnd());
+  }, 15000);
+
+  test("a restored pane with start commands (no boot gate): ConPTY's first frame does not erase the last screen", async () => {
+    const { term } = await mountRestored({
+      saved: conptyScreen([`${PROMPT}run-agent`, "AGENT-LAST-SCREEN", "more agent output"]),
+      over: { startCommands: ["echo started"] },
+    });
+    fire(conptyFirstFrame() + `${PROMPT}`);
+    await parsed(term);
+    await parsed(term);
+    expect(exact(term, "AGENT-LAST-SCREEN")).toBe(1);
+    expect(exact(term, "more agent output")).toBe(1);
+    expect(count(term, RESTORED_LINE)).toBe(1);
+    expect(screen(term)[0].trimEnd()).toBe(PROMPT.trimEnd());
+  });
+
+  test("a fresh pane (nothing saved) is never sealed", async () => {
+    h.saved = null;
+    render(<TerminalPane {...props({ visible: true, active: true })} />);
+    await wait(0);
+    const entry = getEntry(PANE);
+    const writes = [];
+    const realWrite = entry.term.write.bind(entry.term);
+    entry.term.write = (data, cb) => { writes.push(String(data)); return realWrite(data, cb); };
+    await displayLineTyped();
+    fire(`banner${BOOT_MARKER}${E}[2J${E}[HWELCOME\r\n${PROMPT}`);
+    await parsed(entry.term);
+    expect(writes.some((w) => w.includes("WELCOME"))).toBe(true); // the spy sees the pane's writes
+    expect(writes.some((w) => w.includes("?1049l"))).toBe(false);
+    expect(entry.term.buffer.active.baseY).toBe(0);
+    expect(count(entry.term, RESTORED_LINE)).toBe(0);
+  });
+
+  test("a restored SSH pane replays exactly as before: one write, no seal", async () => {
+    const saved = conptyScreen(["remote line 1", "remote line 2"]) + SESSION_MARK + "after a mark";
+    const { term } = await mountRestored({
+      saved,
+      over: { connection: { host: "example.invalid", user: "u", port: 22, auth: { method: "agent" } } },
+    });
+    fire("Last login: today\r\n");
+    await parsed(term);
+    // Not pushed into scrollback, not reset, not split at the mark.
+    expect(term.buffer.active.baseY).toBe(0);
+    expect(exact(term, "remote line 1")).toBe(1);
+    expect(count(term, "after a mark")).toBe(1);
+    expect(count(term, RESTORED_LINE)).toBe(1);
   });
 });
