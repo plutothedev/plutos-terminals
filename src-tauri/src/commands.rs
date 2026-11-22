@@ -1429,14 +1429,14 @@ const SCROLLBACK_RAW_WINDOW_FACTOR: usize = 16;
 /// ends, and the result is then cut back to the last `cap` kept bytes.
 ///
 /// The bytes before the first mark in a window that was cut mid-file are a
-/// session without its mark. When they hold a boot marker, the part before it
-/// may be noise that cannot be told from output, so they do not count toward
-/// the budget; once the budget is filled without them the final cut removes
-/// them. When they hold no boot marker none of them can be noise (noise always
-/// ends in one), so they count, and a pane whose last session was one long
-/// run (an agent pane, megabytes of history from an older version) is served
-/// from the first read instead of three. A window with no mark at all is an
-/// older file: returned as `scrollback_tail` would, in one read.
+/// session without its mark. When they hold a boot marker, the window was cut
+/// inside that session's noise: the part through the marker is dropped and
+/// not counted. When they hold none, none of them can be noise (noise always
+/// ends in a boot marker), so all of them count, and a pane whose last session
+/// was one long run (an agent pane, megabytes of history from an older
+/// version) is served from the first read instead of three. A window with no
+/// mark at all is an older file: returned as `scrollback_tail` would, in one
+/// read.
 fn scrollback_tail_sessions(
     current: &std::path::Path,
     old: &std::path::Path,
@@ -1449,14 +1449,26 @@ fn scrollback_tail_sessions(
         let Some(first_mark) = find_bytes(&raw, SCROLLBACK_SESSION_SENTINEL) else {
             return Some(lossy(trim_to_cap(raw, cap)));
         };
-        let head_may_hold_noise =
-            more && find_bytes(&raw[..first_mark], SCROLLBACK_BOOT_MARKER).is_some();
-        let uncounted = if head_may_hold_noise { first_mark } else { 0 };
-        let kept = drop_boot_noise(raw);
+        // The head: bytes before the first mark, a session cut by the window.
+        // A boot marker in it (within the gate's own bound) means the window
+        // was cut inside that session's noise: everything through the marker
+        // is noise the live gate hid, and is neither counted nor returned.
+        let head_noise_end = if more {
+            let search = first_mark.min(SCROLLBACK_BOOT_NOISE_MAX + SCROLLBACK_BOOT_MARKER.len());
+            find_bytes(&raw[..search], SCROLLBACK_BOOT_MARKER)
+                .map(|i| i + SCROLLBACK_BOOT_MARKER.len())
+        } else {
+            None
+        };
+        let uncounted = head_noise_end.unwrap_or(0);
+        let mut kept = drop_boot_noise(raw);
         // Three quarters of the budget is full enough: the budget is a ceiling,
         // and asking for all of it would send every restore one window further
         // back just to make up for the few KB of noise that was dropped.
         if !more || window >= max_window || kept.len() - uncounted >= cap - cap / 4 {
+            if let Some(end) = head_noise_end {
+                kept.drain(..end);
+            }
             return Some(lossy(trim_to_cap(kept, cap)));
         }
         window = window.saturating_mul(4).min(max_window);
@@ -3829,6 +3841,38 @@ mod scrollback_tail_tests {
         let (bytes, more) = scrollback_tail_bytes(&cur, &old, 11).unwrap();
         assert_eq!(bytes, b"x0123456789");
         assert!(!more, "both segments read whole");
+    }
+
+    #[test]
+    fn a_window_cut_inside_noise_never_returns_that_noise() {
+        // The cut lands in the middle of session A's noise, and what follows
+        // already fills three quarters of the budget, so the loader stops at
+        // the first window. The half wall of setup at the head must not come
+        // back with it.
+        let (cur, old) = tmp_pair("marks-head-noise");
+        let mut noise = Vec::new();
+        for k in 0..40 {
+            noise.extend_from_slice(format!("NOISE {k}\n").as_bytes());
+        }
+        let mut out_b = Vec::new();
+        for i in 0..300 {
+            out_b.extend_from_slice(format!("out B {i}\n").as_bytes());
+        }
+        let tail = cat(&[b"out A 1\nout A 2\n", &mark(), &noise, &boot(), &out_b]);
+        let data = cat(&[b"older output\n", &mark(), &noise, &boot(), &tail]);
+        fs::write(&cur, &data).unwrap();
+        // The window starts half-way through session A's noise.
+        let cap = tail.len() + boot().len() + noise.len() / 2;
+        let (raw, more) = scrollback_tail_bytes(&cur, &old, cap).unwrap();
+        assert!(more);
+        assert!(raw.starts_with(b"NOISE "), "the fixture really cuts inside the noise");
+        let out = scrollback_tail_sessions(&cur, &old, cap).unwrap();
+        assert!(!out.contains("NOISE"), "no noise from either session");
+        let m = String::from_utf8(mark()).unwrap();
+        assert!(out.starts_with(&format!("out A 1\nout A 2\n{m}out B 0\n")));
+        assert!(out.ends_with("out B 299\n"));
+        // One read was enough: nothing older than the window came back.
+        assert!(!out.contains("older output"));
     }
 
     #[test]

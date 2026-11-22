@@ -467,6 +467,13 @@ describe("pushBackHistory", () => {
     expect(under()).toEqual(before);
   });
 
+  test("with the alternate screen showing, nothing is pushed", async () => {
+    const { t, marker } = await slowShellThenReveal();
+    expect(pushBackHistory(t, marker)).not.toBe("");
+    await write(t, CSI + "?1049h");
+    expect(pushBackHistory(t, marker)).toBe("");
+  });
+
   test("no marker, or one whose line is gone, asks for nothing", async () => {
     const t = make();
     expect(pushBackHistory(t, null)).toBe("");

@@ -48,7 +48,7 @@ export const SESSION_SENTINEL = ESC + "]1337;PlutoSession=1" + BEL;
 // half-written OSC as if it were complete, and xterm would act on the
 // truncated text (half a window title, for one).
 // Never ESC c: a full reset erases scrollback, the thing being protected.
-export const SEAL_RESET = CAN + [
+const SEAL_RESET = CAN + [
   CSI + "?1049l",  // back to the normal screen (vim, less, an agent's full-screen UI)
   CSI + "r",       // scroll region: whole screen
   CSI + "?6l",     // origin mode off
@@ -187,6 +187,9 @@ export function replaySaved(term, saved, isLive = () => true, endLine = "") {
 // shell may have a saved cursor of its own.
 export function pushBackHistory(term, endMarker) {
   if (!endMarker || endMarker.isDisposed || endMarker.line < 0) return "";
+  // The push is line feeds on the screen that is showing. In the alternate
+  // screen it would scroll that screen and leave the history where it is.
+  if (term.buffer.active.type !== "normal") return "";
   const buf = term.buffer.normal;
   const onScreen = Math.min(endMarker.line - buf.baseY + 1, term.rows);
   if (onScreen <= 0) return "";
