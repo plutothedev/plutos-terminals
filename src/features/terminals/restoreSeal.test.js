@@ -722,6 +722,59 @@ describe("replaySaved at the recorded size", () => {
     }
   });
 
+  test("a session that never resized keeps its recorded size up to a full repaint of the same height (a clear, a pager exiting)", async () => {
+    // ConPTY repaints the whole view after a clear. That paint has exactly
+    // the session's own row count; taking it for a resize's repaint replayed
+    // everything before it at the terminal's own size. Recorded at 104 x 36,
+    // replayed here in a background tab's 80 x 24: the rows drawn by position
+    // below row 24 would land on row 24 and overwrite each other.
+    const byPosition = Array.from({ length: 34 }, (_, i) => `POS-${i + 1}`);
+    const more = Array.from({ length: 30 }, (_, i) => `MORE-${i + 1}`);
+    const saved = SIZE(104, 36) + CLEAR_HOME + byPosition.map((l, i) => `${CSI}${i + 1};1H${l}`).join("") +
+      "\r\n" + more.join("\r\n") + `${CSI}2J` + paint(["PS> "], 36);
+    for (const [rows, cols] of [[24, 80], [36, 104]]) {
+      const t = term(rows, cols, WINDOWS);
+      const sizes = countingResizes(t);
+      await replaySaved(t, saved, () => true, END, CONPTY);
+      // 64 lines went by on 36 rows: the first 28 scrolled off before the clear.
+      once(t, [...byPosition.slice(0, 28), END]);
+      expect(sizes[0] || [cols, rows]).toEqual([104, 36]); // the recorded size comes first, not after the paint
+    }
+  });
+
+  test("a full paint of the old height between the mark and the repaint is still old-size output", async () => {
+    // ConPTY can paint the whole view at the old size (a clear) just before it
+    // handles the resize. Only the paint with the new row count is the repaint.
+    const view = [...sixty.slice(25), "PS> "];
+    const saved = SIZE(83, 36) + CLEAR_HOME + sixty.join("\r\n") + "\r\nPS> " +
+      SIZE(104, 49) + paint(["OLD-HEIGHT-FRAME", ...view.slice(1)], 36) + paint(view, 49);
+    const t = term(36, 83, WINDOWS);
+    const log = [];
+    const realWrite = t.write.bind(t);
+    const realResize = t.resize.bind(t);
+    t.write = (data, cb) => { log.push(String(data).includes("OLD-HEIGHT-FRAME") ? "old frame" : "write"); return realWrite(data, cb); };
+    t.resize = (c, r) => { log.push(`resize ${c}x${r}`); realResize(c, r); };
+    await replaySaved(t, saved, () => true, END, CONPTY);
+    expect(log.indexOf("old frame")).toBeGreaterThan(-1);
+    expect(log.indexOf("old frame")).toBeLessThan(log.indexOf("resize 104x49"));
+  });
+
+  test("the screen begins two rows into a wrapped line and the window gets wider: the line's tail is not doubled", async () => {
+    // 110 characters at 40 columns are three rows; the screen starts at the
+    // third. At 80 columns the two rows above it become one: counting them as
+    // still two would push the tail row up as well, and the repaint would draw
+    // it a second time.
+    const long = "L".repeat(110);
+    const shorts = Array.from({ length: 9 }, (_, i) => `short ${i + 1}`);
+    const saved = SIZE(40, 10) + CLEAR_HOME + ["s line 1", "s line 2", long, ...shorts].join("\r\n") +
+      SIZE(80, 10) + paint(["L".repeat(30), ...shorts], 10);
+    const t = term(10, 40, WINDOWS);
+    await replaySaved(t, saved, () => true, END, CONPTY);
+    once(t, ["s line 1", "s line 2", ...shorts, END]);
+    expect(all(t).filter((l) => l === "L".repeat(30))).toHaveLength(1);
+    expect(all(t).filter((l) => l === "L".repeat(40))).toHaveLength(2);
+  });
+
   test("a resize while a full-screen program had the alternate screen does not touch the history", async () => {
     const saved = SIZE(83, 36) + CLEAR_HOME + five.join("\r\n") + `${CSI}?1049h` + CLEAR_HOME + "EDITOR" +
       SIZE(104, 49) + paint(["EDITOR"], 49) + `${CSI}?1049l`;

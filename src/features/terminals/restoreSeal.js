@@ -154,6 +154,9 @@ const SIZE_MARK_BODY = new RegExp("^(\\d{1,4});(\\d{1,4})" + BEL);
 const PAINT_START = new RegExp(ESC + "\\[\\?25l(?:" + ESC + "\\[[0-9;]*m)*" + ESC + "\\[H", "g");
 const CURSOR_TO = new RegExp(ESC + "\\[\\d+;\\d+H");
 
+// How far after a resize mark its repaint is looked for.
+const LATE_OUTPUT_MAX = 256 * 1024;
+
 // Where in `text` ConPTY's repaint for a view `rows` tall begins, or -1.
 function paintStart(text, rows) {
   PAINT_START.lastIndex = 0;
@@ -208,13 +211,23 @@ function replaySteps(sessionText, conpty) {
   }
   pushText(rest);
   if (!conpty) return steps;
-  // Move each size to the start of its repaint.
+  // Move each RESIZE to the start of its repaint. A size step is a resize only
+  // when it differs from the size already in force in this session: the first
+  // one is the size the session started at and the periodic re-records repeat
+  // the current one, and neither has a repaint waiting. ConPTY also paints the
+  // whole view after a clear and when a full-screen program exits; taking such
+  // a paint for "the repaint" of a session's starting size would replay
+  // everything before it at the terminal's own size instead of the recorded one.
   const moved = [];
+  let inForce = null;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     const next = steps[i + 1];
-    if (step.size && next && next.text !== undefined) {
-      const at = paintStart(next.text, step.size[1]);
+    const isResize = step.size && inForce !== null && (step.size[0] !== inForce[0] || step.size[1] !== inForce[1]);
+    if (step.size) inForce = step.size;
+    if (isResize && next && next.text !== undefined) {
+      // The late output is at most a few chunks: no need to look further.
+      const at = paintStart(next.text.slice(0, LATE_OUTPUT_MAX), step.size[1]);
       if (at > 0) {
         const late = next.text.slice(0, at);
         const prev = moved[moved.length - 1];

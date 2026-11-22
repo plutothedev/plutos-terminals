@@ -704,6 +704,7 @@ describe("fits and the replay", () => {
     term.write = (data, cb) => { held.push([data, cb]); };
     for (let i = 0; i < 80 && !entry.replaying; i++) await wait(25);
     expect(entry.replaying).toBe(true);
+    await wait(120); // the reveal effect's fit (30 ms after showing) has been and gone, held
     const before = h.fits;
     h.fitTo = [120, 40]; // the window was resized meanwhile
     entry.fit.fit();
@@ -712,9 +713,11 @@ describe("fits and the replay", () => {
     expect([term.cols, term.rows]).not.toEqual([120, 40]);
     term.write = real;
     for (const [data, cb] of held.splice(0)) real(data, cb);
-    for (let i = 0; i < 80 && entry.replaying; i++) await wait(25);
+    for (let i = 0; i < 80 && entry.replaying; i++) await wait(5);
     expect(entry.replaying).toBe(false);
-    expect(h.fits).toBeGreaterThan(before); // the fit that was held back ran
+    // The fit that was held back ran, at once: nothing else fits here any more
+    // (the reveal effect fitted once, long ago, and was held).
+    expect(h.fits).toBeGreaterThan(before);
     expect([term.cols, term.rows]).toEqual([120, 40]);
     expect(exact(term, "S1-OUT")).toBe(1);
     view.unmount();
@@ -729,5 +732,63 @@ describe("fits and the replay", () => {
     expect(getEntry(PANE).replaying).toBe(false);
     expect([term.cols, term.rows]).toEqual([104, 36]);
     view.unmount();
+  });
+});
+
+describe("what the replay is told, and when the pane is fitted", () => {
+  const WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
+  const BEL7 = String.fromCharCode(7);
+  const SIZE = (cols, rows) => `${E}]1337;PlutoSize=${cols};${rows}${BEL7}`;
+  const paint = (lines, rows) => `${E}[?25l${E}[H` +
+    Array.from({ length: rows }, (_, i) => (lines[i] || "") + `${E}[K`).join("\r\n") + `${E}[${lines.length};3H${E}[?25h`;
+  // Output still on its way when the window was made taller: five lines
+  // produced at 36 rows land after the mark for 49 rows, then the repaint.
+  const sixty = Array.from({ length: 60 }, (_, i) => `ROW-${i + 1}`);
+  const late = ["LATE-1", "LATE-2", "LATE-3", "LATE-4", "LATE-5"];
+  const everything = [...sixty, ...late];
+  const lateOutput = SIZE(83, 36) + `${E}[2J${E}[H` + sixty.join("\r\n") +
+    SIZE(104, 49) + "\r\n" + late.join("\r\n") + paint(everything.slice(-36), 49);
+  const lost = (term) => everything.filter((line) => exact(term, line) !== 1);
+
+  test("on Windows the replay treats the saved stream as ConPTY's: late output at a resize loses nothing", async () => {
+    setUserAgent(WIN);
+    const { term } = await restoreAndClear({ saved: lateOutput, visible: false });
+    expect(lost(term)).toEqual([]);
+  });
+
+  test("off Windows it does not: the same bytes are replayed as any other stream", async () => {
+    // These bytes cannot come from a shell on macOS or Linux; they are here to
+    // show the pane tells the replay which system it is on. Replayed without
+    // the ConPTY handling, the taller resize pulls rows down and the repaint
+    // overwrites them.
+    setUserAgent("Mozilla/5.0 (X11; Linux x86_64)");
+    const { term } = await restoreAndClear({ saved: lateOutput, visible: false });
+    expect(lost(term).length).toBeGreaterThan(0);
+  });
+
+  test("a pane on screen is opened and fitted before its history replays, without waiting for its observer", async () => {
+    // The observer that normally opens a visible pane fires within a frame;
+    // the saved history can be read faster than that. Here it never fires.
+    const dims = ["clientWidth", "clientHeight"].map((name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)]);
+    for (const [name] of dims) Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => 600 });
+    h.fitTo = [104, 36];
+    try {
+      const view = ["PS> run", "OLD-1", "OLD-2", "OLD-3", "PS> "];
+      h.saved = `${E}[2J${E}[H` + view.join("\r\n") + paint(view, 36) + paint(view, 36);
+      const rendered = render(<TerminalPane {...props({ visible: true, active: true })} />);
+      const term = getEntry(PANE).term;
+      const spawned = () => h.calls.some(([c]) => c === "pty_spawn");
+      for (let i = 0; i < 80 && !spawned(); i++) await wait(25);
+      await parsed(term);
+      // Replayed at the pane's 104 x 36, the two 36-row repaints land in place.
+      for (const line of ["OLD-1", "OLD-2", "OLD-3"]) expect([line, exact(term, line)]).toEqual([line, 1]);
+      rendered.unmount();
+    } finally {
+      h.fitTo = null;
+      for (const [name, desc] of dims) {
+        if (desc) Object.defineProperty(HTMLElement.prototype, name, desc);
+        else delete HTMLElement.prototype[name];
+      }
+    }
   });
 });
