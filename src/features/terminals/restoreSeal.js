@@ -139,30 +139,94 @@ export function sealScreen(term, done) {
 const SIZE_MARK_START = ESC + "]1337;PlutoSize=";
 // The PTY side records sizes from 40 x 10 up. The ceiling is here because the
 // marks are plain bytes in the output stream and any program can print one:
-// xterm allocates a cell for every column of every line it holds.
-const SIZE_LIMITS = { minCols: 10, maxCols: 500, minRows: 3, maxRows: 300 };
+// xterm allocates a cell for every column of every line it holds. A full-width
+// pane on a very wide display is some 650 columns.
+const SIZE_LIMITS = { minCols: 10, maxCols: 1000, minRows: 3, maxRows: 500 };
+// "<cols>;<rows>" and the BEL that ends the mark, directly after the prefix.
+// Anything else after the prefix is not a mark, and the prefix is just text:
+// looking for "the next BEL" instead would swallow output up to a BEL that
+// belongs to something else.
+const SIZE_MARK_BODY = new RegExp("^(\\d{1,4});(\\d{1,4})" + BEL);
+
+// ConPTY's answer to a resize, as read from real captures of the app: hide the
+// cursor, optional colours, home, then exactly `rows` lines (the first rows-1
+// ending in CR LF), then a cursor position with a row and a column.
+const PAINT_START = new RegExp(ESC + "\\[\\?25l(?:" + ESC + "\\[[0-9;]*m)*" + ESC + "\\[H", "g");
+const CURSOR_TO = new RegExp(ESC + "\\[\\d+;\\d+H");
+
+// Where in `text` ConPTY's repaint for a view `rows` tall begins, or -1.
+function paintStart(text, rows) {
+  PAINT_START.lastIndex = 0;
+  for (let m = PAINT_START.exec(text); m; m = PAINT_START.exec(text)) {
+    const body = text.slice(m.index + m[0].length);
+    const end = body.search(CURSOR_TO);
+    if (end >= 0 && body.slice(0, end).split("\r\n").length === rows) return m.index;
+  }
+  return -1;
+}
 
 // "<mark>text<mark>text" -> [{ size: [cols, rows] } | { text }]. A mark that
-// does not parse to a sane size is dropped. Marks with no text between them
-// (a window being dragged) collapse into the last one.
-function replaySteps(sessionText) {
+// is not a sane size is dropped. Marks with no text between them (a window
+// being dragged) collapse into the last one.
+//
+// `conpty`: the size is applied where ConPTY's repaint for it begins, not
+// where the mark sits. The mark is written the moment the resize is asked
+// for, but output ConPTY had already produced at the old size is still on its
+// way and lands in the file after the mark. Resizing at the mark would print
+// those late lines into the rows a taller terminal has just gained, without
+// scrolling, and the repaint (whose view did scroll) would then be drawn over
+// lines the live terminal had moved into scrollback. So what comes between
+// the mark and the repaint is written at the old size. With no repaint of the
+// right height after a mark, the size applies at the mark.
+function replaySteps(sessionText, conpty) {
   const steps = [];
+  const pushText = (text) => {
+    if (!text) return;
+    const last = steps[steps.length - 1];
+    if (last && last.text !== undefined) last.text += text; else steps.push({ text });
+  };
   let rest = sessionText;
   for (;;) {
     const at = rest.indexOf(SIZE_MARK_START);
     if (at < 0) break;
-    const end = rest.indexOf(BEL, at);
-    if (end < 0) break; // a mark cut short at the very end of the saved data
-    if (at > 0) steps.push({ text: rest.slice(0, at) });
-    const [cols, rows] = rest.slice(at + SIZE_MARK_START.length, end).split(";").map((n) => (/^\d{1,4}$/.test(n) ? Number(n) : NaN));
+    const after = rest.slice(at + SIZE_MARK_START.length);
+    const body = SIZE_MARK_BODY.exec(after.slice(0, 12));
+    if (!body) {
+      // Not a mark: keep the prefix as the text it is and look further on.
+      pushText(rest.slice(0, at + SIZE_MARK_START.length));
+      rest = after;
+      continue;
+    }
+    pushText(rest.slice(0, at));
+    const cols = Number(body[1]);
+    const rows = Number(body[2]);
     if (cols >= SIZE_LIMITS.minCols && cols <= SIZE_LIMITS.maxCols && rows >= SIZE_LIMITS.minRows && rows <= SIZE_LIMITS.maxRows) {
       const last = steps[steps.length - 1];
       if (last && last.size) last.size = [cols, rows]; else steps.push({ size: [cols, rows] });
     }
-    rest = rest.slice(end + 1);
+    rest = after.slice(body[0].length);
   }
-  if (rest) steps.push({ text: rest });
-  return steps;
+  pushText(rest);
+  if (!conpty) return steps;
+  // Move each size to the start of its repaint.
+  const moved = [];
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const next = steps[i + 1];
+    if (step.size && next && next.text !== undefined) {
+      const at = paintStart(next.text, step.size[1]);
+      if (at > 0) {
+        const late = next.text.slice(0, at);
+        const prev = moved[moved.length - 1];
+        if (prev && prev.text !== undefined) prev.text += late; else moved.push({ text: late });
+        moved.push(step, { text: next.text.slice(at) });
+        i += 1;
+        continue;
+      }
+    }
+    moved.push(step);
+  }
+  return moved;
 }
 
 // The bytes that move the top `count` rows of the screen into scrollback and
@@ -177,30 +241,58 @@ function pushRowsUp(term, count) {
   return TO_LAST_ROW + LF.repeat(rows) + CSI + row + ";" + col + "H";
 }
 
-// Resizes the terminal the way ConPTY's side of the conversation assumes, and
-// returns the bytes (possibly none) that must be written before anything else.
+// Resizes the terminal and returns the bytes (possibly none) that must be
+// written before anything else.
 //
-// ConPTY never gives a row back once it has scrolled off: on a resize it keeps
-// its view and repaints it. xterm can pull scrollback rows down into view: on
-// a taller resize when the screen is full (unless its Windows mode is set), and
-// on a wider one whenever a wrapped line on screen becomes one row and frees a
-// row. The repaint that follows in the saved stream would then be drawn over
-// the rows that came down, and those rows, real lines of an earlier session,
-// would be gone. So the top row of the screen is marked before the resize; how
-// far that mark has moved down afterwards is exactly how many rows came down,
-// and that many are pushed back up. (Not "how much the scrollback shrank": it
-// also shrinks when wrapped scrollback lines merge, with nothing coming down.)
-function resizeLikeConpty(term, cols, rows) {
+// On ConPTY (`conpty`), the resize has to leave the screen the way ConPTY's
+// side of the conversation assumes. ConPTY never gives a row back once it has
+// scrolled off: on a resize it keeps its view and repaints it. xterm can pull
+// scrollback rows down into view: on a taller resize when the screen is full
+// (unless its Windows mode is set), and on a wider one whenever a wrapped line
+// on screen becomes one row and frees a row. The repaint that follows in the
+// saved stream would then be drawn over the rows that came down, and those
+// rows, real lines of an earlier session, would be gone. So the place where
+// the screen began is marked before the resize; how far it has moved down
+// afterwards is exactly how many rows came down, and that many are pushed back
+// up. (Not "how much the scrollback shrank": it also shrinks when wrapped
+// scrollback lines merge, with nothing coming down.)
+//
+// The mark sits on the first row of the line the top screen row belongs to.
+// When the screen begins in the middle of a wrapped line, a wider resize
+// merges that row into the one above and a marker on it would vanish; the
+// line's first row survives. The part of that line that was above the screen
+// (`above` rows of the old width) stays above it after the resize, in however
+// many rows of the new width it now takes; a row it shares with the part that
+// was on screen counts as above, so ConPTY's repaint of its top row lands
+// under it and not on it (the tail of that one line then shows twice, which
+// loses nothing).
+//
+// Elsewhere (macOS, Linux) nothing repaints after a resize and the live
+// terminal did pull those rows down, so the replay does the plain resize too.
+function resizeForReplay(term, cols, rows, conpty) {
   if (term.cols === cols && term.rows === rows) return "";
-  let top = null;
-  try {
-    if (term.buffer.active.type === "normal") top = term.registerMarker(-term.buffer.normal.cursorY);
-  } catch { top = null; }
+  let head = null;
+  let above = 0;
+  const oldCols = term.cols;
+  if (conpty) {
+    try {
+      if (term.buffer.active.type === "normal") {
+        const buf = term.buffer.normal;
+        let first = buf.baseY;
+        while (first > 0 && buf.getLine(first)?.isWrapped) first -= 1;
+        above = buf.baseY - first;
+        head = term.registerMarker(first - buf.baseY - buf.cursorY);
+      }
+    } catch { head = null; }
+  }
   try { term.resize(cols, rows); } catch { /* a size xterm refuses changes nothing */ }
   let cameDown = 0;
-  if (top) {
-    if (!top.isDisposed && top.line >= 0) cameDown = top.line - term.buffer.normal.baseY;
-    try { top.dispose(); } catch { /* already gone with its line */ }
+  if (head) {
+    if (!head.isDisposed && head.line >= 0) {
+      const screenBegan = head.line + Math.ceil((above * oldCols) / term.cols);
+      cameDown = screenBegan - term.buffer.normal.baseY;
+    }
+    try { head.dispose(); } catch { /* already gone with its line */ }
   }
   return cameDown > 0 ? pushRowsUp(term, cameDown) : "";
 }
@@ -225,15 +317,18 @@ function resizeLikeConpty(term, cols, rows) {
 // screen is parsed up to that point when the size changes, exactly as it was
 // live. Nothing else may resize the terminal while this runs: in the middle
 // of a part it would replay the rest of that part at the wrong size. The pane
-// guarantees it by not opening the terminal until the replay is done (every
-// resize in the app comes from the fit addon, which does nothing for a
-// terminal that is not open). A session with no size of its own (saved by an
-// older build) replays at the terminal's own size.
-export function replaySaved(term, saved, isLive = () => true, endLine = "") {
+// guarantees it by holding its fits back until the replay is done (every
+// resize in the app comes from the fit addon). A session with no size of its
+// own (saved by an older build) replays at the terminal's own size, which is
+// why a visible pane is opened and fitted before its replay starts.
+//
+// `conpty`: the saved stream came from ConPTY (a local pane on Windows). See
+// replaySteps and resizeForReplay for what that changes.
+export function replaySaved(term, saved, isLive = () => true, endLine = "", { conpty = false } = {}) {
   // One list of steps per session that has anything to show.
   const ownSize = [term.cols, term.rows];
   const sessions = saved.split(SESSION_SENTINEL)
-    .map(replaySteps)
+    .map((text) => replaySteps(text, conpty))
     .filter((steps) => steps.some((s) => s.text))
     // No size recorded for a session (saved by an older build): it replays at
     // the terminal's own size, not at whatever the session before it ended at.
@@ -249,7 +344,7 @@ export function replaySaved(term, saved, isLive = () => true, endLine = "") {
     // Changes the size, then continues: at once when nothing came down, after
     // the push-back has been parsed when rows did.
     const resizeThen = ([cols, rows], next) => {
-      const push = canResize ? resizeLikeConpty(term, cols, rows) : "";
+      const push = canResize ? resizeForReplay(term, cols, rows, conpty) : "";
       if (push) { term.write(push, next); return true; }
       return false;
     };

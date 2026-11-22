@@ -19,7 +19,7 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 
-const h = vi.hoisted(() => ({ saved: "", listeners: new Map(), calls: [] }));
+const h = vi.hoisted(() => ({ saved: "", listeners: new Map(), calls: [], fits: 0, fitTo: null }));
 vi.mock("@backend", () => ({
   invoke: async (cmd, args) => {
     h.calls.push([cmd, args]);
@@ -41,7 +41,14 @@ vi.mock("./secretVault.js", async (importOriginal) => ({
   keysSettled: () => true,
 }));
 // Real xterm calls activate() on every addon it loads.
-vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { activate() {} dispose() {} fit() {} } }));
+// A stand-in fit: counts calls, and resizes the terminal to h.fitTo when a test sets one.
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: class {
+    activate(term) { this.term = term; }
+    dispose() {}
+    fit() { h.fits += 1; if (h.fitTo) this.term.resize(h.fitTo[0], h.fitTo[1]); }
+  },
+}));
 vi.mock("@xterm/addon-web-links", () => ({ WebLinksAddon: class { activate() {} dispose() {} } }));
 vi.mock("@xterm/addon-search", () => ({ SearchAddon: class { activate() {} dispose() {} clearDecorations() {} } }));
 vi.mock("./ErrorExplainer.jsx", () => ({ default: () => null }));
@@ -641,11 +648,15 @@ describe("local panes on Windows run xterm in ConPTY mode", () => {
   });
 });
 
-describe("the terminal is not opened while its history replays", () => {
-  // In this test environment a pane has no size, so the terminal is never
-  // opened at all. Here the pane is given one and its observer fires, as in
-  // the app, so the open really is attempted.
+describe("fits and the replay", () => {
+  // In this test environment a pane has no size, so its terminal is never
+  // opened or fitted. Here the pane is given a size and its observer fires, as
+  // in the app, and the stand-in fit addon resizes the terminal to h.fitTo.
   let sized;
+  const BEL7 = String.fromCharCode(7);
+  const SIZE = (cols, rows) => `${E}]1337;PlutoSize=${cols};${rows}${BEL7}`;
+  const paint = (lines, rows) => `${E}[?25l${E}[H` +
+    Array.from({ length: rows }, (_, i) => (lines[i] || "") + `${E}[K`).join("\r\n") + `${E}[${lines.length};3H${E}[?25h`;
   beforeEach(() => {
     sized = ["clientWidth", "clientHeight"].map((name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)]);
     for (const [name] of sized) Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => 600 });
@@ -654,16 +665,36 @@ describe("the terminal is not opened while its history replays", () => {
       observe() { queueMicrotask(() => this.cb([{ isIntersecting: true }])); }
       disconnect() {}
     });
+    h.fitTo = [104, 36];
   });
   afterEach(() => {
+    h.fitTo = null;
     for (const [name, desc] of sized) {
       if (desc) Object.defineProperty(HTMLElement.prototype, name, desc);
       else delete HTMLElement.prototype[name];
     }
   });
 
-  test("a visible pane opens its terminal only when the replay is done", async () => {
-    h.saved = pastSession("S1-OUT") + SESSION_MARK + pastSession("S2-OUT");
+  test("a visible pane is fitted before its history replays: history saved without a size replays at the pane's size", async () => {
+    // A 36-row repaint with no size mark (saved by an older build). At the
+    // 80 x 24 a terminal is born with it scrolls and its lines repeat; at the
+    // pane's 104 x 36 it paints in place.
+    const view = ["PS> run", "OLD-1", "OLD-2", "OLD-3", "PS> "];
+    h.saved = `${E}[2J${E}[H` + view.join("\r\n") + paint(view, 36) + paint(view, 36);
+    const view2 = render(<TerminalPane {...props({ visible: true, active: true })} />);
+    const term = getEntry(PANE).term;
+    const spawned = () => h.calls.find(([c]) => c === "pty_spawn");
+    for (let i = 0; i < 80 && !spawned(); i++) await wait(25);
+    await parsed(term);
+    for (const line of ["OLD-1", "OLD-2", "OLD-3"]) expect([line, exact(term, line)]).toEqual([line, 1]);
+    expect([term.cols, term.rows]).toEqual([104, 36]);
+    expect([spawned()[1].cols, spawned()[1].rows]).toEqual([104, 36]);
+    expect(term.element).toBeTruthy();
+    view2.unmount();
+  });
+
+  test("a fit asked for while the history replays waits until the replay is done", async () => {
+    h.saved = SIZE(83, 30) + pastSession("S1-OUT") + SESSION_MARK + SIZE(83, 30) + pastSession("S2-OUT");
     const view = render(<TerminalPane {...props({ visible: true, active: true })} />);
     const entry = getEntry(PANE);
     const term = entry.term;
@@ -671,25 +702,32 @@ describe("the terminal is not opened while its history replays", () => {
     const real = term.write.bind(term);
     const held = [];
     term.write = (data, cb) => { held.push([data, cb]); };
-    await wait(150); // the observer has fired long since
+    for (let i = 0; i < 80 && !entry.replaying; i++) await wait(25);
     expect(entry.replaying).toBe(true);
-    expect(term.element).toBeFalsy();
+    const before = h.fits;
+    h.fitTo = [120, 40]; // the window was resized meanwhile
+    entry.fit.fit();
+    entry.fit.fit();
+    expect(h.fits).toBe(before); // not one of them reached the addon
+    expect([term.cols, term.rows]).not.toEqual([120, 40]);
     term.write = real;
     for (const [data, cb] of held.splice(0)) real(data, cb);
-    for (let i = 0; i < 80 && !term.element; i++) await wait(25);
+    for (let i = 0; i < 80 && entry.replaying; i++) await wait(25);
     expect(entry.replaying).toBe(false);
-    expect(term.element).toBeTruthy();
+    expect(h.fits).toBeGreaterThan(before); // the fit that was held back ran
+    expect([term.cols, term.rows]).toEqual([120, 40]);
     expect(exact(term, "S1-OUT")).toBe(1);
     view.unmount();
   });
 
-  test("a fresh pane (nothing saved) opens straight away", async () => {
+  test("a fresh pane (nothing saved) opens and fits straight away", async () => {
     h.saved = null;
     const view = render(<TerminalPane {...props({ visible: true, active: true })} />);
     const term = getEntry(PANE).term;
     for (let i = 0; i < 80 && !term.element; i++) await wait(25);
     expect(term.element).toBeTruthy();
     expect(getEntry(PANE).replaying).toBe(false);
+    expect([term.cols, term.rows]).toEqual([104, 36]);
     view.unmount();
   });
 });

@@ -17,10 +17,11 @@
 // on a Windows 10 machine, and for Windows 11 a build number changes nothing.
 //
 // SSH and serial panes are not fed by ConPTY and never get this.
-const onWindows = () => typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
+// True where a local shell is fed by ConPTY (every local pane on Windows).
+export const isConptyHost = () => typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
 
 export function applyConptyMode(term) {
-  if (!onWindows()) return;
+  if (!isConptyHost()) return;
   try {
     term.options.windowsPty = { backend: "conpty" };
   } catch { /* a disposed terminal takes no options */ }

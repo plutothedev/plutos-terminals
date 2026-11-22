@@ -206,7 +206,7 @@ import {
   destroyEntry,
 } from "./paneRegistry.js";
 import { replaySaved, pushBackHistory } from "./restoreSeal.js";
-import { applyConptyMode } from "./conptyMode.js";
+import { applyConptyMode, isConptyHost } from "./conptyMode.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
 // rather than an mp3 asset so there's nothing to bundle. Two-note ascending
@@ -1033,11 +1033,6 @@ function TerminalPane({
       // its observers, so it happens here instead, and ImageAddon still loads
       // exactly once per terminal lifetime (only on this never-opened path).
       const refitOnly = () => {
-        // A pane moved while its saved history is still replaying: the replay
-        // resizes the terminal to each part's recorded size, and a fit in
-        // between would replay the rest of that part at the wrong size. The
-        // replay calls this again when it is done (entry.onReplayDone).
-        if (entry.replaying) return;
         if (!alive || !container.clientWidth || !container.clientHeight) return;
         const t = entry.term;
         if (!t) return;
@@ -1141,6 +1136,14 @@ function TerminalPane({
     if (!connection && !serial) applyConptyMode(term);
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // While saved history replays, the terminal is resized to each part's
+    // recorded size, and a fit in between would replay the rest of that part
+    // at the wrong size. Every resize in the app comes from this addon's
+    // fit(), called from several places and from later fibers through
+    // entry.fit, so it is held here, at the one instance they all share.
+    // replayDone fits once the replay is over.
+    const fitNow = fit.fit.bind(fit);
+    fit.fit = () => { if (!entry.replaying) fitNow(); };
     // Route link clicks through the app's hardened opener (open_path: no-shell
     // spawn, control-char rejection) instead of the addon's default unmanaged
     // window.open, so terminal output — including attacker-controlled remote
@@ -1468,11 +1471,6 @@ function TerminalPane({
       try { fit.fit(); } catch { /* fit throws while the renderer is not ready; the next resize or reveal refits */ }
     };
     const openIfVisible = () => {
-      // Not while saved history replays: every resize in the app comes from
-      // the fit addon, and the fit addon does nothing for a terminal that is
-      // not open, so keeping it closed is what keeps the replay's sizes its
-      // own (restoreSeal.js). The spawn body opens it when the replay ends.
-      if (entry.replaying) return;
       if (opened || !alive || !container.clientWidth || !container.clientHeight) return;
       opened = true;
       term.open(entry.host); // registry-owned host — the xterm DOM moves with it across slots
@@ -1523,9 +1521,6 @@ function TerminalPane({
     const replayScrollback = async () => {
       const id = tabIdRef.current;
       if (!id) return false;
-      // Set before the first await: the observer that opens a visible pane
-      // fires within a frame, and it must find this already true.
-      if (!connection && !serial) entry.replaying = true;
       try {
         // `local`: only a local shell's saved file carries session marks, and
         // only then does the loader drop the boot noise that follows them. An
@@ -1555,8 +1550,15 @@ function TerminalPane({
           // (restoreSeal.js). It resolves when xterm has parsed all of it,
           // so the shell below starts on an empty screen. False = the file
           // held nothing but session marks: a fresh pane, not a restored one.
+          // A pane that is on screen is opened and fitted first: history
+          // saved without a size (every build before this one) replays at
+          // the terminal's own size, and that should be the pane's, not the
+          // 80 x 24 a terminal is born with. From here until replayDone the
+          // fit addon is held back (see the fit wrapper above).
+          openIfVisible();
+          entry.replaying = true;
           try {
-            const replayed = await replaySaved(term, saved, entryLive, restoredLine);
+            const replayed = await replaySaved(term, saved, entryLive, restoredLine, { conpty: isConptyHost() });
             if (replayed && entryLive()) {
               // The replay left the cursor at home on an empty screen, with
               // the marker line as the last line of scrollback: one row up.
@@ -1570,13 +1572,14 @@ function TerminalPane({
       } catch { /* no saved scrollback, or unreadable: the pane starts fresh */ }
       return false;
     };
-    // The replay is over (or there was none): open the terminal if the pane
-    // is on screen, which also fits it, so the shell below is created at the
-    // pane's real size. A pane moved meanwhile is opened by the fiber that
-    // holds it now.
+    // The replay is over (or there was none): fits are let through again, and
+    // one is run now (a pane revealed or resized meanwhile had its fit held
+    // back), so the shell below is created at the pane's real size. A pane
+    // moved meanwhile is fitted by the fiber that holds it now.
     const replayDone = () => {
       entry.replaying = false;
       openIfVisible();
+      safeFit();
       try { entry.onReplayDone?.(); } catch { /* the newer fiber's refit is best effort */ }
     };
 

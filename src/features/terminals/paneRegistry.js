@@ -88,7 +88,7 @@ function makeEntry() {
     jumpFwdId: null,
     spawnState: "unspawned", // "unspawned" | "starting" | "live". startSpawn flips to "starting"; spawn success flips to "live".
     spawnBody: null, // the spawn work itself, registered once by TerminalPane's first mount. Never call it directly, call startSpawn().
-    replaying: false, // true while saved history is being replayed: the terminal must not be opened or fitted meanwhile (TerminalPane, replayScrollback).
+    replaying: false, // true while saved history is being replayed: fits are held back meanwhile (TerminalPane, the fit wrapper).
     onReplayDone: null, // set by a re-attached fiber: its open-and-fit, run when the replay ends (the first fiber may be gone by then).
     // Once-per-terminal attach latches. The host outlives React fibers and
     // moves between slots, so every attach checks its latch first or a tab

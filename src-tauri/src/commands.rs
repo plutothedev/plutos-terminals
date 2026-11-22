@@ -1545,7 +1545,7 @@ fn scrollback_tail_sessions(
         let raw_len = raw.len();
         let Some(first_mark) = find_bytes(&raw, SCROLLBACK_SESSION_SENTINEL) else {
             let out = trim_to_cap_sized(raw, cap);
-            return Some(lossy(with_start_size(out, more, raw_len, current, old, cap)));
+            return Some(lossy(with_start_size(out, more, raw_len, current, old)));
         };
         // The head: bytes before the first mark, a session cut by the window.
         // A boot marker in it (within the gate's own bound) means the window
@@ -1572,7 +1572,7 @@ fn scrollback_tail_sessions(
                 }
             }
             let out = trim_to_cap_sized(kept, cap);
-            return Some(lossy(with_start_size(out, more, raw_len, current, old, cap)));
+            return Some(lossy(with_start_size(out, more, raw_len, current, old)));
         }
         window = window.saturating_mul(4).min(max_window);
     }
@@ -1583,54 +1583,45 @@ fn scrollback_tail_sessions(
 /// does not already start at a session mark or a size mark, and holds a size
 /// mark further on: then a resize follows, and its repaint would repeat what
 /// comes before it if that part replayed at the wrong size. Without a later
-/// size mark there is no resize in the tail and nothing to get wrong, so older
-/// files and sessions that were never resized cost no extra read.
+/// size mark there is no resize in the tail and nothing to get wrong, so files
+/// from older builds and sessions that were never resized cost no extra read;
+/// otherwise it is one read of the tail plus `SIZE_LOOKBACK_BYTES`.
 fn with_start_size(
     mut out: Vec<u8>,
     more: bool,
     window_len: usize,
     current: &std::path::Path,
     old: &std::path::Path,
-    cap: usize,
 ) -> Vec<u8> {
     let size = SCROLLBACK_SIZE_MARK_PREFIX;
     let starts_known = out.starts_with(size) || out.starts_with(SCROLLBACK_SESSION_SENTINEL);
     if more && !starts_known && find_bytes(&out, size).is_some() {
-        if let Some(mark) = size_before_window(current, old, window_len, cap) {
+        if let Some(mark) = size_before_window(current, old, window_len) {
             out.splice(0..0, mark);
         }
     }
     out
 }
 
-/// The last size mark recorded before the last `window_len` bytes of the saved
-/// data: read further back (x4 per step, up to the same ceiling as the replay
-/// window) until one is found or the data ends. Every session starts with one,
-/// so the search ends at the start of the session the window was cut from.
+/// How far before a tail its size is looked for. The writer records a local
+/// session's size again after every 64 KB of output (pty.rs,
+/// `SIZE_MARK_EVERY_BYTES`), before the chunk that crosses that line, and a
+/// chunk is at most 64 KB: two marks are never more than 128 KB apart. With
+/// room to spare, one read of this much settles it. No mark in it means the
+/// bytes before the tail carry no size at all (an older build's history).
+const SIZE_LOOKBACK_BYTES: usize = 192 * 1024;
+
+/// The size in force just before the last `window_len` bytes of the saved
+/// data, read from the `SIZE_LOOKBACK_BYTES` in front of them.
 fn size_before_window(
     current: &std::path::Path,
     old: &std::path::Path,
     window_len: usize,
-    cap: usize,
 ) -> Option<Vec<u8>> {
-    let max_window = cap.saturating_mul(SCROLLBACK_RAW_WINDOW_FACTOR).max(window_len);
-    let mut window = window_len.saturating_mul(4).min(max_window);
-    loop {
-        let (raw, more) = scrollback_tail_bytes(current, old, window)?;
-        let before = &raw[..raw.len().saturating_sub(window_len)];
-        if let Some(mark) = size_in_force(before) {
-            return Some(mark.to_vec());
-        }
-        if find_bytes(before, SCROLLBACK_SESSION_SENTINEL).is_some() {
-            // The session the tail was cut from starts here and recorded no
-            // size (an older build's session): there is none to find.
-            return None;
-        }
-        if !more || window >= max_window {
-            return None;
-        }
-        window = window.saturating_mul(4).min(max_window);
-    }
+    let (raw, _) =
+        scrollback_tail_bytes(current, old, window_len.saturating_add(SIZE_LOOKBACK_BYTES))?;
+    let before = &raw[..raw.len().saturating_sub(window_len)];
+    size_in_force(before).map(<[u8]>::to_vec)
 }
 
 /// The last `cap` bytes, starting at a line boundary when anything was cut.
@@ -4170,6 +4161,39 @@ mod scrollback_tail_tests {
         assert!(out.starts_with(&format!("{s}line ")), "starts with the size in effect: {:?}", &out[..40]);
         assert!(out.ends_with(&format!("{}repaint\n", String::from_utf8(size(83, 36)).unwrap())));
         assert!(out.len() <= cap + s.len());
+    }
+
+    #[test]
+    fn the_look_back_for_a_size_is_bounded() {
+        // A mark further back than the look-back reaches is not found, and the
+        // tail is returned without one. (The writer never leaves such a gap:
+        // it records the size again every 64 KB.)
+        let (cur, old) = tmp_pair("size-lookback");
+        let mut data = cat(&[&mark(), &size(104, 49)]);
+        data.extend_from_slice(&vec![b'x'; SIZE_LOOKBACK_BYTES + 8192]);
+        data.extend_from_slice(b"\n");
+        for i in 0..200 {
+            data.extend_from_slice(format!("line {i}\n").as_bytes());
+        }
+        data.extend_from_slice(&size(83, 36));
+        data.extend_from_slice(b"repaint\n");
+        fs::write(&cur, &data).unwrap();
+        let out = scrollback_tail_sessions(&cur, &old, 4096).unwrap();
+        assert!(out.starts_with("line "), "no size found, none invented: {:?}", &out[..20]);
+        // With a mark inside the look-back (as the writer guarantees) it is found.
+        let mut near = cat(&[&mark(), &size(104, 49)]);
+        near.extend_from_slice(&vec![b'x'; SIZE_LOOKBACK_BYTES + 8192]);
+        near.extend_from_slice(b"\n");
+        near.extend_from_slice(&size(104, 49)); // the periodic re-record
+        for i in 0..600 {
+            near.extend_from_slice(format!("line {i}\n").as_bytes());
+        }
+        near.extend_from_slice(&size(83, 36));
+        near.extend_from_slice(b"repaint\n");
+        fs::write(&cur, &near).unwrap();
+        let out = scrollback_tail_sessions(&cur, &old, 2048).unwrap();
+        let s = String::from_utf8(size(104, 49)).unwrap();
+        assert!(out.starts_with(&format!("{s}line ")), "{:?}", &out[..40]);
     }
 
     #[test]
