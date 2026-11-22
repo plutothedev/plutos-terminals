@@ -38,7 +38,7 @@ jobs:
     # require-atomic-updates correctness) to 0 / 0. --max-warnings 0 keeps
     # warnings from piling back up unseen.
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
@@ -56,7 +56,7 @@ jobs:
     # declared in its config and the remaining count is 0, so any new dead file,
     # unused export or unlisted dependency fails the run.
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
@@ -88,7 +88,7 @@ jobs:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           # Pinned for the lint gate only (the crate's rust-version is 1.94):
@@ -111,7 +111,7 @@ jobs:
     # third-party rejections. cargo-audit checks advisories only and would not
     # notice a GPL/AGPL crate entering a proprietary, statically-vendored binary.
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - name: Cache cargo-deny binary
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -143,7 +143,7 @@ jobs:
     # checking that file.
     # Local OSS engine only: rules are downloaded, source is never uploaded.
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
