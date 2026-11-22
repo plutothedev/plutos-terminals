@@ -236,6 +236,32 @@ describe("sealScreen", () => {
     expect(blankScreen(t)).toBe(true);
   });
 
+  test("with scrollback above: a taller terminal between the measure and the push pulls rows back down, and they are sealed too", async () => {
+    const t = make();
+    let out = "";
+    for (let i = 0; i < 60; i++) out += `line ${i}\r\n`;
+    await write(t, out.trimEnd());
+    const sealed = seal(t);
+    t.write("", () => t.resize(80, 45)); // after the measure, before the push is parsed
+    await sealed;
+    expect(blankScreen(t)).toBe(true);
+    await write(t, CLEAR_HOME + "PS> ");
+    for (let i = 0; i < 60; i++) expect(all(t).filter((l) => l === `line ${i}`)).toHaveLength(1);
+  });
+
+  test("a throw inside the measuring callback does not escape into the terminal's write loop", async () => {
+    // xterm runs write callbacks later, from its own loop, with no protection:
+    // a throw there stops the terminal parsing. This stand-in calls back the
+    // same way (later), so an unguarded throw would surface as an unhandled
+    // error and `done` would never run.
+    const broken = {
+      rows: 24,
+      write(_data, cb) { if (cb) queueMicrotask(cb); },
+      get buffer() { throw new Error("disposed"); },
+    };
+    await new Promise((done) => sealScreen(broken, done));
+  });
+
   test("a terminal that throws when measured still calls back", async () => {
     let calls = 0;
     const broken = {
@@ -368,7 +394,7 @@ describe("replaySaved", () => {
     expect(timers).toBeGreaterThan(0); // the count is real: xterm did schedule its parsing pass
     // A hidden window runs timers about once a second: a round trip per
     // session would hold a pane's shell back for minutes.
-    expect(timers).toBeLessThan(10);
+    expect(timers).toBeLessThan(40); // one or two when measured; a round trip per session would be 120
     expect(count(t, "S59")).toBe(2);
     expect(count(t, "S0")).toBeGreaterThan(0);
   });

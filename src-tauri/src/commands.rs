@@ -1344,8 +1344,9 @@ fn scrollback_tail_bytes(
         .map(|m| m.len() as usize)
         .unwrap_or(0);
     let mut parts: Vec<Vec<u8>> = Vec::new();
-    // The current segment alone fills the budget: the old one was not opened.
-    let mut more = cur_len >= cap && old.exists();
+    // The current segment alone fills the budget: the old one is not opened,
+    // and counts as older data when it holds any.
+    let mut more = cur_len >= cap && fs::metadata(old).map(|m| m.len() > 0).unwrap_or(false);
     if cur_len < cap {
         // Fill the remaining budget from the old segment's tail — UNLESS a
         // rotation landed between our two opens. Post-rotation the old PATH
@@ -1424,14 +1425,18 @@ const SCROLLBACK_RAW_WINDOW_FACTOR: usize = 16;
 /// of the budget on noise: about fifty restarts of an idle pane pushed its
 /// last real work out of the window although the file still held it. So the
 /// raw window grows (x4 per step, up to `SCROLLBACK_RAW_WINDOW_FACTOR` x cap)
-/// until the bytes kept after the first mark fill the budget or the saved data
+/// until the kept bytes fill three quarters of the budget or the saved data
 /// ends, and the result is then cut back to the last `cap` kept bytes.
 ///
 /// The bytes before the first mark in a window that was cut mid-file are a
-/// session without its mark (its noise cannot be told from its output), so
-/// they do not count toward the budget; once the budget is filled without
-/// them the final cut removes them. A window with no mark at all is an older
-/// file: returned as `scrollback_tail` would, in one read.
+/// session without its mark. When they hold a boot marker, the part before it
+/// may be noise that cannot be told from output, so they do not count toward
+/// the budget; once the budget is filled without them the final cut removes
+/// them. When they hold no boot marker none of them can be noise (noise always
+/// ends in one), so they count, and a pane whose last session was one long
+/// run (an agent pane, megabytes of history from an older version) is served
+/// from the first read instead of three. A window with no mark at all is an
+/// older file: returned as `scrollback_tail` would, in one read.
 fn scrollback_tail_sessions(
     current: &std::path::Path,
     old: &std::path::Path,
@@ -1444,9 +1449,14 @@ fn scrollback_tail_sessions(
         let Some(first_mark) = find_bytes(&raw, SCROLLBACK_SESSION_SENTINEL) else {
             return Some(lossy(trim_to_cap(raw, cap)));
         };
-        let uncounted = if more { first_mark } else { 0 };
+        let head_may_hold_noise =
+            more && find_bytes(&raw[..first_mark], SCROLLBACK_BOOT_MARKER).is_some();
+        let uncounted = if head_may_hold_noise { first_mark } else { 0 };
         let kept = drop_boot_noise(raw);
-        if !more || window >= max_window || kept.len() - uncounted >= cap {
+        // Three quarters of the budget is full enough: the budget is a ceiling,
+        // and asking for all of it would send every restore one window further
+        // back just to make up for the few KB of noise that was dropped.
+        if !more || window >= max_window || kept.len() - uncounted >= cap - cap / 4 {
             return Some(lossy(trim_to_cap(kept, cap)));
         }
         window = window.saturating_mul(4).min(max_window);
@@ -3750,6 +3760,75 @@ mod scrollback_tail_tests {
         assert!(out.len() <= cap);
         assert!(out.ends_with("p39\n"));
         assert!(!out.contains("VERY OLD WORK"), "beyond the largest window");
+    }
+
+    #[test]
+    fn the_window_grows_back_across_the_old_segment() {
+        // The work sits in the old segment; the current one is all idle
+        // restarts. Reading further back has to cross the rotation boundary.
+        let (cur, old) = tmp_pair("marks-grow-old");
+        let noise = vec![b'N'; 3000];
+        let mut older = cat(&[&mark(), &noise, &boot()]);
+        for i in 0..200 {
+            older.extend_from_slice(format!("work {i}\n").as_bytes());
+        }
+        let mut newer = Vec::new();
+        for k in 0..12 {
+            newer.extend_from_slice(&cat(&[&mark(), &noise, &boot()]));
+            newer.extend_from_slice(format!("idle {k}\n").as_bytes());
+        }
+        fs::write(&old, &older).unwrap();
+        fs::write(&cur, &newer).unwrap();
+        let cap = 8 * 1024; // the current segment alone is larger than this
+        assert!(newer.len() > cap);
+        let out = scrollback_tail_sessions(&cur, &old, cap).unwrap();
+        assert!(out.len() <= cap);
+        assert!(!out.contains('N'));
+        assert!(out.contains("work 199\n"), "work from the old segment came back");
+        assert!(out.contains("idle 0\n") && out.contains("idle 11\n"));
+    }
+
+    #[test]
+    fn one_long_last_session_is_served_from_the_first_read() {
+        // [megabytes of one session][mark][a short new session]: no byte of
+        // the long part can be noise (it holds no boot marker), so reading
+        // further back could not change the answer. The result is the plain
+        // last-cap tail with the new session's noise dropped.
+        let (cur, old) = tmp_pair("marks-long");
+        let mut data = Vec::new();
+        for i in 0..5000 {
+            data.extend_from_slice(format!("agent output line {i}\n").as_bytes());
+        }
+        data.extend_from_slice(&cat(&[&mark(), b"banner", &boot(), b"new prompt\n"]));
+        fs::write(&cur, &data).unwrap();
+        let cap = 4096;
+        let out = scrollback_tail_sessions(&cur, &old, cap).unwrap();
+        let m = String::from_utf8(mark()).unwrap();
+        assert!(out.ends_with(&format!("agent output line 4999\n{m}new prompt\n")));
+        assert!(out.starts_with("agent output line "), "starts at a line boundary");
+        // Exactly what one window of `cap` holds, minus the dropped noise:
+        // proof that the larger windows were not needed for this answer.
+        let (raw, more) = scrollback_tail_bytes(&cur, &old, cap).unwrap();
+        assert!(more);
+        assert_eq!(out, lossy(drop_boot_noise(raw)));
+    }
+
+    #[test]
+    fn an_empty_old_segment_is_not_older_data() {
+        let (cur, old) = tmp_pair("marks-empty-old");
+        fs::write(&old, b"").unwrap();
+        fs::write(&cur, b"0123456789").unwrap();
+        let (bytes, more) = scrollback_tail_bytes(&cur, &old, 10).unwrap();
+        assert_eq!(bytes, b"0123456789");
+        assert!(!more, "nothing older to read");
+        fs::write(&old, b"x").unwrap();
+        let (_, more) = scrollback_tail_bytes(&cur, &old, 10).unwrap();
+        assert!(more, "the old segment holds data the window did not reach");
+        let (_, more) = scrollback_tail_bytes(&cur, &old, 9).unwrap();
+        assert!(more, "cut inside the current segment");
+        let (bytes, more) = scrollback_tail_bytes(&cur, &old, 11).unwrap();
+        assert_eq!(bytes, b"x0123456789");
+        assert!(!more, "both segments read whole");
     }
 
     #[test]

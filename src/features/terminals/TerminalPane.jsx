@@ -1870,6 +1870,15 @@ function TerminalPane({
         // how much more output to watch before giving up. See
         // deliverWatchingForMarker.
         let lateMarker = null;
+        // Chunks received while the late push is being worked out (see
+        // deliverWatchingForMarker): held, then delivered in order.
+        let lateHold = null;
+        // The end marker is only needed until the boot marker has been dealt
+        // with (or will never come).
+        const dropRestoredEnd = () => {
+          try { restoredEnd?.dispose(); } catch { /* its line is already gone */ }
+          restoredEnd = null;
+        };
         const BOOT_MARKER = "\x1b]1337;PlutoBoot=1\x07";
         const flushConceal = () => {
           const c = concealRef.current;
@@ -1886,8 +1895,11 @@ function TerminalPane({
         // and the clear that follows the late marker would erase them. So the
         // stream is watched for the marker (it can be split across chunks),
         // and any history that is back on screen is pushed up again right
-        // after it, before the clear is rendered. Three plain writes in a
-        // row, so xterm parses them in that order.
+        // after it, before the clear is rendered. How many rows is only known
+        // once xterm has parsed everything up to the marker (output still
+        // waiting scrolls history up by itself), so it is worked out in a
+        // write callback; what follows the marker, and any chunk that arrives
+        // meanwhile, waits for it and is then delivered in order.
         const deliverWatchingForMarker = (payload) => {
           const w = lateMarker;
           const joined = w.tail + payload;
@@ -1895,7 +1907,7 @@ function TerminalPane({
           if (idx < 0) {
             w.tail = joined.slice(-(BOOT_MARKER.length - 1));
             w.budget -= payload.length;
-            if (w.budget <= 0) lateMarker = null; // this shell never sent one
+            if (w.budget <= 0) { lateMarker = null; dropRestoredEnd(); } // this shell never sent one
             handleChunk(payload);
             return;
           }
@@ -1904,15 +1916,32 @@ function TerminalPane({
           // one character short of a marker, so this is at least 1).
           const cut = idx + BOOT_MARKER.length - w.tail.length;
           handleChunk(payload.slice(0, cut));
-          const push = pushBackHistory(term, restoredEnd);
-          if (push) term.write(push); // not shell output: no recording, transcript or scan
           const rest = payload.slice(cut);
-          if (rest) handleChunk(rest);
+          lateHold = [];
+          // Runs inside xterm's write loop: nothing here may throw (a throw
+          // would stop this terminal parsing), and the held chunks must be
+          // delivered whatever else happens.
+          const resume = () => {
+            const held = lateHold;
+            if (!held) return;
+            lateHold = null;
+            if (!entryLive()) return;
+            try {
+              const push = pushBackHistory(term, restoredEnd);
+              if (push) term.write(push); // not shell output: no recording, transcript or scan
+            } catch { /* the push is a safeguard; the output below matters more */ }
+            dropRestoredEnd();
+            for (const chunk of rest ? [rest, ...held] : held) {
+              try { handleChunk(chunk); } catch { /* keep delivering the rest */ }
+            }
+          };
+          try { term.write("", resume); } catch { resume(); }
         };
 
         unlistenData = await listen(`pty://${id}`, (e) => {
           if (!entryLive()) return; // registry-lifetime: keeps streaming while parked
           const payload = e.payload || "";
+          if (lateHold) { lateHold.push(payload); return; }
           const c = concealRef.current;
           if (c) {
             c.buf += payload;
@@ -1923,6 +1952,7 @@ function TerminalPane({
               clearTimeout(c.timer);
               concealRef.current = null;
               lateMarker = null; // the marker came through the gate: nothing to watch for
+              dropRestoredEnd();
               const rest = c.buf.slice(idx + BOOT_MARKER.length);
               // A restored pane needs nothing more here: its replay ended
               // with all of the history sealed into scrollback
@@ -2180,6 +2210,9 @@ function TerminalPane({
         // serial tabs and for tabs that launch their own app via startCommands.
         // Detects zsh/bash at runtime. Windows shells keep their default.
         const isWindowsUA = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
+        // A pane with start commands has no boot gate and prints no boot
+        // marker: nothing will ever ask for the end marker.
+        if (cmdsAtSpawn.length !== 0) dropRestoredEnd();
         if (!connection && !serial && cmdsAtSpawn.length === 0 && entryLive() && ptyId) {
           // Arm the boot-conceal gate BEFORE the shell's first output: the pane
           // stays clean (restored tabs: just the replayed scrollback) instead of

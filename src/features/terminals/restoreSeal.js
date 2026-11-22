@@ -108,11 +108,23 @@ const guarded = (fn, bail) => () => {
 // The push: cursor to the last row, then one line feed per used row. A line
 // feed on the bottom row of a full-screen scroll region moves the top row into
 // scrollback, so exactly the used rows leave and no blank line is added.
+//
+// Then it looks again. xterm parses in time slices, and a resize can land
+// between the measure and the push: a taller terminal pulls scrollback rows
+// back down, more rows than were measured are on screen, and the push leaves
+// some behind for the next clear to erase. So the seal's own callback measures
+// once more and seals again until the screen is empty (a few passes at most;
+// when nothing moved, the second look costs no write).
+const SEAL_PASSES = 4;
 export function sealScreen(term, done) {
-  const measureAndSeal = guarded(() => {
-    term.write(SEAL_RESET + TO_LAST_ROW + LF.repeat(lastUsedRow(term) + 1) + HOME, done);
+  let passes = 0;
+  const pass = guarded(() => {
+    const used = lastUsedRow(term) + 1;
+    if (passes > 0 && (used === 0 || passes >= SEAL_PASSES)) { done(); return; }
+    passes += 1;
+    term.write(SEAL_RESET + TO_LAST_ROW + LF.repeat(used) + HOME, pass);
   }, done);
-  try { term.write("", measureAndSeal); } catch { done(); }
+  try { term.write("", pass); } catch { done(); }
 }
 
 // Replays a saved history into `term`: every session in order, a seal at each
@@ -166,12 +178,19 @@ export function replaySaved(term, saved, isLive = () => true, endLine = "") {
 //
 // `endMarker` is an xterm marker on the history's last line (the end line
 // replaySaved wrote). Returns the bytes that move exactly the history rows
-// that are back on screen into scrollback again, or "" when none are. Written
-// right before the clear; the cursor is saved and restored around it (xterm
-// restores it onto the same line of text, which has moved up with the push).
+// that are back on screen into scrollback again, or "" when none are. Call it
+// from an xterm write callback, when everything received so far has been
+// parsed, and write the result at once: output still waiting to be parsed
+// scrolls history up by itself, and a count taken earlier would push banner
+// rows up with it. The cursor is put back on the line of text it was on (that
+// line has moved up with the push), by position, not by save and restore: the
+// shell may have a saved cursor of its own.
 export function pushBackHistory(term, endMarker) {
   if (!endMarker || endMarker.isDisposed || endMarker.line < 0) return "";
-  const onScreen = endMarker.line - term.buffer.normal.baseY + 1;
+  const buf = term.buffer.normal;
+  const onScreen = Math.min(endMarker.line - buf.baseY + 1, term.rows);
   if (onScreen <= 0) return "";
-  return ESC + "7" + TO_LAST_ROW + LF.repeat(Math.min(onScreen, term.rows)) + ESC + "8";
+  const row = Math.max(buf.cursorY - onScreen, 0) + 1;
+  const col = Math.min(buf.cursorX, term.cols - 1) + 1;
+  return TO_LAST_ROW + LF.repeat(onScreen) + CSI + row + ";" + col + "H";
 }

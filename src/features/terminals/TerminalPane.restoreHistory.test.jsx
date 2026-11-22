@@ -425,27 +425,64 @@ describe("the new shell's start cannot erase restored history", () => {
     expect(shown[1]).toBe("NEXT-LINE");
   });
 
-  test("a slow shell whose banner fills the screen, then a taller reveal, then the late marker (split in two): history survives the clear", async () => {
+  // A shell slower than the gate's 4 s fallback: its banner (24 rows here, a
+  // full screen) is shown, the cursor ends on the last row, and a taller
+  // terminal then pulls the newest history rows back on screen, where the
+  // clear after the late marker would erase them.
+  async function slowShellThenReveal(heldByTheGate) {
     let hist = "";
     for (let i = 0; i < 30; i++) hist += `hist ${i}\r\n`;
     const { term } = await mountRestored({ saved: hist });
     await displayLineTyped();
-    // 24 rows of banner and echoed setup, held by the gate.
-    fire(Array.from({ length: 24 }, (_, i) => `slow banner ${i}`).join("\r\n"));
-    await wait(4300); // past the 4 s fallback: the gate gives up and shows what it held
+    fire(heldByTheGate);
+    await wait(4300); // past the fallback: the gate gives up and shows what it held
     await parsed(term);
     expect(count(term, "slow banner 23")).toBe(1);
-    // The banner filled the screen, so the cursor is on the last row: a taller
-    // terminal now pulls the newest history rows back on screen.
     term.resize(80, 45);
     await parsed(term);
     expect(screen(term).some((l) => l.includes(RESTORED_LINE))).toBe(true);
-    fire(BOOT_MARKER.slice(0, 11));
-    fire(BOOT_MARKER.slice(11) + `${E}[2J${E}[H${PROMPT}`);
-    await parsed(term);
+    return term;
+  }
+  const BANNER = Array.from({ length: 24 }, (_, i) => `slow banner ${i}`).join("\r\n");
+  const historyIntact = (term) => {
     for (let i = 0; i < 30; i++) expect(exact(term, `hist ${i}`)).toBe(1);
     expect(count(term, RESTORED_LINE)).toBe(1);
+  };
+
+  test("a slow shell, a taller reveal, then the late marker in three pieces (the first one held by the gate): history survives the clear", async () => {
+    const term = await slowShellThenReveal(BANNER + BOOT_MARKER.slice(0, 7));
+    fire(BOOT_MARKER.slice(7, 13));
+    fire(BOOT_MARKER.slice(13) + `${E}[2J${E}[H${PROMPT}`);
+    await parsed(term);
+    await parsed(term);
+    historyIntact(term);
     expect(screen(term)[0].trimEnd()).toBe(PROMPT.trimEnd());
+  }, 15000);
+
+  test("a slow shell whose late marker comes behind more banner in the same chunk: history survives, no banner is pushed up with it, later output keeps its order", async () => {
+    const term = await slowShellThenReveal(BANNER);
+    const more = Array.from({ length: 30 }, (_, i) => `late banner ${i}`).join("\r\n");
+    // Same tick: thirty more banner lines, the marker and the clear in one
+    // chunk, then two more chunks before xterm has parsed anything. The thirty
+    // lines scroll the history off by themselves, so nothing needs pushing by
+    // the time the marker is parsed.
+    act(() => {
+      const cb = h.listeners.get("pty://pty-1");
+      cb({ payload: `\r\n${more}${BOOT_MARKER}${E}[2J${E}[H${PROMPT}first` });
+      cb({ payload: " second" });
+      cb({ payload: "\r\nNEXT-LINE" });
+    });
+    await parsed(term);
+    await parsed(term);
+    await parsed(term);
+    historyIntact(term);
+    const shown = screen(term);
+    expect(shown[0]).toBe(`${PROMPT}first second`);
+    expect(shown[1]).toBe("NEXT-LINE");
+    // Rows that were on screen at the clear are gone (a push counted before
+    // the chunk was parsed would have moved them into scrollback).
+    expect(count(term, "slow banner 23")).toBe(0);
+    expect(count(term, "late banner 29")).toBe(0);
   }, 15000);
 
   test("a restored pane with start commands (no boot gate): ConPTY's first frame does not erase the last screen", async () => {
