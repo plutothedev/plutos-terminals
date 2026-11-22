@@ -628,11 +628,13 @@ describe("replaySaved at the recorded size", () => {
   test("a session saved without a size replays at the terminal's own size, not at the last one recorded", async () => {
     const sized = SIZE(104, 49) + CLEAR_HOME + "SIZED-OUT";
     const unsized = CLEAR_HOME + "UNSIZED-OUT";
+    const later = SIZE(90, 30) + CLEAR_HOME + "LATER-OUT";
     const t = term(24, 80);
     const sizes = countingResizes(t);
-    await replaySaved(t, sized + SESSION_SENTINEL + unsized, () => true, END);
-    expect(sizes).toEqual([[104, 49], [80, 24]]);
-    once(t, ["SIZED-OUT", "UNSIZED-OUT", END]);
+    await replaySaved(t, sized + SESSION_SENTINEL + unsized + SESSION_SENTINEL + later, () => true, END);
+    // Back to 80 x 24 for the unsized session in the middle, not only at the end.
+    expect(sizes).toEqual([[104, 49], [80, 24], [90, 30], [80, 24]]);
+    once(t, ["SIZED-OUT", "UNSIZED-OUT", "LATER-OUT", END]);
   });
 
   test("size marks with nothing between them (a window being dragged) cost one resize", async () => {
