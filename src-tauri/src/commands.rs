@@ -1275,6 +1275,92 @@ fn rotation_raced(held: &fs::File, path: &std::path::Path) -> bool {
 /// before it (restoreSeal.js). SSH and serial sessions never write it.
 pub(crate) const SCROLLBACK_SESSION_SENTINEL: &[u8] = b"\x1b]1337;PlutoSession=1\x07";
 
+/// Start of a size mark: `ESC]1337;PlutoSize=<cols>;<rows> BEL`, written into
+/// a LOCAL pane's saved scrollback right after each session mark and before
+/// every resize of that PTY (pty.rs, `ScrollbackWriter::mark_size`). On Windows
+/// every resize makes ConPTY repaint its whole view, one line per row, and each
+/// paint is in the file; a paint recorded for a taller window scrolls when it
+/// is replayed into a shorter terminal and its lines then show up twice. With
+/// the size in the stream the renderer replays each part at its own size
+/// (restoreSeal.js). An OSC xterm ignores, like the session mark.
+pub(crate) const SCROLLBACK_SIZE_MARK_PREFIX: &[u8] = b"\x1b]1337;PlutoSize=";
+
+/// The whole size mark for `cols` x `rows`.
+pub(crate) fn scrollback_size_mark(cols: u16, rows: u16) -> Vec<u8> {
+    let mut mark = SCROLLBACK_SIZE_MARK_PREFIX.to_vec();
+    mark.extend_from_slice(format!("{cols};{rows}").as_bytes());
+    mark.push(0x07);
+    mark
+}
+
+/// The last complete size mark in `bytes`, if any. Used wherever the loader
+/// removes bytes from the front of what it returns (boot noise, a cut): the
+/// size in effect at the first kept byte is the last one recorded before it.
+fn last_size_mark(bytes: &[u8]) -> Option<&[u8]> {
+    let prefix = SCROLLBACK_SIZE_MARK_PREFIX;
+    if bytes.len() < prefix.len() {
+        return None;
+    }
+    let mut search_end = bytes.len();
+    while let Some(at) = bytes[..search_end]
+        .windows(prefix.len())
+        .rposition(|w| w == prefix)
+    {
+        // "65535;65535" is 11 bytes: a mark whose BEL is not within reach is a
+        // mark cut short, so look for an earlier one.
+        let body = &bytes[at + prefix.len()..];
+        if let Some(len) = body.iter().take(12).position(|&b| b == 0x07) {
+            return Some(&bytes[at..at + prefix.len() + len + 1]);
+        }
+        search_end = at;
+    }
+    None
+}
+
+/// The size in force at the end of `removed`, for bytes that are being cut off
+/// the front of a tail: the last size mark in them, unless a session mark
+/// follows it. A later session with no size mark of its own was saved by an
+/// older build, and an earlier session's size says nothing about it.
+fn size_in_force(removed: &[u8]) -> Option<&[u8]> {
+    let size = last_size_mark(removed)?;
+    let after = size.as_ptr() as usize - removed.as_ptr() as usize + size.len();
+    if find_bytes(&removed[after..], SCROLLBACK_SESSION_SENTINEL).is_some() {
+        return None;
+    }
+    Some(size)
+}
+
+/// `bytes` without the app's size marks. The marks are written between two
+/// chunks of output, and a chunk can end in the middle of an escape sequence;
+/// the desktop replay splits the stream at each mark, but a consumer that
+/// feeds the tail to a terminal in one piece (the phone page) would have that
+/// sequence broken. Session marks are left in: they only ever sit at the start
+/// of a session's output.
+fn strip_size_marks(bytes: Vec<u8>) -> Vec<u8> {
+    let prefix = SCROLLBACK_SIZE_MARK_PREFIX;
+    if find_bytes(&bytes, prefix).is_none() {
+        return bytes;
+    }
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut rest = &bytes[..];
+    while let Some(at) = find_bytes(rest, prefix) {
+        let body = &rest[at + prefix.len()..];
+        match body.iter().take(12).position(|&b| b == 0x07) {
+            Some(len) => {
+                out.extend_from_slice(&rest[..at]);
+                rest = &body[len + 1..];
+            }
+            None => {
+                // Not a whole mark: keep the bytes and look further on.
+                out.extend_from_slice(&rest[..at + prefix.len()]);
+                rest = body;
+            }
+        }
+    }
+    out.extend_from_slice(rest);
+    out
+}
+
 /// What a local shell's display line prints right before its clear
 /// (TerminalPane.jsx `BOOT_MARKER`). Live, the renderer hides everything a new
 /// shell prints before this mark: the banner and the echoed setup lines.
@@ -1315,7 +1401,16 @@ fn drop_boot_noise(buf: Vec<u8>) -> Vec<u8> {
             .min(SCROLLBACK_BOOT_NOISE_MAX + SCROLLBACK_BOOT_MARKER.len());
         out.extend_from_slice(mark);
         match find_bytes(&session[..window_len], SCROLLBACK_BOOT_MARKER) {
-            Some(i) => out.extend_from_slice(&session[i + SCROLLBACK_BOOT_MARKER.len()..]),
+            Some(i) => {
+                // The size mark written at the session's start sits in the
+                // noise (and the pane can be resized while its shell boots):
+                // the last one before the boot marker is the size the kept
+                // output was produced at.
+                if let Some(size) = last_size_mark(&session[..i]) {
+                    out.extend_from_slice(size);
+                }
+                out.extend_from_slice(&session[i + SCROLLBACK_BOOT_MARKER.len()..]);
+            }
             None => out.extend_from_slice(session),
         }
         rest = &body[end..];
@@ -1405,11 +1500,12 @@ fn lossy(bytes: Vec<u8>) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-/// The replay tail exactly as saved: what SSH and serial panes and the phone
-/// companion get. No session marks are looked for and nothing is dropped,
-/// whatever the far end printed.
+/// The replay tail as saved, without the app's size marks: what SSH and serial
+/// panes and the phone companion get. No session marks are looked for, no
+/// output is dropped, whatever the far end printed. (SSH and serial files hold
+/// no size marks; a local pane's file, read by the phone, does.)
 fn scrollback_tail(current: &std::path::Path, old: &std::path::Path, cap: usize) -> Option<String> {
-    scrollback_tail_bytes(current, old, cap).map(|(bytes, _)| lossy(bytes))
+    scrollback_tail_bytes(current, old, cap).map(|(bytes, _)| lossy(strip_size_marks(bytes)))
 }
 
 /// How much further back than the replay cap the loader may read for a local
@@ -1446,8 +1542,10 @@ fn scrollback_tail_sessions(
     let mut window = cap;
     loop {
         let (raw, more) = scrollback_tail_bytes(current, old, window)?;
+        let raw_len = raw.len();
         let Some(first_mark) = find_bytes(&raw, SCROLLBACK_SESSION_SENTINEL) else {
-            return Some(lossy(trim_to_cap(raw, cap)));
+            let out = trim_to_cap_sized(raw, cap);
+            return Some(lossy(with_start_size(out, more, raw_len, current, old, cap)));
         };
         // The head: bytes before the first mark, a session cut by the window.
         // A boot marker in it (within the gate's own bound) means the window
@@ -1467,21 +1565,88 @@ fn scrollback_tail_sessions(
         // back just to make up for the few KB of noise that was dropped.
         if !more || window >= max_window || kept.len() - uncounted >= cap - cap / 4 {
             if let Some(end) = head_noise_end {
+                let size = last_size_mark(&kept[..end]).map(<[u8]>::to_vec);
                 kept.drain(..end);
+                if let Some(size) = size {
+                    kept.splice(0..0, size);
+                }
             }
-            return Some(lossy(trim_to_cap(kept, cap)));
+            let out = trim_to_cap_sized(kept, cap);
+            return Some(lossy(with_start_size(out, more, raw_len, current, old, cap)));
+        }
+        window = window.saturating_mul(4).min(max_window);
+    }
+}
+
+/// Gives a tail that starts inside a session the size its first bytes were
+/// recorded at. Needed only when the tail was cut from a longer file (`more`),
+/// does not already start at a session mark or a size mark, and holds a size
+/// mark further on: then a resize follows, and its repaint would repeat what
+/// comes before it if that part replayed at the wrong size. Without a later
+/// size mark there is no resize in the tail and nothing to get wrong, so older
+/// files and sessions that were never resized cost no extra read.
+fn with_start_size(
+    mut out: Vec<u8>,
+    more: bool,
+    window_len: usize,
+    current: &std::path::Path,
+    old: &std::path::Path,
+    cap: usize,
+) -> Vec<u8> {
+    let size = SCROLLBACK_SIZE_MARK_PREFIX;
+    let starts_known = out.starts_with(size) || out.starts_with(SCROLLBACK_SESSION_SENTINEL);
+    if more && !starts_known && find_bytes(&out, size).is_some() {
+        if let Some(mark) = size_before_window(current, old, window_len, cap) {
+            out.splice(0..0, mark);
+        }
+    }
+    out
+}
+
+/// The last size mark recorded before the last `window_len` bytes of the saved
+/// data: read further back (x4 per step, up to the same ceiling as the replay
+/// window) until one is found or the data ends. Every session starts with one,
+/// so the search ends at the start of the session the window was cut from.
+fn size_before_window(
+    current: &std::path::Path,
+    old: &std::path::Path,
+    window_len: usize,
+    cap: usize,
+) -> Option<Vec<u8>> {
+    let max_window = cap.saturating_mul(SCROLLBACK_RAW_WINDOW_FACTOR).max(window_len);
+    let mut window = window_len.saturating_mul(4).min(max_window);
+    loop {
+        let (raw, more) = scrollback_tail_bytes(current, old, window)?;
+        let before = &raw[..raw.len().saturating_sub(window_len)];
+        if let Some(mark) = size_in_force(before) {
+            return Some(mark.to_vec());
+        }
+        if find_bytes(before, SCROLLBACK_SESSION_SENTINEL).is_some() {
+            // The session the tail was cut from starts here and recorded no
+            // size (an older build's session): there is none to find.
+            return None;
+        }
+        if !more || window >= max_window {
+            return None;
         }
         window = window.saturating_mul(4).min(max_window);
     }
 }
 
 /// The last `cap` bytes, starting at a line boundary when anything was cut.
-fn trim_to_cap(bytes: Vec<u8>, cap: usize) -> Vec<u8> {
+/// When bytes are cut off the front, the last size mark among them is put back
+/// in front of what is kept, so the first kept bytes replay at the size they
+/// were recorded at. The result can be one mark (at most 30 bytes) over `cap`.
+fn trim_to_cap_sized(bytes: Vec<u8>, cap: usize) -> Vec<u8> {
     if bytes.len() <= cap {
         return bytes;
     }
     let cut = bytes.len() - cap;
-    align_forward(bytes[cut..].to_vec(), true)
+    let kept = align_forward(bytes[cut..].to_vec(), true);
+    match size_in_force(&bytes[..bytes.len() - kept.len()]) {
+        Some(size) => [size, &kept[..]].concat(),
+        None => kept,
+    }
 }
 
 /// Sync core for direct in-process callers (the phone companion dispatches on
@@ -3873,6 +4038,229 @@ mod scrollback_tail_tests {
         assert!(out.ends_with("out B 299\n"));
         // One read was enough: nothing older than the window came back.
         assert!(!out.contains("older output"));
+    }
+
+    // ── size marks (v0.7.7) ──────────────────────────────────────────────────
+
+    fn size(cols: u16, rows: u16) -> Vec<u8> {
+        scrollback_size_mark(cols, rows)
+    }
+
+    #[test]
+    fn the_size_mark_is_the_exact_bytes_the_renderer_parses() {
+        // restoreSeal.js SIZE_MARK_START and its `cols;rows` body.
+        let mut want = vec![0x1b];
+        want.extend_from_slice(b"]1337;PlutoSize=104;49");
+        want.push(0x07);
+        assert_eq!(size(104, 49), want);
+    }
+
+    #[test]
+    fn last_size_mark_finds_the_last_complete_one() {
+        let data = cat(&[b"a", &size(80, 24), b"b", &size(104, 49), b"c"]);
+        assert_eq!(last_size_mark(&data), Some(&size(104, 49)[..]));
+        assert_eq!(last_size_mark(b"no marks here"), None);
+        // A mark cut short at the end is skipped for the one before it.
+        let cut = cat(&[&size(80, 24), b"text", &size(104, 49)[..size(104, 49).len() - 3]]);
+        assert_eq!(last_size_mark(&cut), Some(&size(80, 24)[..]));
+        // A prefix with no BEL within reach is not a mark.
+        let junk = cat(&[SCROLLBACK_SIZE_MARK_PREFIX, b"1234567890123456789"]);
+        assert_eq!(last_size_mark(&junk), None);
+    }
+
+    #[test]
+    fn dropped_boot_noise_leaves_the_last_size_mark_behind() {
+        // The session-start size mark sits in the noise; a resize during boot
+        // adds another. The output after the boot marker was produced at the
+        // last of them.
+        let data = cat(&[
+            b"older\n",
+            &mark(),
+            &size(80, 24),
+            b"banner",
+            &size(83, 36),
+            b"echoed setup",
+            &boot(),
+            b"out A\n",
+            &size(104, 49),
+            b"paint\n",
+            &mark(),
+            &size(83, 36),
+            b"n",
+            &boot(),
+            b"out B\n",
+        ]);
+        let want = cat(&[
+            b"older\n",
+            &mark(),
+            &size(83, 36),
+            b"out A\n",
+            &size(104, 49),
+            b"paint\n",
+            &mark(),
+            &size(83, 36),
+            b"out B\n",
+        ]);
+        assert_eq!(drop_boot_noise(data), want);
+    }
+
+    #[test]
+    fn a_session_with_no_boot_marker_keeps_its_size_marks_in_place() {
+        let data = cat(&[&mark(), &size(83, 36), b"agent output", &size(104, 49), b"more"]);
+        assert_eq!(drop_boot_noise(data.clone()), data);
+    }
+
+    #[test]
+    fn a_window_cut_inside_noise_keeps_the_size_that_noise_recorded() {
+        let (cur, old) = tmp_pair("size-head-noise");
+        let mut noise = Vec::new();
+        for k in 0..40 {
+            noise.extend_from_slice(format!("NOISE {k}\n").as_bytes());
+        }
+        let mut out_b = Vec::new();
+        for i in 0..300 {
+            out_b.extend_from_slice(format!("out B {i}\n").as_bytes());
+        }
+        // Session A: mark, size, half the noise, a resize, the other half, boot, output.
+        let half = noise.len() / 2;
+        let tail = cat(&[b"out A 1\nout A 2\n", &mark(), &size(83, 36), &noise, &boot(), &out_b]);
+        let data = cat(&[
+            b"older output\n",
+            &mark(),
+            &size(80, 24),
+            &noise[..half],
+            &size(120, 40),
+            &noise[half..],
+            &boot(),
+            &tail,
+        ]);
+        fs::write(&cur, &data).unwrap();
+        // The window starts inside the first half of session A's noise.
+        let cap = tail.len() + boot().len() + noise.len() - half + size(120, 40).len() + half / 2;
+        let (raw, more) = scrollback_tail_bytes(&cur, &old, cap).unwrap();
+        assert!(more && raw.starts_with(b"NOISE "));
+        let out = scrollback_tail_sessions(&cur, &old, cap).unwrap();
+        assert!(!out.contains("NOISE"));
+        let s = |c, r| String::from_utf8(size(c, r)).unwrap();
+        let m = String::from_utf8(mark()).unwrap();
+        // Session A's output comes back behind the size its noise ended at.
+        assert!(
+            out.starts_with(&format!("{}out A 1\nout A 2\n{m}{}out B 0\n", s(120, 40), s(83, 36))),
+            "got: {:?}",
+            &out[..out.len().min(120)]
+        );
+    }
+
+    #[test]
+    fn a_tail_cut_from_one_long_session_gets_the_size_recorded_before_it() {
+        // One long session: its size, far more output than the budget, then a
+        // resize near the end. The 4 KB tail holds the late resize but not the
+        // session's first size, which is looked up further back.
+        let (cur, old) = tmp_pair("size-cut");
+        let mut data = cat(&[&mark(), &size(104, 49)]);
+        for i in 0..2000 {
+            data.extend_from_slice(format!("line {i}\n").as_bytes());
+        }
+        data.extend_from_slice(&size(83, 36));
+        data.extend_from_slice(b"repaint\n");
+        fs::write(&cur, &data).unwrap();
+        let cap = 4096;
+        let out = scrollback_tail_sessions(&cur, &old, cap).unwrap();
+        let s = String::from_utf8(size(104, 49)).unwrap();
+        assert!(out.starts_with(&format!("{s}line ")), "starts with the size in effect: {:?}", &out[..40]);
+        assert!(out.ends_with(&format!("{}repaint\n", String::from_utf8(size(83, 36)).unwrap())));
+        assert!(out.len() <= cap + s.len());
+    }
+
+    #[test]
+    fn a_tail_with_no_resize_in_it_is_returned_without_looking_back() {
+        // Nothing in the tail changes size, so the size before it cannot
+        // matter: the result is the plain tail (older files load as before).
+        let (cur, old) = tmp_pair("size-none-later");
+        let mut data = cat(&[&mark(), &size(104, 49)]);
+        for i in 0..2000 {
+            data.extend_from_slice(format!("line {i}\n").as_bytes());
+        }
+        fs::write(&cur, &data).unwrap();
+        let cap = 4096;
+        assert_eq!(
+            scrollback_tail_sessions(&cur, &old, cap),
+            scrollback_tail(&cur, &old, cap)
+        );
+    }
+
+    #[test]
+    fn a_cut_inside_the_window_carries_the_last_size_mark_forward() {
+        // The whole file is read (it is small), the kept bytes exceed the
+        // budget, and the cut removes the session's marks: the last size among
+        // the removed bytes is put back in front.
+        let (cur, old) = tmp_pair("size-trim");
+        let mut data = cat(&[&mark(), &size(80, 24), b"start\n", &size(104, 49)]);
+        for i in 0..400 {
+            data.extend_from_slice(format!("line {i}\n").as_bytes());
+        }
+        let total = data.len();
+        fs::write(&cur, &data).unwrap();
+        let cap = total - 200; // more than three quarters, less than everything
+        let out = scrollback_tail_sessions(&cur, &old, total).unwrap();
+        assert_eq!(out.as_bytes(), &data[..], "a budget that fits everything changes nothing");
+        let out = trim_to_cap_sized(data.clone(), cap);
+        let s = size(104, 49);
+        assert!(out.starts_with(&s), "the size in effect at the cut");
+        assert!(out.ends_with(b"line 399\n"));
+        assert!(!out[s.len()..].starts_with(&mark()));
+    }
+
+    #[test]
+    fn the_raw_tail_has_the_size_marks_taken_out_and_nothing_else() {
+        // The phone reads a local pane's file through the raw path and feeds
+        // it to a terminal in one piece. A size mark can sit in the middle of
+        // an escape sequence (here a colour), which would break it.
+        let (cur, old) = tmp_pair("size-raw");
+        let data = cat(&[
+            &mark(),
+            &size(83, 36),
+            b"noise",
+            &boot(),
+            b"out ",
+            &[0x1b],
+            b"[38;5;",
+            &size(104, 49),
+            b"196mred\n",
+        ]);
+        fs::write(&cur, &data).unwrap();
+        let want = cat(&[&mark(), b"noise", &boot(), b"out ", &[0x1b], b"[38;5;196mred\n"]);
+        assert_eq!(scrollback_tail(&cur, &old, 256 * 1024).unwrap().as_bytes(), &want[..]);
+    }
+
+    #[test]
+    fn strip_size_marks_leaves_everything_that_is_not_a_whole_mark() {
+        let no_marks = b"plain output, no marks".to_vec();
+        assert_eq!(strip_size_marks(no_marks.clone()), no_marks);
+        // A prefix that never ends is output, not a mark.
+        let cut = cat(&[b"a", SCROLLBACK_SIZE_MARK_PREFIX, b"1234567890123456", &size(80, 24), b"b"]);
+        let want = cat(&[b"a", SCROLLBACK_SIZE_MARK_PREFIX, b"1234567890123456", b"b"]);
+        assert_eq!(strip_size_marks(cut), want);
+        assert_eq!(strip_size_marks(cat(&[&size(1, 2), &size(3, 4)])), b"");
+    }
+
+    #[test]
+    fn a_size_is_not_carried_into_a_later_session_that_recorded_none() {
+        // [sized session][mark][a session from an older build: no size]. The
+        // cut removes both starts; the older session's bytes must not get the
+        // first session's size.
+        let mut data = cat(&[&mark(), &size(104, 49), b"sized output\n", &mark()]);
+        for i in 0..400 {
+            data.extend_from_slice(format!("old line {i}\n").as_bytes());
+        }
+        let out = trim_to_cap_sized(data.clone(), 1000);
+        assert!(out.starts_with(b"old line "), "no size mark put in front: {:?}", &out[..30]);
+        // With no session mark in between, the size is carried.
+        let mut one = cat(&[&mark(), &size(104, 49)]);
+        for i in 0..400 {
+            one.extend_from_slice(format!("line {i}\n").as_bytes());
+        }
+        assert!(trim_to_cap_sized(one, 1000).starts_with(&size(104, 49)));
     }
 
     #[test]

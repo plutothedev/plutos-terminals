@@ -482,3 +482,218 @@ describe("pushBackHistory", () => {
     expect(pushBackHistory(t, marker)).toBe("");
   });
 });
+
+// ── replay at the size each part was recorded at ─────────────────────────────
+//
+// On Windows every resize makes ConPTY repaint its whole view, and each paint
+// is in the saved file. The shapes below are the ones read from real captures
+// of the app (v0.7.7 live check, 2026-11-22): a paint is "hide cursor, home,
+// then exactly `rows` lines each ending in erase-to-end-of-line, CR LF between
+// them, then a cursor position and show cursor". A paint recorded for a taller
+// window scrolls when it is replayed into a shorter terminal, and the block
+// then shows up twice. The saved stream now carries the size
+// (ESC]1337;PlutoSize=<cols>;<rows> BEL) and the replay resizes to it.
+describe("replaySaved at the recorded size", () => {
+  const BEL = String.fromCharCode(7);
+  const SIZE = (cols, rows) => `${ESC}]1337;PlutoSize=${cols};${rows}${BEL}`;
+  const END = "--- restored ---";
+  const WINDOWS = { windowsPty: { backend: "conpty", buildNumber: 22631 } };
+  const term = (rows, cols, extra = {}) => new Terminal({
+    rows, cols, scrollback: 1000, allowProposedApi: true, cursorBlink: true, cursorStyle: "bar", ...extra,
+  });
+  // ConPTY's repaint of a view `rows` tall whose first rows hold `lines`.
+  const paint = (lines, rows) => `${CSI}?25l${CSI}H` +
+    Array.from({ length: rows }, (_, i) => (lines[i] || "") + `${CSI}K`).join("\r\n") +
+    `${CSI}${lines.length};3H${CSI}?25h`;
+  const once = (t, wanted) => {
+    const lines = all(t);
+    for (const w of wanted) expect([w, lines.filter((l) => l === w).length]).toEqual([w, 1]);
+  };
+  const five = [1, 2, 3, 4, 5].map((i) => `OUT-${i}`);
+  // A short session: five lines typed out, then the window made taller and
+  // put back, twice. ConPTY repaints on each of the four resizes.
+  const view = ["PS> run", ...five, "PS> "];
+  const resized = SIZE(83, 36) + CLEAR_HOME + view.join("\r\n") +
+    SIZE(104, 49) + paint(view, 49) + SIZE(83, 36) + paint(view, 36) +
+    SIZE(104, 49) + paint(view, 49) + SIZE(83, 36) + paint(view, 36);
+
+  test("the control: replayed at one size, a resized session repeats its lines", async () => {
+    // The same bytes without the size marks, as every build before this one
+    // replayed them.
+    const t = term(36, 83);
+    // Every BEL in this fixture ends a size mark: cut each piece at its mark.
+    const noSizeMarks = resized.split(BEL).map((piece) => {
+      const at = piece.indexOf(`${ESC}]1337;PlutoSize=`);
+      return at < 0 ? piece : piece.slice(0, at);
+    }).join("");
+    expect(noSizeMarks).not.toContain("PlutoSize");
+    expect(noSizeMarks).toContain("OUT-3");
+    await replaySaved(t, noSizeMarks, () => true, END);
+    expect(all(t).filter((l) => l === "OUT-3").length).toBeGreaterThan(1);
+  });
+
+  test("a resized session comes back with every line once, in a terminal of the pane's size", async () => {
+    const t = term(36, 83);
+    await replaySaved(t, resized, () => true, END);
+    once(t, [...five, "PS> run", END]);
+    expect(blankScreen(t)).toBe(true);
+  });
+
+  test("and in a background tab's 80 x 24 terminal", async () => {
+    const t = term(24, 80);
+    await replaySaved(t, resized, () => true, END);
+    once(t, [...five, "PS> run", END]);
+  });
+
+  test("the terminal is back at its own size when the replay is done", async () => {
+    const t = term(24, 80);
+    await replaySaved(t, resized, () => true, END);
+    expect([t.cols, t.rows]).toEqual([80, 24]);
+    expect(blankScreen(t)).toBe(true);
+    expect(t.buffer.active.cursorY).toBe(0);
+  });
+
+  test("several sessions, each resized: every line of each once", async () => {
+    const session = (tag) => {
+      const v = [`PS> ${tag}`, `${tag}-A`, `${tag}-B`, "PS> "];
+      return SIZE(83, 36) + CLEAR_HOME + v.join("\r\n") + SIZE(104, 49) + paint(v, 49) + SIZE(83, 36) + paint(v, 36);
+    };
+    const t = term(24, 80);
+    await replaySaved(t, SESSION_SENTINEL + session("S1") + SESSION_SENTINEL + session("S2") + SESSION_SENTINEL + session("S3"), () => true, END);
+    once(t, ["S1-A", "S1-B", "S2-A", "S2-B", "S3-A", "S3-B", END]);
+    const at = (s) => all(t).indexOf(s);
+    expect(at("S1-B")).toBeLessThan(at("S2-A"));
+    expect(at("S2-B")).toBeLessThan(at("S3-A"));
+  });
+
+  // A full screen, then a taller window. ConPTY keeps its text at the top and
+  // adds blank rows below it (capture: 60 lines on 36 rows, repaint for 49 rows
+  // = lines 26 to 60, the prompt, 13 blank rows).
+  const sixty = Array.from({ length: 60 }, (_, i) => `ROW-${i + 1}`);
+  const tail = [...sixty.slice(25), "PS> "]; // what a 36-row screen shows: rows 26 to 60 and the prompt
+  const fullThenTaller = SIZE(83, 36) + CLEAR_HOME + sixty.join("\r\n") + "\r\nPS> " +
+    SIZE(104, 49) + paint(tail, 49) + SIZE(83, 36) + paint(tail, 36);
+
+  test("a full screen made taller: with xterm's Windows mode no row is lost at replay", async () => {
+    const t = term(36, 83, WINDOWS);
+    await replaySaved(t, fullThenTaller, () => true, END);
+    once(t, [...sixty, END]);
+  });
+
+  test("the same replay on xterm's default mode: rows the taller resize pulls down are pushed back before the repaint", async () => {
+    // Off Windows, or for a terminal not in ConPTY mode, xterm pulls scrollback
+    // rows down on a taller resize; the recorded repaint would overwrite them.
+    const t = term(36, 83);
+    await replaySaved(t, fullThenTaller, () => true, END);
+    once(t, [...sixty, END]);
+  });
+
+  test("live, not replay: a full screen made taller keeps every row with the Windows mode", async () => {
+    const t = term(36, 83, WINDOWS);
+    await write(t, sixty.join("\r\n") + "\r\nPS> ");
+    t.resize(104, 49);
+    await write(t, paint(tail, 49));
+    once(t, sixty);
+    const plain = term(36, 83);
+    await write(plain, sixty.join("\r\n") + "\r\nPS> ");
+    plain.resize(104, 49);
+    await write(plain, paint(tail, 49));
+    expect(sixty.filter((r) => !all(plain).includes(r)).length).toBeGreaterThan(0); // the bug this mode fixes
+  });
+
+  // Counts the resizes a replay makes.
+  const countingResizes = (t) => {
+    const sizes = [];
+    const real = t.resize.bind(t);
+    t.resize = (cols, rows) => { sizes.push([cols, rows]); real(cols, rows); };
+    return sizes;
+  };
+
+  test("a wider window with a wrapped line on screen: the session before it loses nothing", async () => {
+    // Making the terminal wider turns a wrapped line into one row, which frees
+    // a row, and xterm fills it by pulling the newest scrollback row down:
+    // here the last line of the session before. The repaint that follows in
+    // the stream would be drawn over it. (Windows mode does not change this.)
+    const long = "x".repeat(110);
+    const first = SIZE(83, 36) + CLEAR_HOME + ["PS> one", "S1-FIRST", "S1-LAST"].join("\r\n");
+    const viewWide = [`PS> ${long}`, "S2-OUT", "PS> "];
+    const second = SIZE(83, 36) + CLEAR_HOME + `PS> ${long}\r\nS2-OUT\r\nPS> ` + SIZE(124, 49) + paint(viewWide, 49);
+    for (const extra of [{}, WINDOWS]) {
+      const t = term(36, 83, extra);
+      await replaySaved(t, first + SESSION_SENTINEL + second, () => true, END);
+      once(t, ["S1-FIRST", "S1-LAST", "S2-OUT", END]);
+    }
+  });
+
+  test("a session saved without a size replays at the terminal's own size, not at the last one recorded", async () => {
+    const sized = SIZE(104, 49) + CLEAR_HOME + "SIZED-OUT";
+    const unsized = CLEAR_HOME + "UNSIZED-OUT";
+    const t = term(24, 80);
+    const sizes = countingResizes(t);
+    await replaySaved(t, sized + SESSION_SENTINEL + unsized, () => true, END);
+    expect(sizes).toEqual([[104, 49], [80, 24]]);
+    once(t, ["SIZED-OUT", "UNSIZED-OUT", END]);
+  });
+
+  test("size marks with nothing between them (a window being dragged) cost one resize", async () => {
+    const t = term(36, 83);
+    const sizes = countingResizes(t);
+    let drag = "";
+    for (let w = 84; w <= 120; w++) drag += SIZE(w, 36);
+    await replaySaved(t, SIZE(83, 36) + CLEAR_HOME + "before" + drag + paint(["before"], 36), () => true, END);
+    expect(sizes).toEqual([[120, 36], [83, 36]]);
+    once(t, ["before", END]);
+  });
+
+  test("a size mark that falls inside an escape sequence does not break the sequence", async () => {
+    // The mark is written between two chunks of output, and a chunk can end
+    // anywhere: here in the middle of a colour sequence.
+    const t = term(36, 83);
+    await replaySaved(t, SIZE(83, 36) + CLEAR_HOME + `${CSI}38;5;` + SIZE(104, 49) + "196mRED-TEXT", () => true, END);
+    once(t, ["RED-TEXT", END]); // not "196mRED-TEXT"
+  });
+
+  test("size marks that make no sense are ignored, and never reach the terminal", async () => {
+    const t = term(36, 83);
+    const sizes = countingResizes(t);
+    const junk = [
+      "0;0", "99999;99999", ";", "abc;def", "83", "83;36;7", "-5;10", "501;36", "83;301", "9;36", "83;2", "1e2;36",
+    ].map((body) => `${ESC}]1337;PlutoSize=${body}${BEL}`).join("");
+    await replaySaved(t, junk + CLEAR_HOME + "kept line", () => true, END);
+    once(t, ["kept line", END]);
+    expect(sizes).toEqual([]);
+    expect([t.cols, t.rows]).toEqual([83, 36]);
+    // The largest size that is accepted.
+    const big = term(36, 83);
+    const bigSizes = countingResizes(big);
+    await replaySaved(big, SIZE(500, 300) + "x", () => true, END);
+    expect(bigSizes[0]).toEqual([500, 300]);
+  });
+
+  test("text with no size mark replays exactly as before", async () => {
+    const a = term(36, 83);
+    const b = term(36, 83);
+    const text = CLEAR_HOME + view.join("\r\n");
+    await replaySaved(a, text, () => true, END);
+    await write(b, text);
+    expect(history(a)).toEqual([...all(b).filter((l) => l !== ""), END]);
+  });
+
+  test("two hundred width changes over a long history: one resize each, nothing lost", async () => {
+    const t = term(36, 83, { scrollback: 5000 });
+    let saved = SIZE(83, 36);
+    for (let i = 0; i < 3000; i++) saved += `history line ${i}\r\n`;
+    // Each paint redraws the 36 rows on screen (the last 35 history lines and
+    // an empty row), as ConPTY does after a width change.
+    const onScreen = Array.from({ length: 35 }, (_, i) => `history line ${2965 + i}`);
+    for (let i = 0; i < 200; i++) saved += SIZE(83 + ((i + 1) % 2) * 21, 36) + paint(onScreen, 36);
+    const sizes = countingResizes(t);
+    await replaySaved(t, saved, () => true, END);
+    for (const n of [0, 1500, 2964, 2965, 2999]) {
+      expect([n, all(t).filter((l) => l === `history line ${n}`).length]).toEqual([n, 1]);
+    }
+    // 200 recorded changes (the first size is the terminal's own already) and
+    // none added by the replay itself.
+    expect(sizes).toHaveLength(200);
+  });
+});

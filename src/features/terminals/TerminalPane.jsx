@@ -206,6 +206,7 @@ import {
   destroyEntry,
 } from "./paneRegistry.js";
 import { replaySaved, pushBackHistory } from "./restoreSeal.js";
+import { applyConptyMode } from "./conptyMode.js";
 
 // v0.1.25: soft "ding" when a backgrounded agent finishes. Uses Web Audio
 // rather than an mp3 asset so there's nothing to bundle. Two-note ascending
@@ -1032,6 +1033,11 @@ function TerminalPane({
       // its observers, so it happens here instead, and ImageAddon still loads
       // exactly once per terminal lifetime (only on this never-opened path).
       const refitOnly = () => {
+        // A pane moved while its saved history is still replaying: the replay
+        // resizes the terminal to each part's recorded size, and a fit in
+        // between would replay the rest of that part at the wrong size. The
+        // replay calls this again when it is done (entry.onReplayDone).
+        if (entry.replaying) return;
         if (!alive || !container.clientWidth || !container.clientHeight) return;
         const t = entry.term;
         if (!t) return;
@@ -1059,6 +1065,7 @@ function TerminalPane({
         }
         try { entry.fit?.fit(); } catch { /* fit throws while the renderer is not ready; the next resize or reveal refits */ }
       };
+      entry.onReplayDone = refitOnly;
       const vis = new IntersectionObserver((entries) => {
         if (entries.some((en) => en.isIntersecting)) refitOnly();
       });
@@ -1128,6 +1135,10 @@ function TerminalPane({
       // cell in the row. Normal-weight bold pins one metric for everything.
       fontWeightBold: "normal",
     });
+    // A local pane on Windows is fed by ConPTY: xterm gets its Windows mode
+    // (conptyMode.js: without it a full screen made taller loses rows).
+    // Never for SSH or serial panes.
+    if (!connection && !serial) applyConptyMode(term);
     const fit = new FitAddon();
     term.loadAddon(fit);
     // Route link clicks through the app's hardened opener (open_path: no-shell
@@ -1457,6 +1468,11 @@ function TerminalPane({
       try { fit.fit(); } catch { /* fit throws while the renderer is not ready; the next resize or reveal refits */ }
     };
     const openIfVisible = () => {
+      // Not while saved history replays: every resize in the app comes from
+      // the fit addon, and the fit addon does nothing for a terminal that is
+      // not open, so keeping it closed is what keeps the replay's sizes its
+      // own (restoreSeal.js). The spawn body opens it when the replay ends.
+      if (entry.replaying) return;
       if (opened || !alive || !container.clientWidth || !container.clientHeight) return;
       opened = true;
       term.open(entry.host); // registry-owned host — the xterm DOM moves with it across slots
@@ -1507,6 +1523,9 @@ function TerminalPane({
     const replayScrollback = async () => {
       const id = tabIdRef.current;
       if (!id) return false;
+      // Set before the first await: the observer that opens a visible pane
+      // fires within a frame, and it must find this already true.
+      if (!connection && !serial) entry.replaying = true;
       try {
         // `local`: only a local shell's saved file carries session marks, and
         // only then does the loader drop the boot noise that follows them. An
@@ -1551,6 +1570,15 @@ function TerminalPane({
       } catch { /* no saved scrollback, or unreadable: the pane starts fresh */ }
       return false;
     };
+    // The replay is over (or there was none): open the terminal if the pane
+    // is on screen, which also fits it, so the shell below is created at the
+    // pane's real size. A pane moved meanwhile is opened by the fiber that
+    // holds it now.
+    const replayDone = () => {
+      entry.replaying = false;
+      openIfVisible();
+      try { entry.onReplayDone?.(); } catch { /* the newer fiber's refit is best effort */ }
+    };
 
     // Periodic transcript flush — rides the shared module ticker (P2-T5),
     // registered here in the create-once path so the closure captures THIS
@@ -1582,6 +1610,7 @@ function TerminalPane({
     entry.spawnBody = () => {
       (async () => {
       const restored = await replayScrollback();
+      replayDone();
       // The replay is awaited now, so the window in which the pane can be
       // destroyed before its shell exists is longer. A dead entry must not
       // spawn: the Rust side would write a session mark and the orphan's

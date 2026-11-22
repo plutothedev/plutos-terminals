@@ -594,3 +594,102 @@ describe("what the loader is asked for", () => {
     expect(loadArgs()).toEqual({ tabId: PANE, local: false });
   });
 });
+
+// ── xterm's Windows mode and the sized replay, at the pane ───────────────────
+describe("local panes on Windows run xterm in ConPTY mode", () => {
+  const WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
+  const BEL7 = String.fromCharCode(7);
+  const SIZE = (cols, rows) => `${E}]1337;PlutoSize=${cols};${rows}${BEL7}`;
+  // A full screen made taller and put back, as ConPTY records it.
+  const sixty = Array.from({ length: 60 }, (_, i) => `ROW-${i + 1}`);
+  const tail = [...sixty.slice(25), "PS> "];
+  const paint = (lines, rows) => `${E}[?25l${E}[H` +
+    Array.from({ length: rows }, (_, i) => (lines[i] || "") + `${E}[K`).join("\r\n") + `${E}[${lines.length};3H${E}[?25h`;
+  const resizedSession = SIZE(83, 36) + `${E}[2J${E}[H` + sixty.join("\r\n") + "\r\nPS> " +
+    SIZE(104, 49) + paint(tail, 49) + SIZE(83, 36) + paint(tail, 36);
+
+  test("a local pane is in ConPTY mode, and a resized session comes back with every row once", async () => {
+    setUserAgent(WIN);
+    const { term } = await restoreAndClear({ saved: resizedSession, visible: true });
+    expect(term.options.windowsPty).toEqual({ backend: "conpty" });
+    for (const row of sixty) expect([row, exact(term, row)]).toEqual([row, 1]);
+    expect(count(term, RESTORED_LINE)).toBe(1);
+    expect(screen(term)[0].trimEnd()).toBe(PROMPT.trimEnd());
+  });
+
+  test("the shell is created at the pane's own size, not at a size the replay passed through", async () => {
+    setUserAgent(WIN);
+    const { term } = await restoreAndClear({ saved: SIZE(104, 49) + `${E}[2J${E}[H` + "left at 104 x 49", visible: false });
+    const spawn = h.calls.find(([c]) => c === "pty_spawn")[1];
+    expect([spawn.cols, spawn.rows]).toEqual([80, 24]);
+    expect([term.cols, term.rows]).toEqual([80, 24]);
+  });
+
+  test("an SSH pane on Windows is not put in ConPTY mode", async () => {
+    setUserAgent(WIN);
+    const { term } = await mountRestored({
+      saved: conptyScreen(["x"]),
+      over: { connection: { host: "example.invalid", user: "u", port: 22, auth: { method: "agent" } } },
+    });
+    expect(term.options.windowsPty).toEqual({});
+  });
+
+  test("off Windows a local pane is left in xterm's default mode", async () => {
+    setUserAgent("Mozilla/5.0 (X11; Linux x86_64)");
+    const { term } = await mountRestored({ saved: conptyScreen(["x"]) });
+    expect(term.options.windowsPty).toEqual({});
+  });
+});
+
+describe("the terminal is not opened while its history replays", () => {
+  // In this test environment a pane has no size, so the terminal is never
+  // opened at all. Here the pane is given one and its observer fires, as in
+  // the app, so the open really is attempted.
+  let sized;
+  beforeEach(() => {
+    sized = ["clientWidth", "clientHeight"].map((name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)]);
+    for (const [name] of sized) Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => 600 });
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(cb) { this.cb = cb; }
+      observe() { queueMicrotask(() => this.cb([{ isIntersecting: true }])); }
+      disconnect() {}
+    });
+  });
+  afterEach(() => {
+    for (const [name, desc] of sized) {
+      if (desc) Object.defineProperty(HTMLElement.prototype, name, desc);
+      else delete HTMLElement.prototype[name];
+    }
+  });
+
+  test("a visible pane opens its terminal only when the replay is done", async () => {
+    h.saved = pastSession("S1-OUT") + SESSION_MARK + pastSession("S2-OUT");
+    const view = render(<TerminalPane {...props({ visible: true, active: true })} />);
+    const entry = getEntry(PANE);
+    const term = entry.term;
+    // Hold every write, so the replay cannot finish.
+    const real = term.write.bind(term);
+    const held = [];
+    term.write = (data, cb) => { held.push([data, cb]); };
+    await wait(150); // the observer has fired long since
+    expect(entry.replaying).toBe(true);
+    expect(term.element).toBeFalsy();
+    term.write = real;
+    for (const [data, cb] of held.splice(0)) real(data, cb);
+    for (let i = 0; i < 80 && !term.element; i++) await wait(25);
+    expect(entry.replaying).toBe(false);
+    expect(term.element).toBeTruthy();
+    expect(exact(term, "S1-OUT")).toBe(1);
+    view.unmount();
+  });
+
+  test("a fresh pane (nothing saved) opens straight away", async () => {
+    h.saved = null;
+    const view = render(<TerminalPane {...props({ visible: true, active: true })} />);
+    const term = getEntry(PANE).term;
+    for (let i = 0; i < 80 && !term.element; i++) await wait(25);
+    expect(term.element).toBeTruthy();
+    expect(getEntry(PANE).replaying).toBe(false);
+    view.unmount();
+  });
+});

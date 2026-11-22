@@ -51,6 +51,13 @@ use crate::session::new_id;
 // budget and the replay payload are decoupled.)
 const SCROLLBACK_SEGMENT_BYTES: u64 = 5_000_000;
 
+/// A local session's size is written into its saved scrollback again after
+/// this much output (and at the top of every new segment), so that wherever a
+/// restore cuts into a long session, the size in force is recorded shortly
+/// before the cut. Without it a session with more than a replay window of
+/// output since its last resize would replay its start at the wrong size.
+const SIZE_MARK_EVERY_BYTES: u64 = 64 * 1024;
+
 // ── Output coalescing (P1-T1, plan 2026-08-12-P1-pty-hot-path.md) ───────────
 //
 // One emit per 4KB read melted the main thread under floods (2-5k
@@ -382,6 +389,13 @@ pub struct PtySession {
     // never the (potentially blocking) write. A backpressured PTY write must
     // not stall keystrokes/resizes/spawns/kills on every other session.
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// The saved-scrollback writer, shared with this session's reader thread
+    /// (which appends every output chunk) so a resize can record the new size
+    /// in the saved stream. `None` when the pane has no tab id. Lock order:
+    /// this lock is never taken while the registry lock is held (appending is
+    /// file I/O); `pty_resize` takes this one first and the registry lock
+    /// inside it, and the reader thread takes only this one, per chunk.
+    scrollback: Option<Arc<Mutex<ScrollbackWriter>>>,
     /// One-shot readiness signal — the reader thread blocks on the matching
     /// receiver before its first emit so the shell's initial prompt burst can't
     /// race ahead of the frontend's `pty://{id}` listener (a fast local shell
@@ -503,6 +517,11 @@ struct ScrollbackWriter {
     bytes_on_disk: u64,
     /// Segment cap — a field (not the const) so tests rotate at toy sizes.
     segment_bytes: u64,
+    /// The size last recorded in the file for the current session, so a resize
+    /// to the same size writes nothing.
+    last_size: Option<(u16, u16)>,
+    /// Output bytes written since the size was last recorded.
+    since_size_mark: u64,
 }
 
 impl ScrollbackWriter {
@@ -530,6 +549,8 @@ impl ScrollbackWriter {
             file,
             bytes_on_disk,
             segment_bytes,
+            last_size: None,
+            since_size_mark: 0,
         }
     }
 
@@ -554,16 +575,30 @@ impl ScrollbackWriter {
     /// `commands::SCROLLBACK_SESSION_SENTINEL`). SSH and serial sessions do not
     /// mark, so their saved files and their replay are unchanged.
     fn mark_session_start(&mut self) {
-        self.append(crate::commands::SCROLLBACK_SESSION_SENTINEL);
+        self.write_raw(crate::commands::SCROLLBACK_SESSION_SENTINEL);
+        self.last_size = None; // a new session always records its size
     }
 
-    /// Append a chunk. Best-effort: on I/O failure we silently swallow rather
-    /// than tear down the PTY reader — losing scrollback is worse for the
-    /// pane's correctness than losing scrollback durability.
-    fn append(&mut self, bytes: &[u8]) {
-        if bytes.is_empty() {
+    /// Records the PTY's size in the saved file (v0.7.7): once right after the
+    /// session mark, then before every resize, so the mark lands ahead of the
+    /// full repaint ConPTY sends in answer to a resize. The restore replays
+    /// each part of the history at the size recorded for it (see
+    /// `commands::SCROLLBACK_SIZE_MARK_PREFIX`). The same size twice in a row
+    /// writes nothing. Local sessions only.
+    fn mark_size(&mut self, cols: u16, rows: u16) {
+        if self.last_size == Some((cols, rows)) {
             return;
         }
+        self.last_size = Some((cols, rows));
+        self.since_size_mark = 0;
+        // A mark never rotates the file: `pty_resize` writes it while it is on
+        // its way to the registry lock, and rotation can rewrite a whole
+        // segment. The next output chunk rotates if it is due.
+        self.write_raw(&crate::commands::scrollback_size_mark(cols, rows));
+    }
+
+    /// Writes bytes as they are: no rotation, no size bookkeeping.
+    fn write_raw(&mut self, bytes: &[u8]) {
         // Self-heal if a prior open/truncate left us without a handle, without
         // reopening on every chunk in the common (handle-present) path.
         if self.file.is_none() {
@@ -574,6 +609,25 @@ impl ScrollbackWriter {
                 self.bytes_on_disk = self.bytes_on_disk.saturating_add(bytes.len() as u64);
             }
         }
+    }
+
+    /// Append a chunk. Best-effort: on I/O failure we silently swallow rather
+    /// than tear down the PTY reader — losing scrollback is worse for the
+    /// pane's correctness than losing scrollback durability.
+    fn append(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        // Record the size again when enough output has gone by since the last
+        // time, or a new segment has begun (see SIZE_MARK_EVERY_BYTES).
+        if let Some((cols, rows)) = self.last_size {
+            if self.since_size_mark >= SIZE_MARK_EVERY_BYTES {
+                self.since_size_mark = 0;
+                self.write_raw(&crate::commands::scrollback_size_mark(cols, rows));
+            }
+        }
+        self.write_raw(bytes);
+        self.since_size_mark = self.since_size_mark.saturating_add(bytes.len() as u64);
         if self.bytes_on_disk > self.segment_bytes {
             self.rotate();
         }
@@ -582,6 +636,10 @@ impl ScrollbackWriter {
     /// Constant-time segment rotation: current → `.old` (clobber), fresh
     /// current. Runs on the reader thread, so it must never re-read the file.
     fn rotate(&mut self) {
+        // The segment that held this session's size marks is about to become
+        // the old one (and later be deleted): the next chunk writes the size
+        // at the top of the new segment.
+        self.since_size_mark = SIZE_MARK_EVERY_BYTES;
         // Close our own append handle FIRST: rename on this toolchain has
         // POSIX semantics, so a live handle would follow the file into `.old`
         // and every subsequent append would land in the wrong segment.
@@ -935,10 +993,23 @@ fn pty_spawn_sync(
 
     let id = new_id("pty");
     let (ready_tx, ready_rx) = mpsc::channel::<()>();
+    // Build the scrollback writer if the renderer supplied a tab_id. The
+    // reader thread appends every chunk that goes to xterm, so tray→Quit and
+    // OS shutdown lose at most the bytes still in the OS write buffer
+    // (typically <4KB). It is shared with the session entry so a resize can
+    // record the new size in the saved stream.
+    let scrollback_writer = tab_id.as_ref().map(|tid| {
+        let mut w = ScrollbackWriter::new(scrollback_path(&app, tid));
+        w.mark_session_start();
+        // The same floor the PTY itself is opened with above.
+        w.mark_size(cols.max(40), rows.max(10));
+        Arc::new(Mutex::new(w))
+    });
     let session = PtySession {
         master: pair.master,
         child,
         writer: Arc::new(Mutex::new(writer)),
+        scrollback: scrollback_writer.clone(),
         ready: ready_tx,
     };
     lock_recover(&app.state::<SessionRegistry>().sessions)
@@ -946,17 +1017,6 @@ fn pty_spawn_sync(
     // Tag ownership at birth (audit H8) — sessions lock above is already
     // released, so this second lock never nests (lock-order safe).
     lock_recover(&app.state::<SessionRegistry>().owner).insert(id.clone(), owner_label);
-
-    // Build the scrollback writer if the renderer supplied a tab_id. Owning
-    // the file from this thread (rather than from a renderer-side unmount
-    // handler) means every chunk that goes to xterm is also on disk before
-    // we move on. tray→Quit and OS shutdown therefore lose at most the bytes
-    // still in the OS write buffer (typically <4KB).
-    let mut scrollback_writer = tab_id.as_ref().map(|tid| {
-        let mut w = ScrollbackWriter::new(scrollback_path(&app, tid));
-        w.mark_session_start();
-        w
-    });
 
     // Reader thread: pump bytes -> Tauri event AND scrollback file.
     // Exits on EOF / read error.
@@ -999,8 +1059,8 @@ fn pty_spawn_sync(
                     // process death between emit and disk-flush still
                     // preserves what we just rendered. Best-effort. Disk gets
                     // every chunk immediately; only the EMIT is coalesced.
-                    if let Some(w) = scrollback_writer.as_mut() {
-                        w.append(chunk.as_bytes());
+                    if let Some(w) = scrollback_writer.as_ref() {
+                        lock_recover(w).append(chunk.as_bytes());
                     }
                     coalesce_chunk(&app_for_thread, &id_for_thread, &co_entry, &chunk, true);
                 }
@@ -1011,8 +1071,8 @@ fn pty_spawn_sync(
         // no bytes are silently dropped.
         if !pending.is_empty() {
             let tail = String::from_utf8_lossy(&pending).into_owned();
-            if let Some(w) = scrollback_writer.as_mut() {
-                w.append(tail.as_bytes());
+            if let Some(w) = scrollback_writer.as_ref() {
+                lock_recover(w).append(tail.as_bytes());
             }
             coalesce_chunk(&app_for_thread, &id_for_thread, &co_entry, &tail, true);
         }
@@ -1120,13 +1180,30 @@ pub fn pty_resize_sync(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    // A local session records its new size in its saved scrollback BEFORE the
+    // resize: ConPTY answers a resize with a full repaint, and the mark has to
+    // be ahead of that repaint in the file. The writer's lock is taken before
+    // the registry lock, never under it (appending is file I/O, and the
+    // registry lock is what every pane's write, kill and ready wait on), and it
+    // is held across the resize so no output chunk can land between the mark
+    // and the resize. Nothing takes the two locks in the other order: the
+    // reader thread takes only the writer's.
+    let scrollback = match lock_recover(&state.sessions).get(&id) {
+        Some(Session::Local(s)) => s.scrollback.clone(),
+        _ => None,
+    };
+    let mut scrollback_guard = scrollback.as_ref().map(|w| lock_recover(w));
+    if let Some(w) = scrollback_guard.as_mut() {
+        w.mark_size(cols.max(40), rows.max(10));
+    }
     let sessions = lock_recover(&state.sessions);
     match sessions.get(&id).ok_or("session not found")? {
         Session::Local(s) => {
+            let (cols, rows) = (cols.max(40), rows.max(10));
             s.master
                 .resize(PtySize {
-                    rows: rows.max(10),
-                    cols: cols.max(40),
+                    rows,
+                    cols,
                     pixel_width: 0,
                     pixel_height: 0,
                 })
@@ -3018,6 +3095,145 @@ mod scrollback_rotation_tests {
         want.extend_from_slice(b"this session");
         assert_eq!(fs::read(&path).unwrap(), want);
         assert_eq!(w.bytes_on_disk, want.len() as u64);
+    }
+
+    #[test]
+    fn a_session_records_its_size_after_its_mark_and_each_new_size_once() {
+        let path = tmp_scrollback("size-marks");
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 4096);
+        w.mark_session_start();
+        w.mark_size(83, 36);
+        w.append(b"out");
+        w.mark_size(83, 36); // same size: nothing
+        w.mark_size(104, 49);
+        w.append(b"paint");
+        w.mark_size(83, 36); // back again: a new mark
+        let mut want = crate::commands::SCROLLBACK_SESSION_SENTINEL.to_vec();
+        want.extend_from_slice(&crate::commands::scrollback_size_mark(83, 36));
+        want.extend_from_slice(b"out");
+        want.extend_from_slice(&crate::commands::scrollback_size_mark(104, 49));
+        want.extend_from_slice(b"paint");
+        want.extend_from_slice(&crate::commands::scrollback_size_mark(83, 36));
+        assert_eq!(fs::read(&path).unwrap(), want);
+    }
+
+    #[test]
+    fn a_new_session_records_its_size_even_when_it_equals_the_last_one() {
+        let path = tmp_scrollback("size-new-session");
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 4096);
+        w.mark_session_start();
+        w.mark_size(83, 36);
+        w.mark_session_start();
+        w.mark_size(83, 36);
+        let size = crate::commands::scrollback_size_mark(83, 36);
+        let mark = crate::commands::SCROLLBACK_SESSION_SENTINEL;
+        assert_eq!(fs::read(&path).unwrap(), [mark, &size[..], mark, &size[..]].concat());
+    }
+
+    #[test]
+    fn a_long_session_records_its_size_again_as_output_goes_by() {
+        let path = tmp_scrollback("size-keyframe");
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 1 << 30);
+        w.mark_session_start();
+        w.mark_size(104, 49);
+        let size = crate::commands::scrollback_size_mark(104, 49);
+        let big = vec![b'x'; SIZE_MARK_EVERY_BYTES as usize];
+        w.append(&big); // reaches the period
+        w.append(b"next"); // so the size is written again before this chunk
+        w.append(b"more"); // and not before every chunk
+        let mut want = crate::commands::SCROLLBACK_SESSION_SENTINEL.to_vec();
+        want.extend_from_slice(&size);
+        want.extend_from_slice(&big);
+        want.extend_from_slice(&size);
+        want.extend_from_slice(b"nextmore");
+        assert_eq!(fs::read(&path).unwrap(), want);
+    }
+
+    #[test]
+    fn a_new_segment_starts_with_the_size() {
+        // Rotation moves the segment that held the session's marks aside; the
+        // one after that deletes it. The size has to follow the output.
+        let path = tmp_scrollback("size-rotate");
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 64);
+        w.mark_session_start();
+        w.mark_size(104, 49);
+        w.append(&[b'a'; 80]); // over the 64-byte segment: rotates
+        assert!(path.with_extension("old.txt").exists());
+        w.append(b"first chunk of the new segment");
+        let size = crate::commands::scrollback_size_mark(104, 49);
+        let mut want = size.clone();
+        want.extend_from_slice(b"first chunk of the new segment");
+        assert_eq!(fs::read(&path).unwrap(), want);
+    }
+
+    #[test]
+    fn a_size_mark_never_rotates_the_file() {
+        // pty_resize writes the mark on its way to the registry lock; rotation
+        // can rewrite a whole segment and must wait for the next output chunk.
+        let path = tmp_scrollback("size-no-rotate");
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 16);
+        w.mark_session_start(); // already past 16 bytes
+        w.mark_size(104, 49);
+        assert!(!path.with_extension("old.txt").exists(), "marks alone do not rotate");
+        w.append(b"x");
+        assert!(path.with_extension("old.txt").exists(), "the next output chunk does");
+    }
+
+    #[test]
+    fn a_session_with_no_size_recorded_writes_no_marks_of_its_own() {
+        // SSH and serial writers never call mark_size: however much output
+        // goes by, and across rotations, the file is the output and nothing else.
+        let path = tmp_scrollback("size-none");
+        let mut w = ScrollbackWriter::with_segment(path.clone(), 1 << 30);
+        let big = vec![b'y'; SIZE_MARK_EVERY_BYTES as usize + 10];
+        w.append(&big);
+        w.append(b"tail");
+        let mut want = big.clone();
+        want.extend_from_slice(b"tail");
+        assert_eq!(fs::read(&path).unwrap(), want);
+    }
+
+    #[test]
+    fn size_marks_from_another_thread_never_tear_or_reorder_the_output() {
+        // The reader thread appends output while a resize (another thread)
+        // records sizes through the same shared writer.
+        use std::sync::{Arc, Mutex};
+        let path = tmp_scrollback("size-threads");
+        let shared = Arc::new(Mutex::new(ScrollbackWriter::with_segment(path.clone(), 1 << 30)));
+        let reader = {
+            let w = Arc::clone(&shared);
+            std::thread::spawn(move || {
+                for i in 0..2000 {
+                    lock_recover(&w).append(format!("chunk {i:04}\n").as_bytes());
+                }
+            })
+        };
+        let resizer = {
+            let w = Arc::clone(&shared);
+            std::thread::spawn(move || {
+                for i in 0..500u16 {
+                    lock_recover(&w).mark_size(80 + (i % 7), 24 + (i % 5));
+                }
+            })
+        };
+        reader.join().unwrap();
+        resizer.join().unwrap();
+        let data = fs::read(&path).unwrap();
+        // Take the size marks out: what is left is every chunk, whole, in order.
+        let prefix = crate::commands::SCROLLBACK_SIZE_MARK_PREFIX;
+        let mut output = Vec::new();
+        let mut rest = &data[..];
+        let mut marks = 0;
+        while let Some(at) = rest.windows(prefix.len()).position(|w| w == prefix) {
+            output.extend_from_slice(&rest[..at]);
+            let end = rest[at..].iter().position(|&b| b == 0x07).expect("a mark is never cut");
+            rest = &rest[at + end + 1..];
+            marks += 1;
+        }
+        output.extend_from_slice(rest);
+        let want: String = (0..2000).map(|i| format!("chunk {i:04}\n")).collect();
+        assert_eq!(String::from_utf8(output).unwrap(), want);
+        assert!(marks > 0);
     }
 
     #[test]

@@ -127,12 +127,91 @@ export function sealScreen(term, done) {
   try { term.write("", pass); } catch { done(); }
 }
 
-// Replays a saved history into `term`: every session in order, a seal at each
-// session mark, and a last seal that leaves `endLine` as the final line of the
-// history above an empty screen. Resolves when xterm has parsed all of it:
-// true for a restore, false when there was nothing to replay (no text at all,
-// or only session marks: a fresh pane, not a restored one). `isLive` stops the
-// replay when the pane is destroyed part-way.
+// Written by the Rust side into a LOCAL pane's saved file: right after each
+// session mark with the size the PTY was created at, before every resize of
+// that PTY, and again every so often so a long session always has one nearby
+// (pty.rs, ScrollbackWriter::mark_size). On Windows every resize makes ConPTY
+// repaint its whole view (home, then one line per row), and each paint is in
+// the saved file. A paint recorded for a taller window scrolls when it is
+// replayed into a shorter terminal, the block lands in scrollback, and the
+// next paint draws it again: lines repeated after a restart. So the replay
+// resizes the terminal to each part's own size before writing it.
+const SIZE_MARK_START = ESC + "]1337;PlutoSize=";
+// The PTY side records sizes from 40 x 10 up. The ceiling is here because the
+// marks are plain bytes in the output stream and any program can print one:
+// xterm allocates a cell for every column of every line it holds.
+const SIZE_LIMITS = { minCols: 10, maxCols: 500, minRows: 3, maxRows: 300 };
+
+// "<mark>text<mark>text" -> [{ size: [cols, rows] } | { text }]. A mark that
+// does not parse to a sane size is dropped. Marks with no text between them
+// (a window being dragged) collapse into the last one.
+function replaySteps(sessionText) {
+  const steps = [];
+  let rest = sessionText;
+  for (;;) {
+    const at = rest.indexOf(SIZE_MARK_START);
+    if (at < 0) break;
+    const end = rest.indexOf(BEL, at);
+    if (end < 0) break; // a mark cut short at the very end of the saved data
+    if (at > 0) steps.push({ text: rest.slice(0, at) });
+    const [cols, rows] = rest.slice(at + SIZE_MARK_START.length, end).split(";").map((n) => (/^\d{1,4}$/.test(n) ? Number(n) : NaN));
+    if (cols >= SIZE_LIMITS.minCols && cols <= SIZE_LIMITS.maxCols && rows >= SIZE_LIMITS.minRows && rows <= SIZE_LIMITS.maxRows) {
+      const last = steps[steps.length - 1];
+      if (last && last.size) last.size = [cols, rows]; else steps.push({ size: [cols, rows] });
+    }
+    rest = rest.slice(end + 1);
+  }
+  if (rest) steps.push({ text: rest });
+  return steps;
+}
+
+// The bytes that move the top `count` rows of the screen into scrollback and
+// leave the cursor on the line of text it was on (that line moves up with the
+// push). By position, not by save and restore: the shell may have a saved
+// cursor of its own.
+function pushRowsUp(term, count) {
+  const buf = term.buffer.normal;
+  const rows = Math.min(count, term.rows);
+  const row = Math.max(buf.cursorY - rows, 0) + 1;
+  const col = Math.min(buf.cursorX, term.cols - 1) + 1;
+  return TO_LAST_ROW + LF.repeat(rows) + CSI + row + ";" + col + "H";
+}
+
+// Resizes the terminal the way ConPTY's side of the conversation assumes, and
+// returns the bytes (possibly none) that must be written before anything else.
+//
+// ConPTY never gives a row back once it has scrolled off: on a resize it keeps
+// its view and repaints it. xterm can pull scrollback rows down into view: on
+// a taller resize when the screen is full (unless its Windows mode is set), and
+// on a wider one whenever a wrapped line on screen becomes one row and frees a
+// row. The repaint that follows in the saved stream would then be drawn over
+// the rows that came down, and those rows, real lines of an earlier session,
+// would be gone. So the top row of the screen is marked before the resize; how
+// far that mark has moved down afterwards is exactly how many rows came down,
+// and that many are pushed back up. (Not "how much the scrollback shrank": it
+// also shrinks when wrapped scrollback lines merge, with nothing coming down.)
+function resizeLikeConpty(term, cols, rows) {
+  if (term.cols === cols && term.rows === rows) return "";
+  let top = null;
+  try {
+    if (term.buffer.active.type === "normal") top = term.registerMarker(-term.buffer.normal.cursorY);
+  } catch { top = null; }
+  try { term.resize(cols, rows); } catch { /* a size xterm refuses changes nothing */ }
+  let cameDown = 0;
+  if (top) {
+    if (!top.isDisposed && top.line >= 0) cameDown = top.line - term.buffer.normal.baseY;
+    try { top.dispose(); } catch { /* already gone with its line */ }
+  }
+  return cameDown > 0 ? pushRowsUp(term, cameDown) : "";
+}
+
+// Replays a saved history into `term`: every session in order, each part at
+// the size it was recorded at, a seal at each session mark, and a last seal
+// that leaves `endLine` as the final line of the history above an empty
+// screen, with the terminal back at the size it had at the start. Resolves
+// when xterm has parsed all of it: true for a restore, false when there was
+// nothing to replay (no text at all, or only marks: a fresh pane, not a
+// restored one). `isLive` stops the replay when the pane is destroyed part-way.
 //
 // One promise for the whole replay, and every step is issued from the
 // previous step's write callback. That keeps the whole replay in one parsing
@@ -141,31 +220,79 @@ export function sealScreen(term, done) {
 // past sessions would wait minutes before its shell could start. No timers of
 // its own either: a wait that gave up early would let the next write overtake
 // a seal and lose the screen it was protecting.
+//
+// Sizes. A resize step runs inside the previous write's callback, so the
+// screen is parsed up to that point when the size changes, exactly as it was
+// live. Nothing else may resize the terminal while this runs: in the middle
+// of a part it would replay the rest of that part at the wrong size. The pane
+// guarantees it by not opening the terminal until the replay is done (every
+// resize in the app comes from the fit addon, which does nothing for a
+// terminal that is not open). A session with no size of its own (saved by an
+// older build) replays at the terminal's own size.
 export function replaySaved(term, saved, isLive = () => true, endLine = "") {
-  const sessions = saved.split(SESSION_SENTINEL).filter((text) => text.length > 0);
+  // One list of steps per session that has anything to show.
+  const ownSize = [term.cols, term.rows];
+  const sessions = saved.split(SESSION_SENTINEL)
+    .map(replaySteps)
+    .filter((steps) => steps.some((s) => s.text))
+    // No size recorded for a session (saved by an older build): it replays at
+    // the terminal's own size, not at whatever the session before it ended at.
+    .map((steps) => (steps[0].size ? steps : [{ size: ownSize }, ...steps]));
   return new Promise((resolve) => {
-    let next = 0; // index of the next session to write
-    const restoredSoFar = () => resolve(next > 0); // read when called, not when bound
-    const restored = () => resolve(true);
-    // After the last session: seal, write the end line on the empty screen,
-    // then seal again. The second seal measures how many rows the line took
-    // (it wraps in a narrow pane), so all of it leaves the screen.
-    const writeEndLine = guarded(() => {
-      if (!isLive() || !endLine) { resolve(true); return; }
-      // Erase first: the row can carry a wrapped-line flag from what was
-      // there before, which would glue the line to the history above it.
-      term.write(ERASE_LINE + endLine, guarded(() => sealScreen(term, restored), restored));
-    }, restored);
-    const step = guarded(() => {
-      if (!isLive()) { resolve(next > 0); return; }
-      if (next === sessions.length) { sealScreen(term, writeEndLine); return; }
-      const text = sessions[next];
-      const writeSession = guarded(() => { next += 1; term.write(text, step); }, restoredSoFar);
-      // Nothing on the terminal yet means nothing to protect: a file that
-      // starts with a session mark replays exactly like one that does not.
-      if (next > 0) sealScreen(term, writeSession); else writeSession();
-    }, restoredSoFar);
-    if (sessions.length === 0) resolve(false); else step();
+    if (sessions.length === 0) { resolve(false); return; }
+
+    const canResize = typeof term.resize === "function";
+    let s = 0;      // session being written
+    let i = 0;      // next step in it
+    let wrote = false;
+    let run = null; // assigned below; the steps call back into it
+    // Changes the size, then continues: at once when nothing came down, after
+    // the push-back has been parsed when rows did.
+    const resizeThen = ([cols, rows], next) => {
+      const push = canResize ? resizeLikeConpty(term, cols, rows) : "";
+      if (push) { term.write(push, next); return true; }
+      return false;
+    };
+    // After the last session: seal (the screen is then empty, so going back
+    // to the terminal's own size moves nothing), write the end line, then seal
+    // again. The second seal measures how many rows the line took (it wraps in
+    // a narrow pane), so all of it leaves the screen.
+    const finish = guarded(() => {
+      if (!isLive()) { resolve(true); return; }
+      const writeEndLine = guarded(() => {
+        if (!endLine) { resolve(true); return; }
+        // Erase first: the row can carry a wrapped-line flag from what was
+        // there before, which would glue the line to the history above it.
+        term.write(ERASE_LINE + endLine, guarded(() => sealScreen(term, () => resolve(true)), () => resolve(true)));
+      }, () => resolve(true));
+      if (!resizeThen(ownSize, writeEndLine)) writeEndLine();
+    }, () => resolve(true));
+    run = guarded(() => {
+      for (;;) {
+        if (!isLive()) { resolve(wrote); return; }
+        if (s === sessions.length) { sealScreen(term, finish); return; }
+        const steps = sessions[s];
+        if (i === steps.length) {
+          s += 1;
+          i = 0;
+          // A seal at every session boundary. Nothing on the terminal yet
+          // means nothing to protect: a file that starts with a session mark
+          // replays exactly like one that does not.
+          if (s < sessions.length && wrote) { sealScreen(term, run); return; }
+          continue;
+        }
+        const step = steps[i];
+        i += 1;
+        if (step.size) {
+          if (resizeThen(step.size, run)) return;
+          continue;
+        }
+        wrote = true;
+        term.write(step.text, run);
+        return;
+      }
+    }, () => resolve(wrote));
+    run();
   });
 }
 
@@ -174,7 +301,8 @@ export function replaySaved(term, saved, isLive = () => true, endLine = "") {
 // the cursor sits on the last row, and a taller resize (a hidden pane being
 // revealed) then makes xterm pull the newest history rows back on screen. The
 // shell's display line clears right after its boot marker, and that clear
-// would erase them.
+// would erase them. (With xterm's Windows mode a taller resize pulls nothing;
+// this covers the other systems.)
 //
 // `endMarker` is an xterm marker on the history's last line (the end line
 // replaySaved wrote). Returns the bytes that move exactly the history rows
@@ -182,18 +310,12 @@ export function replaySaved(term, saved, isLive = () => true, endLine = "") {
 // from an xterm write callback, when everything received so far has been
 // parsed, and write the result at once: output still waiting to be parsed
 // scrolls history up by itself, and a count taken earlier would push banner
-// rows up with it. The cursor is put back on the line of text it was on (that
-// line has moved up with the push), by position, not by save and restore: the
-// shell may have a saved cursor of its own.
+// rows up with it.
 export function pushBackHistory(term, endMarker) {
   if (!endMarker || endMarker.isDisposed || endMarker.line < 0) return "";
   // The push is line feeds on the screen that is showing. In the alternate
   // screen it would scroll that screen and leave the history where it is.
   if (term.buffer.active.type !== "normal") return "";
-  const buf = term.buffer.normal;
-  const onScreen = Math.min(endMarker.line - buf.baseY + 1, term.rows);
-  if (onScreen <= 0) return "";
-  const row = Math.max(buf.cursorY - onScreen, 0) + 1;
-  const col = Math.min(buf.cursorX, term.cols - 1) + 1;
-  return TO_LAST_ROW + LF.repeat(onScreen) + CSI + row + ";" + col + "H";
+  const onScreen = endMarker.line - term.buffer.normal.baseY + 1;
+  return onScreen > 0 ? pushRowsUp(term, onScreen) : "";
 }
