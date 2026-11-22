@@ -1,5 +1,70 @@
 # Changelog
 
+## v0.7.7: restored history survives every restart (2026-11-22)
+
+### Fixed
+- **Restore: every past session's last screen is kept.** A tab's saved
+  scrollback is the raw output of every session, back to back. Each session
+  opens with a screen clear (ConPTY's first frame is `ESC[2J`; a restored
+  shell's display line clears too), and xterm's ED2 blanks the visible rows
+  without moving them into scrollback, so on replay each session erased the
+  last screen of the one before it. The PTY reader now writes a session mark
+  (`ESC]1337;PlutoSession=1 BEL`) at the start of every local session
+  (`pty.rs`, `ScrollbackWriter::mark_session_start`), and the replay seals the
+  screen at every mark and once at the end (`restoreSeal.js`): leave the
+  alternate screen, reset what a dead program left set, move the used rows of
+  the normal screen into scrollback, home the cursor. The rows are measured in
+  an xterm write callback and the seal goes out as one write. The shell is
+  spawned only after xterm has parsed the whole replay, so it starts on an
+  empty screen. The v0.7.6 pad at the boot marker is removed.
+- **Restore: the replay budget counts what is shown.** `scrollback_load`
+  dropped nothing before, and the 256 KB tail of a real file measured 80 to 90%
+  boot noise (banner and echoed setup, about 4 KB per restart). For a local
+  pane the loader now drops, per marked session, everything from the mark
+  through the boot marker (looked for in the first 128 KiB), and grows its raw
+  window (x4 per step, up to 4 MB) until the kept bytes fill most of the 256 KB budget
+  or the saved data ends (`commands.rs`, `scrollback_tail_sessions`).
+- **Restore: a history that ended in the alternate screen** (less, vim, a
+  full-screen agent UI) no longer leaves the new shell there. Scroll region,
+  origin mode, colours, an open hyperlink, cursor visibility and shape, insert
+  mode, line-feed mode, autowrap, mouse reporting and its encoding, focus
+  reports, bracketed paste, cursor-key and keypad modes and both character
+  sets go back to defaults at every seal. A half-written escape sequence at
+  the end of a session is aborted, not acted on.
+- **Restore: a boot marker that arrives after the 4 s gate** (a slow shell, a
+  flood, a pane parked during boot). The banner is on screen by then; if it
+  filled the screen, a taller resize pulls the newest history rows back down
+  and the clear after the marker erased them. The stream is watched for the
+  marker, and history that is back on screen (an xterm marker on the end line
+  tells) is pushed up again right before the clear.
+- **Restore: panes with start commands** have no boot gate; ConPTY's first
+  frame used to clear the replayed last screen. It now finds an empty screen.
+- **A pane destroyed while its history replays no longer spawns a shell**
+  (the orphan was killed, but only after it had written into the saved file).
+- A saved file holding only session marks is a fresh pane, not a restored one.
+
+### Changed
+- `scrollback_load` takes `local`. Only a local shell's pane gets session
+  marks and the noise drop; SSH and serial panes and the phone companion get
+  the saved tail byte for byte, as before.
+- The replay is awaited before the shell is spawned, in one parsing pass of
+  xterm's (every step is issued from the previous step's write callback; no
+  timers of its own).
+
+### Known limits
+- Saved files from v0.7.6 or earlier carry no session marks: inside that part
+  each clear still erases the screen before it. No migration.
+- A session that cleared its own scrollback (`ESC[3J`: Clear-Host, `clear`,
+  some full-screen redraws) or did a full reset wipes what was restored before
+  it on replay, as it did live.
+- A hidden pane replays at 80 x 24, not the size it was recorded at; output
+  painted with absolute cursor moves can land with blank gaps (unchanged).
+- A program in a local pane that prints the session mark and then the boot
+  marker hides up to 128 KiB of that pane's replay (display only; the file
+  keeps it).
+- The phone page replays the stream as one piece and still loses each past
+  session's last screen.
+
 ## v0.7.6: security updates, safer MCP servers, every static check gating (2026-11-21)
 
 ### Security
