@@ -189,6 +189,7 @@ function replaySteps(sessionText, conpty) {
     if (last && last.text !== undefined) last.text += text; else steps.push({ text });
   };
   let rest = sessionText;
+  let current = null; // the size the session is at, as far as the marks say
   for (;;) {
     const at = rest.indexOf(SIZE_MARK_START);
     if (at < 0) break;
@@ -203,7 +204,14 @@ function replaySteps(sessionText, conpty) {
     pushText(rest.slice(0, at));
     const cols = Number(body[1]);
     const rows = Number(body[2]);
-    if (cols >= SIZE_LIMITS.minCols && cols <= SIZE_LIMITS.maxCols && rows >= SIZE_LIMITS.minRows && rows <= SIZE_LIMITS.maxRows) {
+    const sane = cols >= SIZE_LIMITS.minCols && cols <= SIZE_LIMITS.maxCols && rows >= SIZE_LIMITS.minRows && rows <= SIZE_LIMITS.maxRows;
+    // A mark that repeats the size the session is already at (the writer
+    // records it again every so often, and at the top of a new file segment)
+    // changes nothing and is left out, so the text on both sides of it stays
+    // one piece: a repeat sitting between a resize and its repaint would
+    // otherwise hide the repaint from the pass below.
+    if (sane && !(current && current[0] === cols && current[1] === rows)) {
+      current = [cols, rows];
       const last = steps[steps.length - 1];
       if (last && last.size) last.size = [cols, rows]; else steps.push({ size: [cols, rows] });
     }

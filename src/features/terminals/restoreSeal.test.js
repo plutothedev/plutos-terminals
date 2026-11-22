@@ -775,6 +775,61 @@ describe("replaySaved at the recorded size", () => {
     expect(all(t).filter((l) => l === "L".repeat(40))).toHaveLength(2);
   });
 
+  // The order in which a replay writes tagged text and resizes the terminal.
+  const orderOf = (t, tag) => {
+    const log = [];
+    const realWrite = t.write.bind(t);
+    const realResize = t.resize.bind(t);
+    t.write = (data, cb) => { if (String(data).includes(tag)) log.push(tag); return realWrite(data, cb); };
+    t.resize = (c, r) => { log.push(`${c}x${r}`); realResize(c, r); };
+    return log;
+  };
+
+  test("the size recorded again between a resize and its repaint does not hide the repaint", async () => {
+    // The writer records the size again at the top of a new file segment; that
+    // can fall between the resize mark and the repaint.
+    const late = ["LATE-1", "LATE-2", "LATE-3", "LATE-4", "LATE-5"];
+    const everything = [...sixty, ...late];
+    const saved = SIZE(83, 36) + CLEAR_HOME + sixty.join("\r\n") +
+      SIZE(104, 49) + "\r\n" + late.slice(0, 3).join("\r\n") +
+      SIZE(104, 49) + "\r\n" + late.slice(3).join("\r\n") + paint(everything.slice(-36), 49);
+    const t = term(36, 83, WINDOWS);
+    await replaySaved(t, saved, () => true, END, CONPTY);
+    once(t, [...everything, END]);
+  });
+
+  test("a resize back to an earlier size is a resize too: its late output is written before it", async () => {
+    const view = [...sixty.slice(25), "PS> "];
+    const saved = SIZE(83, 36) + CLEAR_HOME + sixty.join("\r\n") + "\r\nPS> " +
+      SIZE(104, 49) + paint(view, 49) +
+      SIZE(83, 36) + "ON-THE-WAY-BACK" + paint(view, 36);
+    const t = term(36, 83, WINDOWS);
+    const log = orderOf(t, "ON-THE-WAY-BACK");
+    await replaySaved(t, saved, () => true, END, CONPTY);
+    expect(log).toEqual(["104x49", "ON-THE-WAY-BACK", "83x36"]);
+  });
+
+  test("a change of width alone is a resize: its late output is written before it", async () => {
+    const view = [...sixty.slice(25), "PS> "];
+    const saved = SIZE(83, 36) + CLEAR_HOME + sixty.join("\r\n") + "\r\nPS> " +
+      SIZE(104, 36) + "STILL-AT-83" + paint(view, 36);
+    const t = term(36, 83, WINDOWS);
+    const log = orderOf(t, "STILL-AT-83");
+    await replaySaved(t, saved, () => true, END, CONPTY);
+    expect(log).toEqual(["STILL-AT-83", "104x36", "83x36"]);
+  });
+
+  test("marks that repeat the current size cost no resize and split nothing", async () => {
+    const t = term(36, 83);
+    const sizes = countingResizes(t);
+    const writes = [];
+    const real = t.write.bind(t);
+    t.write = (data, cb) => { writes.push(String(data)); return real(data, cb); };
+    await replaySaved(t, SIZE(104, 49) + "one " + SIZE(104, 49) + "two " + SIZE(104, 49) + "three", () => true, END, CONPTY);
+    expect(sizes).toEqual([[104, 49], [83, 36]]);
+    expect(writes).toContain("one two three"); // one piece, one write
+  });
+
   test("a resize while a full-screen program had the alternate screen does not touch the history", async () => {
     const saved = SIZE(83, 36) + CLEAR_HOME + five.join("\r\n") + `${CSI}?1049h` + CLEAR_HOME + "EDITOR" +
       SIZE(104, 49) + paint(["EDITOR"], 49) + `${CSI}?1049l`;
